@@ -42,6 +42,9 @@ public class ApRadioSummary
     /// <summary>Band display string (e.g., "2.4 GHz", "5 GHz", "6 GHz")</summary>
     public string Band { get; set; } = "";
 
+    /// <summary>UniFi radio code for CSS badge class (e.g., "ng", "na", "6e")</summary>
+    public string RadioCode { get; set; } = "";
+
     /// <summary>Current channel number</summary>
     public int? Channel { get; set; }
 

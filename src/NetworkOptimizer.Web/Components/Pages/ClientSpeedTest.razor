@@ -1078,6 +1078,7 @@
                     Radios = ap.Radios.Select(r => new ApRadioSummary
                     {
                         Band = r.Band.ToDisplayString(),
+                        RadioCode = r.Band.ToUniFiCode(),
                         Channel = r.Channel,
                         ChannelWidth = r.ChannelWidth,
                         TxPowerDbm = r.TxPower,

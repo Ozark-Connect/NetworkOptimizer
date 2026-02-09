@@ -47,6 +47,14 @@
                         @(apEditMode ? "Done" : "Edit APs")
                     </button>
                 }
+                @if (!string.IsNullOrEmpty(selectedApMacFilter))
+                {
+                    var apName = ApMarkers.FirstOrDefault(a => a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase))?.Name ?? "AP";
+                    <button class="btn btn-sm btn-ap-filter-active" @onclick="ClearApFilter"
+                            data-tooltip="Showing tests for this AP only. Click to clear.">
+                        @apName &times;
+                    </button>
+                }
                 <button class="btn btn-sm btn-secondary map-action-btn"
                         @onclick="FitToMarkers"
                         title="Fit map to all markers">
@@ -154,6 +162,7 @@
     private bool apEditMode = false; // Internal AP edit mode toggle
     private bool ShowApMarkers { get; set; } = true; // AP layer visibility
     private ApMapMarker? selectedApForPlacement = null; // AP selected for click-to-place
+    private string? selectedApMacFilter = null; // AP MAC to filter speed tests by (null = show all)
 
     // Unplaced APs that need to be positioned on the map
     private IEnumerable<ApMapMarker> UnplacedAps => ApMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
@@ -233,6 +242,16 @@
             var results = Enumerable.Empty<Iperf3Result>();
             if (ShowLan) results = results.Concat(LanResults);
             if (ShowExternal) results = results.Concat(ExternalResults);
+
+            // Filter by selected AP if one is active
+            if (!string.IsNullOrEmpty(selectedApMacFilter))
+            {
+                results = results.Where(r =>
+                    r.PathAnalysis?.Path?.Hops?.Any(h =>
+                        h.Type == HopType.AccessPoint &&
+                        h.DeviceMac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase)) == true);
+            }
+
             return results;
         }
     }
@@ -587,6 +606,9 @@
                             }});
                         }}
                     }});
+                    // Add glow layer FIRST (renders below cluster group)
+                    const apGlowGroupInit = L.layerGroup().addTo(map);
+
                     map.addLayer(clusterGroup);
 
                     // Track switching state (currentSpider is initialized on mapData object below)
@@ -678,10 +700,10 @@
                         }}
                     }}, true);
 
-                    // Create a separate layer group for AP markers (not clustered)
+                    // AP icon layer on top of everything
                     const apLayerGroup = L.layerGroup().addTo(map);
 
-                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, apLayerGroup: apLayerGroup, currentSpider: null }};
+                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, apGlowGroup: apGlowGroupInit, apLayerGroup: apLayerGroup, currentSpider: null }};
                 }})();
             ");
 
@@ -690,6 +712,9 @@
                 window._registerSpeedTestMapCallback = function(dotNetRef, mapId) {{
                     window._speedTestMapClick = function(id) {{
                         dotNetRef.invokeMethodAsync('OnMapResultClick', id);
+                    }};
+                    window._speedTestApFilter = function(mac) {{
+                        dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
                     }};
 
                     // Store .NET ref on map data for AP drag callbacks
@@ -903,6 +928,7 @@
                 isOnline = a.IsOnline,
                 totalClients = a.TotalClients,
                 iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
+                isSelected = a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase),
                 popup = BuildApPopup(a)
             }).ToArray();
 
@@ -915,13 +941,32 @@
                     if (!mapData || !mapData.apLayerGroup) return;
 
                     mapData.apLayerGroup.clearLayers();
+                    if (mapData.apGlowGroup) mapData.apGlowGroup.clearLayers();
 
                     const aps = {apJson};
                     const draggable = {isDraggable};
 
                     aps.forEach(ap => {{
-                        const icon = L.icon({{
-                            iconUrl: ap.iconUrl,
+                        // Glow layer: renders behind speed test markers
+                        if (mapData.apGlowGroup) {{
+                            const glowIcon = L.divIcon({{
+                                html: ""<div class='ap-glow-dot"" + (ap.isSelected ? "" ap-glow-selected"" : """") + ""'></div>"",
+                                className: 'ap-glow-container',
+                                iconSize: [48, 48],
+                                iconAnchor: [24, 24]
+                            }});
+                            const glowMarker = L.marker([ap.lat, ap.lng], {{
+                                icon: glowIcon,
+                                interactive: false,
+                                zIndexOffset: -1000
+                            }});
+                            mapData.apGlowGroup.addLayer(glowMarker);
+                        }}
+
+                        // Icon layer: renders on top
+                        const icon = L.divIcon({{
+                            html: ""<img src='"" + ap.iconUrl + ""' class='ap-marker-icon' style='opacity:"" + (ap.isOnline ? 1.0 : 0.4) + ""' />"",
+                            className: 'ap-marker-container',
                             iconSize: [32, 32],
                             iconAnchor: [16, 16],
                             popupAnchor: [0, -16]
@@ -930,11 +975,19 @@
                         const marker = L.marker([ap.lat, ap.lng], {{
                             icon: icon,
                             draggable: draggable,
-                            opacity: ap.isOnline ? 1.0 : 0.5,
                             zIndexOffset: 1000
                         }});
 
                         marker.bindPopup(ap.popup);
+
+                        // Click to filter speed tests by this AP (non-edit mode only)
+                        if (!draggable) {{
+                            marker.on('click', function(e) {{
+                                if (mapData.dotNetRef) {{
+                                    mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
+                                }}
+                            }});
+                        }}
 
                         if (draggable) {{
                             marker.on('dragend', function(e) {{
@@ -963,66 +1016,82 @@
         var statusClass = ap.IsOnline ? "ap-status-online" : "ap-status-offline";
         var statusText = ap.IsOnline ? "Online" : "Offline";
 
+        // Count speed tests connected to this AP
+        var testCount = Results.Count(r =>
+            r.PathAnalysis?.Path?.Hops?.Any(h =>
+                h.Type == HopType.AccessPoint &&
+                h.DeviceMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase)) == true);
+
         var html = "<div class='map-popup ap-popup'>";
 
-        // Header with name and status
-        html += $"<div class='wifi-tooltip-header'>";
-        html += $"<span class='ap-status-dot {statusClass}'></span>";
-        html += $" {name}";
+        // Header: status dot + name
+        html += "<div class='wifi-tooltip-header'>";
+        html += $"<span class='ap-status-dot {statusClass}'></span> {name}";
         html += "</div>";
 
-        // Model
+        // Model + status subtitle
         if (!string.IsNullOrEmpty(model))
         {
-            html += $"<div class='ap-popup-model'>{model} - {statusText}</div>";
+            html += $"<div class='ap-popup-subtitle'>{model} - {statusText}</div>";
         }
 
-        // Per-radio details
+        // Per-radio details as structured rows
         if (ap.Radios.Count > 0)
         {
             html += "<div class='ap-popup-radios'>";
             foreach (var radio in ap.Radios)
             {
-                var band = radio.Band?.Replace("'", "\\'") ?? "";
+                var radioCode = radio.RadioCode ?? "";
+                var bandDisplay = radio.Band?.Replace("'", "\\'") ?? "";
                 html += "<div class='ap-popup-radio'>";
-                html += $"<span class='wifi-band-badge wifi-band-{band.ToLowerInvariant().Replace(" ", "").Replace(".", "")}'>{band}</span> ";
 
+                // Band badge (uses standard wifi-band-ng/na/6e CSS classes)
+                html += $"<span class='wifi-band-badge wifi-band-{radioCode}'>{bandDisplay}</span>";
+
+                // Channel info
                 if (radio.Channel.HasValue)
                 {
-                    html += $"Ch {radio.Channel}";
+                    html += $"<span class='ap-radio-detail'>Ch {radio.Channel}";
                     if (radio.ChannelWidth.HasValue)
-                    {
-                        html += $"/{radio.ChannelWidth}MHz";
-                    }
+                        html += $"/{radio.ChannelWidth}";
+                    html += "</span>";
                 }
 
+                // TX power
                 if (radio.TxPowerDbm.HasValue)
                 {
-                    html += $" <span class='text-muted'>{radio.TxPowerDbm}dBm</span>";
+                    html += $"<span class='ap-radio-detail'>{radio.TxPowerDbm} dBm";
                     if (radio.Eirp.HasValue)
-                    {
-                        html += $"<span class='text-muted'> ({radio.Eirp} EIRP)</span>";
-                    }
-                }
-
-                if (radio.Clients.HasValue)
-                {
-                    html += $" <span class='text-muted'>{radio.Clients} client{(radio.Clients != 1 ? "s" : "")}</span>";
-                }
-
-                if (radio.Utilization.HasValue)
-                {
-                    html += $" <span class='text-muted'>{radio.Utilization}% util</span>";
+                        html += $" ({radio.Eirp} EIRP)";
+                    html += "</span>";
                 }
 
                 html += "</div>";
+
+                // Clients + utilization on second line
+                if (radio.Clients.HasValue || radio.Utilization.HasValue)
+                {
+                    html += "<div class='ap-popup-radio-stats'>";
+                    if (radio.Clients.HasValue)
+                        html += $"<span>{radio.Clients} client{(radio.Clients != 1 ? "s" : "")}</span>";
+                    if (radio.Utilization.HasValue)
+                        html += $"<span>{radio.Utilization}% utilization</span>";
+                    html += "</div>";
+                }
             }
             html += "</div>";
         }
 
-        // Total clients
+        // Footer: total clients + view tests link
         html += "<div class='wifi-tooltip-divider'></div>";
-        html += $"<div class='ap-popup-clients'>{ap.TotalClients} total client{(ap.TotalClients != 1 ? "s" : "")}</div>";
+        html += "<div class='map-popup-footer'>";
+        html += $"<span class='ap-popup-clients'>{ap.TotalClients} client{(ap.TotalClients != 1 ? "s" : "")}</span>";
+        if (testCount > 0)
+        {
+            var escapedMac = ap.Mac.Replace("'", "\\'");
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilter(\"{escapedMac}\")' class='map-popup-link'>{testCount} test{(testCount != 1 ? "s" : "")} →</a>";
+        }
+        html += "</div>";
 
         html += "</div>";
         return html;
@@ -1034,6 +1103,40 @@
         if (OnApLocationChanged.HasDelegate)
         {
             await OnApLocationChanged.InvokeAsync((mac, lat, lng));
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnApMarkerClick(string mac)
+    {
+        await InvokeAsync(async () =>
+        {
+            // Toggle: click same AP clears filter, click different AP switches filter
+            if (selectedApMacFilter?.Equals(mac, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                selectedApMacFilter = null;
+            }
+            else
+            {
+                selectedApMacFilter = mac;
+            }
+
+            if (mapInitialized)
+            {
+                await UpdateMarkers(fitBounds: false);
+                await UpdateApMarkers(); // Refresh to show selected state
+            }
+            StateHasChanged();
+        });
+    }
+
+    private async Task ClearApFilter()
+    {
+        selectedApMacFilter = null;
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: false);
+            await UpdateApMarkers();
         }
     }
 
@@ -1569,6 +1672,47 @@
         to { opacity: 1; }
     }
 
+    /* AP marker glow (separate layer behind speed test dots) */
+    .ap-glow-container {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .ap-glow-dot {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.55) 0%, rgba(59, 130, 246, 0.12) 55%, transparent 100%);
+        filter: blur(3px);
+    }
+
+    .ap-glow-dot.ap-glow-selected {
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.85) 0%, rgba(59, 130, 246, 0.25) 55%, transparent 100%);
+        filter: blur(4px);
+    }
+
+    /* AP marker icon (on top of speed test dots) */
+    .ap-marker-container {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .ap-marker-icon {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* AP filter button */
+    .btn-ap-filter-active {
+        background: rgba(59, 130, 246, 0.25);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.5);
+    }
+
+    .btn-ap-filter-active:hover {
+        background: rgba(59, 130, 246, 0.35);
+    }
+
     /* AP marker and popup styles */
     .map-edit-hint {
         position: absolute;
@@ -1669,20 +1813,38 @@
         background: #ef4444;
     }
 
-    .ap-popup-model {
+    .ap-popup-subtitle {
         font-size: 0.75rem;
         color: #94a3b8;
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.5rem;
     }
 
     .ap-popup-radios {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
         margin: 0.35rem 0;
     }
 
     .ap-popup-radio {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
         font-size: 0.75rem;
+        line-height: 1.4;
+    }
+
+    .ap-radio-detail {
+        color: #cbd5e1;
+    }
+
+    .ap-popup-radio-stats {
+        display: flex;
+        gap: 0.75rem;
+        font-size: 0.7rem;
+        color: #64748b;
+        padding-left: 0.2rem;
         margin-bottom: 0.2rem;
-        line-height: 1.5;
     }
 
     .ap-popup-clients {
