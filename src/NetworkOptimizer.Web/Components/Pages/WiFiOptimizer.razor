@@ -155,6 +155,10 @@
                 @onclick="@(() => SetActiveTab("client"))">
             Client Stats
         </button>
+        <button class="wifi-view-tab @(_activeTab == "coverage" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("coverage"))">
+            Coverage Map
+        </button>
         <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("roaming"))">
             Roaming
@@ -202,6 +206,27 @@
                 <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" />
             </div>
         </div>
+    }
+    else if (_activeTab == "coverage")
+    {
+        <!-- Coverage / Speed Map -->
+        @if (_speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any())
+        {
+            <SpeedTestMap Results="_speedTestResults"
+                          ApMarkers="_apMapMarkers"
+                          OnApLocationChanged="HandleApLocationChanged"
+                          OnClientClick="HandleMapClientClick"
+                          ClientDetailMode="true" />
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-body" style="text-align: center; padding: 3rem;">
+                    <p style="color: var(--text-muted);">No GPS-tagged speed test results or AP locations yet.</p>
+                    <p style="color: var(--text-muted); font-size: 0.875rem;">Run client speed tests with location enabled, or place APs on the map to get started.</p>
+                </div>
+            </div>
+        }
     }
     else if (_activeTab == "roaming")
     {
