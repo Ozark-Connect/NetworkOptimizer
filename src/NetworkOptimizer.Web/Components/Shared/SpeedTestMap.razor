@@ -722,11 +722,23 @@
                         }}
                     }}, true);
 
-                    // Cancel AP filter clear when any popup opens (switching APs or clicking a speed test dot)
+                    // Clear AP filter when any popup is dismissed (map-level handles both AP and speed test popups)
+                    map.on('popupclose', function() {{
+                        const md = window._speedTestMaps['{mapId}'];
+                        if (md) {{
+                            md._popupCloseTimer = setTimeout(() => {{
+                                if (md.dotNetRef) {{
+                                    md.dotNetRef.invokeMethodAsync('OnApPopupClosed');
+                                }}
+                            }}, 100);
+                        }}
+                    }});
+                    // Cancel the clear when any popup opens (switching between dots or APs)
                     map.on('popupopen', function() {{
-                        if (window._speedTestMaps['{mapId}'] && window._speedTestMaps['{mapId}']._popupCloseTimer) {{
-                            clearTimeout(window._speedTestMaps['{mapId}']._popupCloseTimer);
-                            window._speedTestMaps['{mapId}']._popupCloseTimer = null;
+                        const md = window._speedTestMaps['{mapId}'];
+                        if (md && md._popupCloseTimer) {{
+                            clearTimeout(md._popupCloseTimer);
+                            md._popupCloseTimer = null;
                         }}
                     }});
 
@@ -1027,15 +1039,6 @@
                                 if (mapData.dotNetRef) {{
                                     mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
                                 }}
-                            }});
-                            // Clear filter when popup is closed (debounced so switching
-                            // APs or clicking a speed test dot cancels the clear)
-                            marker.on('popupclose', function() {{
-                                mapData._popupCloseTimer = setTimeout(() => {{
-                                    if (mapData.dotNetRef) {{
-                                        mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
-                                    }}
-                                }}, 100);
                             }});
                         }}
 
