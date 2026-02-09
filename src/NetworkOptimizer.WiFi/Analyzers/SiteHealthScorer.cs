@@ -476,7 +476,7 @@ public class SiteHealthScorer
                 Title = "Weak signal",
                 Description = $"Client has weak signal ({client.Signal} dBm){apInfo}",
                 AffectedEntity = client.Name,
-                Recommendation = "Move closer to AP or add additional coverage",
+                Recommendation = "Move closer to AP or add additional coverage.",
                 ScoreImpact = -5
             });
         }
@@ -526,7 +526,7 @@ public class SiteHealthScorer
                     Title = "Roaming failures",
                     Description = $"{failures} failed roams between these APs",
                     AffectedEntity = $"{ap1Name} ↔ {ap2Name}",
-                    Recommendation = "Check for coverage gaps or enable fast roaming",
+                    Recommendation = "Check for coverage gaps or enable fast roaming.",
                     ScoreImpact = -5 * failures
                 });
             }
@@ -542,7 +542,7 @@ public class SiteHealthScorer
                 Dimensions = { HealthDimension.AirtimeEfficiency },
                 Title = "Legacy clients detected",
                 Description = $"{legacyClients.Count} clients using Wi-Fi 4 or older",
-                Recommendation = "Legacy clients consume more airtime - consider upgrading or isolating to separate SSID",
+                Recommendation = "Legacy clients consume more airtime - consider upgrading or isolating to separate SSID.",
                 ScoreImpact = -5
             });
         }

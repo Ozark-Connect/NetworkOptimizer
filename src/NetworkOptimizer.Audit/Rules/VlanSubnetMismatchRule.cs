@@ -97,7 +97,7 @@ public class VlanSubnetMismatchRule : WirelessAuditRuleBase
         }
         else
         {
-            recommendedAction = "Reconnect device to obtain new DHCP lease, or update fixed IP assignment";
+            recommendedAction = "Reconnect device to obtain new DHCP lease, or update fixed IP assignment.";
         }
 
         // Create a client info with the effective network set for proper issue creation

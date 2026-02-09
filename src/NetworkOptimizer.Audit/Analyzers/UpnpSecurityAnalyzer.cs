@@ -146,8 +146,8 @@ public class UpnpSecurityAnalyzer
                     ? $"UPnP is enabled on Home network: {homeNetworkNames}"
                     : $"UPnP is enabled on {homeNetworksWithUpnp.Count} Home networks: {homeNetworkNames}";
                 var recommendation = isSingleHomeNetwork
-                    ? "UPnP on a dedicated Home/Gaming network is acceptable for gaming and screen streaming"
-                    : "Consider enabling UPnP on only one dedicated Home/Gaming VLAN rather than multiple networks";
+                    ? "UPnP on a dedicated Home/Gaming network is acceptable for gaming and screen streaming."
+                    : "Consider enabling UPnP on only one dedicated Home/Gaming VLAN rather than multiple networks.";
 
                 issues.Add(new AuditIssue
                 {
@@ -258,7 +258,7 @@ public class UpnpSecurityAnalyzer
             var scoreImpact = isUnrestricted ? 8 : 0;
             var recommendation = isUnrestricted
                 ? "Edit the Port Forwarding Policy and set 'From' to 'Limited' to restrict which source IPs can access these ports"
-                : "Ensure these privileged ports are intentionally exposed and properly secured";
+                : "Ensure these privileged ports are intentionally exposed and properly secured.";
 
             issues.Add(new AuditIssue
             {
@@ -301,7 +301,7 @@ public class UpnpSecurityAnalyzer
                 },
                 RuleId = "UPNP-005",
                 ScoreImpact = 0,
-                RecommendedAction = "Review static port forwards periodically in the UPnP Inspector to ensure they are still needed"
+                RecommendedAction = "Review static port forwards periodically in the UPnP Inspector to ensure they are still needed."
             });
         }
     }
@@ -363,7 +363,7 @@ public class UpnpSecurityAnalyzer
                 },
                 RuleId = "UPNP-003",
                 ScoreImpact = 8,
-                RecommendedAction = "Review UPnP mappings - privileged ports are typically used by system services and should not be exposed via UPnP"
+                RecommendedAction = "Review UPnP mappings - privileged ports are typically used by system services and should not be exposed via UPnP."
             });
         }
 
@@ -383,7 +383,7 @@ public class UpnpSecurityAnalyzer
                 },
                 RuleId = "UPNP-004",
                 ScoreImpact = 0,
-                RecommendedAction = "Review UPnP mappings periodically in the UPnP Inspector to ensure only expected applications are opening ports"
+                RecommendedAction = "Review UPnP mappings periodically in the UPnP Inspector to ensure only expected applications are opening ports."
             });
         }
     }

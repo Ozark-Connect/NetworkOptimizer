@@ -165,7 +165,7 @@ public class IotVlanRule : AuditRuleBase
         if (placement.IsAllowedBySettings)
         {
             message = $"{detection.CategoryName} allowed per Settings on {network.Name} VLAN";
-            recommendedAction = "Change in Settings if you want to isolate this device type";
+            recommendedAction = "Change in Settings if you want to isolate this device type.";
         }
         else
         {

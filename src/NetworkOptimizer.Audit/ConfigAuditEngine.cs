@@ -654,7 +654,7 @@ public class ConfigAuditEngine
         if (placement.IsAllowedBySettings)
         {
             message = $"{detection.CategoryName} allowed per Settings on {lastNetwork.Name} VLAN";
-            recommendedAction = "Change in Settings if you want to isolate this device type";
+            recommendedAction = "Change in Settings if you want to isolate this device type.";
         }
         else
         {
@@ -731,7 +731,7 @@ public class ConfigAuditEngine
         if (placement.IsAllowedBySettings)
         {
             message = $"{detection.CategoryName} allowed per Settings on {lastNetwork.Name} VLAN";
-            recommendedAction = "Change in Settings if you want to isolate this device type";
+            recommendedAction = "Change in Settings if you want to isolate this device type.";
         }
         else
         {
