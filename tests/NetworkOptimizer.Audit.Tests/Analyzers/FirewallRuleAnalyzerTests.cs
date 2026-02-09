@@ -3857,6 +3857,174 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region Server Network Isolation Tests
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_NoBlockRule_FlaggedAsMissing()
+    {
+        // IoT to Server without a block rule should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Server"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToServer_NoBlockRule_FlaggedAsCritical()
+    {
+        // Guest to Server without block rule should be Critical
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Severity == AuditSeverity.Critical);
+        issues.First(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Server"))
+            .Message.Should().Contain("Guest");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_CorporateToServer_NoBlockRule_NotFlagged()
+    {
+        // Corporate to Server should NOT be flagged - both are trusted
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Corporate") && i.Message.Contains("Server"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_HomeToServer_NoBlockRule_NotFlagged()
+    {
+        // Home to Server should NOT be flagged - both are trusted
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Home") && i.Message.Contains("Server"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_ServerToManagement_NoBlockRule_FlaggedAsCritical()
+    {
+        // Server to Management without block rule should be Critical
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Severity == AuditSeverity.Critical &&
+            i.Message.Contains("Server") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_ServerToSecurity_NoBlockRule_FlaggedAsMissing()
+    {
+        // Server to Security without block rule should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id"),
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Server") && i.Message.Contains("Security"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_WithBlockRule_NoIssue()
+    {
+        // IoT to Server with a block rule should not be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-iot-to-server",
+                Name = "Block IoT to Server",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "server-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Server"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_AllowRule_FlaggedAsBypassed()
+    {
+        // An allow rule from IoT to Server should be flagged as isolation bypassed
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-iot-to-server",
+                Name = "Allow IoT to Server",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "server-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Server"));
+    }
+
+    #endregion
+
     [Fact]
     public void CheckInterVlanIsolation_BlockRuleWithConnectionStateAll_NoIssue()
     {
