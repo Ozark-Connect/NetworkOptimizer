@@ -641,23 +641,9 @@ public class FirewallRuleAnalyzer
 
         foreach (var network in isolatedNetworks)
         {
-            bool isInvolved = false;
-
-            if (isSource)
-            {
-                // First check network ID reference
-                isInvolved = AppliesToSourceNetwork(rule, network.Id);
-
-                // Also check if rule source is IP/CIDR that covers the network's subnet
-                if (!isInvolved && !string.IsNullOrEmpty(network.Subnet))
-                {
-                    isInvolved = SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
-                }
-            }
-            else
-            {
-                isInvolved = AppliesToDestinationNetwork(rule, network.Id);
-            }
+            var isInvolved = isSource
+                ? rule.AppliesToSourceNetwork(network)
+                : AppliesToDestinationNetwork(rule, network.Id);
 
             if (isInvolved)
             {
@@ -666,22 +652,6 @@ public class FirewallRuleAnalyzer
         }
 
         return result;
-    }
-
-    /// <summary>
-    /// Check if a rule's source IP/CIDRs cover a network's subnet.
-    /// This catches rules that use IP-based source matching instead of network references.
-    /// </summary>
-    private static bool SourceCidrsCoversNetworkSubnet(FirewallRule rule, string networkSubnet)
-    {
-        // Check if source matching type is IP-based
-        if (string.IsNullOrEmpty(rule.SourceMatchingTarget) ||
-            !rule.SourceMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return NetworkUtilities.AnyCidrCoversSubnet(rule.SourceIps, networkSubnet);
     }
 
     /// <summary>
@@ -1003,7 +973,7 @@ public class FirewallRuleAnalyzer
                 if (!rule.Enabled || rule.Predefined || !rule.ActionType.IsAllowAction())
                     continue;
 
-                if (!AppliesToSourceNetwork(rule, network))
+                if (!rule.AppliesToSourceNetwork(network))
                 {
                     _logger.LogDebug("Internet bypass: rule '{Rule}' does not apply to network '{Network}' (srcTarget={SrcTarget}, srcZone={SrcZone}, netZone={NetZone})",
                         rule.Name, network.Name, rule.SourceMatchingTarget, rule.SourceZoneId, network.FirewallZoneId);
@@ -1017,7 +987,7 @@ public class FirewallRuleAnalyzer
                     continue;
                 }
 
-                if (IsAllowRuleEclipsedByBlockRule(rules, rule, network.Id, externalZoneId))
+                if (IsAllowRuleEclipsedByBlockRule(rules, rule, network, externalZoneId))
                 {
                     _logger.LogDebug("Internet bypass: rule '{Rule}' is eclipsed by a block rule", rule.Name);
                     continue;
@@ -1249,7 +1219,7 @@ public class FirewallRuleAnalyzer
             // Debug: log all rules with ui.com domain
             foreach (var r in rules.Where(r => r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true))
             {
-                var appliesToSource = AppliesToSourceNetwork(r, mgmtNetwork.Id);
+                var appliesToSource = r.AppliesToSourceNetwork(mgmtNetwork);
                 var allowsTcp = FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp");
                 _logger.LogDebug("UniFi rule candidate '{Name}': enabled={Enabled}, isAllow={IsAllow}, appliesToMgmt={AppliesTo}, allowsTcp={AllowsTcp}, sourceTarget={SourceTarget}, sourceNets={SourceNets}",
                     r.Name, r.Enabled, r.ActionType.IsAllowAction(), appliesToSource, allowsTcp,
@@ -1259,11 +1229,11 @@ public class FirewallRuleAnalyzer
             var unifiAllowRule = rules.FirstOrDefault(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
-                AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
+                r.AppliesToSourceNetwork(mgmtNetwork) &&
                 r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true &&
                 FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
 
-            var hasUniFiAccess = unifiAllowRule != null && !IsAllowRuleEclipsedByBlockRule(rules, unifiAllowRule, mgmtNetwork.Id, externalZoneId);
+            var hasUniFiAccess = unifiAllowRule != null && !IsAllowRuleEclipsedByBlockRule(rules, unifiAllowRule, mgmtNetwork, externalZoneId);
             _logger.LogDebug("UniFi access check: foundRule={FoundRule}, hasAccess={HasAccess}", unifiAllowRule?.Name, hasUniFiAccess);
 
             if (!hasUniFiAccess)
@@ -1293,11 +1263,11 @@ public class FirewallRuleAnalyzer
             var afcAllowRule = rules.FirstOrDefault(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
-                AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
+                r.AppliesToSourceNetwork(mgmtNetwork) &&
                 r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true &&
                 FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
 
-            var hasAfcAccess = afcAllowRule != null && !IsAllowRuleEclipsedByBlockRule(rules, afcAllowRule, mgmtNetwork.Id, externalZoneId);
+            var hasAfcAccess = afcAllowRule != null && !IsAllowRuleEclipsedByBlockRule(rules, afcAllowRule, mgmtNetwork, externalZoneId);
 
             if (!hasAfcAccess)
             {
@@ -1326,12 +1296,12 @@ public class FirewallRuleAnalyzer
             var ntpAllowRule = rules.FirstOrDefault(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
-                AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
+                r.AppliesToSourceNetwork(mgmtNetwork) &&
                 FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp") &&
                 TargetsExternalZone(r, externalZoneId));
 
             var hasNtpAccess = ntpAllowRule != null &&
-                !IsNonWebAllowRuleEclipsed(rules, ntpAllowRule, mgmtNetwork.Id, externalZoneId, "123", "udp");
+                !IsNonWebAllowRuleEclipsed(rules, ntpAllowRule, mgmtNetwork, externalZoneId, "123", "udp");
 
             if (!hasNtpAccess)
             {
@@ -1372,7 +1342,7 @@ public class FirewallRuleAnalyzer
                     Allows5GRegistrationDomains(r) &&
                     FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp") &&
                     // Source can be: management network, specific IP, specific MAC, or ANY
-                    (AppliesToSourceNetwork(r, mgmtNetwork.Id) ||
+                    (r.AppliesToSourceNetwork(mgmtNetwork) ||
                      IsSourceIpBased(r) ||
                      IsSourceMacBased(r) ||
                      IsAnySource(r)));
@@ -1483,14 +1453,17 @@ public class FirewallRuleAnalyzer
                 return true;
 
             case "NETWORK":
-                // Allow rule targets specific networks
+                // Allow rule targets specific networks - check if block rule covers any of them
+                var allowNetworkIds = allowRule.SourceNetworkIds ?? new List<string>();
+                if (allowNetworkIds.Count == 0) return false;
+
                 if (blockRule.SourceMatchingTarget?.Equals("NETWORK", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    var allowNetworks = allowRule.SourceNetworkIds ?? new List<string>();
-                    if (allowNetworks.Count == 0) return false;
-
-                    // Check if any network in the allow rule is affected by the block rule
-                    return allowNetworks.Any(netId => AppliesToSourceNetwork(blockRule, netId));
+                    var blockNetworkIds = blockRule.SourceNetworkIds ?? new List<string>();
+                    if (blockRule.SourceMatchOppositeNetworks)
+                        return allowNetworkIds.Any(netId => !blockNetworkIds.Contains(netId));
+                    else
+                        return allowNetworkIds.Any(netId => blockNetworkIds.Contains(netId));
                 }
                 return false;
 
@@ -1536,57 +1509,6 @@ public class FirewallRuleAnalyzer
             d.Contains("trafficmanager.net", StringComparison.OrdinalIgnoreCase) ||
             d.Contains("t-mobile.com", StringComparison.OrdinalIgnoreCase) ||
             d.Contains("gsma.com", StringComparison.OrdinalIgnoreCase)) == true;
-    }
-
-    /// <summary>
-    /// Check if a firewall rule applies to traffic from a specific source network.
-    /// Handles v2 API format (SourceNetworkIds + SourceMatchOppositeNetworks) and legacy format (Source).
-    /// </summary>
-    /// <param name="rule">The firewall rule to check</param>
-    /// <param name="networkId">The network ID to check against</param>
-    /// <returns>True if the rule applies to traffic from the specified network</returns>
-    internal static bool AppliesToSourceNetwork(FirewallRule rule, string networkId)
-    {
-        // v2 API: Check SourceMatchingTarget first
-        if (!string.IsNullOrEmpty(rule.SourceMatchingTarget))
-        {
-            if (rule.SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
-            {
-                return true; // Matches all networks
-            }
-
-            if (rule.SourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
-            {
-                var networkIds = rule.SourceNetworkIds ?? new List<string>();
-                if (rule.SourceMatchOppositeNetworks)
-                {
-                    // Match Opposite: rule applies to all networks EXCEPT those listed
-                    return !networkIds.Contains(networkId);
-                }
-                else
-                {
-                    // Normal: rule applies ONLY to networks listed
-                    return networkIds.Contains(networkId);
-                }
-            }
-
-            // For IP, CLIENT, etc. - doesn't match by network ID
-            return false;
-        }
-
-        // Backward compatibility: if SourceMatchingTarget is not set but SourceNetworkIds is populated,
-        // check the network IDs (this handles rules created without explicit SourceMatchingTarget)
-        if (rule.SourceNetworkIds != null && rule.SourceNetworkIds.Count > 0)
-        {
-            if (rule.SourceMatchOppositeNetworks)
-            {
-                return !rule.SourceNetworkIds.Contains(networkId);
-            }
-            return rule.SourceNetworkIds.Contains(networkId);
-        }
-
-        // Legacy format
-        return rule.Source == networkId;
     }
 
     /// <summary>
@@ -1641,36 +1563,6 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
-    /// Check if a firewall rule applies to traffic from a specific source network.
-    /// Also checks if IP-based sources cover the network's subnet.
-    /// </summary>
-    /// <param name="rule">The firewall rule to check</param>
-    /// <param name="network">The network to check against</param>
-    /// <returns>True if the rule applies to traffic from the specified network</returns>
-    internal static bool AppliesToSourceNetwork(FirewallRule rule, NetworkInfo network)
-    {
-        // Zone check: if rule has a source zone and network has a zone, they must match
-        if (!string.IsNullOrEmpty(rule.SourceZoneId) && !string.IsNullOrEmpty(network.FirewallZoneId))
-        {
-            if (!string.Equals(rule.SourceZoneId, network.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
-                return false;
-        }
-
-        // First check network ID
-        if (AppliesToSourceNetwork(rule, network.Id))
-            return true;
-
-        // Also check if IP-based source covers the network's subnet
-        if (!string.IsNullOrEmpty(network.Subnet) &&
-            rule.SourceMatchingTarget?.Equals("IP", StringComparison.OrdinalIgnoreCase) == true)
-        {
-            return SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
-        }
-
-        return false;
-    }
-
-    /// <summary>
     /// Check if a firewall rule applies to traffic to a specific destination network.
     /// Also checks if IP-based destinations cover the network's subnet.
     /// </summary>
@@ -1710,21 +1602,12 @@ public class FirewallRuleAnalyzer
 
     /// <summary>
     /// Check if a firewall rule matches a specific source->destination network pair.
-    /// Handles both v2 API format (with Match Opposite support) and legacy format.
-    /// </summary>
-    private static bool HasNetworkPair(FirewallRule rule, string sourceNetworkId, string destNetworkId)
-    {
-        return AppliesToSourceNetwork(rule, sourceNetworkId) && AppliesToDestinationNetwork(rule, destNetworkId);
-    }
-
-    /// <summary>
-    /// Check if a firewall rule matches a specific source->destination network pair.
     /// Also checks if IP-based source/destination CIDRs cover the network's subnet.
     /// Zone matching is handled by AppliesToSourceNetwork/AppliesToDestinationNetwork.
     /// </summary>
     private static bool HasNetworkPair(FirewallRule rule, NetworkInfo sourceNetwork, NetworkInfo destNetwork)
     {
-        return AppliesToSourceNetwork(rule, sourceNetwork) && AppliesToDestinationNetwork(rule, destNetwork);
+        return rule.AppliesToSourceNetwork(sourceNetwork) && AppliesToDestinationNetwork(rule, destNetwork);
     }
 
     /// <summary>
@@ -1783,14 +1666,14 @@ public class FirewallRuleAnalyzer
     private bool IsAllowRuleEclipsedByBlockRule(
         List<FirewallRule> rules,
         FirewallRule allowRule,
-        string sourceNetworkId,
+        NetworkInfo sourceNetwork,
         string? externalZoneId)
     {
         var eclipsingRule = rules.FirstOrDefault(r =>
             r.Enabled &&
             r.ActionType.IsBlockAction() &&
             r.Index < allowRule.Index &&
-            AppliesToSourceNetwork(r, sourceNetworkId) &&
+            r.AppliesToSourceNetwork(sourceNetwork) &&
             // Block rule must affect the same traffic
             WouldBlockSameTraffic(r, allowRule, externalZoneId));
 
@@ -1811,7 +1694,7 @@ public class FirewallRuleAnalyzer
     private bool IsNonWebAllowRuleEclipsed(
         List<FirewallRule> rules,
         FirewallRule allowRule,
-        string sourceNetworkId,
+        NetworkInfo sourceNetwork,
         string? externalZoneId,
         string port,
         string protocol)
@@ -1822,7 +1705,7 @@ public class FirewallRuleAnalyzer
             r.Index < allowRule.Index &&
             // WEB-based block rules target specific web domains, not arbitrary port/protocol traffic
             !string.Equals(r.DestinationMatchingTarget, "WEB", StringComparison.OrdinalIgnoreCase) &&
-            AppliesToSourceNetwork(r, sourceNetworkId) &&
+            r.AppliesToSourceNetwork(sourceNetwork) &&
             TargetsExternalZone(r, externalZoneId) &&
             FirewallGroupHelper.RuleBlocksPortAndProtocol(r, port, protocol));
 
@@ -1858,7 +1741,7 @@ public class FirewallRuleAnalyzer
         if (sourceType == "NETWORK")
         {
             // For network-based sources, use NetworkInfo overload which also checks IP/CIDR coverage
-            sourceMatches = blockRule => AppliesToSourceNetwork(blockRule, mgmtNetwork);
+            sourceMatches = blockRule => blockRule.AppliesToSourceNetwork(mgmtNetwork);
         }
         else
         {
@@ -2056,7 +1939,7 @@ public class FirewallRuleAnalyzer
     private static bool MatchesInternetTrafficPattern(FirewallRule rule, NetworkInfo network, string externalZoneId)
     {
         // Source must match this network (by network ID, IP/CIDR, or ANY)
-        if (!AppliesToSourceNetwork(rule, network))
+        if (!rule.AppliesToSourceNetwork(network))
             return false;
 
         // Destination zone must be the External zone

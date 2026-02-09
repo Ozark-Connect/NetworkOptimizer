@@ -6632,7 +6632,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = zoneId
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeTrue();
     }
@@ -6652,7 +6652,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = "custom-zone-001"
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeFalse();
     }
@@ -6671,7 +6671,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = zoneId
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeTrue();
     }
@@ -6690,7 +6690,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = "custom-zone-001"
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeFalse();
     }
@@ -6710,7 +6710,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = zoneId
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeTrue();
     }
@@ -6730,7 +6730,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = "custom-zone-001"
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeFalse();
     }
@@ -6751,7 +6751,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = null
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeTrue();
     }
@@ -6772,7 +6772,7 @@ public class FirewallRuleAnalyzerTests
             SourceZoneId = "custom-zone-001"
         };
 
-        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+        var result = rule.AppliesToSourceNetwork(network);
 
         result.Should().BeTrue();
     }

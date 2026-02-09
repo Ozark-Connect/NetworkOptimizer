@@ -765,7 +765,7 @@ public class VlanAnalyzer
                 continue;
 
             // Source must include this network
-            if (!FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network))
+            if (!rule.AppliesToSourceNetwork(network))
                 continue;
 
             // Destination must be all other internal networks

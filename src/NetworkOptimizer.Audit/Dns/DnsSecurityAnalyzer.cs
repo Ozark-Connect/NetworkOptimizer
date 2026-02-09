@@ -439,7 +439,7 @@ public class DnsSecurityAnalyzer
                     // Track network coverage for this rule
                     if (networks != null)
                     {
-                        AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, rule.SourceZoneId, result.Dns53CoveredNetworkIds);
+                        AddCoveredNetworks(networks, rule, result.Dns53CoveredNetworkIds);
                     }
                 }
 
@@ -451,6 +451,9 @@ public class DnsSecurityAnalyzer
                     result.DotRuleName = name;
                     _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
                         name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+
+                    if (networks != null)
+                        AddCoveredNetworks(networks, rule, result.DotCoveredNetworkIds);
                 }
 
                 // Check for DNS over QUIC (port 853 UDP) blocking (RFC 9250)
@@ -460,6 +463,9 @@ public class DnsSecurityAnalyzer
                     result.DoqRuleName = name;
                     _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
                         name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+
+                    if (networks != null)
+                        AddCoveredNetworks(networks, rule, result.DoqCoveredNetworkIds);
                 }
             }
 
@@ -526,7 +532,7 @@ public class DnsSecurityAnalyzer
                         // Track network coverage
                         if (networks != null)
                         {
-                            AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, rule.SourceZoneId, result.Dns53CoveredNetworkIds);
+                            AddCoveredNetworks(networks, rule, result.Dns53CoveredNetworkIds);
                         }
                     }
                 }
@@ -540,6 +546,9 @@ public class DnsSecurityAnalyzer
                         result.DotRuleName ??= name;
                         _logger.LogDebug("Found app-based DoT block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
                             name, string.Join(",", appIds!), protocol ?? "all");
+
+                        if (networks != null)
+                            AddCoveredNetworks(networks, rule, result.DotCoveredNetworkIds);
                     }
                     if (legacyAllProtocols || blocksUdp)
                     {
@@ -547,6 +556,9 @@ public class DnsSecurityAnalyzer
                         result.DoqRuleName ??= name;
                         _logger.LogDebug("Found app-based DoQ block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
                             name, string.Join(",", appIds!), protocol ?? "all");
+
+                        if (networks != null)
+                            AddCoveredNetworks(networks, rule, result.DoqCoveredNetworkIds);
                     }
                 }
 
@@ -571,100 +583,58 @@ public class DnsSecurityAnalyzer
             }
         }
 
-        // Calculate DNS53 network coverage stats
-        if (networks != null && result.HasDns53BlockRule)
+        // Calculate network coverage stats
+        if (networks != null)
         {
-            CalculateDns53Coverage(networks, result);
+            if (result.HasDns53BlockRule)
+                result.Dns53ProvidesFullCoverage = CalculateCoverage(networks, result.Dns53CoveredNetworkIds, result.Dns53CoveredNetworks, result.Dns53UncoveredNetworks, "DNS53");
+            if (result.HasDotBlockRule)
+                result.DotProvidesFullCoverage = CalculateCoverage(networks, result.DotCoveredNetworkIds, result.DotCoveredNetworks, result.DotUncoveredNetworks, "DoT");
+            if (result.HasDoqBlockRule)
+                result.DoqProvidesFullCoverage = CalculateCoverage(networks, result.DoqCoveredNetworkIds, result.DoqCoveredNetworks, result.DoqUncoveredNetworks, "DoQ");
         }
     }
 
     /// <summary>
-    /// Add covered networks to the set based on source matching rules.
-    /// Handles Match Opposite logic: when true, rule applies to all networks EXCEPT those listed.
-    /// Source zone filtering ensures rules only cover networks in the matching zone.
+    /// Add covered networks to the set based on rule source matching.
+    /// Uses FirewallRule.AppliesToSourceNetwork() which handles zone, network ID, and IP/CIDR matching.
     /// </summary>
     private static void AddCoveredNetworks(
         List<NetworkInfo> networks,
-        string? sourceMatchingTarget,
-        List<string>? sourceNetworkIds,
-        bool matchOpposite,
-        string? sourceZoneId,
+        FirewallRule rule,
         HashSet<string> coveredNetworkIds)
-    {
-        // If source matching target is ANY or not set, rule covers all networks in the source zone.
-        // "ANY" means all networks within the rule's source zone, not globally.
-        if (string.IsNullOrEmpty(sourceMatchingTarget) ||
-            sourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var network in networks)
-            {
-                // If we have a source zone, only cover networks in that zone
-                if (!string.IsNullOrEmpty(sourceZoneId) &&
-                    !string.IsNullOrEmpty(network.FirewallZoneId) &&
-                    !string.Equals(sourceZoneId, network.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                coveredNetworkIds.Add(network.Id);
-            }
-            return;
-        }
-
-        // If matching target is NETWORK, check the network IDs with Match Opposite handling
-        if (sourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
-        {
-            var networkIds = sourceNetworkIds ?? new List<string>();
-
-            if (matchOpposite)
-            {
-                // Match Opposite: rule applies to all networks EXCEPT those listed
-                foreach (var network in networks)
-                {
-                    if (!networkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase))
-                    {
-                        coveredNetworkIds.Add(network.Id);
-                    }
-                }
-            }
-            else
-            {
-                // Normal: rule applies ONLY to networks listed
-                foreach (var networkId in networkIds)
-                {
-                    coveredNetworkIds.Add(networkId);
-                }
-            }
-            return;
-        }
-
-        // For other matching targets (IP, CLIENT, etc.), we can't determine network coverage
-        // These are more targeted rules that don't provide broad network coverage
-    }
-
-    /// <summary>
-    /// Calculate DNS53 coverage statistics after processing all rules
-    /// </summary>
-    private void CalculateDns53Coverage(List<NetworkInfo> networks, DnsSecurityResult result)
     {
         foreach (var network in networks)
         {
-            if (result.Dns53CoveredNetworkIds.Contains(network.Id))
-            {
-                result.Dns53CoveredNetworks.Add(network.Name);
-            }
-            else
-            {
-                result.Dns53UncoveredNetworks.Add(network.Name);
-            }
+            if (rule.AppliesToSourceNetwork(network))
+                coveredNetworkIds.Add(network.Id);
         }
+    }
 
-        result.Dns53ProvidesFullCoverage = result.Dns53UncoveredNetworks.Count == 0;
-
-        if (!result.Dns53ProvidesFullCoverage)
+    /// <summary>
+    /// Calculate coverage statistics for a protocol after processing all rules.
+    /// Returns true if all networks are covered.
+    /// </summary>
+    private bool CalculateCoverage(List<NetworkInfo> networks, HashSet<string> coveredIds,
+        List<string> coveredNames, List<string> uncoveredNames, string protocolLabel)
+    {
+        foreach (var network in networks)
         {
-            _logger.LogInformation("DNS53 blocking provides partial coverage. Covered: {Covered}, Uncovered: {Uncovered}",
-                string.Join(", ", result.Dns53CoveredNetworks),
-                string.Join(", ", result.Dns53UncoveredNetworks));
+            if (coveredIds.Contains(network.Id))
+                coveredNames.Add(network.Name);
+            else
+                uncoveredNames.Add(network.Name);
         }
+
+        var fullCoverage = uncoveredNames.Count == 0;
+
+        if (!fullCoverage)
+        {
+            _logger.LogInformation("{Protocol} blocking provides partial coverage. Covered: {Covered}, Uncovered: {Uncovered}",
+                protocolLabel, string.Join(", ", coveredNames), string.Join(", ", uncoveredNames));
+        }
+
+        return fullCoverage;
     }
 
     private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
@@ -1146,7 +1116,7 @@ public class DnsSecurityAnalyzer
             });
         }
 
-        // Issue: No DoT (853) blocking
+        // Issue: No DoT (853) blocking or partial coverage
         if (!result.HasDotBlockRule)
         {
             result.Issues.Add(new AuditIssue
@@ -1158,6 +1128,19 @@ public class DnsSecurityAnalyzer
                 RecommendedAction = "Create firewall rule: Block outbound TCP port 853 to Internet for all VLANs",
                 RuleId = "DNS-LEAK-002",
                 ScoreImpact = 6
+            });
+        }
+        else if (!result.DotProvidesFullCoverage && result.DotUncoveredNetworks.Count > 0)
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsNoDotBlock,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"DNS-over-TLS (port 853) blocking has partial coverage. Uncovered networks: {string.Join(", ", result.DotUncoveredNetworks)}",
+                RecommendedAction = "Extend DoT blocking rule to cover all networks, or create additional rules for uncovered networks",
+                RuleId = "DNS-LEAK-002",
+                ScoreImpact = 4
             });
         }
 
@@ -1180,7 +1163,7 @@ public class DnsSecurityAnalyzer
             });
         }
 
-        // Issue: No DoQ (DNS over QUIC) bypass blocking
+        // Issue: No DoQ (DNS over QUIC) bypass blocking or partial coverage
         if (!result.HasDoqBlockRule && result.DohConfigured)
         {
             result.Issues.Add(new AuditIssue
@@ -1192,6 +1175,19 @@ public class DnsSecurityAnalyzer
                 RecommendedAction = "Create firewall rule: Block outbound UDP port 853 to Internet for all VLANs",
                 RuleId = "DNS-LEAK-004",
                 ScoreImpact = 4
+            });
+        }
+        else if (result.HasDoqBlockRule && !result.DoqProvidesFullCoverage && result.DoqUncoveredNetworks.Count > 0 && result.DohConfigured)
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsNoDoqBlock,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"DNS over QUIC (DoQ) blocking has partial coverage. Uncovered networks: {string.Join(", ", result.DoqUncoveredNetworks)}",
+                RecommendedAction = "Extend DoQ blocking rule to cover all networks, or create additional rules for uncovered networks",
+                RuleId = "DNS-LEAK-004",
+                ScoreImpact = 3
             });
         }
 
@@ -1210,19 +1206,26 @@ public class DnsSecurityAnalyzer
             });
         }
 
-        // Positive: All protections in place
-        if (result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule && result.HasDoqBlockRule)
+        // Positive: All protections in place (with full coverage)
+        // When no networks were provided, coverage can't be calculated - treat rule presence as sufficient
+        var hasNetworks = result.Dns53CoveredNetworks.Count > 0 || result.Dns53UncoveredNetworks.Count > 0
+            || result.DotCoveredNetworks.Count > 0 || result.DotUncoveredNetworks.Count > 0;
+        var dns53FullCoverage = result.HasDns53BlockRule && (!hasNetworks || result.Dns53ProvidesFullCoverage);
+        var dotFullCoverage = result.HasDotBlockRule && (!hasNetworks || result.DotProvidesFullCoverage);
+        var doqFullCoverage = result.HasDoqBlockRule && (!hasNetworks || result.DoqProvidesFullCoverage);
+
+        if (result.DohConfigured && dns53FullCoverage && dotFullCoverage && result.HasDohBlockRule && doqFullCoverage)
         {
             var protocols = "DNS53, DoT, DoH, DoQ";
             if (result.HasDoh3BlockRule)
                 protocols += ", DoH3";
             result.HardeningNotes.Add($"DNS leak prevention fully configured with DoH and firewall blocking ({protocols})");
         }
-        else if (result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule)
+        else if (result.DohConfigured && dns53FullCoverage && dotFullCoverage && result.HasDohBlockRule)
         {
             result.HardeningNotes.Add("DNS leak prevention configured with DoH and firewall blocking (DNS53, DoT, DoH)");
         }
-        else if (result.DohConfigured && result.HasDns53BlockRule)
+        else if (result.DohConfigured && dns53FullCoverage)
         {
             result.HardeningNotes.Add("DoH configured with basic DNS leak prevention (port 53 blocked)");
         }
@@ -2322,22 +2325,22 @@ public class DnsSecurityResult
     public List<string> DoqBlockedDomains { get; } = new();
 
     // DNS53 Firewall Rule Network Coverage
-    /// <summary>
-    /// Whether DNS53 blocking rules provide full coverage across all networks
-    /// </summary>
     public bool Dns53ProvidesFullCoverage { get; set; }
-    /// <summary>
-    /// Network IDs covered by DNS53 blocking rules
-    /// </summary>
     public HashSet<string> Dns53CoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>
-    /// Network names covered by DNS53 blocking rules
-    /// </summary>
     public List<string> Dns53CoveredNetworks { get; } = new();
-    /// <summary>
-    /// Network names NOT covered by DNS53 blocking rules
-    /// </summary>
     public List<string> Dns53UncoveredNetworks { get; } = new();
+
+    // DoT (853/TCP) Firewall Rule Network Coverage
+    public bool DotProvidesFullCoverage { get; set; }
+    public HashSet<string> DotCoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> DotCoveredNetworks { get; } = new();
+    public List<string> DotUncoveredNetworks { get; } = new();
+
+    // DoQ (853/UDP) Firewall Rule Network Coverage
+    public bool DoqProvidesFullCoverage { get; set; }
+    public HashSet<string> DoqCoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> DoqCoveredNetworks { get; } = new();
+    public List<string> DoqUncoveredNetworks { get; } = new();
 
     // Device DNS Configuration
     public bool DeviceDnsPointsToGateway { get; set; } = true;
