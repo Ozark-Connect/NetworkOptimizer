@@ -524,15 +524,17 @@
 
     /// <summary>
     /// Get device tooltip showing type, model, and firmware for UniFi devices.
-    /// For wireless client hops, shows a brief "View in Wi-Fi Optimizer" hint
-    /// (the full WiFi stats are on the adjacent connector tooltip).
+    /// For wireless client hops, shows the WiFi tooltip from the connector.
     /// </summary>
     private string? GetDeviceTooltip(NetworkHop hop)
     {
-        // Wireless client hop: brief tooltip (full WiFi stats shown on connector)
-        if (hop.Type == HopType.WirelessClient)
+        // Wireless client hop: show WiFi stats (same as connector, mutually exclusive via Tippy)
+        if (hop.Type == HopType.WirelessClient && Result?.PathAnalysis?.Path?.Hops is { } hops)
         {
-            return "View in Wi-Fi Optimizer";
+            var hopIdx = hops.IndexOf(hop);
+            var adjacentHop = hopIdx >= 0 && hopIdx < hops.Count - 1 ? hops[hopIdx + 1] : null;
+            if (adjacentHop != null)
+                return GetWifiTooltip(hop, adjacentHop, hop.IsBottleneck);
         }
 
         // Only show tooltip for UniFi devices (those with a model)
