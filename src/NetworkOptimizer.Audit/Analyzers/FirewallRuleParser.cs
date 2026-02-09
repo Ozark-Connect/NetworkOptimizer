@@ -299,8 +299,13 @@ public class FirewallRuleParser
                 }
             }
 
-            // Flatten port group reference (port_matching_type == "OBJECT" with port_group_id)
+            // Handle port_matching_type: ANY means all ports, OBJECT means port group reference
             var portMatchingType = dest.GetStringOrNull("port_matching_type");
+            if (string.Equals(portMatchingType, "ANY", StringComparison.OrdinalIgnoreCase))
+            {
+                destPort = "*"; // Explicit "all ports" - distinct from null (no port info)
+            }
+
             var portGroupId = dest.GetStringOrNull("port_group_id");
             if (portMatchingType == "OBJECT" && !string.IsNullOrEmpty(portGroupId))
             {

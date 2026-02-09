@@ -780,6 +780,65 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_GeneralBlockRuleWithNoPortConfig_DoesNotDetectAsDnsBlock()
+    {
+        // Rules like "Block Scam Domains", "Restrict CM Access", etc. that block all traffic
+        // for specific sources but have no port configuration should NOT be detected as DNS block rules.
+        // These rules have no destination.port and no port_matching_type - just a matching_target.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Scam Domains"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            },
+            {
+                ""name"": ""Restrict Device Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("general block rules without port config aren't DNS-specific");
+        result.HasDotBlockRule.Should().BeFalse("general block rules without port config aren't DoT-specific");
+        result.HasDoqBlockRule.Should().BeFalse("general block rules without port config aren't DoQ-specific");
+    }
+
+    [Fact]
+    public async Task Analyze_BlockAllWithPortMatchingTypeAny_DetectsAsDnsBlock()
+    {
+        // A rule with port_matching_type=ANY explicitly targets all ports including DNS.
+        // This IS a DNS block rule (the parser sets DestinationPort="*" for port_matching_type=ANY).
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All External Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("port_matching_type=ANY explicitly blocks all ports including 53");
+        result.HasDotBlockRule.Should().BeTrue("port_matching_type=ANY blocks port 853 TCP");
+        result.HasDoqBlockRule.Should().BeTrue("port_matching_type=ANY blocks port 853 UDP");
+    }
+
+    [Fact]
     public async Task Analyze_WithDns53BlockRuleUsingPortGroup_DetectsRule()
     {
         // Arrange - Firewall rule using port group reference instead of direct port
@@ -923,11 +982,11 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_WithMissingPortGroupId_TreatsAsBlockAll()
+    public async Task Analyze_WithMissingPortGroupId_DoesNotDetectAsDnsBlock()
     {
         // Arrange - Firewall rule references non-existent port group.
-        // Unresolved port group results in null DestinationPort, which is treated as "all ports"
-        // (this is an edge case - broken configs shouldn't happen in practice).
+        // Unresolved port group results in null DestinationPort, which means "no port info"
+        // and does NOT match as a port-based block rule.
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DNS (Broken)"",
@@ -954,8 +1013,8 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
-        // Assert - Null port = all ports, so rule is detected as blocking DNS
-        result.HasDns53BlockRule.Should().BeTrue();
+        // Assert - Null port = no port info, rule is NOT detected as blocking DNS
+        result.HasDns53BlockRule.Should().BeFalse();
     }
 
     [Fact]
