@@ -1169,17 +1169,13 @@
     {
         await InvokeAsync(async () =>
         {
-            // Empty string = "Show all" (clear filter)
-            // Same AP = already filtered, leave as-is (popup just opened)
-            // Different AP = switch filter
-            if (string.IsNullOrEmpty(mac))
-            {
-                selectedApMacFilter = null;
-            }
-            else
-            {
-                selectedApMacFilter = mac;
-            }
+            var newFilter = string.IsNullOrEmpty(mac) ? null : mac;
+
+            // Skip update if filter hasn't changed (avoids dot flash when reopening same AP)
+            if (string.Equals(selectedApMacFilter, newFilter, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            selectedApMacFilter = newFilter;
 
             if (mapInitialized)
             {
