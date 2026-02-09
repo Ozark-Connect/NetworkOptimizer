@@ -706,6 +706,80 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_BlockInvalidTraffic_DoesNotDetectAsDnsBlock()
+    {
+        // "Block Invalid Traffic" only blocks INVALID connection states, not NEW connections.
+        // It should NOT be detected as a DNS block rule even though it has no port filter.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Invalid Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""connection_state_type"": ""CUSTOM"",
+                ""connection_states"": [""INVALID""],
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("Block Invalid Traffic doesn't block NEW DNS connections");
+        result.HasDotBlockRule.Should().BeFalse("Block Invalid Traffic doesn't block NEW DoT connections");
+        result.HasDoqBlockRule.Should().BeFalse("Block Invalid Traffic doesn't block NEW DoQ connections");
+    }
+
+    [Fact]
+    public async Task Analyze_BlockInvalidAndEstablished_DoesNotDetectAsDnsBlock()
+    {
+        // Rules blocking INVALID+ESTABLISHED but not NEW don't prevent DNS queries
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Unauthorized Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""connection_state_type"": ""CUSTOM"",
+                ""connection_states"": [""INVALID"", ""ESTABLISHED""],
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("rule without NEW state doesn't block DNS queries");
+        result.HasDotBlockRule.Should().BeFalse("rule without NEW state doesn't block DoT queries");
+        result.HasDoqBlockRule.Should().BeFalse("rule without NEW state doesn't block DoQ queries");
+    }
+
+    [Fact]
+    public async Task Analyze_BlockAllWithNewState_DetectsAsDnsBlock()
+    {
+        // Rules that block NEW connections DO prevent DNS queries
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All New Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""connection_state_type"": ""CUSTOM"",
+                ""connection_states"": [""NEW"", ""INVALID""],
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("rule blocking NEW connections prevents DNS queries");
+    }
+
+    [Fact]
     public async Task Analyze_WithDns53BlockRuleUsingPortGroup_DetectsRule()
     {
         // Arrange - Firewall rule using port group reference instead of direct port

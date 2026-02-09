@@ -414,9 +414,13 @@ public class DnsSecurityAnalyzer
             // === Port-based DNS blocking detection ===
             // RuleBlocksPortAndProtocol handles port matching (null port = all ports),
             // DestinationMatchOppositePorts, and protocol matching in one call.
+            // Rules must block NEW connections to prevent DNS leaks - rules that only
+            // block INVALID connections (e.g., "Block Invalid Traffic") don't prevent DNS queries.
+            if (!isBlockAction || !rule.BlocksNewConnections())
+                continue;
 
             // Check for DNS port 53 blocking (UDP) - must target External zone
-            if (isBlockAction && targetsExternalZone && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp"))
+            if (targetsExternalZone && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp"))
             {
                 result.HasDns53BlockRule = true;
                 result.Dns53RuleName = name;
@@ -432,7 +436,7 @@ public class DnsSecurityAnalyzer
 
             // Check for DNS over TLS (port 853 TCP) blocking
             // For legacy systems, LAN_IN is also acceptable (gateway uses DoH, not DoT/DoQ for upstream)
-            if (isBlockAction && (targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "tcp"))
+            if ((targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "tcp"))
             {
                 result.HasDotBlockRule = true;
                 result.DotRuleName = name;
@@ -441,7 +445,7 @@ public class DnsSecurityAnalyzer
             }
 
             // Check for DNS over QUIC (port 853 UDP) blocking (RFC 9250)
-            if (isBlockAction && (targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "udp"))
+            if ((targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "udp"))
             {
                 result.HasDoqBlockRule = true;
                 result.DoqRuleName = name;
@@ -452,7 +456,7 @@ public class DnsSecurityAnalyzer
             // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers)
             // DoH = TCP 443 (HTTP/2), DoH3 = UDP 443 (HTTP/3 over QUIC)
             // For legacy systems, LAN_IN is also acceptable (gateway's DoH goes to configured providers, not blocked IPs)
-            if (isBlockAction && (targetsExternalZone || isLegacyLanIn) && matchingTarget == "WEB" && webDomains?.Count > 0)
+            if ((targetsExternalZone || isLegacyLanIn) && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
                 // Check if web domains include DNS providers
                 var dnsProviderDomains = webDomains.Where(d =>
@@ -492,7 +496,7 @@ public class DnsSecurityAnalyzer
             var appIds = rule.AppIds;
             var isAppBasedRule = appIds?.Count > 0 && matchingTarget == "APP";
 
-            if (isBlockAction && targetsExternalZone && isAppBasedRule)
+            if (targetsExternalZone && isAppBasedRule)
             {
                 // For legacy rules (protocol == "all" or null), assume all protocols blocked
                 var legacyAllProtocols = string.IsNullOrEmpty(protocol) || protocol == "all";
