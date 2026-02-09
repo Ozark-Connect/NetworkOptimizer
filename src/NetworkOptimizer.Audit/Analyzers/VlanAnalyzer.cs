@@ -35,6 +35,9 @@ public class VlanAnalyzer
     private static readonly string[] PrinterPatterns = { "print" };
     // DMZ patterns - fallback name-based detection (zone-based is primary)
     private static readonly string[] DmzPatterns = { "dmz" };
+    private static readonly string[] ServerPatterns = { "server", "datacenter", "data center", "hypervisor", "hosting" };
+    // Server patterns requiring word boundary matching (to avoid "domain controller" matching "domain" in other contexts)
+    private static readonly string[] ServerWordBoundaryPatterns = { "compute", "data", "domain", "vm", "lab", "services", "controllers", "rack", "cluster", "backend", "virtual" };
 
     public VlanAnalyzer(ILogger<VlanAnalyzer> logger)
     {
@@ -310,6 +313,11 @@ public class VlanAnalyzer
             nameBasedPurpose = NetworkPurpose.IoT;
         else if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Management;
+        else if (ServerPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Server;
+        // Word-boundary patterns for Server (e.g., "VM VLAN" but not "ViewModel")
+        else if (ServerWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
+            nameBasedPurpose = NetworkPurpose.Server;
         else if (GuestPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Guest;
         else if (CorporatePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))

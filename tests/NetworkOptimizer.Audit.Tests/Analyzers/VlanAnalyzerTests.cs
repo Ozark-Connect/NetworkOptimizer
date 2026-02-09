@@ -521,6 +521,47 @@ public class VlanAnalyzerTests
         result.Should().Be(NetworkPurpose.Unknown);
     }
 
+    [Theory]
+    [InlineData("Server VLAN", NetworkPurpose.Server)]
+    [InlineData("Servers", NetworkPurpose.Server)]
+    [InlineData("Data Center", NetworkPurpose.Server)]
+    [InlineData("Datacenter", NetworkPurpose.Server)]
+    [InlineData("Hypervisor Network", NetworkPurpose.Server)]
+    [InlineData("Hosting", NetworkPurpose.Server)]
+    public void ClassifyNetwork_ServerPatterns_ReturnsServer(string networkName, NetworkPurpose expected)
+    {
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Compute VLAN")]
+    [InlineData("Data VLAN")]
+    [InlineData("Domain Controllers")]
+    [InlineData("VM Network")]
+    [InlineData("Lab")]
+    [InlineData("Lab Network")]
+    [InlineData("Services VLAN")]
+    [InlineData("Rack 1")]
+    [InlineData("Cluster")]
+    [InlineData("Backend")]
+    [InlineData("Virtual Machines")]
+    public void ClassifyNetwork_ServerWordBoundaryPatterns_ReturnsServer(string networkName)
+    {
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().Be(NetworkPurpose.Server);
+    }
+
+    [Theory]
+    [InlineData("ViewModel App")]      // "vm" embedded in "ViewModel"
+    [InlineData("Collaborative")]      // "lab" embedded in "Collaborative"
+    [InlineData("DataService")]        // "data" embedded without boundary
+    public void ClassifyNetwork_ServerWordBoundary_EmbeddedPatterns_DoNotMatch(string networkName)
+    {
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().NotBe(NetworkPurpose.Server);
+    }
+
     [Fact]
     public void ClassifyNetwork_ExplicitGuestPurpose_ReturnsGuest()
     {

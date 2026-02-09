@@ -47,6 +47,11 @@ public enum NetworkPurpose
     Dmz,
 
     /// <summary>
+    /// Server/compute network for hypervisors, containers, and datacenter workloads
+    /// </summary>
+    Server,
+
+    /// <summary>
     /// Unknown or unclassified network
     /// </summary>
     Unknown
@@ -70,6 +75,7 @@ public static class NetworkPurposeExtensions
         NetworkPurpose.Management => "Management",
         NetworkPurpose.Printer => "Printer",
         NetworkPurpose.Dmz => "DMZ",
+        NetworkPurpose.Server => "Server",
         NetworkPurpose.Unknown => "Unclassified",
         _ => purpose.ToString()
     };

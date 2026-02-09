@@ -449,9 +449,10 @@ public class FirewallRuleAnalyzer
         // Do NOT filter by isolation - these are DESTINATIONS, and isolation only blocks outbound
         var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
         var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
-        var trustedNetworks = corporateNetworks.Concat(homeNetworks).ToList();
+        var serverNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Server).ToList();
+        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(serverNetworks).ToList();
 
-        // IoT should be isolated from: Corporate, Home
+        // IoT should be isolated from: Corporate, Home, Server
         // (IoT → Security and IoT → Management already covered above)
         var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT && !n.NetworkIsolationEnabled).ToList();
         foreach (var iot in iotNetworks)
@@ -705,6 +706,7 @@ public class FirewallRuleAnalyzer
                 NetworkPurpose.Guest => " (Guest)",
                 NetworkPurpose.Corporate => " (Corporate)",
                 NetworkPurpose.Home => " (Home)",
+                NetworkPurpose.Server => " (Server)",
                 _ => ""
             };
         }
@@ -947,20 +949,20 @@ public class FirewallRuleAnalyzer
     /// </summary>
     private static bool IsCriticalIsolationMissing(NetworkPurpose purpose1, NetworkPurpose purpose2)
     {
-        // Guest to Corporate, Management, or Security = Critical
+        // Guest to Corporate, Management, Security, or Server = Critical
         if (purpose1 == NetworkPurpose.Guest || purpose2 == NetworkPurpose.Guest)
         {
             var other = purpose1 == NetworkPurpose.Guest ? purpose2 : purpose1;
-            if (other is NetworkPurpose.Corporate or NetworkPurpose.Management or NetworkPurpose.Security)
+            if (other is NetworkPurpose.Corporate or NetworkPurpose.Management or NetworkPurpose.Security or NetworkPurpose.Server)
                 return true;
         }
 
         // Anything to Management = Critical (Management should only be accessed by specific admin devices)
-        // This includes: IoT, Corporate, Home, Security
+        // This includes: IoT, Corporate, Home, Security, Server
         if (purpose1 == NetworkPurpose.Management || purpose2 == NetworkPurpose.Management)
         {
             var other = purpose1 == NetworkPurpose.Management ? purpose2 : purpose1;
-            if (other is NetworkPurpose.IoT or NetworkPurpose.Corporate or NetworkPurpose.Home or NetworkPurpose.Security)
+            if (other is NetworkPurpose.IoT or NetworkPurpose.Corporate or NetworkPurpose.Home or NetworkPurpose.Security or NetworkPurpose.Server)
                 return true;
         }
 
@@ -2109,6 +2111,7 @@ public class FirewallRuleAnalyzer
                 NetworkPurpose.Home => "Home",
                 NetworkPurpose.Corporate => "Corporate",
                 NetworkPurpose.Guest => "Guest",
+                NetworkPurpose.Server => "Server",
                 _ => p.ToString()
             })
             .ToList();
@@ -2177,6 +2180,7 @@ public class FirewallRuleAnalyzer
                 NetworkPurpose.Guest => " (Guest)",
                 NetworkPurpose.Corporate => " (Corporate)",
                 NetworkPurpose.Home => " (Home)",
+                NetworkPurpose.Server => " (Server)",
                 _ => ""
             };
         }
