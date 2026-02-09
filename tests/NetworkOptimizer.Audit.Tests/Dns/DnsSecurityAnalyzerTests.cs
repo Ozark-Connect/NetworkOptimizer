@@ -2305,6 +2305,59 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.HardeningNotes.Should().Contain(n => n.Contains("fully configured"));
     }
 
+    [Fact]
+    public async Task Analyze_FullProtectionWithNetworks_EachProtocolCoverageEvaluatedIndependently()
+    {
+        // Arrange - DNS53 covers all networks, DoT only covers some
+        // Hardening note should NOT say "fully configured" because DoT is partial
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""cloudflare""]
+            }
+        ]").RootElement;
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""ANY"" },
+                ""destination"": { ""port"": ""53"" }
+            },
+            {
+                ""name"": ""Block DoT (LAN only)"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net1""]
+                },
+                ""destination"": { ""port"": ""853"", ""protocol"": ""tcp"" }
+            },
+            {
+                ""name"": ""Block DoH"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""ANY"" },
+                ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall), null, networks);
+
+        // DNS53 covers all networks, DoT only covers LAN (not IoT)
+        result.Dns53ProvidesFullCoverage.Should().BeTrue();
+        result.DotProvidesFullCoverage.Should().BeFalse();
+        // Not "fully configured" because DoT is partial
+        result.HardeningNotes.Should().NotContain(n => n.Contains("fully configured"));
+    }
+
     #endregion
 
     #region Additional Issue Generation Tests

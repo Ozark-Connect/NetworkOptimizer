@@ -832,7 +832,6 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { mgmtNetworkId },
                 DestinationMatchingTarget = "ANY",
-
                 DestinationZoneId = externalZoneId,
                 Protocol = "all"
             },
@@ -902,7 +901,6 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { mgmtNetworkId },
                 DestinationMatchingTarget = "ANY",
-
                 DestinationZoneId = externalZoneId,
                 Protocol = "all"
             },
@@ -945,7 +943,6 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { mgmtNetworkId },
                 DestinationMatchingTarget = "ANY",
-
                 DestinationZoneId = externalZoneId,
                 Protocol = "all"
             },
@@ -1185,6 +1182,176 @@ public class FirewallRuleAnalyzerTests
         // Assert - DNS block (port 53) doesn't affect HTTPS (port 443), so no UniFi/AFC issues
         issues.Should().NotContain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
         issues.Should().NotContain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_CidrBlockRuleEclipsesIpAllow_Reports5GIssue()
+    {
+        // Arrange - 5G allow rule targets a specific IP, block rule uses CIDR covering that IP
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block rule with CIDR source covering 192.168.99.0/24
+            new FirewallRule
+            {
+                Id = "block-subnet",
+                Name = "Block Subnet",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.0/24" },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            CreateFirewallRule("UniFi Cloud", action: "allow", index: 200,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow", index: 201,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow", index: 202,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp"),
+            // 5G allow rule with specific IP within the blocked CIDR
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        // 5G allow at 192.168.99.5 is eclipsed by block at 192.168.99.0/24
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_CidrBlockRuleDoesNotCoverAllow_No5GIssue()
+    {
+        // Arrange - Block rule CIDR doesn't cover the 5G allow rule's IP
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block rule targets 10.0.0.0/8 - doesn't cover 192.168.99.5
+            new FirewallRule
+            {
+                Id = "block-other-subnet",
+                Name = "Block Other Subnet",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "10.0.0.0/8" },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            CreateFirewallRule("UniFi Cloud", action: "allow", index: 200,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow", index: 201,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow", index: 202,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp"),
+            // 5G allow rule at 192.168.99.5 - NOT in 10.0.0.0/8
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        // 5G allow at 192.168.99.5 is NOT covered by block at 10.0.0.0/8
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_OppositeIpsBlockRuleEclipsesAllow_Reports5GIssue()
+    {
+        // Arrange - Block rule uses SourceMatchOppositeIps: blocks all EXCEPT 192.168.50.0/24
+        // 5G modem at 192.168.99.5 is NOT in the exception list, so it IS blocked
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block everything EXCEPT 192.168.50.0/24
+            new FirewallRule
+            {
+                Id = "block-except-lan",
+                Name = "Block Except LAN",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.50.0/24" },
+                SourceMatchOppositeIps = true,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            CreateFirewallRule("UniFi Cloud", action: "allow", index: 200,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow", index: 201,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow", index: 202,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp"),
+            // 5G modem at 192.168.99.5 - NOT in the exception CIDR 192.168.50.0/24
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                WebDomains = new List<string> { "t-mobile.com" },
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        // 192.168.99.5 is not in the exception list (192.168.50.0/24), so it's blocked
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
     #endregion

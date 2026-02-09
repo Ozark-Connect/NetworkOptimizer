@@ -1428,8 +1428,7 @@ public class FirewallRuleAnalyzer
                     var blockNetworkIds = blockRule.SourceNetworkIds ?? new List<string>();
                     if (blockRule.SourceMatchOppositeNetworks)
                         return allowNetworkIds.Any(netId => !blockNetworkIds.Contains(netId));
-                    else
-                        return allowNetworkIds.Any(netId => blockNetworkIds.Contains(netId));
+                    return allowNetworkIds.Any(netId => blockNetworkIds.Contains(netId));
                 }
                 return false;
 
@@ -1440,9 +1439,10 @@ public class FirewallRuleAnalyzer
                     var allowIps = allowRule.SourceIps ?? new List<string>();
                     var blockIps = blockRule.SourceIps ?? new List<string>();
                     // CIDR-aware overlap check (e.g., block 192.168.0.0/16 covers allow 192.168.1.1)
+                    // Bare IPs use IsIpInAnySubnet; CIDRs use AnyCidrCoversSubnet
                     if (blockRule.SourceMatchOppositeIps)
-                        return allowIps.Any(ip => !NetworkUtilities.AnyCidrCoversSubnet(blockIps, ip));
-                    return allowIps.Any(ip => NetworkUtilities.AnyCidrCoversSubnet(blockIps, ip));
+                        return allowIps.Any(ip => !IpOrCidrCoveredByAny(ip, blockIps));
+                    return allowIps.Any(ip => IpOrCidrCoveredByAny(ip, blockIps));
                 }
                 return false;
 
@@ -1461,6 +1461,13 @@ public class FirewallRuleAnalyzer
                 // Unknown source type or legacy format - fall back to checking if block uses ANY
                 return false;
         }
+    }
+
+    private static bool IpOrCidrCoveredByAny(string ipOrCidr, List<string> cidrs)
+    {
+        return ipOrCidr.Contains('/')
+            ? NetworkUtilities.AnyCidrCoversSubnet(cidrs, ipOrCidr)
+            : NetworkUtilities.IsIpInAnySubnet(ipOrCidr, cidrs);
     }
 
     /// <summary>

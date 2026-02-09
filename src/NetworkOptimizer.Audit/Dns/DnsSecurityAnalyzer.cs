@@ -2326,22 +2326,31 @@ public class DnsSecurityResult
     public List<string> DohBlockedDomains { get; } = new();
     public List<string> DoqBlockedDomains { get; } = new();
 
-    // DNS53 Firewall Rule Network Coverage
+    /// <summary>DNS53 (port 53) firewall rule network coverage</summary>
     public bool Dns53ProvidesFullCoverage { get; set; }
+    /// <summary>Network IDs covered by DNS53 blocking rules</summary>
     public HashSet<string> Dns53CoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Network names covered by DNS53 blocking rules</summary>
     public List<string> Dns53CoveredNetworks { get; } = new();
+    /// <summary>Network names not covered by any DNS53 blocking rule</summary>
     public List<string> Dns53UncoveredNetworks { get; } = new();
 
-    // DoT (853/TCP) Firewall Rule Network Coverage
+    /// <summary>DoT (port 853/TCP) firewall rule network coverage</summary>
     public bool DotProvidesFullCoverage { get; set; }
+    /// <summary>Network IDs covered by DoT blocking rules</summary>
     public HashSet<string> DotCoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Network names covered by DoT blocking rules</summary>
     public List<string> DotCoveredNetworks { get; } = new();
+    /// <summary>Network names not covered by any DoT blocking rule</summary>
     public List<string> DotUncoveredNetworks { get; } = new();
 
-    // DoQ (853/UDP) Firewall Rule Network Coverage
+    /// <summary>DoQ (port 853/UDP) firewall rule network coverage</summary>
     public bool DoqProvidesFullCoverage { get; set; }
+    /// <summary>Network IDs covered by DoQ blocking rules</summary>
     public HashSet<string> DoqCoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Network names covered by DoQ blocking rules</summary>
     public List<string> DoqCoveredNetworks { get; } = new();
+    /// <summary>Network names not covered by any DoQ blocking rule</summary>
     public List<string> DoqUncoveredNetworks { get; } = new();
 
     // Device DNS Configuration
