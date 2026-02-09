@@ -420,13 +420,12 @@ public class DnsSecurityAnalyzer
                 continue;
 
             // Filter out rules that aren't DNS-specific for port-based detection.
-            // These operate at the application layer and don't block network ports:
             // - Web domain rules (e.g., "Block Scam Domains") filter by HTTP domain
             // - App category rules (e.g., "Block Torrent Trackers") filter by app category
             // - Rules with unresolved port groups intended to specify ports but couldn't
             // App-based rules (AppIds with APP target) are handled separately below.
-            // Note: Predefined rules ARE evaluated by content - a default-block-all posture
-            // with predefined catch-all rules genuinely blocks DNS traffic.
+            // Source-specific block-all rules DO count - they block DNS for those networks
+            // and coverage tracking handles per-network accounting.
             var isNarrowRule = rule.WebDomains?.Count > 0 || rule.AppCategoryIds?.Count > 0;
             var hasUnresolvedPorts = rule.HasUnresolvedDestinationPortGroup;
 

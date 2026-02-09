@@ -866,13 +866,16 @@ public class DnsSecurityAnalyzerTests : IDisposable
     [Fact]
     public async Task Analyze_BlockAllWithPortMatchingTypeAny_DetectsAsDnsBlock()
     {
-        // A non-predefined rule with port_matching_type=ANY targets all ports including DNS.
-        // This IS a DNS block rule (null port = all ports for user-created rules).
+        // A rule with source=ANY and no port restriction blocks all traffic including DNS.
+        // This IS a DNS block rule (general block-all to external).
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block All External Traffic"",
                 ""enabled"": true,
                 ""action"": ""drop"",
+                ""source"": {
+                    ""matching_target"": ""ANY""
+                },
                 ""destination"": {
                     ""port_matching_type"": ""ANY"",
                     ""matching_target"": ""ANY"",
@@ -883,9 +886,35 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
         var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
-        result.HasDns53BlockRule.Should().BeTrue("port_matching_type=ANY explicitly blocks all ports including 53");
-        result.HasDotBlockRule.Should().BeTrue("port_matching_type=ANY blocks port 853 TCP");
-        result.HasDoqBlockRule.Should().BeTrue("port_matching_type=ANY blocks port 853 UDP");
+        result.HasDns53BlockRule.Should().BeTrue("block-all to external with ANY source blocks DNS");
+        result.HasDotBlockRule.Should().BeTrue("block-all to external blocks DoT");
+        result.HasDoqBlockRule.Should().BeTrue("block-all to external blocks DoQ");
+    }
+
+    [Fact]
+    public async Task Analyze_SourceSpecificBlockAll_DetectsAsDnsBlock()
+    {
+        // Source-specific block-all rules DO block DNS for those networks.
+        // Coverage tracking handles per-network accounting.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Network Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net-123""]
+                },
+                ""destination"": {
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("source-specific block-all rules block DNS for those networks");
     }
 
     [Fact]
