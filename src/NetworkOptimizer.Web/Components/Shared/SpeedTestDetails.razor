@@ -524,14 +524,20 @@
 
     /// <summary>
     /// Get device tooltip showing type, model, and firmware for UniFi devices.
-    /// For wireless client hops, shows WiFi stats from the Result.
+    /// For wireless client hops, reuses the existing WiFi tooltip from the connector.
     /// </summary>
     private string? GetDeviceTooltip(NetworkHop hop)
     {
-        // Wireless client hop: show WiFi stats from the Result
-        if (hop.Type == HopType.WirelessClient && Result != null)
+        // Wireless client hop: show the same WiFi tooltip as the connector link
+        if (hop.Type == HopType.WirelessClient && Result?.PathAnalysis?.Path?.Hops is { } hops)
         {
-            return GetWirelessClientTooltip(hop);
+            var hopIdx = hops.IndexOf(hop);
+            // Find the adjacent AP hop (next hop in the path)
+            var adjacentHop = hopIdx >= 0 && hopIdx < hops.Count - 1 ? hops[hopIdx + 1] : null;
+            if (adjacentHop != null)
+            {
+                return GetWifiTooltip(hop, adjacentHop, hop.IsBottleneck);
+            }
         }
 
         // Only show tooltip for UniFi devices (those with a model)
@@ -557,57 +563,6 @@
         }
 
         return string.Join("", lines);
-    }
-
-    /// <summary>
-    /// Build tooltip for wireless client hop showing WiFi stats from the Result.
-    /// </summary>
-    private string? GetWirelessClientTooltip(NetworkHop hop)
-    {
-        if (Result == null) return null;
-
-        var lines = new List<string>();
-
-        // Signal strength
-        if (Result.WifiSignalDbm.HasValue)
-        {
-            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Signal:</span> {Result.WifiSignalDbm} dBm</div>");
-        }
-
-        // Band badge + channel
-        if (!string.IsNullOrEmpty(Result.WifiRadio))
-        {
-            var radio = Result.WifiRadio.ToLowerInvariant();
-            var bandHtml = $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span>";
-            var channelPart = Result.WifiChannel.HasValue ? $" Ch {Result.WifiChannel}" : "";
-            lines.Add($"<div class='device-tooltip-row'>{bandHtml}{channelPart}</div>");
-        }
-
-        // TX/RX rates
-        if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
-        {
-            var parts = new List<string>();
-            if (Result.WifiTxRateKbps.HasValue)
-                parts.Add($"TX {Result.WifiTxRateKbps.Value / 1000} Mbps");
-            if (Result.WifiRxRateKbps.HasValue)
-                parts.Add($"RX {Result.WifiRxRateKbps.Value / 1000} Mbps");
-            lines.Add($"<div class='device-tooltip-row'>{string.Join(" / ", parts)}</div>");
-        }
-
-        // Protocol
-        if (!string.IsNullOrEmpty(Result.WifiRadioProto))
-        {
-            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Protocol:</span> {Result.WifiRadioProto}</div>");
-        }
-
-        // Link to Wi-Fi Optimizer
-        var clientMac = Result.ClientMac ?? hop.DeviceMac;
-        if (!string.IsNullOrEmpty(clientMac))
-        {
-            lines.Add($"<div class='device-tooltip-row device-tooltip-link'>View in Wi-Fi Optimizer</div>");
-        }
-
-        return lines.Count > 0 ? string.Join("", lines) : null;
     }
 
     private string GetDeviceTypeName(HopType type) => type switch
@@ -718,11 +673,17 @@
         // For client wireless, also show signal/noise from Result
         if (isClientWireless && Result != null)
         {
+            var clientMac = Result.ClientMac ?? hop.DeviceMac;
+
             // Check for MLO (Multi-Link Operation) - use unified styling
             if (Result.WifiIsMlo && !string.IsNullOrEmpty(Result.WifiMloLinksJson))
             {
                 var mloTooltip = BuildMloTooltip();
-                return isBottleneck ? mloTooltip + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>" : mloTooltip;
+                if (isBottleneck)
+                    mloTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
+                if (!string.IsNullOrEmpty(clientMac))
+                    mloTooltip += "<div class='wifi-tooltip-client-link'>View in Wi-Fi Optimizer</div>";
+                return mloTooltip;
             }
 
             // Single-link wireless - use same styled format as MLO
@@ -766,7 +727,11 @@
             }
 
             var clientTooltip = lines.Count > 0 ? string.Join("", lines) : "Wireless connection";
-            return isBottleneck ? clientTooltip + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>" : clientTooltip;
+            if (isBottleneck)
+                clientTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
+            if (!string.IsNullOrEmpty(clientMac))
+                clientTooltip += "<div class='wifi-tooltip-client-link'>View in Wi-Fi Optimizer</div>";
+            return clientTooltip;
         }
 
         // For mesh/bridge wireless - use same styled format

@@ -3899,6 +3899,14 @@ select.form-control {
     font-weight: 500;
 }
 
+.wifi-tooltip-client-link {
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: #60a5fa;
+    font-size: 0.75rem;
+}
+
 .device-tooltip-link {
     color: #60a5fa;
     font-size: 0.75rem;
