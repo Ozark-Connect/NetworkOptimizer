@@ -49,7 +49,7 @@ public class FirewallAnyAnyRule
                 { "ruleset", rule.Ruleset ?? "unknown" },
                 { "action", rule.Action ?? "unknown" }
             },
-            RecommendedAction = "Restrict source, destination, or protocol to minimum required access",
+            RecommendedAction = "Restrict source, destination, or protocol to minimum required access.",
             RuleId = "FW-ANY-ANY-001",
             ScoreImpact = 15
         };

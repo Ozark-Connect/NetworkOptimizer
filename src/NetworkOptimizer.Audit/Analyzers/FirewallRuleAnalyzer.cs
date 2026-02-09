@@ -125,7 +125,7 @@ public class FirewallRuleAnalyzer
                                 },
                                 RuleId = "FW-EXCEPTION-001",
                                 ScoreImpact = 0,
-                                RecommendedAction = "This appears to be a deliberate exception pattern - no action required"
+                                RecommendedAction = "This appears to be a deliberate exception pattern - no action required."
                             });
                         }
                         else
@@ -145,7 +145,7 @@ public class FirewallRuleAnalyzer
                                 },
                                 RuleId = "FW-SUBVERT-001",
                                 ScoreImpact = 5,
-                                RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule"
+                                RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule."
                             });
                             // For subverts, only report the first one
                             break;
@@ -199,7 +199,7 @@ public class FirewallRuleAnalyzer
                                 },
                                 RuleId = "FW-SHADOW-001",
                                 ScoreImpact = 0,
-                                RecommendedAction = "Review rule order - the allow rule may never match due to the earlier deny rule"
+                                RecommendedAction = "Review rule order - the allow rule may never match due to the earlier deny rule."
                             });
                         }
                         // Continue checking other earlier rules that may also shadow this allow
@@ -655,7 +655,7 @@ public class FirewallRuleAnalyzer
                     },
                     RuleId = "FW-ISOLATION-EXCEPTION-001",
                     ScoreImpact = 0,
-                    RecommendedAction = "This appears to be a deliberate exception pattern - no action required"
+                    RecommendedAction = "This appears to be a deliberate exception pattern - no action required."
                 });
             }
         }

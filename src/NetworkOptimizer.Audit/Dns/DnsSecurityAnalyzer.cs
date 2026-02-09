@@ -711,7 +711,7 @@ public class DnsSecurityAnalyzer
                     Severity = AuditSeverity.Informational,
                     DeviceName = result.GatewayName,
                     Message = "Unable to determine DNS security solution. No DoH configured and no third-party LAN DNS detected.",
-                    RecommendedAction = "Enable CyberSecure Encrypted DNS (DoH) in Network Settings or deploy a DNS filtering solution like Pi-hole or AdGuard Home",
+                    RecommendedAction = "Enable CyberSecure Encrypted DNS (DoH) in Network Settings or deploy a DNS filtering solution like Pi-hole or AdGuard Home.",
                     RuleId = "DNS-UNKNOWN-001",
                     ScoreImpact = 0  // No score impact - shown alongside DNS_NO_DOH which carries the penalty
                 });
@@ -723,7 +723,7 @@ public class DnsSecurityAnalyzer
                     Severity = AuditSeverity.Critical,
                     DeviceName = result.GatewayName,
                     Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
-                    RecommendedAction = "Enable CyberSecure Encrypted DNS (DoH) in Network Settings with a trusted provider like NextDNS or Cloudflare",
+                    RecommendedAction = "Enable CyberSecure Encrypted DNS (DoH) in Network Settings with a trusted provider like NextDNS or Cloudflare.",
                     RuleId = "DNS-DOH-001",
                     ScoreImpact = 12
                 });
@@ -738,7 +738,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
                 Message = "DoH is using default providers whose privacy policies you may not have reviewed. Default providers may log queries and do not guarantee anonymity.",
-                RecommendedAction = "Consider configuring custom DoH servers from privacy-focused providers if DNS query privacy is important",
+                RecommendedAction = "Consider configuring custom DoH servers from privacy-focused providers if DNS query privacy is important.",
                 RuleId = "DNS-DOH-002",
                 ScoreImpact = 3
             });
@@ -867,7 +867,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
-                RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic",
+                RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic.",
                 RuleId = "DNS-LEAK-001",
                 ScoreImpact = 12
             });
@@ -889,7 +889,7 @@ public class DnsSecurityAnalyzer
                 Severity = severity,
                 DeviceName = result.GatewayName,
                 Message = $"DNS port 53 blocking rules provide partial network coverage. Uncovered networks: {string.Join(", ", result.Dns53UncoveredNetworks)}. Devices on these networks can bypass DNS settings.",
-                RecommendedAction = "Update firewall rules to cover all networks, or create separate rules for uncovered networks, or configure DNAT rules as an alternative",
+                RecommendedAction = "Update firewall rules to cover all networks, or create separate rules for uncovered networks, or configure DNAT rules as an alternative.",
                 RuleId = "DNS-LEAK-002",
                 ScoreImpact = scoreImpact,
                 Metadata = new Dictionary<string, object>
@@ -965,7 +965,7 @@ public class DnsSecurityAnalyzer
                     Severity = AuditSeverity.Informational,
                     DeviceName = result.GatewayName,
                     Message = $"DMZ network(s) ({string.Join(", ", dmzNetworks)}) are not covered by DNS DNAT rules. This is expected for DMZ networks.",
-                    RecommendedAction = "If internal DNS resolution or filtering is desired for DMZ networks, create firewall rules to allow DNS traffic from DMZ to your internal DNS server or gateway",
+                    RecommendedAction = "If internal DNS resolution or filtering is desired for DMZ networks, create firewall rules to allow DNS traffic from DMZ to your internal DNS server or gateway.",
                     RuleId = "DNS-DMZ-001",
                     ScoreImpact = 0,
                     Metadata = new Dictionary<string, object>
@@ -985,7 +985,7 @@ public class DnsSecurityAnalyzer
                     Severity = AuditSeverity.Informational,
                     DeviceName = result.GatewayName,
                     Message = $"Guest network(s) ({string.Join(", ", guestNetworksWithThirdPartyDns)}) are using third-party LAN DNS and are not covered by DNS DNAT rules.",
-                    RecommendedAction = "If internal DNS resolution or filtering is desired for Guest networks using third-party DNS, create firewall rules to allow DNS traffic from the Guest network to your internal DNS server",
+                    RecommendedAction = "If internal DNS resolution or filtering is desired for Guest networks using third-party DNS, create firewall rules to allow DNS traffic from the Guest network to your internal DNS server.",
                     RuleId = "DNS-GUEST-001",
                     ScoreImpact = 0,
                     Metadata = new Dictionary<string, object>
@@ -1068,7 +1068,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
                 Message = $"DNAT DNS rules target single IP addresses instead of network ranges: {string.Join(", ", result.DnatSingleIpRules)}. This provides limited coverage and may indicate misconfiguration.",
-                RecommendedAction = "Configure DNAT rules to use network references or CIDR ranges for complete coverage",
+                RecommendedAction = "Configure DNAT rules to use network references or CIDR ranges for complete coverage.",
                 RuleId = "DNS-DNAT-002",
                 ScoreImpact = 2,
                 Metadata = new Dictionary<string, object>
@@ -1110,7 +1110,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = $"DNAT DNS rules have restricted destination filters that only catch some bypass attempts. {string.Join("; ", result.RestrictedDestinationRules)}.",
-                RecommendedAction = "Set destination to 'Any' or use 'invert address' to match traffic NOT going to your DNS server",
+                RecommendedAction = "Set destination to 'Any' or use 'invert address' to match traffic NOT going to your DNS server.",
                 RuleId = "DNS-DNAT-004",
                 ScoreImpact = 5,
                 Metadata = new Dictionary<string, object>
@@ -1129,7 +1129,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks DNS-over-TLS (port 853). Devices can use encrypted DNS that bypasses your DoH configuration.",
-                RecommendedAction = "Create firewall rule: Block outbound TCP port 853 to Internet for all VLANs",
+                RecommendedAction = "Create firewall rule: Block outbound TCP port 853 to Internet for all VLANs.",
                 RuleId = "DNS-LEAK-002",
                 ScoreImpact = 6
             });
@@ -1142,7 +1142,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = $"DNS-over-TLS (port 853) blocking has partial coverage. Uncovered networks: {string.Join(", ", result.DotUncoveredNetworks)}",
-                RecommendedAction = "Extend DoT blocking rule to cover all networks, or create additional rules for uncovered networks",
+                RecommendedAction = "Extend DoT blocking rule to cover all networks, or create additional rules for uncovered networks.",
                 RuleId = "DNS-LEAK-002",
                 ScoreImpact = 4
             });
@@ -1157,7 +1157,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks public DoH providers. Devices can bypass your DNS filtering by using their own DoH servers.",
-                RecommendedAction = "Create firewall rule: Block TCP 443 to known DoH provider domains",
+                RecommendedAction = "Create firewall rule: Block TCP 443 to known DoH provider domains.",
                 RuleId = "DNS-LEAK-003",
                 ScoreImpact = 5,
                 Metadata = new Dictionary<string, object>
@@ -1176,7 +1176,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks DNS over QUIC (DoQ). Devices can bypass your DNS filtering using QUIC-based DNS on UDP port 853.",
-                RecommendedAction = "Create firewall rule: Block outbound UDP port 853 to Internet for all VLANs",
+                RecommendedAction = "Create firewall rule: Block outbound UDP port 853 to Internet for all VLANs.",
                 RuleId = "DNS-LEAK-004",
                 ScoreImpact = 4
             });
@@ -1189,7 +1189,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = $"DNS over QUIC (DoQ) blocking has partial coverage. Uncovered networks: {string.Join(", ", result.DoqUncoveredNetworks)}",
-                RecommendedAction = "Extend DoQ blocking rule to cover all networks, or create additional rules for uncovered networks",
+                RecommendedAction = "Extend DoQ blocking rule to cover all networks, or create additional rules for uncovered networks.",
                 RuleId = "DNS-LEAK-004",
                 ScoreImpact = 3
             });
@@ -1204,7 +1204,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
                 Message = "Network is using ISP-provided DNS servers. This may expose browsing history to your ISP and lacks filtering capabilities.",
-                RecommendedAction = "Configure custom DNS servers or enable DoH with a privacy-focused provider",
+                RecommendedAction = "Configure custom DNS servers or enable DoH with a privacy-focused provider.",
                 RuleId = "DNS-ISP-001",
                 ScoreImpact = 4
             });
