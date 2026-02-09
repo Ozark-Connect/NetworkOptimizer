@@ -645,6 +645,8 @@
                             clearTimeout(mapData._popupCloseTimer);
                             mapData._popupCloseTimer = null;
                         }}
+                        // Cancel any pending dismiss from mousedown (switching, not dismissing)
+                        mapData._dismissingSpider = false;
                         if (mapData.currentSpider) {{
                             switchingSpider = true;
                             var markers = mapData.currentSpider.getAllChildMarkers();
@@ -719,6 +721,14 @@
                             // Check if click is on a popup - if so, don't fade
                             var clickedOnPopup = e.target.closest && e.target.closest('.leaflet-popup');
                             if (clickedOnPopup) return;
+
+                            // Check if click is on another cluster - if so, let clusterclick handle it
+                            var clickedOnCluster = e.target.closest && e.target.closest('.speed-cluster');
+                            if (clickedOnCluster) return;
+
+                            // Check if click is on an AP marker - if so, don't fade
+                            var clickedOnAp = e.target.closest && e.target.closest('.ap-marker-icon');
+                            if (clickedOnAp) return;
 
                             // Fade out spider when clicking outside
                             markers.forEach(m => {{
