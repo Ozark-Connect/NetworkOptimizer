@@ -24,7 +24,7 @@
                         <div class="issue-entity">Affected:
                             @if (!string.IsNullOrEmpty(issue.AffectedClientMac))
                             {
-                                <a href="/wifi-optimizer?client=@issue.AffectedClientMac" class="issue-client-link">@issue.AffectedEntity</a>
+                                <a href="./wifi-optimizer?client=@issue.AffectedClientMac" class="issue-client-link">@issue.AffectedEntity</a>
                             }
                             else
                             {

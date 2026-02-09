@@ -189,7 +189,8 @@
                     }
                     el._tippy.destroy();
                 }
-                tippy(el, {
+                var isInteractive = el.hasAttribute('data-tooltip-interactive');
+                var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
                     trigger: 'mouseenter click',
@@ -199,7 +200,12 @@
                     theme: 'custom',
                     appendTo: document.body,
                     maxWidth: 'none'
-                });
+                };
+                if (isInteractive) {
+                    opts.interactive = true;
+                    opts.interactiveBorder = 10;
+                }
+                tippy(el, opts);
             });
         }
 
@@ -214,35 +220,31 @@
             });
 
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
+                var isInteractive = el.hasAttribute('data-tooltip-interactive');
+                var opts = {
+                    content: el.dataset.tooltip,
+                    allowHTML: true,
+                    trigger: 'mouseenter click',
+                    hideOnClick: true,
+                    delay: [100, 200],
+                    placement: 'top',
+                    theme: 'custom',
+                    appendTo: document.body,
+                    maxWidth: 'none'
+                };
+                if (isInteractive) {
+                    opts.interactive = true;
+                    opts.interactiveBorder = 10;
+                }
                 if (el._tippy) {
                     // Update existing tooltip if content changed
                     if (el._tippy.props.content !== el.dataset.tooltip) {
                         el._tippy.destroy();
-                        tippy(el, {
-                            content: el.dataset.tooltip,
-                            allowHTML: true,
-                            trigger: 'mouseenter click',
-                            hideOnClick: true,
-                            delay: [100, 200],
-                            placement: 'top',
-                            theme: 'custom',
-                            appendTo: document.body,
-                            maxWidth: 'none'
-                        });
+                        tippy(el, opts);
                     }
                 } else {
                     // Initialize new tooltip for dynamically added element
-                    tippy(el, {
-                        content: el.dataset.tooltip,
-                        allowHTML: true,
-                        trigger: 'mouseenter click',
-                        hideOnClick: true,
-                        delay: [100, 200],
-                        placement: 'top',
-                        theme: 'custom',
-                        appendTo: document.body,
-                        maxWidth: 'none'
-                    });
+                    tippy(el, opts);
                 }
             });
         }, 500);

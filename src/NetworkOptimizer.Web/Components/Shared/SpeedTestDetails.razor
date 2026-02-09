@@ -167,7 +167,7 @@
                                         ? GetWifiTooltip(lastHop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip">
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" @(isWirelessLink ? "data-tooltip-interactive" : "")>
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -202,7 +202,7 @@
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1">
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" @(isWirelessLink ? "data-tooltip-interactive" : "")>
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -222,7 +222,7 @@
 
                                 @if (isClickableClient)
                                 {
-                                    <a href="/wifi-optimizer?client=@clientLinkMac" class="@hopClasses hop-clickable" data-tooltip="@deviceTooltip">
+                                    <a href="./wifi-optimizer?client=@clientLinkMac" class="@hopClasses hop-clickable" data-tooltip="@deviceTooltip" data-tooltip-interactive>
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
                                     </a>
@@ -254,7 +254,7 @@
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2">
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" @(isWirelessLink ? "data-tooltip-interactive" : "")>
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -682,7 +682,7 @@
                 if (isBottleneck)
                     mloTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
                 if (!string.IsNullOrEmpty(clientMac))
-                    mloTooltip += "<div class='wifi-tooltip-client-link'>View in Wi-Fi Optimizer</div>";
+                    mloTooltip += "<div class='wifi-tooltip-client-link'><a href='/wifi-optimizer?client=" + clientMac + "'>View in Wi-Fi Optimizer</a></div>";
                 return mloTooltip;
             }
 
@@ -730,7 +730,7 @@
             if (isBottleneck)
                 clientTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
             if (!string.IsNullOrEmpty(clientMac))
-                clientTooltip += "<div class='wifi-tooltip-client-link'>View in Wi-Fi Optimizer</div>";
+                clientTooltip += "<div class='wifi-tooltip-client-link'><a href='/wifi-optimizer?client=" + clientMac + "'>View in Wi-Fi Optimizer</a></div>";
             return clientTooltip;
         }
 
