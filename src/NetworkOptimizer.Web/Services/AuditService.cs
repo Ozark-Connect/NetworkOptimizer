@@ -608,6 +608,9 @@ public class AuditService
                 Dns53ProvidesFullCoverage = result.DnsSecurity.Dns53ProvidesFullCoverage,
                 DnatProvidesFullCoverage = result.DnsSecurity.DnatProvidesFullCoverage,
                 DotBlocked = result.DnsSecurity.DotBlocked,
+                DotProvidesFullCoverage = result.DnsSecurity.DotProvidesFullCoverage,
+                DoqBlocked = result.DnsSecurity.DoqBlocked,
+                DoqProvidesFullCoverage = result.DnsSecurity.DoqProvidesFullCoverage,
                 DohBypassBlocked = result.DnsSecurity.DohBypassBlocked,
                 FullyProtected = result.DnsSecurity.FullyProtected,
                 WanDnsServers = result.DnsSecurity.WanDnsServers.ToList(),
@@ -1389,7 +1392,9 @@ public class AuditService
                 DohConfigNames = dns.DohConfigNames.ToList(),
                 DnsLeakProtection = dns.DnsLeakProtection,
                 DotBlocked = dns.DotBlocked,
+                DotProvidesFullCoverage = dns.DotProvidesFullCoverage,
                 DoqBlocked = dns.DoqBlocked,
+                DoqProvidesFullCoverage = dns.DoqProvidesFullCoverage,
                 DohBypassBlocked = dns.DohBypassBlocked,
                 Doh3Blocked = dns.Doh3Blocked,
                 FullyProtected = dns.FullyProtected,
@@ -1816,7 +1821,9 @@ public class DnsSecurityReference
     public List<string> DohConfigNames { get; set; } = new();
     public bool DnsLeakProtection { get; set; }
     public bool DotBlocked { get; set; }
+    public bool DotProvidesFullCoverage { get; set; }
     public bool DoqBlocked { get; set; }
+    public bool DoqProvidesFullCoverage { get; set; }
     public bool DohBypassBlocked { get; set; }
     public bool Doh3Blocked { get; set; }
     public bool FullyProtected { get; set; }

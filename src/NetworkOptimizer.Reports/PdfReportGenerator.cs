@@ -333,15 +333,15 @@ public class PdfReportGenerator
                     .Text(dns.GetDnsLeakProtectionDetail()).FontSize(9);
 
                 // DoT Blocking row
-                var dotStatus = dns.DotBlocked ? "Blocked" : "Open";
-                var dotStatusColor = dns.DotBlocked ? successColor : warningColor;
+                var dotStatus = dns.DotBlocked ? (dns.DotProvidesFullCoverage ? "Blocked" : "Partially Blocked") : "Open";
+                var dotStatusColor = dns.DotBlocked && dns.DotProvidesFullCoverage ? successColor : warningColor;
 
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text("DNS-over-TLS (Port 853)").FontSize(9);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text(dotStatus).FontSize(9).FontColor(dotStatusColor);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                    .Text(dns.DotBlocked ? "DoT queries blocked" : "Devices can use external DoT").FontSize(9);
+                    .Text(dns.DotBlocked ? (dns.DotProvidesFullCoverage ? "DoT queries blocked" : "DoT queries partially blocked") : "Devices can use external DoT").FontSize(9);
 
                 // DoH Bypass Blocking row
                 var bypassStatus = dns.DohBypassBlocked ? "Blocked" : "Open";

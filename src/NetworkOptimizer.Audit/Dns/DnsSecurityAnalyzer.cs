@@ -2252,8 +2252,10 @@ public class DnsSecurityAnalyzer
             Dns53ProvidesFullCoverage = result.Dns53ProvidesFullCoverage,
             DnatProvidesFullCoverage = result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid,
             DotBlocked = result.HasDotBlockRule,
+            DotProvidesFullCoverage = result.DotProvidesFullCoverage,
             DohBypassBlocked = result.HasDohBlockRule,
             DoqBypassBlocked = result.HasDoqBlockRule,
+            DoqProvidesFullCoverage = result.DoqProvidesFullCoverage,
             FullyProtected = result.DohConfigured && (result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid)) && result.HasDotBlockRule && result.HasDohBlockRule && result.HasDoqBlockRule && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway,
             IssueCount = result.Issues.Count,
             CriticalIssueCount = result.Issues.Count(i => i.Severity == AuditSeverity.Critical),
@@ -2467,8 +2469,10 @@ public class DnsSecuritySummary
     public bool Dns53ProvidesFullCoverage { get; init; }
     public bool DnatProvidesFullCoverage { get; init; }
     public bool DotBlocked { get; init; }
+    public bool DotProvidesFullCoverage { get; init; }
     public bool DohBypassBlocked { get; init; }
     public bool DoqBypassBlocked { get; init; }
+    public bool DoqProvidesFullCoverage { get; init; }
     public bool FullyProtected { get; init; }
     public int IssueCount { get; init; }
     public int CriticalIssueCount { get; init; }

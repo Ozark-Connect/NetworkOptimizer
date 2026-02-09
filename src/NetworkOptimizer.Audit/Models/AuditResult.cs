@@ -127,9 +127,19 @@ public class DnsSecurityInfo
     public bool DotBlocked { get; set; }
 
     /// <summary>
+    /// Whether DoT blocking covers all networks
+    /// </summary>
+    public bool DotProvidesFullCoverage { get; set; }
+
+    /// <summary>
     /// Whether DoQ (UDP port 853) is blocked
     /// </summary>
     public bool DoqBlocked { get; set; }
+
+    /// <summary>
+    /// Whether DoQ blocking covers all networks
+    /// </summary>
+    public bool DoqProvidesFullCoverage { get; set; }
 
     /// <summary>
     /// Whether DoH bypass (public DoH providers on TCP 443) is blocked

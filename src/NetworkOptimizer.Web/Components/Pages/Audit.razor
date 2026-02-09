@@ -522,17 +522,17 @@
                             </tr>
                             <tr>
                                 <td>DNS-over-TLS (TCP 853)</td>
-                                <td class="@(lastResult.DnsSecurity.DotBlocked ? "status-success" : "status-warning")">
-                                    @(lastResult.DnsSecurity.DotBlocked ? "Blocked" : "Open")
+                                <td class="@(lastResult.DnsSecurity.DotBlocked ? (lastResult.DnsSecurity.DotProvidesFullCoverage ? "status-success" : "status-warning") : "status-warning")">
+                                    @(lastResult.DnsSecurity.DotBlocked ? (lastResult.DnsSecurity.DotProvidesFullCoverage ? "Blocked" : "Partially Blocked") : "Open")
                                 </td>
-                                <td>@(lastResult.DnsSecurity.DotBlocked ? "DoT queries blocked" : "Devices can use external DoT")</td>
+                                <td>@(lastResult.DnsSecurity.DotBlocked ? (lastResult.DnsSecurity.DotProvidesFullCoverage ? "DoT queries blocked" : "DoT queries partially blocked") : "Devices can use external DoT")</td>
                             </tr>
                             <tr>
                                 <td>DNS-over-QUIC (UDP 853)</td>
-                                <td class="@(lastResult.DnsSecurity.DoqBlocked ? "status-success" : "status-warning")">
-                                    @(lastResult.DnsSecurity.DoqBlocked ? "Blocked" : "Open")
+                                <td class="@(lastResult.DnsSecurity.DoqBlocked ? (lastResult.DnsSecurity.DoqProvidesFullCoverage ? "status-success" : "status-warning") : "status-warning")">
+                                    @(lastResult.DnsSecurity.DoqBlocked ? (lastResult.DnsSecurity.DoqProvidesFullCoverage ? "Blocked" : "Partially Blocked") : "Open")
                                 </td>
-                                <td>@(lastResult.DnsSecurity.DoqBlocked ? "DoQ queries blocked" : "Devices can use external DoQ")</td>
+                                <td>@(lastResult.DnsSecurity.DoqBlocked ? (lastResult.DnsSecurity.DoqProvidesFullCoverage ? "DoQ queries blocked" : "DoQ queries partially blocked") : "Devices can use external DoQ")</td>
                             </tr>
                             <tr>
                                 <td>DoH Bypass Prevention</td>
@@ -1098,6 +1098,9 @@
                     Dns53ProvidesFullCoverage = lastResult.DnsSecurity.Dns53ProvidesFullCoverage,
                     DnatProvidesFullCoverage = lastResult.DnsSecurity.DnatProvidesFullCoverage,
                     DotBlocked = lastResult.DnsSecurity.DotBlocked,
+                    DotProvidesFullCoverage = lastResult.DnsSecurity.DotProvidesFullCoverage,
+                    DoqBlocked = lastResult.DnsSecurity.DoqBlocked,
+                    DoqProvidesFullCoverage = lastResult.DnsSecurity.DoqProvidesFullCoverage,
                     DohBypassBlocked = lastResult.DnsSecurity.DohBypassBlocked,
                     FullyProtected = lastResult.DnsSecurity.FullyProtected,
                     WanDnsServers = lastResult.DnsSecurity.WanDnsServers.ToList(),

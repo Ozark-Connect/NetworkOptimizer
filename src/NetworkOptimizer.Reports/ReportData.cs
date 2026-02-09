@@ -36,6 +36,9 @@ public class DnsSecuritySummary
     public bool Dns53ProvidesFullCoverage { get; set; }
     public bool DnatProvidesFullCoverage { get; set; }
     public bool DotBlocked { get; set; }
+    public bool DotProvidesFullCoverage { get; set; }
+    public bool DoqBlocked { get; set; }
+    public bool DoqProvidesFullCoverage { get; set; }
     public bool DohBypassBlocked { get; set; }
     public bool FullyProtected { get; set; }
 
