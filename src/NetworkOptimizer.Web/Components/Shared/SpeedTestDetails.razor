@@ -167,7 +167,7 @@
                                         ? GetWifiTooltip(lastHop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" @(isWirelessLink ? "data-tooltip-interactive" : "")>
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -202,7 +202,7 @@
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" @(isWirelessLink ? "data-tooltip-interactive" : "")>
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -254,7 +254,7 @@
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" @(isWirelessLink ? "data-tooltip-interactive" : "")>
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
