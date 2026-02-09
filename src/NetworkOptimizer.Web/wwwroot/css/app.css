@@ -7273,6 +7273,7 @@ a.path-hop.hop-clickable:hover {
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 0.5rem;
     overflow-x: auto;
+    max-width: 100%;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
