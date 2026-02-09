@@ -7294,8 +7294,8 @@ a.path-hop.hop-clickable:hover {
     display: none;
     align-items: center;
     justify-content: center;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    background: transparent;
+    border: none;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-secondary);
     cursor: pointer;
@@ -7303,22 +7303,11 @@ a.path-hop.hop-clickable:hover {
     font-size: 1.2rem;
     flex-shrink: 0;
     z-index: 1;
-    transition: color 0.15s ease, background 0.15s ease;
+    transition: color 0.15s ease;
 }
 
 .wifi-tabs-scroll-btn:hover {
     color: var(--text-primary);
-    background: var(--bg-secondary);
-}
-
-.wifi-tabs-scroll-left {
-    border-radius: 4px 0 0 4px;
-    border-right: none;
-}
-
-.wifi-tabs-scroll-right {
-    border-radius: 0 4px 4px 0;
-    border-left: none;
 }
 
 /* Show scroll buttons when tabs overflow */
