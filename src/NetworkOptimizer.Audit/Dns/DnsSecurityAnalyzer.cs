@@ -2256,7 +2256,7 @@ public class DnsSecurityAnalyzer
             DohBypassBlocked = result.HasDohBlockRule,
             DoqBypassBlocked = result.HasDoqBlockRule,
             DoqProvidesFullCoverage = result.DoqProvidesFullCoverage,
-            FullyProtected = result.DohConfigured && (result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid)) && result.HasDotBlockRule && result.HasDohBlockRule && result.HasDoqBlockRule && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway,
+            FullyProtected = result.DohConfigured && (result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid)) && result.HasDotBlockRule && result.DotProvidesFullCoverage && result.HasDohBlockRule && result.HasDoqBlockRule && result.DoqProvidesFullCoverage && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway,
             IssueCount = result.Issues.Count,
             CriticalIssueCount = result.Issues.Count(i => i.Severity == AuditSeverity.Critical),
             WanDnsServers = result.WanDnsServers.ToList(),

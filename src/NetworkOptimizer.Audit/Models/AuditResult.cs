@@ -274,7 +274,7 @@ public class DnsSecurityInfo
     /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
-    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;
+    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DotProvidesFullCoverage && DoqBlocked && DoqProvidesFullCoverage && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;
 }
 
 /// <summary>

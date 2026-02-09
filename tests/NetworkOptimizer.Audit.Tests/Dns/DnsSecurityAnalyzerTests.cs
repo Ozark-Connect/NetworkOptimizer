@@ -1858,8 +1858,10 @@ public class DnsSecurityAnalyzerTests : IDisposable
             DohConfigured = true,
             HasDns53BlockRule = true,
             HasDotBlockRule = true,
+            DotProvidesFullCoverage = true,
             HasDohBlockRule = true,
             HasDoqBlockRule = true,
+            DoqProvidesFullCoverage = true,
             WanDnsMatchesDoH = true,
             DeviceDnsPointsToGateway = true
         };
