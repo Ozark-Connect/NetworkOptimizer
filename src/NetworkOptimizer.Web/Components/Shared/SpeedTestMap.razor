@@ -1795,8 +1795,6 @@
     .ap-glow-container {
         background: transparent !important;
         border: none !important;
-        transform: scale(var(--ap-scale, 1));
-        transform-origin: center;
     }
 
     .ap-glow-dot {
@@ -1805,6 +1803,7 @@
         border-radius: 50%;
         background: radial-gradient(circle, rgba(59, 130, 246, 0.55) 0%, rgba(59, 130, 246, 0.12) 55%, transparent 100%);
         filter: blur(3px);
+        transform: scale(var(--ap-scale, 1));
     }
 
     .ap-glow-dot.ap-glow-selected {
@@ -1816,13 +1815,12 @@
     .ap-marker-container {
         background: transparent !important;
         border: none !important;
-        transform: scale(var(--ap-scale, 1));
-        transform-origin: center;
     }
 
     .ap-marker-icon {
         width: 32px;
         height: 32px;
+        transform: scale(var(--ap-scale, 1));
     }
 
     /* AP filter button */
