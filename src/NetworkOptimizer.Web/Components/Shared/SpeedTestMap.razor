@@ -73,9 +73,38 @@
                 }
                 @if (apEditMode)
                 {
-                    <div class="map-edit-hint">
-                        Drag APs to set their locations
-                    </div>
+                    @if (UnplacedAps.Any())
+                    {
+                        <div class="map-ap-panel">
+                            <div class="map-ap-panel-header">
+                                @if (selectedApForPlacement != null)
+                                {
+                                    <span>Click the map to place <strong>@selectedApForPlacement.Name</strong></span>
+                                }
+                                else
+                                {
+                                    <span>Select an AP to place on the map</span>
+                                }
+                            </div>
+                            <div class="map-ap-panel-list">
+                                @foreach (var ap in UnplacedAps)
+                                {
+                                    <button class="map-ap-item @(selectedApForPlacement?.Mac == ap.Mac ? "selected" : "")"
+                                            @onclick="() => SelectApForPlacement(ap)">
+                                        <img src="@(DeviceIcon.GetIconPath(ap.Model) ?? "/images/devices/default-ap.png")"
+                                             alt="@ap.Model" class="map-ap-item-icon" />
+                                        <span class="map-ap-item-name">@ap.Name</span>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="map-edit-hint">
+                            Drag APs to adjust their locations
+                        </div>
+                    }
                 }
             </div>
             <div class="map-footer">
@@ -127,6 +156,10 @@
     private bool initialSetupComplete = false; // Ignore zoom events during initial setup
     private bool apEditMode = false; // Internal AP edit mode toggle
     private bool ShowApMarkers { get; set; } = true; // AP layer visibility
+    private ApMapMarker? selectedApForPlacement = null; // AP selected for click-to-place
+
+    // Unplaced APs that need to be positioned on the map
+    private IEnumerable<ApMapMarker> UnplacedAps => ApMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
     private bool HighAccuracyOnly { get; set; } = false;
@@ -216,7 +249,7 @@
     private int PlacedApCount => ApMarkers.Count(a => a.Latitude.HasValue && a.Longitude.HasValue);
 
     // Show map if we have speed test location data OR placed AP markers
-    private bool HasAnyMapData => HasAnyLocationData || PlacedApCount > 0;
+    private bool HasAnyMapData => HasAnyLocationData || HasAnyApMarkers;
 
     // Check if current filter/time settings return any results (for "no results" message)
     private bool HasFilteredResults => FilteredResults.Any();
@@ -317,10 +350,87 @@
     private async Task ToggleApEditMode()
     {
         apEditMode = !apEditMode;
+        selectedApForPlacement = null;
         if (mapInitialized)
         {
             await UpdateApMarkers();
+            await SetMapClickToPlaceMode(apEditMode);
         }
+    }
+
+    private async Task SelectApForPlacement(ApMapMarker ap)
+    {
+        selectedApForPlacement = selectedApForPlacement?.Mac == ap.Mac ? null : ap;
+        await UpdateMapCursor(selectedApForPlacement != null);
+    }
+
+    [JSInvokable]
+    public async Task OnMapClickForPlacement(double lat, double lng)
+    {
+        if (selectedApForPlacement == null) return;
+
+        var mac = selectedApForPlacement.Mac;
+        selectedApForPlacement = null;
+
+        // Fire the location changed event (parent saves to DB)
+        if (OnApLocationChanged.HasDelegate)
+        {
+            await OnApLocationChanged.InvokeAsync((mac, lat, lng));
+        }
+
+        // Reset cursor and refresh AP markers
+        await UpdateMapCursor(false);
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (mapInitialized)
+            {
+                await UpdateApMarkers();
+            }
+        });
+    }
+
+    private async Task SetMapClickToPlaceMode(bool enabled)
+    {
+        if (!mapInitialized) return;
+
+        var enableStr = enabled ? "true" : "false";
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                if (!mapData || !mapData.map) return;
+
+                // Remove existing click handler if any
+                if (mapData._placementClickHandler) {{
+                    mapData.map.off('click', mapData._placementClickHandler);
+                    mapData._placementClickHandler = null;
+                }}
+
+                if ({enableStr}) {{
+                    mapData._placementClickHandler = function(e) {{
+                        if (mapData.dotNetRef) {{
+                            mapData.dotNetRef.invokeMethodAsync('OnMapClickForPlacement', e.latlng.lat, e.latlng.lng);
+                        }}
+                    }};
+                    mapData.map.on('click', mapData._placementClickHandler);
+                }} else {{
+                    mapData.map.getContainer().style.cursor = '';
+                }}
+            }})();
+        ");
+    }
+
+    private async Task UpdateMapCursor(bool crosshair)
+    {
+        if (!mapInitialized) return;
+
+        var cursor = crosshair ? "crosshair" : "";
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                if (mapData && mapData.map) mapData.map.getContainer().style.cursor = '{cursor}';
+            }})();
+        ");
     }
 
     protected override async Task OnInitializedAsync()
@@ -1475,6 +1585,70 @@
         font-size: 0.8rem;
         font-weight: 600;
         pointer-events: none;
+    }
+
+    .map-ap-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.95);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 0.75rem;
+        max-width: 220px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .map-ap-panel-header {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+        line-height: 1.4;
+    }
+
+    .map-ap-panel-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .map-ap-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        background: var(--bg-tertiary);
+        border: 1px solid transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-primary);
+        font-size: 0.8rem;
+        text-align: left;
+        transition: all 0.15s ease;
+    }
+
+    .map-ap-item:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-color);
+    }
+
+    .map-ap-item.selected {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: #3b82f6;
+    }
+
+    .map-ap-item-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+
+    .map-ap-item-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .ap-popup {
