@@ -639,6 +639,7 @@
 
                     // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
+                        console.log('[spider] clusterclick');
                         const mapData = window._speedTestMaps['{mapId}'];
                         // Cancel any pending AP filter clear (cluster click doesn't open a popup)
                         if (mapData._popupCloseTimer) {{
@@ -664,6 +665,7 @@
                     }});
 
                     clusterGroup.on('spiderfied', function(e) {{
+                        console.log('[spider] spiderfied, cluster:', e.cluster._childCount, 'children');
                         window._speedTestMaps['{mapId}'].currentSpider = e.cluster;
                         switchingSpider = false;
                         // Disable clicks on the spiderfied cluster icon
@@ -680,6 +682,7 @@
                     }});
 
                     clusterGroup.on('unspiderfied', function(e) {{
+                        console.log('[spider] unspiderfied event fired');
                         // Re-enable clicks on the cluster icon
                         if (e.cluster && e.cluster._icon) {{
                             e.cluster._icon.style.pointerEvents = '';
@@ -701,6 +704,7 @@
                     // Use mousedown on container to fade spider when clicking outside
                     map.getContainer().addEventListener('mousedown', function(e) {{
                         const mapData = window._speedTestMaps['{mapId}'];
+                        console.log('[spider] mousedown, currentSpider:', !!mapData.currentSpider, 'target:', e.target.tagName, e.target.className);
                         if (mapData.currentSpider) {{
                             var markers = mapData.currentSpider.getAllChildMarkers();
                             // Check if click is on a spider element - if so, don't fade
@@ -708,14 +712,14 @@
                                 e.target === m._path ||
                                 (m._spiderLeg && e.target === m._spiderLeg._path)
                             );
-                            if (clickedOnSpider) return;
+                            if (clickedOnSpider) {{ console.log('[spider] clicked on spider element, ignoring'); return; }}
 
                             // Check if click is on a popup - if so, don't fade
                             var clickedOnPopup = e.target.closest && e.target.closest('.leaflet-popup');
-                            if (clickedOnPopup) return;
+                            if (clickedOnPopup) {{ console.log('[spider] clicked on popup, ignoring'); return; }}
 
+                            console.log('[spider] fading out', markers.length, 'markers');
                             // Fade out spider when clicking outside
-                            var cluster = mapData.currentSpider;
                             markers.forEach(m => {{
                                 if (m._path) {{
                                     m._path.style.transition = 'opacity 0.2s ease-out';
@@ -726,29 +730,6 @@
                                     m._spiderLeg._path.style.opacity = '0';
                                 }}
                             }});
-
-                            // After fade, clean up spider state manually
-                            // (can't use unspiderfy() - it re-shows markers before collapsing)
-                            setTimeout(() => {{
-                                // Remove spider SVG elements
-                                markers.forEach(m => {{
-                                    if (m._path) m._path.style.opacity = '';
-                                    if (m._spiderLeg && m._spiderLeg._path) m._spiderLeg._path.style.opacity = '';
-                                }});
-                                // Re-enable cluster icon clicks
-                                if (cluster && cluster._icon) {{
-                                    cluster._icon.style.pointerEvents = '';
-                                }}
-                                markers.forEach(m => {{
-                                    if (m._spiderLeg && m._spiderLeg._path) {{
-                                        m._spiderLeg._path.style.pointerEvents = '';
-                                    }}
-                                }});
-                                mapData.currentSpider = null;
-                                map.getPane('overlayPane').style.zIndex = 500;
-                                // Close any open popup from the spider
-                                map.closePopup();
-                            }}, 220);
 
                             // Also clear AP filter when dismissing spider by clicking outside
                             if (mapData.dotNetRef) {{
