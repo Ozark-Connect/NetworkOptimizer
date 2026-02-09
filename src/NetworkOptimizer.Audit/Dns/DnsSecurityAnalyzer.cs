@@ -2244,6 +2244,7 @@ public class DnsSecurityAnalyzer
             DohProviders = providerNames,
             DnsLeakProtection = result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid),
             HasDns53BlockRule = result.HasDns53BlockRule,
+            Dns53ProvidesFullCoverage = result.Dns53ProvidesFullCoverage,
             DnatProvidesFullCoverage = result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid,
             DotBlocked = result.HasDotBlockRule,
             DohBypassBlocked = result.HasDohBlockRule,
@@ -2449,6 +2450,7 @@ public class DnsSecuritySummary
     public List<string> DohProviders { get; init; } = new();
     public bool DnsLeakProtection { get; init; }
     public bool HasDns53BlockRule { get; init; }
+    public bool Dns53ProvidesFullCoverage { get; init; }
     public bool DnatProvidesFullCoverage { get; init; }
     public bool DotBlocked { get; init; }
     public bool DohBypassBlocked { get; init; }

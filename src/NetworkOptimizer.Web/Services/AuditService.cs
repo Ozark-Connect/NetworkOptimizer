@@ -605,6 +605,7 @@ public class AuditService
                 DohConfigNames = result.DnsSecurity.DohConfigNames.ToList(),
                 DnsLeakProtection = result.DnsSecurity.DnsLeakProtection,
                 HasDns53BlockRule = result.DnsSecurity.HasDns53BlockRule,
+                Dns53ProvidesFullCoverage = result.DnsSecurity.Dns53ProvidesFullCoverage,
                 DnatProvidesFullCoverage = result.DnsSecurity.DnatProvidesFullCoverage,
                 DotBlocked = result.DnsSecurity.DotBlocked,
                 DohBypassBlocked = result.DnsSecurity.DohBypassBlocked,
@@ -1421,6 +1422,7 @@ public class AuditService
                     .ToList(),
                 // DNS Leak Protection Details
                 HasDns53BlockRule = dns.HasDns53BlockRule,
+                Dns53ProvidesFullCoverage = dns.Dns53ProvidesFullCoverage,
                 // DNAT DNS Coverage
                 HasDnatDnsRules = dns.HasDnatDnsRules,
                 DnatProvidesFullCoverage = dns.DnatProvidesFullCoverage,
@@ -1839,6 +1841,7 @@ public class DnsSecurityReference
 
     // DNS Leak Protection Details
     public bool HasDns53BlockRule { get; set; }
+    public bool Dns53ProvidesFullCoverage { get; set; }
 
     // DNAT DNS Coverage
     public bool HasDnatDnsRules { get; set; }

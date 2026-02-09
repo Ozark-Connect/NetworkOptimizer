@@ -1095,6 +1095,7 @@
                     DohConfigNames = lastResult.DnsSecurity.DohConfigNames.ToList(),
                     DnsLeakProtection = lastResult.DnsSecurity.DnsLeakProtection,
                     HasDns53BlockRule = lastResult.DnsSecurity.HasDns53BlockRule,
+                    Dns53ProvidesFullCoverage = lastResult.DnsSecurity.Dns53ProvidesFullCoverage,
                     DnatProvidesFullCoverage = lastResult.DnsSecurity.DnatProvidesFullCoverage,
                     DotBlocked = lastResult.DnsSecurity.DotBlocked,
                     DohBypassBlocked = lastResult.DnsSecurity.DohBypassBlocked,
@@ -1400,9 +1401,12 @@
 
         var hasDnat = dns.DnatProvidesFullCoverage;
         var hasDns53 = dns.HasDns53BlockRule;
+        var dns53FullCoverage = dns.Dns53ProvidesFullCoverage;
 
-        if (hasDnat && hasDns53)
+        if (hasDnat && hasDns53 && dns53FullCoverage)
             return "External DNS queries redirected and leakage blocked";
+        if (hasDnat && hasDns53)
+            return "External DNS queries redirected and leakage partially blocked";
         if (hasDnat)
             return "External DNS queries redirected";
         return "External DNS queries blocked";
