@@ -759,6 +759,18 @@
                     window._speedTestApFilter = function(mac) {{
                         dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
                     }};
+                    window._speedTestApFocus = function(mac) {{
+                        dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
+                        // Find and open the AP marker's popup
+                        var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                        if (mapData && mapData.apLayerGroup) {{
+                            mapData.apLayerGroup.eachLayer(function(layer) {{
+                                if (layer._apMac === mac) {{
+                                    layer.openPopup();
+                                }}
+                            }});
+                        }}
+                    }};
                     window._speedTestApToggle = function(mac, linkEl) {{
                         if (linkEl.textContent.trim() === 'Show all tests') {{
                             dotNetRef.invokeMethodAsync('OnApMarkerClick', '');
@@ -1031,6 +1043,7 @@
                             pane: 'apIconPane'
                         }});
 
+                        marker._apMac = ap.mac;
                         marker.bindPopup(ap.popup);
 
                         // Auto-filter speed tests when clicking an AP (non-edit mode)
@@ -1371,9 +1384,11 @@
             badgeClass = "map-badge-lan";
         }
 
-        // Get AP name from path analysis
-        var apName = result.PathAnalysis?.Path?.Hops?
-            .FirstOrDefault(h => h.Type == HopType.AccessPoint)?.DeviceName;
+        // Get AP name and MAC from path analysis
+        var apHop = result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.AccessPoint);
+        var apName = apHop?.DeviceName;
+        var apMac = apHop?.DeviceMac;
 
         // Escape for JS string
         deviceName = deviceName?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
@@ -1390,10 +1405,13 @@
         html += $"<span class='wifi-speed-tx'>↑ {result.UploadMbps:F0}</span> Mbps";
         html += "</div>";
 
-        // AP name if available
+        // AP name if available (clickable to filter + open AP popup)
         if (!string.IsNullOrEmpty(apName))
         {
-            html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
+            if (!string.IsNullOrEmpty(apMac))
+                html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> <a href='javascript:void(0)' onclick='window._speedTestApFocus(\"{apMac}\")' class='map-popup-link'>{apName}</a></div>";
+            else
+                html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
         }
 
         // Band and signal if available
