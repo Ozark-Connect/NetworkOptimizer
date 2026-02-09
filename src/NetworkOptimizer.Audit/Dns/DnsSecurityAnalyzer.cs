@@ -2242,7 +2242,7 @@ public class DnsSecurityAnalyzer
         {
             DohEnabled = result.DohConfigured,
             DohProviders = providerNames,
-            DnsLeakProtection = result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid),
+            DnsLeakProtection = (result.HasDns53BlockRule && result.Dns53ProvidesFullCoverage) || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid),
             HasDns53BlockRule = result.HasDns53BlockRule,
             Dns53ProvidesFullCoverage = result.Dns53ProvidesFullCoverage,
             DnatProvidesFullCoverage = result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid,

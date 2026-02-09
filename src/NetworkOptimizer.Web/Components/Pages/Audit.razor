@@ -516,7 +516,7 @@
                             <tr>
                                 <td>DNS Leak Prevention (Port 53)</td>
                                 <td class="@(lastResult.DnsSecurity.DnsLeakProtection ? "status-success" : "status-warning")">
-                                    @(lastResult.DnsSecurity.DnsLeakProtection ? "Protected" : "Unprotected")
+                                    @(lastResult.DnsSecurity.DnsLeakProtection ? "Protected" : (lastResult.DnsSecurity.HasDns53BlockRule ? "Partial" : "Unprotected"))
                                 </td>
                                 <td>@GetDnsLeakProtectionDetail()</td>
                             </tr>
@@ -1397,7 +1397,11 @@
         var dns = lastResult.DnsSecurity;
 
         if (!dns.DnsLeakProtection)
+        {
+            if (dns.HasDns53BlockRule)
+                return "External DNS queries partially blocked";
             return "Devices can bypass network DNS";
+        }
 
         var hasDnat = dns.DnatProvidesFullCoverage;
         var hasDns53 = dns.HasDns53BlockRule;

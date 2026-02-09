@@ -1308,7 +1308,8 @@ public class ConfigAuditEngineTests
                 Name = "Block DNS Bypass",
                 Action = "drop",
                 DestinationPort = "53",
-                Enabled = true
+                Enabled = true,
+                SourceMatchingTarget = "ANY"
             }
         };
 

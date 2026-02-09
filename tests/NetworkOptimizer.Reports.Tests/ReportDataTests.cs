@@ -612,6 +612,7 @@ public class DnsSecuritySummaryTests
         {
             DnsLeakProtection = true,
             HasDns53BlockRule = true,
+            Dns53ProvidesFullCoverage = true,
             DnatProvidesFullCoverage = false
         };
 
@@ -620,6 +621,25 @@ public class DnsSecuritySummaryTests
 
         // Assert
         detail.Should().Be("External DNS queries blocked");
+    }
+
+    [Fact]
+    public void GetDnsLeakProtectionDetail_Dns53PartialCoverageNoDnat_ReturnsPartiallyBlocked()
+    {
+        // Arrange
+        var dns = new DnsSecuritySummary
+        {
+            DnsLeakProtection = false,
+            HasDns53BlockRule = true,
+            Dns53ProvidesFullCoverage = false,
+            DnatProvidesFullCoverage = false
+        };
+
+        // Act
+        var detail = dns.GetDnsLeakProtectionDetail();
+
+        // Assert
+        detail.Should().Be("External DNS queries partially blocked");
     }
 
     [Fact]

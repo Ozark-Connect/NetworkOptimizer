@@ -73,7 +73,11 @@ public class DnsSecuritySummary
     public string GetDnsLeakProtectionDetail()
     {
         if (!DnsLeakProtection)
+        {
+            if (HasDns53BlockRule)
+                return "External DNS queries partially blocked";
             return "Devices can bypass network DNS";
+        }
 
         if (DnatProvidesFullCoverage && HasDns53BlockRule && Dns53ProvidesFullCoverage)
             return "External DNS queries redirected and leakage blocked";

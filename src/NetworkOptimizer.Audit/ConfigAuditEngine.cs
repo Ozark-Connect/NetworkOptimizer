@@ -1024,7 +1024,7 @@ public class ConfigAuditEngine
             DohState = dnsSecurityResult.DohState,
             DohProviders = providerNames,
             DohConfigNames = configNames,
-            DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule || (dnsSecurityResult.DnatProvidesFullCoverage && dnsSecurityResult.DnatRedirectTargetIsValid && dnsSecurityResult.DnatDestinationFilterIsValid),
+            DnsLeakProtection = (dnsSecurityResult.HasDns53BlockRule && dnsSecurityResult.Dns53ProvidesFullCoverage) || (dnsSecurityResult.DnatProvidesFullCoverage && dnsSecurityResult.DnatRedirectTargetIsValid && dnsSecurityResult.DnatDestinationFilterIsValid),
             HasDns53BlockRule = dnsSecurityResult.HasDns53BlockRule,
             Dns53ProvidesFullCoverage = dnsSecurityResult.Dns53ProvidesFullCoverage,
             DotBlocked = dnsSecurityResult.HasDotBlockRule,
