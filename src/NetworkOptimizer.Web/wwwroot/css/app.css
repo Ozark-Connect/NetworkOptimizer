@@ -7362,6 +7362,12 @@ a.path-hop.hop-clickable:hover {
     border-radius: 4px;
 }
 
+@@media (max-width: 768px) {
+    .wifi-view-tabs-wrapper {
+        margin-bottom: 0.75rem;
+    }
+}
+
 /* ============================================
    Roaming Analytics Component
    ============================================ */

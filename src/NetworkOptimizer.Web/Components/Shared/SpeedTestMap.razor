@@ -730,6 +730,9 @@
                             var clickedOnAp = e.target.closest && e.target.closest('.ap-marker-icon');
                             if (clickedOnAp) return;
 
+                            // Check if click is on any interactive marker (speed test dots, etc.)
+                            if (e.target.classList && e.target.classList.contains('leaflet-interactive')) return;
+
                             // Fade out spider when clicking outside
                             markers.forEach(m => {{
                                 if (m._path) {{
