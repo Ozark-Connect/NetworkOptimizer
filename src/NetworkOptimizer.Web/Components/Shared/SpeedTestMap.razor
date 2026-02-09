@@ -137,9 +137,6 @@
     public IEnumerable<ApMapMarker> ApMarkers { get; set; } = Enumerable.Empty<ApMapMarker>();
 
     [Parameter]
-    public bool ApEditMode { get; set; } = false;
-
-    [Parameter]
     public EventCallback<(string Mac, double Lat, double Lng)> OnApLocationChanged { get; set; }
 
     // Search filter state (internal to map only)
@@ -165,6 +162,7 @@
     private bool HighAccuracyOnly { get; set; } = false;
     private int lastResultCount = 0;
     private int? lastNewestResultId = null;
+    private int lastApMarkerCount = 0;
     private List<NetworkInfo>? _networks;
 
     // Time slider: log scale breakpoints (slider value -> hours, 0 = all time)
@@ -462,15 +460,15 @@
             StateHasChanged();
         }
 
-        // Update AP markers when AP data or edit mode changes
+        // Update AP markers only when AP data actually changes
         if (mapInitialized)
         {
-            var currentApEditMode = ApEditMode;
-            if (currentApEditMode != apEditMode)
+            var currentApCount = ApMarkers.Count();
+            if (currentApCount != lastApMarkerCount)
             {
-                apEditMode = currentApEditMode;
+                lastApMarkerCount = currentApCount;
+                await UpdateApMarkers();
             }
-            await UpdateApMarkers();
         }
     }
 
