@@ -832,7 +832,7 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { mgmtNetworkId },
                 DestinationMatchingTarget = "ANY",
-                DestinationPort = "*",  // All ports (port_matching_type=ANY)
+
                 DestinationZoneId = externalZoneId,
                 Protocol = "all"
             },
@@ -902,7 +902,7 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { mgmtNetworkId },
                 DestinationMatchingTarget = "ANY",
-                DestinationPort = "*",  // All ports (port_matching_type=ANY)
+
                 DestinationZoneId = externalZoneId,
                 Protocol = "all"
             },
@@ -945,7 +945,7 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { mgmtNetworkId },
                 DestinationMatchingTarget = "ANY",
-                DestinationPort = "*",  // All ports (port_matching_type=ANY)
+
                 DestinationZoneId = externalZoneId,
                 Protocol = "all"
             },

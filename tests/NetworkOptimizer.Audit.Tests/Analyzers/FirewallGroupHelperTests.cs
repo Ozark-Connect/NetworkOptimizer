@@ -502,55 +502,39 @@ public class FirewallGroupHelperTests
     }
 
     [Fact]
-    public void RuleBlocksPortAndProtocol_NullPort_DoesNotMatch()
+    public void RuleBlocksPortAndProtocol_NoPortRestriction_BlocksAllPorts()
     {
-        // null port = no port info (general block rule, not port-specific)
+        // No destination port specified = blocks all ports
         var rule = new NetworkOptimizer.Audit.Models.FirewallRule
         {
             Id = "test-rule",
-            DestinationPort = null,
+            DestinationPort = null,  // No port restriction
             Protocol = "all",
             MatchOppositeProtocol = false,
             DestinationMatchOppositePorts = false
         };
 
-        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "tcp").Should().BeFalse();
-        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp").Should().BeFalse();
+        // Should block any port
+        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "tcp").Should().BeTrue();
+        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp").Should().BeTrue();
+        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "8080", "tcp").Should().BeTrue();
     }
 
     [Fact]
-    public void RuleBlocksPortAndProtocol_EmptyPort_DoesNotMatch()
+    public void RuleBlocksPortAndProtocol_EmptyPortRestriction_BlocksAllPorts()
     {
-        // Empty port = no port info (same as null)
+        // Empty string destination port = blocks all ports
         var rule = new NetworkOptimizer.Audit.Models.FirewallRule
         {
             Id = "test-rule",
-            DestinationPort = "",
+            DestinationPort = "",  // Empty = no restriction
             Protocol = "tcp",
             MatchOppositeProtocol = false,
             DestinationMatchOppositePorts = false
         };
 
-        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "tcp").Should().BeFalse();
-        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "80", "tcp").Should().BeFalse();
-    }
-
-    [Fact]
-    public void RuleBlocksPortAndProtocol_WildcardPort_BlocksAllPorts()
-    {
-        // "*" = explicit all ports (port_matching_type=ANY)
-        var rule = new NetworkOptimizer.Audit.Models.FirewallRule
-        {
-            Id = "test-rule",
-            DestinationPort = "*",
-            Protocol = "all",
-            MatchOppositeProtocol = false,
-            DestinationMatchOppositePorts = false
-        };
-
         FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "tcp").Should().BeTrue();
-        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp").Should().BeTrue();
-        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "8080", "tcp").Should().BeTrue();
+        FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "80", "tcp").Should().BeTrue();
     }
 
     [Fact]

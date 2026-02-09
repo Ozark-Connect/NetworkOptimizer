@@ -196,6 +196,13 @@ public class FirewallRule
     /// </summary>
     public bool DestinationMatchOppositePorts { get; init; }
 
+    /// <summary>
+    /// Whether this rule has an unresolved destination port group reference.
+    /// When true, DestinationPort is null because the referenced port group could not be resolved,
+    /// not because the rule intentionally targets all ports.
+    /// </summary>
+    public bool HasUnresolvedDestinationPortGroup { get; init; }
+
     // === Connection State Matching ===
 
     /// <summary>

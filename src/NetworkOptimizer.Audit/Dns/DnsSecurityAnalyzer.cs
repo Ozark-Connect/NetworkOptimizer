@@ -419,38 +419,52 @@ public class DnsSecurityAnalyzer
             if (!isBlockAction || !rule.BlocksNewConnections())
                 continue;
 
-            // Check for DNS port 53 blocking (UDP) - must target External zone
-            if (targetsExternalZone && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp"))
-            {
-                result.HasDns53BlockRule = true;
-                result.Dns53RuleName = name;
-                _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
-                    name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+            // Filter out rules that aren't DNS-specific for port-based detection.
+            // These operate at the application layer and don't block network ports:
+            // - Web domain rules (e.g., "Block Scam Domains") filter by HTTP domain
+            // - App category rules (e.g., "Block Torrent Trackers") filter by app category
+            // - Rules with unresolved port groups intended to specify ports but couldn't
+            // App-based rules (AppIds with APP target) are handled separately below.
+            // Note: Predefined rules ARE evaluated by content - a default-block-all posture
+            // with predefined catch-all rules genuinely blocks DNS traffic.
+            var isNarrowRule = rule.WebDomains?.Count > 0 || rule.AppCategoryIds?.Count > 0;
+            var hasUnresolvedPorts = rule.HasUnresolvedDestinationPortGroup;
 
-                // Track network coverage for this rule
-                if (networks != null)
+            if (!isNarrowRule && !hasUnresolvedPorts)
+            {
+                // Check for DNS port 53 blocking (UDP) - must target External zone
+                if (targetsExternalZone && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp"))
                 {
-                    AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, result.Dns53CoveredNetworkIds);
+                    result.HasDns53BlockRule = true;
+                    result.Dns53RuleName = name;
+                    _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
+                        name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+
+                    // Track network coverage for this rule
+                    if (networks != null)
+                    {
+                        AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, result.Dns53CoveredNetworkIds);
+                    }
                 }
-            }
 
-            // Check for DNS over TLS (port 853 TCP) blocking
-            // For legacy systems, LAN_IN is also acceptable (gateway uses DoH, not DoT/DoQ for upstream)
-            if ((targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "tcp"))
-            {
-                result.HasDotBlockRule = true;
-                result.DotRuleName = name;
-                _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
-                    name, protocol, matchOppositeProtocol, destZoneId ?? "any");
-            }
+                // Check for DNS over TLS (port 853 TCP) blocking
+                // For legacy systems, LAN_IN is also acceptable (gateway uses DoH, not DoT/DoQ for upstream)
+                if ((targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "tcp"))
+                {
+                    result.HasDotBlockRule = true;
+                    result.DotRuleName = name;
+                    _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
+                        name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+                }
 
-            // Check for DNS over QUIC (port 853 UDP) blocking (RFC 9250)
-            if ((targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "udp"))
-            {
-                result.HasDoqBlockRule = true;
-                result.DoqRuleName = name;
-                _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
-                    name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+                // Check for DNS over QUIC (port 853 UDP) blocking (RFC 9250)
+                if ((targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "853", "udp"))
+                {
+                    result.HasDoqBlockRule = true;
+                    result.DoqRuleName = name;
+                    _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
+                        name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+                }
             }
 
             // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers)

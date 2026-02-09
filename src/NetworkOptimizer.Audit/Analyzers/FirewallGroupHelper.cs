@@ -172,13 +172,9 @@ public static class FirewallGroupHelper
     /// <returns>True if the rule effectively blocks traffic on the specified port and protocol</returns>
     public static bool RuleBlocksPortAndProtocol(Models.FirewallRule rule, string port, string protocol)
     {
-        // "*" = explicit "all ports" (port_matching_type=ANY) - skip port check, all ports blocked
-        // null/empty = no port info - rule doesn't target specific ports, not a port-based block
-        if (rule.DestinationPort != "*")
+        // No port specified = all ports affected (block-all rules, etc.)
+        if (!string.IsNullOrEmpty(rule.DestinationPort))
         {
-            if (string.IsNullOrEmpty(rule.DestinationPort))
-                return false; // No port info - not a port-based block rule
-
             if (rule.DestinationMatchOppositePorts)
             {
                 // Inverted: specified ports are NOT blocked

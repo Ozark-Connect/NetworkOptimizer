@@ -234,6 +234,7 @@ public class FirewallRuleParser
         bool destMatchOppositeIps = false;
         bool destMatchOppositeNetworks = false;
         bool destMatchOppositePorts = false;
+        bool hasUnresolvedDestPortGroup = false;
         if (policy.TryGetProperty("destination", out var dest) && dest.ValueKind == JsonValueKind.Object)
         {
             destPort = dest.GetStringOrNull("port");
@@ -299,13 +300,8 @@ public class FirewallRuleParser
                 }
             }
 
-            // Handle port_matching_type: ANY means all ports, OBJECT means port group reference
+            // Flatten port group reference (port_matching_type == "OBJECT" with port_group_id)
             var portMatchingType = dest.GetStringOrNull("port_matching_type");
-            if (string.Equals(portMatchingType, "ANY", StringComparison.OrdinalIgnoreCase))
-            {
-                destPort = "*"; // Explicit "all ports" - distinct from null (no port info)
-            }
-
             var portGroupId = dest.GetStringOrNull("port_group_id");
             if (portMatchingType == "OBJECT" && !string.IsNullOrEmpty(portGroupId))
             {
@@ -318,6 +314,7 @@ public class FirewallRuleParser
                 }
                 else
                 {
+                    hasUnresolvedDestPortGroup = true;
                     _logger.LogWarning("Failed to resolve destination port group {GroupId} for rule {RuleName} - group not found in {GroupCount} loaded groups",
                         portGroupId, name, _firewallGroups?.Count ?? 0);
                 }
@@ -358,6 +355,7 @@ public class FirewallRuleParser
             DestinationMatchOppositeIps = destMatchOppositeIps,
             DestinationMatchOppositeNetworks = destMatchOppositeNetworks,
             DestinationMatchOppositePorts = destMatchOppositePorts,
+            HasUnresolvedDestinationPortGroup = hasUnresolvedDestPortGroup,
             // Connection state matching
             ConnectionStateType = connectionStateType,
             ConnectionStates = connectionStates
