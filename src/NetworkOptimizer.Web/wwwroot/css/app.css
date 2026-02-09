@@ -7283,7 +7283,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .wifi-view-tab {
-    padding: 0.5rem 1rem;
+    padding: 0.5rem 0.8rem;
     background: transparent;
     border: none;
     color: var(--text-secondary);
