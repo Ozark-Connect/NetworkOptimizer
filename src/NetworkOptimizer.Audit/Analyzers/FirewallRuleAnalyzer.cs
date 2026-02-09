@@ -462,6 +462,26 @@ public class FirewallRuleAnalyzer
             }
         }
 
+        // Corporate <-> Home should be isolated from each other (bidirectional)
+        // These are separate trust domains that shouldn't have unrestricted access
+        var nonIsolatedCorporate = corporateNetworks.Where(n => !n.NetworkIsolationEnabled).ToList();
+        var nonIsolatedHome = homeNetworks.Where(n => !n.NetworkIsolationEnabled).ToList();
+
+        foreach (var corp in nonIsolatedCorporate)
+        {
+            foreach (var home in homeNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, corp, home, "FW-ISOLATION-CORP-HOME");
+            }
+        }
+        foreach (var home in nonIsolatedHome)
+        {
+            foreach (var corp in corporateNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, home, corp, "FW-ISOLATION-HOME-CORP");
+            }
+        }
+
         // Guest should be isolated from: Corporate, Home, IoT
         // (Guest → Security and Guest → Management already covered above)
         var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled && !n.IsUniFiGuestNetwork).ToList();
@@ -524,6 +544,18 @@ public class FirewallRuleAnalyzer
             foreach (var iot in allIotNetworks)
             {
                 CheckForProblematicAllowRules(issues, rules, guest, iot, externalZoneId);
+            }
+        }
+
+        // Check for allow rules between Corporate and Home networks (bidirectional)
+        var allCorporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
+        var allHomeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
+        foreach (var corp in allCorporateNetworks)
+        {
+            foreach (var home in allHomeNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, corp, home, externalZoneId);
+                CheckForProblematicAllowRules(issues, rules, home, corp, externalZoneId);
             }
         }
 
@@ -949,9 +981,28 @@ public class FirewallRuleAnalyzer
     {
         var issues = new List<AuditIssue>();
 
+        // Only check Management and Security networks - these are the networks where
+        // internet should be intentionally restricted and bypass rules are a concern.
+        // Other network types (IoT, Corporate, Home, etc.) may legitimately have
+        // internet disabled without it being a security-sensitive configuration.
+        var relevantNetworks = networks.Where(n =>
+            n.Purpose is NetworkPurpose.Management or NetworkPurpose.Security).ToList();
+
+        _logger.LogDebug("Internet bypass check: {Total} total networks, {Relevant} are Management/Security",
+            networks.Count, relevantNetworks.Count);
+
+        foreach (var n in relevantNetworks)
+        {
+            _logger.LogDebug("Internet bypass candidate: '{Name}' (purpose={Purpose}, zone={Zone}, internetEnabled={Internet})",
+                n.Name, n.Purpose, n.FirewallZoneId, n.InternetAccessEnabled);
+        }
+
         // Find networks where internet is disabled (via config or firewall rule)
-        var internetDisabledNetworks = networks.Where(n =>
+        var internetDisabledNetworks = relevantNetworks.Where(n =>
             !HasEffectiveInternetAccess(n, rules, externalZoneId)).ToList();
+
+        _logger.LogDebug("Internet bypass check: {Count} Management/Security networks have internet disabled",
+            internetDisabledNetworks.Count);
 
         if (!internetDisabledNetworks.Any())
         {

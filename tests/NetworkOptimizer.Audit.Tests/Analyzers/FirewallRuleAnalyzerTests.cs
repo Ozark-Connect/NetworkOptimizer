@@ -4387,7 +4387,7 @@ public class FirewallRuleAnalyzerTests
         // Network with internet enabled should not trigger the check
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net", internetAccessEnabled: true)
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: true)
         };
         var rules = new List<FirewallRule>
         {
@@ -4399,7 +4399,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "all",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "corp-net" },
+                SourceNetworkIds = new List<string> { "mgmt-net" },
                 DestinationMatchingTarget = "ANY"
             }
         };
@@ -4415,7 +4415,7 @@ public class FirewallRuleAnalyzerTests
         // Network with internet disabled AND a broad allow rule should trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4427,7 +4427,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "all",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY"
             }
         };
@@ -4438,7 +4438,7 @@ public class FirewallRuleAnalyzerTests
         var issue = issues.First();
         issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
         issue.Severity.Should().Be(AuditSeverity.Recommended);
-        issue.Message.Should().Contain("IoT Devices");
+        issue.Message.Should().Contain("Security Cameras");
         issue.Message.Should().Contain("Allow All External");
     }
 
@@ -4448,7 +4448,7 @@ public class FirewallRuleAnalyzerTests
         // Allow rule for HTTP (port 80) on internet-disabled network should trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net", internetAccessEnabled: false)
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4460,7 +4460,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "guest-net" },
+                SourceNetworkIds = new List<string> { "mgmt-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "80"
             }
@@ -4480,7 +4480,7 @@ public class FirewallRuleAnalyzerTests
         // Allow rule for HTTPS (port 443) on internet-disabled network should trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4492,7 +4492,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "guest-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "443"
             }
@@ -4512,7 +4512,7 @@ public class FirewallRuleAnalyzerTests
         // Port 80 with UDP only is NOT HTTP - HTTP requires TCP
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4524,7 +4524,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "udp", // UDP only - not HTTP
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "80"
             }
@@ -4542,7 +4542,7 @@ public class FirewallRuleAnalyzerTests
         // Port 80 with TCP is HTTP - should be flagged
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4554,7 +4554,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "80"
             }
@@ -4572,7 +4572,7 @@ public class FirewallRuleAnalyzerTests
         // Port 80 with TCP/UDP includes TCP, so it's HTTP
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4584,7 +4584,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp_udp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "80"
             }
@@ -4601,7 +4601,7 @@ public class FirewallRuleAnalyzerTests
         // Port 443 with UDP is QUIC (HTTP/3) - should be flagged
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4613,7 +4613,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "udp", // UDP port 443 = QUIC
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "443"
             }
@@ -4631,7 +4631,7 @@ public class FirewallRuleAnalyzerTests
         // Port 443 with TCP is HTTPS - should be flagged
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4643,7 +4643,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "443"
             }
@@ -4725,7 +4725,7 @@ public class FirewallRuleAnalyzerTests
         // Disabled allow rules should not trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4737,7 +4737,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = false, // Disabled
                 Protocol = "all",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY"
             }
         };
@@ -4753,7 +4753,7 @@ public class FirewallRuleAnalyzerTests
         // Narrow allow rules (specific IPs, not HTTP/HTTPS) should not trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4765,7 +4765,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "udp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "IP",
                 DestinationIps = new List<string> { "192.0.2.1" },
                 DestinationPort = "123"
@@ -4783,7 +4783,7 @@ public class FirewallRuleAnalyzerTests
         // Port range including HTTP should trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4795,7 +4795,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "80-443"
             }
@@ -4814,7 +4814,7 @@ public class FirewallRuleAnalyzerTests
         // Allow rule with HTTP App ID (852190) should trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4826,7 +4826,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp_udp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "ANY",
                 AppIds = new List<int> { 852190 } // HTTP app ID
             }
@@ -4845,7 +4845,7 @@ public class FirewallRuleAnalyzerTests
         // Allow rule with Web Services category (13) should trigger
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4857,7 +4857,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "all",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceNetworkIds = new List<string> { "sec-net" },
                 DestinationMatchingTarget = "APP_CATEGORY",
                 AppCategoryIds = new List<int> { 13 } // Web Services category
             }
@@ -4876,7 +4876,7 @@ public class FirewallRuleAnalyzerTests
         // Predefined/system rules (like "Allow Return Traffic") should be excluded
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4965,8 +4965,8 @@ public class FirewallRuleAnalyzerTests
         // If network IS in the list with match_opposite=true, rule does NOT apply to it
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false),
-            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net", internetAccessEnabled: false)
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -4978,8 +4978,8 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp",
                 SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { "iot-net" }, // IoT Devices is in the list
-                SourceMatchOppositeNetworks = true, // But match opposite means "everyone EXCEPT IoT Devices"
+                SourceNetworkIds = new List<string> { "sec-net" }, // Security is in the list
+                SourceMatchOppositeNetworks = true, // But match opposite means "everyone EXCEPT Security"
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "80"
             }
@@ -4987,11 +4987,11 @@ public class FirewallRuleAnalyzerTests
 
         var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
 
-        // IoT Devices should NOT be flagged because the rule excludes it (match opposite)
-        // Corporate SHOULD be flagged because the rule applies to it (not in the exclusion list)
+        // Security should NOT be flagged because the rule excludes it (match opposite)
+        // Management SHOULD be flagged because the rule applies to it (not in the exclusion list)
         issues.Should().ContainSingle();
         var issue = issues.First();
-        issue.Metadata!["network_name"].Should().Be("Corporate");
+        issue.Metadata!["network_name"].Should().Be("Management");
     }
 
     [Fact]
@@ -5000,7 +5000,7 @@ public class FirewallRuleAnalyzerTests
         // Rule with SourceMatchOppositeNetworks=true applies to networks NOT in the list
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net", internetAccessEnabled: false)
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
@@ -5020,9 +5020,9 @@ public class FirewallRuleAnalyzerTests
 
         var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
 
-        // Guest should be flagged because it's NOT in the exclusion list
+        // Management should be flagged because it's NOT in the exclusion list
         issues.Should().ContainSingle();
-        issues.First().Message.Should().Contain("Guest");
+        issues.First().Message.Should().Contain("Management");
     }
 
     [Fact]
@@ -5032,7 +5032,7 @@ public class FirewallRuleAnalyzerTests
         // This verifies the full flow: port group -> parsing -> detection
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
 
         // Set up port group with HTTP port 80
@@ -5054,7 +5054,7 @@ public class FirewallRuleAnalyzerTests
             ""protocol"": ""tcp"",
             ""source"": {
                 ""matching_target"": ""NETWORK"",
-                ""network_ids"": [""iot-net""]
+                ""network_ids"": [""sec-net""]
             },
             ""destination"": {
                 ""matching_target"": ""ANY"",
@@ -5084,7 +5084,7 @@ public class FirewallRuleAnalyzerTests
         // Should still detect broad access via external zone with all protocols
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
         };
 
         // Don't set firewall groups - port group won't be resolved
@@ -5099,7 +5099,7 @@ public class FirewallRuleAnalyzerTests
             ""protocol"": ""all"",
             ""source"": {
                 ""matching_target"": ""NETWORK"",
-                ""network_ids"": [""iot-net""]
+                ""network_ids"": [""sec-net""]
             },
             ""destination"": {
                 ""matching_target"": ""ANY"",
@@ -5131,9 +5131,9 @@ public class FirewallRuleAnalyzerTests
         {
             new NetworkInfo
             {
-                Id = "iot-net",
-                Name = "IoT Devices",
-                Purpose = NetworkPurpose.IoT,
+                Id = "sec-net",
+                Name = "Security Cameras",
+                Purpose = NetworkPurpose.Security,
                 VlanId = 99,
                 Subnet = "192.168.99.0/24",
                 InternetAccessEnabled = false
@@ -5149,7 +5149,7 @@ public class FirewallRuleAnalyzerTests
                 Enabled = true,
                 Protocol = "tcp",
                 SourceMatchingTarget = "IP",
-                SourceIps = new List<string> { "192.168.99.0/24" }, // Covers the IoT subnet
+                SourceIps = new List<string> { "192.168.99.0/24" }, // Covers the Security subnet
                 DestinationMatchingTarget = "ANY",
                 DestinationPort = "80,443"
             }
@@ -5160,7 +5160,7 @@ public class FirewallRuleAnalyzerTests
         issues.Should().ContainSingle();
         var issue = issues.First();
         issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
-        issue.Message.Should().Contain("IoT Devices");
+        issue.Message.Should().Contain("Security Cameras");
     }
 
     [Fact]
@@ -5171,9 +5171,9 @@ public class FirewallRuleAnalyzerTests
         {
             new NetworkInfo
             {
-                Id = "iot-net",
-                Name = "IoT Devices",
-                Purpose = NetworkPurpose.IoT,
+                Id = "sec-net",
+                Name = "Security Cameras",
+                Purpose = NetworkPurpose.Security,
                 VlanId = 99,
                 Subnet = "192.168.99.0/24",
                 InternetAccessEnabled = false
@@ -5197,7 +5197,7 @@ public class FirewallRuleAnalyzerTests
 
         var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
 
-        // Should NOT be flagged because the CIDR doesn't cover the IoT network
+        // Should NOT be flagged because the CIDR doesn't cover the Security network
         issues.Should().BeEmpty();
     }
 
@@ -5210,7 +5210,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5250,7 +5250,7 @@ public class FirewallRuleAnalyzerTests
 
         issues.Should().ContainSingle();
         issues.First().Type.Should().Be(IssueTypes.InternetBlockBypassed);
-        issues.First().Metadata!["network_name"].Should().Be("IoT Devices");
+        issues.First().Metadata!["network_name"].Should().Be("Security Cameras");
     }
 
     // --- Eclipse logic tests ---
@@ -5270,7 +5270,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5336,7 +5336,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5403,7 +5403,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5470,7 +5470,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5535,7 +5535,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5600,7 +5600,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5664,7 +5664,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5729,7 +5729,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5795,7 +5795,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
@@ -5859,7 +5859,7 @@ public class FirewallRuleAnalyzerTests
         var networkZoneId = "internal-zone";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net",
                 internetAccessEnabled: true, firewallZoneId: networkZoneId)
         };
         var rules = new List<FirewallRule>
