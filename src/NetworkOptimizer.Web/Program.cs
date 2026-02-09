@@ -880,6 +880,7 @@ app.MapPut("/api/ap-locations/{mac}", async (string mac, HttpContext context, Ne
     {
         existing.Latitude = request.Latitude;
         existing.Longitude = request.Longitude;
+        existing.Floor = request.Floor ?? 1;
         existing.UpdatedAt = DateTime.UtcNow;
     }
     else
@@ -889,6 +890,7 @@ app.MapPut("/api/ap-locations/{mac}", async (string mac, HttpContext context, Ne
             ApMac = normalizedMac,
             Latitude = request.Latitude,
             Longitude = request.Longitude,
+            Floor = request.Floor ?? 1,
             UpdatedAt = DateTime.UtcNow
         };
         db.ApLocations.Add(location);
@@ -990,4 +992,4 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
 record UpnpNoteRequest(string HostIp, string Port, string Protocol, string? Note);
 
 // Request DTO for AP location upsert
-record ApLocationRequest(double Latitude, double Longitude);
+record ApLocationRequest(double Latitude, double Longitude, int? Floor = 1);

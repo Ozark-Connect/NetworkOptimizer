@@ -1072,6 +1072,7 @@
                     Model = ap.Model,
                     Latitude = savedLocation?.Latitude,
                     Longitude = savedLocation?.Longitude,
+                    Floor = savedLocation?.Floor,
                     IsOnline = ap.IsOnline,
                     TotalClients = ap.TotalClients,
                     Radios = ap.Radios.Select(r => new ApRadioSummary
@@ -1114,6 +1115,7 @@
                     ApMac = normalizedMac,
                     Latitude = args.Lat,
                     Longitude = args.Lng,
+                    Floor = 1,
                     UpdatedAt = DateTime.UtcNow
                 });
             }

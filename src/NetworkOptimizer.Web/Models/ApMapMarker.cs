@@ -21,6 +21,9 @@ public class ApMapMarker
     /// <summary>Saved longitude (null if not yet placed on map)</summary>
     public double? Longitude { get; set; }
 
+    /// <summary>Floor number (null if not placed, default 1 for single-story)</summary>
+    public int? Floor { get; set; }
+
     /// <summary>Whether the AP is currently online</summary>
     public bool IsOnline { get; set; }
 
