@@ -989,6 +989,15 @@
 
                         marker.bindPopup(ap.popup);
 
+                        // Auto-filter speed tests when clicking an AP (non-edit mode)
+                        if (!draggable) {{
+                            marker.on('click', function(e) {{
+                                if (mapData.dotNetRef) {{
+                                    mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
+                                }}
+                            }});
+                        }}
+
                         if (draggable) {{
                             marker.on('dragend', function(e) {{
                                 const pos = e.target.getLatLng();
@@ -1082,15 +1091,14 @@
             html += "</div>";
         }
 
-        // Footer: total clients + view tests link
+        // Footer: client count, test count, and show all toggle
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
-        html += $"<span class='ap-popup-clients'>{ap.TotalClients} client{(ap.TotalClients != 1 ? "s" : "")}</span>";
+        html += $"<span class='ap-popup-clients'>{ap.TotalClients} client{(ap.TotalClients != 1 ? "s" : "")}";
         if (testCount > 0)
-        {
-            var escapedMac = ap.Mac.Replace("'", "\\'");
-            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilter(\"{escapedMac}\")' class='map-popup-link'>{testCount} test{(testCount != 1 ? "s" : "")} →</a>";
-        }
+            html += $" · {testCount} test{(testCount != 1 ? "s" : "")}";
+        html += "</span>";
+        html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilter(\"\")' class='map-popup-link'>Show all</a>";
         html += "</div>";
 
         html += "</div>";
@@ -1111,8 +1119,10 @@
     {
         await InvokeAsync(async () =>
         {
-            // Toggle: click same AP clears filter, click different AP switches filter
-            if (selectedApMacFilter?.Equals(mac, StringComparison.OrdinalIgnoreCase) == true)
+            // Empty string = "Show all" (clear filter)
+            // Same AP = already filtered, leave as-is (popup just opened)
+            // Different AP = switch filter
+            if (string.IsNullOrEmpty(mac))
             {
                 selectedApMacFilter = null;
             }
@@ -1124,7 +1134,6 @@
             if (mapInitialized)
             {
                 await UpdateMarkers(fitBounds: false);
-                // Update only glow state without re-rendering AP icons (which would close popup)
                 await UpdateApGlow();
             }
             StateHasChanged();
