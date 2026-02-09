@@ -1386,7 +1386,7 @@ public class ConfigAuditEngineTests
         [
             {
                 "key": "doh",
-                "state": "custom",
+                "state": "auto",
                 "server_names": ["cloudflare"]
             }
         ]

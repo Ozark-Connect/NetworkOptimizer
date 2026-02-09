@@ -195,7 +195,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare"", ""google""]
             }
         ]").RootElement;
@@ -225,6 +225,54 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
         result.ConfiguredServers.Should().HaveCountGreaterThanOrEqualTo(1);
         result.DohConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithCustomStateAndStaleServerNames_IgnoresStaleEntries()
+    {
+        // When state is "custom", only custom_servers are active.
+        // server_names may contain stale built-in entries from a previous auto/manual config.
+        var sdnsStamp = "sdns://AgcAAAAAAAAAAAAOZG5zLm5leHRkbnMuaW8HL2FiY2RlZg";
+        var settings = JsonDocument.Parse($@"[
+            {{
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    {{ ""server_name"": ""NextDNS"", ""sdns_stamp"": ""{sdnsStamp}"", ""enabled"": true }}
+                ],
+                ""server_names"": [""cloudflare"", ""google""]
+            }}
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        result.DohConfigured.Should().BeTrue();
+        // Only the custom server should be enabled
+        var enabledServers = result.ConfiguredServers.Where(s => s.Enabled).ToList();
+        enabledServers.Should().HaveCount(1);
+        enabledServers[0].ServerName.Should().Be("NextDNS");
+        // Stale server_names are parsed but marked disabled
+        var disabledServers = result.ConfiguredServers.Where(s => !s.Enabled).ToList();
+        disabledServers.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Analyze_WithAutoStateAndServerNames_ServerNamesAreActive()
+    {
+        // When state is "auto" or "manual", server_names are the active providers
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""auto"",
+                ""server_names"": [""cloudflare"", ""google""]
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        result.DohConfigured.Should().BeTrue();
+        result.ConfiguredServers.Should().HaveCount(2);
+        result.ConfiguredServers.Should().OnlyContain(s => s.Enabled);
     }
 
     [Fact]
@@ -1790,7 +1838,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2273,7 +2321,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2289,7 +2337,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2317,7 +2365,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2399,7 +2447,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2415,7 +2463,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2432,7 +2480,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2890,7 +2938,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2925,7 +2973,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2960,7 +3008,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2980,7 +3028,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""google""]
             }
         ]").RootElement;
@@ -3014,7 +3062,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""quad9""]
             }
         ]").RootElement;
@@ -3047,7 +3095,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3087,7 +3135,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3120,7 +3168,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""opendns""]
             }
         ]").RootElement;
@@ -3153,7 +3201,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""adguard""]
             }
         ]").RootElement;
@@ -3186,7 +3234,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3226,7 +3274,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3260,7 +3308,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3298,7 +3346,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3332,7 +3380,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3419,7 +3467,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare-family""]
             }
         ]").RootElement;
@@ -3439,7 +3487,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare"", ""google"", ""quad9""]
             }
         ]").RootElement;
@@ -3905,7 +3953,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""nextdns""]
             }
         ]").RootElement;
@@ -3925,7 +3973,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -4046,7 +4094,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4710,7 +4758,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4740,7 +4788,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4770,7 +4818,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4826,7 +4874,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4874,7 +4922,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4930,7 +4978,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -5038,7 +5086,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -5312,7 +5360,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -5638,7 +5686,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -7968,7 +8016,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""my-unknown-dns-provider""]
             }
         ]").RootElement;
@@ -8046,7 +8094,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-abc123""]
             }
         ]").RootElement;

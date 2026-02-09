@@ -66,6 +66,13 @@ public class ThirdPartyDnsDetector
 
         foreach (var network in networks)
         {
+            // Skip disabled networks - their config is dormant
+            if (!network.Enabled)
+            {
+                _logger.LogDebug("Network {Network}: Skipping (disabled)", network.Name);
+                continue;
+            }
+
             // Skip networks without DHCP or without custom DNS servers
             if (!network.DhcpEnabled)
             {
@@ -184,8 +191,8 @@ public class ThirdPartyDnsDetector
 
         foreach (var network in networks)
         {
-            // Skip networks without DHCP or without custom DNS servers
-            if (!network.DhcpEnabled || network.DnsServers == null || !network.DnsServers.Any())
+            // Skip disabled networks or networks without DHCP or custom DNS servers
+            if (!network.Enabled || !network.DhcpEnabled || network.DnsServers == null || !network.DnsServers.Any())
                 continue;
 
             var gatewayIp = network.Gateway;

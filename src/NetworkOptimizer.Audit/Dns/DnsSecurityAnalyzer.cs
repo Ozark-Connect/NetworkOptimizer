@@ -218,6 +218,8 @@ public class DnsSecurityAnalyzer
         }
 
         // Parse built-in server names
+        // When state is "custom", only custom_servers are active; built-in server_names are stale config
+        var isCustomState = result.DohState == "custom";
         if (dohSettings.TryGetProperty("server_names", out var serverNames) && serverNames.ValueKind == JsonValueKind.Array)
         {
             foreach (var name in serverNames.EnumerateArray())
@@ -230,11 +232,11 @@ public class DnsSecurityAnalyzer
                     {
                         ServerName = serverName,
                         Provider = provider,
-                        Enabled = true,
+                        Enabled = !isCustomState,
                         IsCustom = false
                     });
-                    _logger.LogDebug("DoH built-in server: name={Name}, provider={Provider}",
-                        serverName, provider?.Name ?? "not identified");
+                    _logger.LogDebug("DoH built-in server: name={Name}, provider={Provider}, enabled={Enabled} (state={State})",
+                        serverName, provider?.Name ?? "not identified", !isCustomState, result.DohState);
                 }
             }
         }
@@ -1865,8 +1867,8 @@ public class DnsSecurityAnalyzer
             .Distinct()
             .ToHashSet();
 
-        // Get all DHCP-enabled networks
-        var dhcpNetworks = networks.Where(n => n.DhcpEnabled).ToList();
+        // Get all enabled DHCP networks (disabled networks are dormant config)
+        var dhcpNetworks = networks.Where(n => n.Enabled && n.DhcpEnabled).ToList();
 
         if (dhcpNetworks.Count == 0)
         {
