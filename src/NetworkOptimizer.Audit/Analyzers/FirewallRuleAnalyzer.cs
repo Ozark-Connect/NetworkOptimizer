@@ -548,11 +548,9 @@ public class FirewallRuleAnalyzer
         }
 
         // Check for allow rules between Corporate and Home networks (bidirectional)
-        var allCorporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
-        var allHomeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
-        foreach (var corp in allCorporateNetworks)
+        foreach (var corp in corporateNetworks)
         {
-            foreach (var home in allHomeNetworks)
+            foreach (var home in homeNetworks)
             {
                 CheckForProblematicAllowRules(issues, rules, corp, home, externalZoneId);
                 CheckForProblematicAllowRules(issues, rules, home, corp, externalZoneId);

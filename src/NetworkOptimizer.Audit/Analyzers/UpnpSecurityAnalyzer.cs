@@ -147,7 +147,7 @@ public class UpnpSecurityAnalyzer
                     : $"UPnP is enabled on {homeNetworksWithUpnp.Count} Home networks: {homeNetworkNames}";
                 var recommendation = isSingleHomeNetwork
                     ? "UPnP on a dedicated Home/Gaming network is acceptable for gaming and screen streaming."
-                    : "Consider enabling UPnP on only one dedicated Home/Gaming VLAN rather than multiple networks";
+                    : "Consider enabling UPnP on only one dedicated Home/Gaming VLAN rather than multiple networks.";
 
                 issues.Add(new AuditIssue
                 {
