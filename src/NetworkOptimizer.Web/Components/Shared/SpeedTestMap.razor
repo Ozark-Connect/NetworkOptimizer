@@ -634,6 +634,11 @@
                     // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
                         const mapData = window._speedTestMaps['{mapId}'];
+                        // Cancel any pending AP filter clear (cluster click doesn't open a popup)
+                        if (mapData._popupCloseTimer) {{
+                            clearTimeout(mapData._popupCloseTimer);
+                            mapData._popupCloseTimer = null;
+                        }}
                         if (mapData.currentSpider) {{
                             switchingSpider = true;
                             var markers = mapData.currentSpider.getAllChildMarkers();
