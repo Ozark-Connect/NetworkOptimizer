@@ -1053,7 +1053,9 @@
         try
         {
             // Get AP snapshots from UniFi
+            Console.WriteLine("LoadApMarkers: fetching APs from WiFiOptimizerService...");
             var aps = await WiFiOptimizerService.GetAccessPointsAsync();
+            Console.WriteLine($"LoadApMarkers: got {aps.Count} APs");
 
             // Get saved locations from database
             var savedLocations = await DbContext.ApLocations.ToListAsync();
