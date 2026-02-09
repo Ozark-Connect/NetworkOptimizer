@@ -1208,11 +1208,12 @@ public class DnsSecurityAnalyzer
 
         // Positive: All protections in place (with full coverage)
         // When no networks were provided, coverage can't be calculated - treat rule presence as sufficient
-        var hasNetworks = result.Dns53CoveredNetworks.Count > 0 || result.Dns53UncoveredNetworks.Count > 0
-            || result.DotCoveredNetworks.Count > 0 || result.DotUncoveredNetworks.Count > 0;
-        var dns53FullCoverage = result.HasDns53BlockRule && (!hasNetworks || result.Dns53ProvidesFullCoverage);
-        var dotFullCoverage = result.HasDotBlockRule && (!hasNetworks || result.DotProvidesFullCoverage);
-        var doqFullCoverage = result.HasDoqBlockRule && (!hasNetworks || result.DoqProvidesFullCoverage);
+        var dns53HasNetworks = result.Dns53CoveredNetworks.Count > 0 || result.Dns53UncoveredNetworks.Count > 0;
+        var dotHasNetworks = result.DotCoveredNetworks.Count > 0 || result.DotUncoveredNetworks.Count > 0;
+        var doqHasNetworks = result.DoqCoveredNetworks.Count > 0 || result.DoqUncoveredNetworks.Count > 0;
+        var dns53FullCoverage = result.HasDns53BlockRule && (!dns53HasNetworks || result.Dns53ProvidesFullCoverage);
+        var dotFullCoverage = result.HasDotBlockRule && (!dotHasNetworks || result.DotProvidesFullCoverage);
+        var doqFullCoverage = result.HasDoqBlockRule && (!doqHasNetworks || result.DoqProvidesFullCoverage);
 
         if (result.DohConfigured && dns53FullCoverage && dotFullCoverage && result.HasDohBlockRule && doqFullCoverage)
         {

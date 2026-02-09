@@ -231,8 +231,8 @@ public class FirewallRuleAnalyzer
             // Check for any->any rules
             // v2 API uses SourceMatchingTarget/DestinationMatchingTarget = "ANY"
             // Legacy API uses SourceType/DestinationType = "any" or empty Source/Destination
-            var isAnySource = IsAnySource(rule);
-            var isAnyDest = IsAnyDestination(rule);
+            var isAnySource = rule.IsAnySource();
+            var isAnyDest = rule.IsAnyDestination();
             var isAnyProtocol = rule.Protocol?.Equals("all", StringComparison.OrdinalIgnoreCase) == true
                 || string.IsNullOrEmpty(rule.Protocol);
 
@@ -1345,7 +1345,7 @@ public class FirewallRuleAnalyzer
                     (r.AppliesToSourceNetwork(mgmtNetwork) ||
                      IsSourceIpBased(r) ||
                      IsSourceMacBased(r) ||
-                     IsAnySource(r)));
+                     r.IsAnySource()));
 
                 var has5GModemAccess = modem5GAllowRule != null &&
                     !Is5GModemAllowRuleEclipsed(rules, modem5GAllowRule, mgmtNetwork, externalZoneId);
@@ -1374,40 +1374,6 @@ public class FirewallRuleAnalyzer
         }
 
         return issues;
-    }
-
-    /// <summary>
-    /// Check if a firewall rule has "any" source (matches all sources)
-    /// Handles both v2 API format (SourceMatchingTarget) and legacy format (SourceType/Source)
-    /// </summary>
-    private static bool IsAnySource(FirewallRule rule)
-    {
-        // v2 API format: SourceMatchingTarget explicitly tells us the matching type
-        if (!string.IsNullOrEmpty(rule.SourceMatchingTarget))
-        {
-            return rule.SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
-        }
-
-        // Legacy format: check SourceType or fall back to empty Source
-        return rule.SourceType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
-            || string.IsNullOrEmpty(rule.Source);
-    }
-
-    /// <summary>
-    /// Check if a firewall rule has "any" destination (matches all destinations)
-    /// Handles both v2 API format (DestinationMatchingTarget) and legacy format (DestinationType/Destination)
-    /// </summary>
-    private static bool IsAnyDestination(FirewallRule rule)
-    {
-        // v2 API format: DestinationMatchingTarget explicitly tells us the matching type
-        if (!string.IsNullOrEmpty(rule.DestinationMatchingTarget))
-        {
-            return rule.DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
-        }
-
-        // Legacy format: check DestinationType or fall back to empty Destination
-        return rule.DestinationType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
-            || string.IsNullOrEmpty(rule.Destination);
     }
 
     /// <summary>
@@ -1440,7 +1406,7 @@ public class FirewallRuleAnalyzer
     private static bool BlockRuleAffectsSameSource(FirewallRule blockRule, FirewallRule allowRule)
     {
         // Block rule with ANY source affects all sources
-        if (IsAnySource(blockRule))
+        if (blockRule.IsAnySource())
             return true;
 
         // Check based on allow rule's source type
@@ -1473,11 +1439,11 @@ public class FirewallRuleAnalyzer
                 {
                     var allowIps = allowRule.SourceIps ?? new List<string>();
                     var blockIps = blockRule.SourceIps ?? new List<string>();
-                    // Check if any IP overlaps
-                    return allowIps.Any(ip => blockIps.Contains(ip));
+                    // CIDR-aware overlap check (e.g., block 192.168.0.0/16 covers allow 192.168.1.1)
+                    if (blockRule.SourceMatchOppositeIps)
+                        return allowIps.Any(ip => !NetworkUtilities.AnyCidrCoversSubnet(blockIps, ip));
+                    return allowIps.Any(ip => NetworkUtilities.AnyCidrCoversSubnet(blockIps, ip));
                 }
-                // Network-based block rules could theoretically contain the IPs,
-                // but that requires subnet matching which is complex - be conservative
                 return false;
 
             case "CLIENT":
