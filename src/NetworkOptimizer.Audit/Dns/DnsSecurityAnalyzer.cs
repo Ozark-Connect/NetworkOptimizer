@@ -419,17 +419,13 @@ public class DnsSecurityAnalyzer
             if (!isBlockAction || !rule.BlocksNewConnections())
                 continue;
 
-            // Filter out rules that aren't DNS-specific for port-based detection.
-            // - Web domain rules (e.g., "Block Scam Domains") filter by HTTP domain
-            // - App category rules (e.g., "Block Torrent Trackers") filter by app category
-            // - Rules with unresolved port groups intended to specify ports but couldn't
-            // App-based rules (AppIds with APP target) are handled separately below.
-            // Source-specific block-all rules DO count - they block DNS for those networks
-            // and coverage tracking handles per-network accounting.
-            var isNarrowRule = rule.WebDomains?.Count > 0 || rule.AppCategoryIds?.Count > 0;
-            var hasUnresolvedPorts = rule.HasUnresolvedDestinationPortGroup;
+            // Rules with unresolved port groups can't be reliably evaluated - skip
+            if (rule.HasUnresolvedDestinationPortGroup)
+                continue;
 
-            if (!isNarrowRule && !hasUnresolvedPorts)
+            // Port-based detection handles network/transport-layer rules.
+            // Application-layer rules (WEB/APP targets) have their own sections below.
+            if (matchingTarget != "WEB" && matchingTarget != "APP")
             {
                 // Check for DNS port 53 blocking (UDP) - must target External zone
                 if (targetsExternalZone && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp"))
