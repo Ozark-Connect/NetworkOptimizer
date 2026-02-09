@@ -3855,6 +3855,208 @@ public class FirewallRuleAnalyzerTests
             i.Message.Contains("Guest") && i.Message.Contains("Home"));
     }
 
+    [Fact]
+    public void CheckInterVlanIsolation_CorporateToHome_NoBlockRule_FlaggedAsRecommended()
+    {
+        // Corporate to Home without block rule should be Recommended (not Critical)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.RuleId == "FW-ISOLATION-CORP-HOME" &&
+            i.Message.Contains("Work Network") && i.Message.Contains("Home Network"));
+        issues.First(i => i.RuleId == "FW-ISOLATION-CORP-HOME").Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_HomeToCorporate_NoBlockRule_FlaggedAsRecommended()
+    {
+        // Home to Corporate without block rule should be Recommended (not Critical)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id"),
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.RuleId == "FW-ISOLATION-HOME-CORP" &&
+            i.Message.Contains("Home Network") && i.Message.Contains("Work Network"));
+        issues.First(i => i.RuleId == "FW-ISOLATION-HOME-CORP").Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_CorporateToHome_WithBlockRule_NoIssue()
+    {
+        // Block rule between Corporate and Home should satisfy isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-home",
+                Name = "Block Corp to Home",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "home-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-CORP-HOME");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_CorporateToHome_Bidirectional_BlockOneDirection_StillFlagsOther()
+    {
+        // Block rule Corp→Home does NOT protect Home→Corp direction
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-home",
+                Name = "Block Corp to Home",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "home-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Corp→Home should be satisfied
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-CORP-HOME");
+        // Home→Corp should still be flagged
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-HOME-CORP" &&
+            i.Message.Contains("Home Network") && i.Message.Contains("Work Network"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckInterVlanIsolation_CorporateWithIsolation_ToHome_NoIssue(bool homeIsolated)
+    {
+        // Corporate with isolation enabled can't initiate outbound, so no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: homeIsolated)
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-CORP-HOME" &&
+            i.Message.Contains("Work Network"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckInterVlanIsolation_HomeWithIsolation_ToCorporate_NoIssue(bool corpIsolated)
+    {
+        // Home with isolation enabled can't initiate outbound, so no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: corpIsolated)
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-HOME-CORP" &&
+            i.Message.Contains("Home Network"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleCorporateToHome_FlaggedAsIsolationBypass()
+    {
+        // An allow rule between Corporate and Home should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-corp-to-home",
+                Name = "Allow Corp to Home",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "home-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED" &&
+            i.RuleId == "FW-ISOLATION-BYPASS" &&
+            i.Message.Contains("Allow Corp to Home"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleHomeToCorporate_FlaggedAsIsolationBypass()
+    {
+        // An allow rule from Home to Corporate should also be flagged (bidirectional)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id"),
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-home-to-corp",
+                Name = "Allow Home to Corp",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "home-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED" &&
+            i.RuleId == "FW-ISOLATION-BYPASS" &&
+            i.Message.Contains("Allow Home to Corp"));
+    }
+
     #endregion
 
     [Fact]
@@ -7071,6 +7273,189 @@ public class FirewallRuleAnalyzerTests
 
         issues.Should().ContainSingle();
         issues.First().Type.Should().Be("MISSING_ISOLATION");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_CorporateAndHome_DifferentZones_PredefinedBlockAll_NoIssue()
+    {
+        // Corporate and Home in different zones - predefined "Block All Traffic" inter-zone rule satisfies isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Work Network", NetworkPurpose.Corporate, id: "corp-net-id", firewallZoneId: "zone-corporate"),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", firewallZoneId: "zone-home")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "predefined-block-all",
+                Name = "Block All Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Predefined = true,
+                Protocol = "all",
+                Index = 30000,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "zone-corporate",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "zone-home"
+            },
+            new FirewallRule
+            {
+                Id = "predefined-block-all-reverse",
+                Name = "Block All Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Predefined = true,
+                Protocol = "all",
+                Index = 30001,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "zone-home",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "zone-corporate"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-CORP-HOME");
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-HOME-CORP");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTAndCorporate_DifferentZones_PredefinedBlockAll_NoIssue()
+    {
+        // IoT and Corporate in different zones - predefined inter-zone block rule satisfies isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id",
+                networkIsolationEnabled: false, firewallZoneId: "zone-iot"),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", firewallZoneId: "zone-internal")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "predefined-block-iot-to-internal",
+                Name = "Block All Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Predefined = true,
+                Protocol = "all",
+                Index = 30000,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "zone-internal"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-IOT" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestAndCorporate_DifferentZones_PredefinedBlockAll_NoIssue()
+    {
+        // Guest and Corporate in different zones - predefined inter-zone block satisfies isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id",
+                networkIsolationEnabled: false, firewallZoneId: "zone-guest"),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", firewallZoneId: "zone-internal")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "predefined-block-guest-to-internal",
+                Name = "Block All Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Predefined = true,
+                Protocol = "all",
+                Index = 30000,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "zone-guest",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "zone-internal"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-GUEST" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_HomeAndManagement_DifferentZones_PredefinedBlockAll_NoIssue()
+    {
+        // Home and Management in different zones - predefined inter-zone block satisfies isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", firewallZoneId: "zone-home"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id",
+                networkIsolationEnabled: false, firewallZoneId: "zone-mgmt")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "predefined-block-home-to-mgmt",
+                Name = "Block All Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Predefined = true,
+                Protocol = "all",
+                Index = 30000,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "zone-home",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "zone-mgmt"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Home") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTAndSecurity_DifferentZones_PredefinedBlockAll_NoIssue()
+    {
+        // IoT and Security in different zones - predefined inter-zone block satisfies isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id",
+                networkIsolationEnabled: false, firewallZoneId: "zone-iot"),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id", firewallZoneId: "zone-security")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "predefined-block-iot-to-security",
+                Name = "Block All Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Predefined = true,
+                Protocol = "all",
+                Index = 30000,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "zone-iot",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "zone-security"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Cameras"));
     }
 
     #endregion
