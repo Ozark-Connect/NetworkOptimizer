@@ -588,6 +588,15 @@
                     // Raise overlayPane so individual speed test dots render above AP icons
                     map.getPane('overlayPane').style.zIndex = 500;
 
+                    // Scale AP icons with zoom level (up to 25% larger at high zoom)
+                    function updateApScale() {{
+                        const zoom = map.getZoom();
+                        const scale = Math.min(1.25, Math.max(1.0, 1.0 + (zoom - 16) * 0.05));
+                        container.style.setProperty('--ap-scale', scale.toFixed(3));
+                    }}
+                    map.on('zoomend', updateApScale);
+                    updateApScale();
+
                     // Speed color function for clusters
                     function getSpeedColor(speed) {{
                         if (speed < 50) return 'rgb(239,68,68)';
@@ -724,6 +733,15 @@
                     }};
                     window._speedTestApFilter = function(mac) {{
                         dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
+                    }};
+                    window._speedTestApToggle = function(mac, linkEl) {{
+                        if (linkEl.textContent.trim() === 'Show all tests') {{
+                            dotNetRef.invokeMethodAsync('OnApMarkerClick', '');
+                            linkEl.textContent = 'Show AP tests';
+                        }} else {{
+                            dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
+                            linkEl.textContent = 'Show all tests';
+                        }}
                     }};
 
                     // Store .NET ref on map data for AP drag callbacks
@@ -957,6 +975,7 @@
 
                     aps.forEach(ap => {{
                         // Glow layer in apGlowPane (behind everything)
+                        var glowMarker = null;
                         if (mapData.apGlowGroup) {{
                             const glowIcon = L.divIcon({{
                                 html: ""<div class='ap-glow-dot"" + (ap.isSelected ? "" ap-glow-selected"" : """") + ""'></div>"",
@@ -964,7 +983,7 @@
                                 iconSize: [48, 48],
                                 iconAnchor: [24, 24]
                             }});
-                            const glowMarker = L.marker([ap.lat, ap.lng], {{
+                            glowMarker = L.marker([ap.lat, ap.lng], {{
                                 icon: glowIcon,
                                 interactive: false,
                                 pane: 'apGlowPane'
@@ -996,9 +1015,29 @@
                                     mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
                                 }}
                             }});
+                            // Clear filter when popup is closed
+                            marker.on('popupclose', function() {{
+                                mapData._popupCloseTimer = setTimeout(() => {{
+                                    if (mapData.dotNetRef) {{
+                                        mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
+                                    }}
+                                }}, 50);
+                            }});
+                            marker.on('popupopen', function() {{
+                                if (mapData._popupCloseTimer) {{
+                                    clearTimeout(mapData._popupCloseTimer);
+                                    mapData._popupCloseTimer = null;
+                                }}
+                            }});
                         }}
 
                         if (draggable) {{
+                            // Sync glow position during drag
+                            if (glowMarker) {{
+                                marker.on('drag', function(e) {{
+                                    glowMarker.setLatLng(e.target.getLatLng());
+                                }});
+                            }}
                             marker.on('dragend', function(e) {{
                                 const pos = e.target.getLatLng();
                                 if (mapData.dotNetRef) {{
@@ -1098,7 +1137,7 @@
         if (testCount > 0)
             html += $" · {testCount} test{(testCount != 1 ? "s" : "")}";
         html += "</span>";
-        html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilter(\"\")' class='map-popup-link'>Show all</a>";
+        html += $"<a href='javascript:void(0)' onclick='window._speedTestApToggle(\"{ap.Mac}\", this)' class='map-popup-link'>Show all tests</a>";
         html += "</div>";
 
         html += "</div>";
@@ -1137,6 +1176,24 @@
                 await UpdateApGlow();
             }
             StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnApPopupClosed()
+    {
+        await InvokeAsync(async () =>
+        {
+            if (!string.IsNullOrEmpty(selectedApMacFilter))
+            {
+                selectedApMacFilter = null;
+                if (mapInitialized)
+                {
+                    await UpdateMarkers(fitBounds: false);
+                    await UpdateApGlow();
+                }
+                StateHasChanged();
+            }
         });
     }
 
@@ -1736,6 +1793,8 @@
     .ap-glow-container {
         background: transparent !important;
         border: none !important;
+        transform: scale(var(--ap-scale, 1));
+        transform-origin: center;
     }
 
     .ap-glow-dot {
@@ -1755,6 +1814,8 @@
     .ap-marker-container {
         background: transparent !important;
         border: none !important;
+        transform: scale(var(--ap-scale, 1));
+        transform-origin: center;
     }
 
     .ap-marker-icon {
