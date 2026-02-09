@@ -577,6 +577,16 @@
                         attribution: tileAttribution
                     }}).addTo(map);
 
+                    // Custom panes for z-ordering (bottom to top):
+                    // apGlowPane(390) < clusterPane(420) < apIconPane(450) < overlayPane(500) < markerPane(600)
+                    map.createPane('apGlowPane');
+                    map.getPane('apGlowPane').style.zIndex = 390;
+                    map.createPane('clusterPane');
+                    map.getPane('clusterPane').style.zIndex = 420;
+                    map.createPane('apIconPane');
+                    map.getPane('apIconPane').style.zIndex = 450;
+                    // Raise overlayPane so individual speed test dots render above AP icons
+                    map.getPane('overlayPane').style.zIndex = 500;
 
                     // Speed color function for clusters
                     function getSpeedColor(speed) {{
@@ -588,6 +598,7 @@
 
                     // Create marker cluster group with speed-based coloring
                     const clusterGroup = L.markerClusterGroup({{
+                        clusterPane: 'clusterPane',
                         maxClusterRadius: 24,
                         spiderfyOnMaxZoom: true,
                         showCoverageOnHover: false,
@@ -606,9 +617,6 @@
                             }});
                         }}
                     }});
-                    // Add glow layer FIRST (renders below cluster group)
-                    const apGlowGroupInit = L.layerGroup().addTo(map);
-
                     map.addLayer(clusterGroup);
 
                     // Track switching state (currentSpider is initialized on mapData object below)
@@ -666,7 +674,7 @@
                         window._speedTestMaps['{mapId}'].currentSpider = null;
                         // Only reset z-index if not switching to a new spider
                         if (!switchingSpider) {{
-                            map.getPane('overlayPane').style.zIndex = '';
+                            map.getPane('overlayPane').style.zIndex = 500;
                         }}
                     }});
 
@@ -700,10 +708,11 @@
                         }}
                     }}, true);
 
-                    // AP icon layer on top of everything
-                    const apLayerGroup = L.layerGroup().addTo(map);
+                    // AP layers use custom panes for z-ordering
+                    const apGlowGroup = L.layerGroup({{ pane: 'apGlowPane' }}).addTo(map);
+                    const apLayerGroup = L.layerGroup({{ pane: 'apIconPane' }}).addTo(map);
 
-                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, apGlowGroup: apGlowGroupInit, apLayerGroup: apLayerGroup, currentSpider: null }};
+                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, apGlowGroup: apGlowGroup, apLayerGroup: apLayerGroup, currentSpider: null }};
                 }})();
             ");
 
@@ -947,7 +956,7 @@
                     const draggable = {isDraggable};
 
                     aps.forEach(ap => {{
-                        // Glow layer: renders behind speed test markers
+                        // Glow layer in apGlowPane (behind everything)
                         if (mapData.apGlowGroup) {{
                             const glowIcon = L.divIcon({{
                                 html: ""<div class='ap-glow-dot"" + (ap.isSelected ? "" ap-glow-selected"" : """") + ""'></div>"",
@@ -958,12 +967,12 @@
                             const glowMarker = L.marker([ap.lat, ap.lng], {{
                                 icon: glowIcon,
                                 interactive: false,
-                                zIndexOffset: -1000
+                                pane: 'apGlowPane'
                             }});
                             mapData.apGlowGroup.addLayer(glowMarker);
                         }}
 
-                        // Icon layer: renders on top
+                        // Icon layer in apIconPane (above clusters, below individual dots)
                         const icon = L.divIcon({{
                             html: ""<img src='"" + ap.iconUrl + ""' class='ap-marker-icon' style='opacity:"" + (ap.isOnline ? 1.0 : 0.4) + ""' />"",
                             className: 'ap-marker-container',
@@ -975,19 +984,10 @@
                         const marker = L.marker([ap.lat, ap.lng], {{
                             icon: icon,
                             draggable: draggable,
-                            zIndexOffset: 1000
+                            pane: 'apIconPane'
                         }});
 
                         marker.bindPopup(ap.popup);
-
-                        // Click to filter speed tests by this AP (non-edit mode only)
-                        if (!draggable) {{
-                            marker.on('click', function(e) {{
-                                if (mapData.dotNetRef) {{
-                                    mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
-                                }}
-                            }});
-                        }}
 
                         if (draggable) {{
                             marker.on('dragend', function(e) {{
@@ -1124,7 +1124,8 @@
             if (mapInitialized)
             {
                 await UpdateMarkers(fitBounds: false);
-                await UpdateApMarkers(); // Refresh to show selected state
+                // Update only glow state without re-rendering AP icons (which would close popup)
+                await UpdateApGlow();
             }
             StateHasChanged();
         });
@@ -1136,7 +1137,57 @@
         if (mapInitialized)
         {
             await UpdateMarkers(fitBounds: false);
-            await UpdateApMarkers();
+            await UpdateApGlow();
+        }
+    }
+
+    private async Task UpdateApGlow()
+    {
+        if (!mapInitialized) return;
+
+        try
+        {
+            var placedAps = ShowApMarkers
+                ? ApMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToArray()
+                : Array.Empty<ApMapMarker>();
+
+            var glowData = placedAps.Select(a => new
+            {
+                lat = a.Latitude!.Value,
+                lng = a.Longitude!.Value,
+                isSelected = a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase)
+            }).ToArray();
+
+            var glowJson = System.Text.Json.JsonSerializer.Serialize(glowData);
+
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                    if (!mapData || !mapData.apGlowGroup) return;
+
+                    mapData.apGlowGroup.clearLayers();
+                    const glows = {glowJson};
+
+                    glows.forEach(g => {{
+                        const glowIcon = L.divIcon({{
+                            html: ""<div class='ap-glow-dot"" + (g.isSelected ? "" ap-glow-selected"" : """") + ""'></div>"",
+                            className: 'ap-glow-container',
+                            iconSize: [48, 48],
+                            iconAnchor: [24, 24]
+                        }});
+                        const glowMarker = L.marker([g.lat, g.lng], {{
+                            icon: glowIcon,
+                            interactive: false,
+                            pane: 'apGlowPane'
+                        }});
+                        mapData.apGlowGroup.addLayer(glowMarker);
+                    }});
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"AP glow update error: {ex.Message}");
         }
     }
 
