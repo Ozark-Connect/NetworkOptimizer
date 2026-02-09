@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
@@ -9,10 +10,13 @@ namespace NetworkOptimizer.Audit.Tests.Rules;
 public class AccessPortVlanRuleTests
 {
     private readonly AccessPortVlanRule _rule;
+    private readonly DeviceTypeDetectionService _detectionService;
 
     public AccessPortVlanRuleTests()
     {
         _rule = new AccessPortVlanRule();
+        _detectionService = new DeviceTypeDetectionService();
+        _rule.SetDetectionService(_detectionService);
     }
 
     #region Rule Properties
@@ -665,6 +669,113 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
+    #region Server Device Higher Threshold
+
+    [Fact]
+    public void Evaluate_ServerDevice_FiveVlans_AtThreshold_ReturnsNull()
+    {
+        // 5 VLANs is at the server threshold (5) - should not trigger
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithServerClient("proxmox-host", excludedNetworkIds: excludeAllButFive);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("5 VLANs is at the server threshold");
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_SixVlans_ReturnsIssue()
+    {
+        // 6 VLANs exceeds the server threshold (5)
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButSix = networks.Skip(6).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithServerClient("proxmox-host", excludedNetworkIds: excludeAllButSix);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("6 VLANs exceeds the server threshold of 5");
+        result!.Message.Should().Contain("Server port");
+        result.Metadata!["is_server_device"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_AllowAll_ReturnsIssue()
+    {
+        // Even servers should not have "Allow All" VLANs
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithServerClient("proxmox-host", excludedNetworkIds: null);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("'Allow All' should still trigger for servers");
+        result!.Message.Should().Contain("Server port");
+        result.Metadata!["is_server_device"].Should().Be(true);
+        result.Metadata["allows_all_vlans"].Should().Be(true);
+    }
+
+    [Theory]
+    [InlineData("proxmox-host")]
+    [InlineData("esxi-server")]
+    [InlineData("truenas-storage")]
+    [InlineData("unraid-server")]
+    [InlineData("docker-host")]
+    [InlineData("my-server")]
+    public void Evaluate_ServerDeviceByName_WithModerateVlans_ReturnsNull(string hostname)
+    {
+        // Various server-like hostnames should all get the higher threshold
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithServerClient(hostname, excludedNetworkIds: excludeAllButFive);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull($"'{hostname}' should be detected as a server and get higher threshold");
+    }
+
+    [Fact]
+    public void Evaluate_NonServerDevice_ThreeVlans_StillTriggersNormalThreshold()
+    {
+        // Non-server devices should still use the normal threshold (2)
+        var networks = CreateVlanNetworks(5);
+        var excludeAllButThree = networks.Skip(3).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButThree);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("non-server devices use the lower threshold of 2");
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_WithFingerprint_DevCat56_ReturnsNull()
+    {
+        // Server detected via UniFi fingerprint (dev_cat=56 = Server)
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButFive);
+        port.ConnectedClient!.DevCat = 56; // Server category in UniFi fingerprint
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("device with dev_cat=56 (Server) should get higher threshold");
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_WithFingerprint_DevCat182_ReturnsNull()
+    {
+        // Server detected via UniFi fingerprint (dev_cat=182 = Virtual Machine)
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButFive);
+        port.ConnectedClient!.DevCat = 182; // Virtual Machine category
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("device with dev_cat=182 (Virtual Machine) should get higher threshold");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static List<NetworkInfo> CreateVlanNetworks(int count)
@@ -841,6 +952,42 @@ public class AccessPortVlanRuleTests
             ConnectedClient = null,
             LastConnectionMac = null,
             AllowedMacAddresses = new List<string> { "aa:bb:cc:dd:ee:ff" },
+            Switch = switchInfo
+        };
+    }
+
+    /// <summary>
+    /// Create a trunk port with a connected client that has a server-like hostname.
+    /// The DeviceTypeDetectionService should detect it as a Server category.
+    /// </summary>
+    private static PortInfo CreateTrunkPortWithServerClient(
+        string hostname,
+        List<string>? excludedNetworkIds = null)
+    {
+        var switchInfo = new SwitchInfo
+        {
+            Name = "Test Switch",
+            Capabilities = new SwitchCapabilities()
+        };
+
+        return new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = true,
+            ForwardMode = "custom",
+            IsUplink = false,
+            IsWan = false,
+            ExcludedNetworkIds = excludedNetworkIds,
+            ConnectedDeviceType = null,
+            ConnectedClient = new UniFiClientResponse
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Hostname = hostname,
+                Name = hostname
+            },
+            LastConnectionMac = null,
+            AllowedMacAddresses = null,
             Switch = switchInfo
         };
     }

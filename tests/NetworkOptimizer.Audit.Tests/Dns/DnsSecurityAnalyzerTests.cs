@@ -592,6 +592,120 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_BroadBlockAllRule_PortMatchingTypeAny_DetectsDns53()
+    {
+        // A broad "block all" rule with port_matching_type=ANY blocks all ports including DNS 53
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("a block-all rule with port_matching_type=ANY blocks all ports including 53");
+        result.Dns53RuleName.Should().Be("Block All Traffic");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_PortMatchingTypeAny_DetectsDoTAndDoQ()
+    {
+        // A broad "block all" rule should also be detected as blocking DoT (TCP 853) and DoQ (UDP 853)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDotBlockRule.Should().BeTrue("a block-all rule blocks all ports including 853/TCP");
+        result.HasDoqBlockRule.Should().BeTrue("a block-all rule blocks all ports including 853/UDP");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_PortMatchingTypeAny_DoesNotDetectDoH()
+    {
+        // A broad "block all" rule should NOT be detected as a DoH block rule
+        // because DoH detection requires matching_target=WEB and web_domains
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("DoH detection requires web domain matching, not just port blocking");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_UdpOnly_PortMatchingTypeAny_DetectsDns53()
+    {
+        // A "block all UDP" rule with port_matching_type=ANY blocks DNS (UDP 53)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All UDP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("blocking all UDP blocks DNS port 53");
+        result.HasDotBlockRule.Should().BeFalse("DoT is TCP, not blocked by UDP-only rule");
+        result.HasDoqBlockRule.Should().BeTrue("DoQ is UDP 853, blocked by all-UDP rule");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_TcpOnly_PortMatchingTypeAny_DoesNotDetectDns53()
+    {
+        // A "block all TCP" rule with port_matching_type=ANY does NOT block DNS (UDP 53)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All TCP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("DNS uses UDP, not blocked by TCP-only rule");
+        result.HasDotBlockRule.Should().BeTrue("DoT is TCP 853, blocked by all-TCP rule");
+        result.HasDoqBlockRule.Should().BeFalse("DoQ is UDP, not blocked by TCP-only rule");
+    }
+
+    [Fact]
     public async Task Analyze_WithDns53BlockRuleUsingPortGroup_DetectsRule()
     {
         // Arrange - Firewall rule using port group reference instead of direct port
@@ -735,9 +849,11 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_WithMissingPortGroupId_IgnoresRule()
+    public async Task Analyze_WithMissingPortGroupId_TreatsAsBlockAll()
     {
-        // Arrange - Firewall rule references non-existent port group
+        // Arrange - Firewall rule references non-existent port group.
+        // Unresolved port group results in null DestinationPort, which is treated as "all ports"
+        // (this is an edge case - broken configs shouldn't happen in practice).
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DNS (Broken)"",
@@ -764,8 +880,8 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
-        // Assert - Should not detect rule since group doesn't exist
-        result.HasDns53BlockRule.Should().BeFalse();
+        // Assert - Null port = all ports, so rule is detected as blocking DNS
+        result.HasDns53BlockRule.Should().BeTrue();
     }
 
     [Fact]
