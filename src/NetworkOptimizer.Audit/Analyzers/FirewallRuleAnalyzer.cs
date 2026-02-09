@@ -1420,12 +1420,12 @@ public class FirewallRuleAnalyzer
 
             case "NETWORK":
                 // Allow rule targets specific networks - check if block rule covers any of them
-                var allowNetworkIds = allowRule.SourceNetworkIds ?? new List<string>();
+                var allowNetworkIds = allowRule.SourceNetworkIds ?? [];
                 if (allowNetworkIds.Count == 0) return false;
 
                 if (blockRule.SourceMatchingTarget?.Equals("NETWORK", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    var blockNetworkIds = blockRule.SourceNetworkIds ?? new List<string>();
+                    var blockNetworkIds = blockRule.SourceNetworkIds ?? [];
                     if (blockRule.SourceMatchOppositeNetworks)
                         return allowNetworkIds.Any(netId => !blockNetworkIds.Contains(netId));
                     return allowNetworkIds.Any(netId => blockNetworkIds.Contains(netId));
@@ -1436,8 +1436,8 @@ public class FirewallRuleAnalyzer
                 // Allow rule targets specific IPs
                 if (blockRule.SourceMatchingTarget?.Equals("IP", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    var allowIps = allowRule.SourceIps ?? new List<string>();
-                    var blockIps = blockRule.SourceIps ?? new List<string>();
+                    var allowIps = allowRule.SourceIps ?? [];
+                    var blockIps = blockRule.SourceIps ?? [];
                     // CIDR-aware overlap check (e.g., block 192.168.0.0/16 covers allow 192.168.1.1)
                     // Bare IPs use IsIpInAnySubnet; CIDRs use AnyCidrCoversSubnet
                     if (blockRule.SourceMatchOppositeIps)
@@ -1450,8 +1450,8 @@ public class FirewallRuleAnalyzer
                 // Allow rule targets specific MACs
                 if (blockRule.SourceMatchingTarget?.Equals("CLIENT", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    var allowMacs = allowRule.SourceClientMacs ?? new List<string>();
-                    var blockMacs = blockRule.SourceClientMacs ?? new List<string>();
+                    var allowMacs = allowRule.SourceClientMacs ?? [];
+                    var blockMacs = blockRule.SourceClientMacs ?? [];
                     return allowMacs.Any(mac =>
                         blockMacs.Contains(mac, StringComparer.OrdinalIgnoreCase));
                 }
@@ -1465,9 +1465,13 @@ public class FirewallRuleAnalyzer
 
     private static bool IpOrCidrCoveredByAny(string ipOrCidr, List<string> cidrs)
     {
-        return ipOrCidr.Contains('/')
-            ? NetworkUtilities.AnyCidrCoversSubnet(cidrs, ipOrCidr)
-            : NetworkUtilities.IsIpInAnySubnet(ipOrCidr, cidrs);
+        if (ipOrCidr.Contains('/'))
+            return NetworkUtilities.AnyCidrCoversSubnet(cidrs, ipOrCidr);
+
+        // Bare IP: check if any CIDR covers it, or if there's an exact IP match
+        // IsIpInSubnet requires CIDR notation, so bare IPs in the list won't match
+        return NetworkUtilities.IsIpInAnySubnet(ipOrCidr, cidrs)
+            || cidrs.Any(c => !c.Contains('/') && c == ipOrCidr);
     }
 
     /// <summary>

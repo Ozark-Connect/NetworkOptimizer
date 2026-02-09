@@ -1354,6 +1354,61 @@ public class FirewallRuleAnalyzerTests
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_BareIpBlockRuleCoversMatchingBareIpAllow_Reports5GIssue()
+    {
+        // Arrange - Both block and allow rules use bare IPs (no CIDR /32 notation)
+        // Block at 192.168.99.5 should eclipse allow at 192.168.99.5
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-specific-ip",
+                Name = "Block Specific IP",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "IP",
+                SourceIps = ["192.168.99.5"],
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            CreateFirewallRule("UniFi Cloud", action: "allow", index: 200,
+                sourceNetworkIds: [mgmtNetworkId],
+                webDomains: ["ui.com"]),
+            CreateFirewallRule("AFC Traffic", action: "allow", index: 201,
+                sourceNetworkIds: [mgmtNetworkId],
+                webDomains: ["afcapi.qcs.qualcomm.com"]),
+            CreateFirewallRule("NTP", action: "allow", index: 202,
+                sourceNetworkIds: [mgmtNetworkId],
+                destinationPort: "123", protocol: "udp"),
+            new FirewallRule
+            {
+                Id = "allow-5g",
+                Name = "5G Modem Registration",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 300,
+                SourceMatchingTarget = "IP",
+                SourceIps = ["192.168.99.5"],
+                WebDomains = ["t-mobile.com"],
+                Protocol = "tcp"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true, externalZoneId: externalZoneId);
+
+        // Block at 192.168.99.5 covers allow at 192.168.99.5 (exact bare IP match)
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
     #endregion
 
     #region DetectShadowedRules Tests

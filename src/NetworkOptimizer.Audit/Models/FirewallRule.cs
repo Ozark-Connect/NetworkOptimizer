@@ -320,7 +320,7 @@ public class FirewallRule
 
             if (SourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
             {
-                var networkIds = SourceNetworkIds ?? new List<string>();
+                var networkIds = SourceNetworkIds ?? [];
                 return SourceMatchOppositeNetworks
                     ? !networkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase)
                     : networkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase);
@@ -341,11 +341,11 @@ public class FirewallRule
         if (SourceNetworkIds != null && SourceNetworkIds.Count > 0)
         {
             return SourceMatchOppositeNetworks
-                ? !SourceNetworkIds.Contains(network.Id)
-                : SourceNetworkIds.Contains(network.Id);
+                ? !SourceNetworkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase)
+                : SourceNetworkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase);
         }
 
         // Legacy fallback
-        return Source == network.Id;
+        return string.Equals(Source, network.Id, StringComparison.OrdinalIgnoreCase);
     }
 }
