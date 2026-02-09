@@ -322,7 +322,7 @@ public class PdfReportGenerator
                     .Text(dns.GetDohStatusDisplay()).FontSize(9);
 
                 // DNS Leak Prevention row
-                var leakStatus = dns.DnsLeakProtection ? "Protected" : "Unprotected";
+                var leakStatus = dns.DnsLeakProtection ? "Protected" : (dns.HasDns53BlockRule ? "Partial" : "Unprotected");
                 var leakStatusColor = dns.DnsLeakProtection ? successColor : warningColor;
 
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
@@ -342,6 +342,17 @@ public class PdfReportGenerator
                     .Text(dotStatus).FontSize(9).FontColor(dotStatusColor);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text(dns.DotBlocked ? (dns.DotProvidesFullCoverage ? "DoT queries blocked" : "DoT queries partially blocked") : "Devices can use external DoT").FontSize(9);
+
+                // DoQ Blocking row
+                var doqStatus = dns.DoqBlocked ? (dns.DoqProvidesFullCoverage ? "Blocked" : "Partially Blocked") : "Open";
+                var doqStatusColor = dns.DoqBlocked && dns.DoqProvidesFullCoverage ? successColor : warningColor;
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text("DNS-over-QUIC (UDP 853)").FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(doqStatus).FontSize(9).FontColor(doqStatusColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dns.DoqBlocked ? (dns.DoqProvidesFullCoverage ? "DoQ queries blocked" : "DoQ queries partially blocked") : "Devices can use external DoQ").FontSize(9);
 
                 // DoH Bypass Blocking row
                 var bypassStatus = dns.DohBypassBlocked ? "Blocked" : "Open";
