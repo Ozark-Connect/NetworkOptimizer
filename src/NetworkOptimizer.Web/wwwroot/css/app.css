@@ -7266,14 +7266,21 @@ a.path-hop.hop-clickable:hover {
 }
 
 /* Wi-Fi View Tabs */
+.wifi-view-tabs-wrapper {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 1.5rem;
+}
+
 .wifi-view-tabs {
     display: flex;
     gap: 0.5rem;
-    margin-bottom: 1.5rem;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 0.5rem;
     overflow-x: auto;
-    max-width: 100%;
+    flex: 1;
+    min-width: 0;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
@@ -7281,6 +7288,54 @@ a.path-hop.hop-clickable:hover {
 
 .wifi-view-tabs::-webkit-scrollbar {
     display: none; /* Chrome/Safari */
+}
+
+.wifi-tabs-scroll-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0 0.4rem;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+    z-index: 1;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.wifi-tabs-scroll-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+}
+
+.wifi-tabs-scroll-left {
+    border-radius: 4px 0 0 4px;
+    border-right: none;
+}
+
+.wifi-tabs-scroll-right {
+    border-radius: 0 4px 4px 0;
+    border-left: none;
+}
+
+/* Show scroll buttons when tabs overflow */
+.wifi-view-tabs-wrapper.has-overflow .wifi-tabs-scroll-btn {
+    display: flex;
+}
+
+/* Hide left button when scrolled to start */
+.wifi-view-tabs-wrapper.at-start .wifi-tabs-scroll-left {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+/* Hide right button when scrolled to end */
+.wifi-view-tabs-wrapper.at-end .wifi-tabs-scroll-right {
+    opacity: 0.3;
+    pointer-events: none;
 }
 
 .wifi-view-tab {

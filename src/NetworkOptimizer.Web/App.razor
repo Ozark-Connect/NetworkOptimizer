@@ -319,6 +319,32 @@
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
+        // Scrollable tab bar overflow detection
+        function updateTabScrollState() {
+            document.querySelectorAll('.wifi-view-tabs-wrapper').forEach(function(wrapper) {
+                var tabs = wrapper.querySelector('.wifi-view-tabs');
+                if (!tabs) return;
+                var hasOverflow = tabs.scrollWidth > tabs.clientWidth + 1;
+                wrapper.classList.toggle('has-overflow', hasOverflow);
+                wrapper.classList.toggle('at-start', tabs.scrollLeft <= 1);
+                wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 1);
+            });
+        }
+        // Update on scroll
+        document.addEventListener('scroll', function(e) {
+            if (e.target.classList && e.target.classList.contains('wifi-view-tabs')) {
+                var wrapper = e.target.closest('.wifi-view-tabs-wrapper');
+                if (wrapper) {
+                    var tabs = e.target;
+                    wrapper.classList.toggle('at-start', tabs.scrollLeft <= 1);
+                    wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 1);
+                }
+            }
+        }, true);
+        // Update on resize and periodically for Blazor dynamic content
+        window.addEventListener('resize', updateTabScrollState);
+        setInterval(updateTabScrollState, 1000);
+
         // Auto-reload when Blazor reconnects after a real disconnection
         // After server restart, client state is stale and causes loading issues
         // But don't reload on quick reconnects during normal page refresh

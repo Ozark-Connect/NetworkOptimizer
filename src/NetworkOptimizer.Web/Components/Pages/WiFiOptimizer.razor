@@ -134,59 +134,63 @@
     </div>
 
     <!-- View Tabs -->
-    <div class="wifi-view-tabs">
-        <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("overview"))">
-            Overview
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "metrics" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("metrics"))">
-            Metrics
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("spectrum"))">
-            RF Environment
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "channels" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("channels"))">
-            Channels
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("client"))">
-            Client Stats
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "coverage" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("coverage"))">
-            Coverage Map
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("roaming"))">
-            Roaming
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("power"))">
-            Power/Coverage
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("loadbalance"))">
-            Load Balance
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("connectivity"))">
-            Connectivity
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "bandsteering" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("bandsteering"))">
-            Band Steering
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "airtime" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("airtime"))">
-            Airtime
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("environment"))">
-            Environment
-        </button>
+    <div class="wifi-view-tabs-wrapper">
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <div class="wifi-view-tabs">
+            <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("overview"))">
+                Overview
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "metrics" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("metrics"))">
+                Metrics
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("spectrum"))">
+                RF Environment
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "channels" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("channels"))">
+                Channels
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("client"))">
+                Client Stats
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "coverage" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("coverage"))">
+                Coverage Map
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("roaming"))">
+                Roaming
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("power"))">
+                Power/Coverage
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("loadbalance"))">
+                Load Balance
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("connectivity"))">
+                Connectivity
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "bandsteering" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("bandsteering"))">
+                Band Steering
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "airtime" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("airtime"))">
+                Airtime
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("environment"))">
+                Environment
+            </button>
+        </div>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
     </div>
 
     @if (_activeTab == "metrics")

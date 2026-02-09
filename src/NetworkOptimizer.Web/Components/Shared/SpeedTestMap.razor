@@ -639,7 +639,6 @@
 
                     // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
-                        console.log('[spider] clusterclick');
                         const mapData = window._speedTestMaps['{mapId}'];
                         // Cancel any pending AP filter clear (cluster click doesn't open a popup)
                         if (mapData._popupCloseTimer) {{
@@ -665,8 +664,13 @@
                     }});
 
                     clusterGroup.on('spiderfied', function(e) {{
-                        console.log('[spider] spiderfied, cluster:', e.cluster._childCount, 'children');
-                        window._speedTestMaps['{mapId}'].currentSpider = e.cluster;
+                        const mapData = window._speedTestMaps['{mapId}'];
+                        // Suppress re-spider if we're in the middle of dismissing
+                        if (mapData._dismissingSpider) {{
+                            mapData.clusterGroup.unspiderfy();
+                            return;
+                        }}
+                        mapData.currentSpider = e.cluster;
                         switchingSpider = false;
                         // Disable clicks on the spiderfied cluster icon
                         if (e.cluster._icon) {{
@@ -682,7 +686,6 @@
                     }});
 
                     clusterGroup.on('unspiderfied', function(e) {{
-                        console.log('[spider] unspiderfied event fired');
                         // Re-enable clicks on the cluster icon
                         if (e.cluster && e.cluster._icon) {{
                             e.cluster._icon.style.pointerEvents = '';
@@ -704,7 +707,6 @@
                     // Use mousedown on container to fade spider when clicking outside
                     map.getContainer().addEventListener('mousedown', function(e) {{
                         const mapData = window._speedTestMaps['{mapId}'];
-                        console.log('[spider] mousedown, currentSpider:', !!mapData.currentSpider, 'target:', e.target.tagName, e.target.className);
                         if (mapData.currentSpider) {{
                             var markers = mapData.currentSpider.getAllChildMarkers();
                             // Check if click is on a spider element - if so, don't fade
@@ -712,13 +714,12 @@
                                 e.target === m._path ||
                                 (m._spiderLeg && e.target === m._spiderLeg._path)
                             );
-                            if (clickedOnSpider) {{ console.log('[spider] clicked on spider element, ignoring'); return; }}
+                            if (clickedOnSpider) return;
 
                             // Check if click is on a popup - if so, don't fade
                             var clickedOnPopup = e.target.closest && e.target.closest('.leaflet-popup');
-                            if (clickedOnPopup) {{ console.log('[spider] clicked on popup, ignoring'); return; }}
+                            if (clickedOnPopup) return;
 
-                            console.log('[spider] fading out', markers.length, 'markers');
                             // Fade out spider when clicking outside
                             markers.forEach(m => {{
                                 if (m._path) {{
@@ -731,10 +732,17 @@
                                 }}
                             }});
 
-                            // Also clear AP filter when dismissing spider by clicking outside
-                            if (mapData.dotNetRef) {{
-                                mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
-                            }}
+                            // Set flag to suppress re-spider during marker update
+                            mapData._dismissingSpider = true;
+
+                            // Clear AP filter after fade completes (delay prevents UpdateMarkers
+                            // from re-spiderfying the cluster while it's still collapsing)
+                            setTimeout(() => {{
+                                mapData._dismissingSpider = false;
+                                if (mapData.dotNetRef) {{
+                                    mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
+                                }}
+                            }}, 300);
                         }}
                     }}, true);
 
