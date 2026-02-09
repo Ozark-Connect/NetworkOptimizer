@@ -726,6 +726,11 @@
                                 }}
                             }});
 
+                            // After fade completes, collapse the spider properly
+                            setTimeout(() => {{
+                                mapData.clusterGroup.unspiderfy();
+                            }}, 220);
+
                             // Also clear AP filter when dismissing spider by clicking outside
                             if (mapData.dotNetRef) {{
                                 mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
