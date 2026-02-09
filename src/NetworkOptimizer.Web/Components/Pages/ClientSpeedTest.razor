@@ -1088,9 +1088,10 @@
                 };
             }).ToList();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // AP data load errors are not critical - map will just not show AP markers
+            Console.WriteLine($"LoadApMarkers error: {ex.Message}");
         }
     }
 
