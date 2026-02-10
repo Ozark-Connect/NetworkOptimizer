@@ -324,9 +324,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             var targetClient = targetDevice == null ? FindClient(topology, targetHost) : null;
 
             // If not found, try DNS resolution and search by IP
+            string? resolvedIp = null;
             if (targetDevice == null && targetClient == null)
             {
-                var resolvedIp = await ResolveHostnameAsync(targetHost);
+                resolvedIp = await ResolveHostnameAsync(targetHost);
                 if (!string.IsNullOrEmpty(resolvedIp) && resolvedIp != targetHost)
                 {
                     _logger.LogDebug("Resolved {Host} to {Ip}, searching topology by IP", targetHost, resolvedIp);
@@ -338,12 +339,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             if (targetDevice == null && targetClient == null)
             {
                 // Check if it's an external IP (VPN or public internet)
-                // If so, use the gateway as the target device
-                if (IsExternalIp(targetHost, topology))
+                // If so, use the gateway as the target device.
+                // Use the resolved IP when target was a hostname (IsExternalIp requires a valid IP).
+                var ipToCheck = resolvedIp ?? targetHost;
+                if (IsExternalIp(ipToCheck, topology))
                 {
                     targetDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
                     path.IsExternalPath = true;
-                    _logger.LogDebug("External IP {Ip} - using gateway as target", targetHost);
+                    _logger.LogDebug("External IP {Ip} - using gateway as target", ipToCheck);
                 }
 
                 if (targetDevice == null)
