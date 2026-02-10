@@ -86,6 +86,14 @@ a:hover {
     color: var(--primary-hover);
 }
 
+.leaflet-container a {
+    color: var(--primary-hover);
+}
+
+.leaflet-container a:hover {
+    color: var(--accent-color);
+}
+
 /* App Container Layout */
 .app-container {
     display: flex;
