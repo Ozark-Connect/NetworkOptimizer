@@ -294,14 +294,20 @@
     private bool _loadingHistory;
     private string _historySearchFilter = "";
 
-    private List<Iperf3Result> _filteredHistory => string.IsNullOrEmpty(_historySearchFilter)
-        ? _testHistory
-        : _testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, _historySearchFilter.ToLowerInvariant())).ToList();
+    // Cached filtered history - recalculated via UpdateFilteredHistory() when filter or history changes
+    private List<Iperf3Result> _filteredHistory = new();
 
     private int _historyPage = 1;
     private const int HistoryPageSize = 10;
     private int _historyTotalPages => (int)Math.Ceiling(_filteredHistory.Count / (double)HistoryPageSize);
     private IEnumerable<Iperf3Result> _pagedHistory => _filteredHistory.Skip((_historyPage - 1) * HistoryPageSize).Take(HistoryPageSize);
+
+    private void UpdateFilteredHistory()
+    {
+        _filteredHistory = string.IsNullOrEmpty(_historySearchFilter)
+            ? _testHistory
+            : _testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, _historySearchFilter.ToLowerInvariant())).ToList();
+    }
 
     // Expand state
     private int? _expandedHistoryId;
@@ -453,6 +459,7 @@
         try
         {
             _testHistory = await WanSpeedTestService.GetResultsAsync(count: 0);
+            UpdateFilteredHistory();
         }
         catch (Exception ex)
         {
@@ -489,6 +496,7 @@
     {
         _historyPage = 1;
         _expandedHistoryId = null;
+        UpdateFilteredHistory();
         StateHasChanged();
     }
 
@@ -504,6 +512,7 @@
         if (deleted)
         {
             _testHistory.RemoveAll(r => r.Id == resultId);
+            UpdateFilteredHistory();
             if (_latestResult?.Id == resultId)
             {
                 _latestResult = _testHistory.FirstOrDefault(r => r.Success);

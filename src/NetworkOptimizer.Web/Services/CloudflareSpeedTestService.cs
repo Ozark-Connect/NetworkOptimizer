@@ -299,7 +299,8 @@ public partial class CloudflareSpeedTestService
 
         var results = await query.ToListAsync();
 
-        // Retry path analysis for recent results (last 30 min) without a valid path
+        // Fire-and-forget path analysis retries for recent results without valid paths.
+        // Runs in background to avoid blocking page load; notifies UI via OnPathAnalysisComplete.
         var retryWindow = DateTime.UtcNow.AddMinutes(-30);
         var needsRetry = results.Where(r =>
             r.TestTime > retryWindow &&
@@ -307,33 +308,14 @@ public partial class CloudflareSpeedTestService
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
+            .Select(r => r.Id)
             .ToList();
 
         if (needsRetry.Count > 0)
         {
-            _logger.LogInformation("Retrying path analysis for {Count} WAN results without valid paths", needsRetry.Count);
-            foreach (var result in needsRetry)
-            {
-                try
-                {
-                    var path = await _pathAnalyzer.CalculatePathAsync(
-                        result.DeviceHost, result.LocalIp, retryOnFailure: true);
-                    var analysis = _pathAnalyzer.AnalyzeSpeedTest(
-                        path,
-                        result.DownloadMbps,
-                        result.UploadMbps,
-                        result.DownloadRetransmits,
-                        result.UploadRetransmits,
-                        result.DownloadBytes,
-                        result.UploadBytes);
-                    result.PathAnalysis = analysis;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to retry path analysis for WAN result {Id}", result.Id);
-                }
-            }
-            await db.SaveChangesAsync();
+            _logger.LogInformation("Retrying path analysis in background for {Count} WAN results", needsRetry.Count);
+            foreach (var resultId in needsRetry)
+                _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId));
         }
 
         return results;
@@ -466,7 +448,9 @@ public partial class CloudflareSpeedTestService
             ? (latencies[count / 2 - 1] + latencies[count / 2]) / 2.0
             : latencies[count / 2];
 
-        // Jitter: average of consecutive differences
+        // Jitter: average of consecutive differences on sorted samples.
+        // Note: this measures distribution spread, not RFC 3550 arrival-order jitter.
+        // Sorted diffs give a stable "variation" indicator matching Cloudflare's approach.
         var jitter = 0.0;
         if (latencies.Count >= 2)
         {
@@ -493,8 +477,8 @@ public partial class CloudflareSpeedTestService
         Action<double> onProgress,
         CancellationToken ct)
     {
-        var stop = new CancellationTokenSource();
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, stop.Token);
+        using var stop = new CancellationTokenSource();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, stop.Token);
         long totalBytes = 0;
         long errorCount = 0;
         long requestCount = 0;
@@ -643,19 +627,13 @@ public partial class CloudflareSpeedTestService
             onProgress(startTime.Elapsed / duration);
         }
 
-        // Signal workers to stop
+        // Signal workers to stop and wait for them to finish before disposing the CTS
+        // (disposing while workers still check linked.Token would throw ObjectDisposedException)
         stop.Cancel();
-
-        // Wait for workers with timeout
-        try { await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None); }
-        catch { /* Workers may throw on cancellation */ }
-
-        // Wait for probe task
-        try { await probeTask.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None); }
-        catch { /* Probe may throw on cancellation */ }
-
-        stop.Dispose();
-        linked.Dispose();
+        try { await Task.WhenAll(tasks); }
+        catch { /* Workers throw OperationCanceledException on cancellation */ }
+        try { await probeTask; }
+        catch { /* Probe throws on cancellation */ }
 
         // Log summary for diagnostics
         var totalRequests = Interlocked.Read(ref requestCount);
@@ -691,7 +669,7 @@ public partial class CloudflareSpeedTestService
                 ? (sortedLatencies[count / 2 - 1] + sortedLatencies[count / 2]) / 2.0
                 : sortedLatencies[count / 2];
 
-            // Jitter: average of consecutive differences
+            // Jitter: average of consecutive differences on sorted samples (see MeasureLatencyAsync)
             if (sortedLatencies.Count >= 2)
             {
                 var diffs = new List<double>();
