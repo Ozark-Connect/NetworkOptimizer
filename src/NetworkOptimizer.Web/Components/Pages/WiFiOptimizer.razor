@@ -435,9 +435,10 @@
         <div class="card card-span-2">
             <div class="card-header">
                 <h2 class="card-title">Health Issues</h2>
-                @if (_healthScore?.Issues.Count > 0)
+                @{ var overviewIssueCount = _healthScore?.Issues.Count(i => i.ShowOnOverview) ?? 0; }
+                @if (overviewIssueCount > 0)
                 {
-                    <span class="issue-count-sm">@_healthScore.Issues.Count issue@(_healthScore.Issues.Count != 1 ? "s" : "")</span>
+                    <span class="issue-count-sm">@overviewIssueCount issue@(overviewIssueCount != 1 ? "s" : "")</span>
                 }
             </div>
             <div class="card-body">

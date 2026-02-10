@@ -278,6 +278,9 @@
                 if (el.hasAttribute('data-tooltip-follow')) {
                     opts.followCursor = true;
                 }
+                if (el.hasAttribute('data-tooltip-hover-only')) {
+                    opts.trigger = 'mouseenter';
+                }
                 if (el._tippy) {
                     // Update existing tooltip if content changed
                     if (el._tippy.props.content !== el.dataset.tooltip) {
