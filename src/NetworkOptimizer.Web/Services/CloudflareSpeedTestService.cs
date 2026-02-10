@@ -24,7 +24,7 @@ public partial class CloudflareSpeedTestService
     private const int Concurrency = 6;
     private static readonly TimeSpan DownloadDuration = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan UploadDuration = TimeSpan.FromSeconds(10);
-    private const int DownloadBytesPerRequest = 25_000_000; // 25 MB per request
+    private const int DownloadBytesPerRequest = 10_000_000; // 10 MB per request (matches cloudflare-speed-cli)
     private const int UploadBytesPerRequest = 1_000_000;    // 1 MB per request (small so many complete per duration)
 
     private readonly ILogger<CloudflareSpeedTestService> _logger;
@@ -509,7 +509,7 @@ public partial class CloudflareSpeedTestService
                         {
                             var url = $"{BaseUrl}/{UploadPath}";
                             using var content = new ByteArrayContent(uploadPayload!);
-                            await workerClient.PostAsync(url, content, linked.Token);
+                            using var uploadResponse = await workerClient.PostAsync(url, content, linked.Token);
                             Interlocked.Add(ref totalBytes, bytesPerRequest);
                         }
                         else
