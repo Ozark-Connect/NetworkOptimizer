@@ -7083,7 +7083,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .client-name {
-    font-size: 1.125rem;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -10430,6 +10430,7 @@ a.path-hop.hop-clickable:hover {
     border-radius: 3px;
     background: var(--bg-secondary);
     color: var(--text-muted);
+    white-space: nowrap;
 }
 
 .airtime-client-card.airtime-high .airtime-indicator {
@@ -11240,6 +11241,16 @@ a.path-hop.hop-clickable:hover {
     border-radius: 4px;
     font-size: 0.75rem;
     color: var(--text-secondary);
+}
+
+a.affected-client {
+    color: #60a5fa;
+    text-decoration: none;
+}
+
+a.affected-client:hover {
+    color: #93c5fd;
+    text-decoration: underline;
 }
 
 .affected-more {
