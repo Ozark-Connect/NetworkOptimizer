@@ -6,7 +6,10 @@
 @using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.UniFi
 @inject CloudflareSpeedTestService WanSpeedTestService
+@inject INetworkPathAnalyzer PathAnalyzer
+@inject UniFiConnectionService ConnectionService
 @inject IJSRuntime JS
 
 <PageTitle>WAN Speed Test - Network Optimizer</PageTitle>
@@ -204,12 +207,35 @@
                                             <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                                 <div class="expand-content">
                                                     <div class="history-details">
+                                                        @{
+                                                            var pathAnalysis = _historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
+                                                        }
                                                         <SpeedTestDetails Result="result"
-                                                                          PathAnalysis="result.PathAnalysis"
+                                                                          PathAnalysis="pathAnalysis"
                                                                           UseWanLabels="true"
                                                                           OnDelete="HandleDeleteResult"
                                                                           OnNotesChanged="HandleNotesChanged"
                                                                           IsInTableRow="true" />
+
+                                                        @if (pathAnalysis == null && ConnectionService.IsConnected)
+                                                        {
+                                                            <div class="analyze-path-action">
+                                                                <button class="btn btn-sm btn-secondary"
+                                                                        @onclick="() => AnalyzeHistoricalPath(result)"
+                                                                        @onclick:stopPropagation="true"
+                                                                        disabled="@(_analyzingResultId == result.Id)">
+                                                                    @if (_analyzingResultId == result.Id)
+                                                                    {
+                                                                        <span>Analyzing...</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span>Analyze Path</span>
+                                                                    }
+                                                                </button>
+                                                                <span class="analyze-hint">Calculate network path and grade performance</span>
+                                                            </div>
+                                                        }
                                                     </div>
                                                 </div>
                                             </div>
@@ -270,6 +296,10 @@
     // Expand state
     private int? _expandedHistoryId;
     private int? _collapsingHistoryId;
+
+    // Path analysis state
+    private Dictionary<int, PathAnalysisResult?> _historyPathAnalysis = new();
+    private int? _analyzingResultId;
 
     // Poll timer for tracking in-progress test state
     private System.Threading.Timer? _pollTimer;
@@ -452,6 +482,7 @@
             }
             if (_expandedHistoryId == resultId)
                 _expandedHistoryId = null;
+            _historyPathAnalysis.Remove(resultId);
             StateHasChanged();
         }
     }
@@ -459,6 +490,38 @@
     private async Task HandleNotesChanged((int Id, string? Notes) args)
     {
         await WanSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
+    }
+
+    private async Task AnalyzeHistoricalPath(Iperf3Result result)
+    {
+        if (_analyzingResultId != null)
+            return;
+
+        _analyzingResultId = result.Id;
+        StateHasChanged();
+
+        try
+        {
+            var path = await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
+            var analysis = PathAnalyzer.AnalyzeSpeedTest(
+                path,
+                result.DownloadMbps,
+                result.UploadMbps,
+                result.DownloadRetransmits,
+                result.UploadRetransmits,
+                result.DownloadBytes,
+                result.UploadBytes);
+            _historyPathAnalysis[result.Id] = analysis;
+        }
+        catch
+        {
+            _historyPathAnalysis[result.Id] = null;
+        }
+        finally
+        {
+            _analyzingResultId = null;
+            StateHasChanged();
+        }
     }
 
     public void Dispose()

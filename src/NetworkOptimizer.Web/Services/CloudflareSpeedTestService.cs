@@ -258,7 +258,8 @@ public partial class CloudflareSpeedTestService
     }
 
     /// <summary>
-    /// Get recent WAN speed test results.
+    /// Get recent WAN speed test results. Automatically retries path analysis
+    /// for recent results (last 30 min) that don't have a valid path.
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
     {
@@ -277,7 +278,46 @@ public partial class CloudflareSpeedTestService
         if (count > 0)
             query = query.Take(count);
 
-        return await query.ToListAsync();
+        var results = await query.ToListAsync();
+
+        // Retry path analysis for recent results (last 30 min) without a valid path
+        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
+        var needsRetry = results.Where(r =>
+            r.TestTime > retryWindow &&
+            r.Success &&
+            (r.PathAnalysis == null ||
+             r.PathAnalysis.Path == null ||
+             !r.PathAnalysis.Path.IsValid))
+            .ToList();
+
+        if (needsRetry.Count > 0)
+        {
+            _logger.LogInformation("Retrying path analysis for {Count} WAN results without valid paths", needsRetry.Count);
+            foreach (var result in needsRetry)
+            {
+                try
+                {
+                    var path = await _pathAnalyzer.CalculatePathAsync(
+                        result.DeviceHost, result.LocalIp, retryOnFailure: true);
+                    var analysis = _pathAnalyzer.AnalyzeSpeedTest(
+                        path,
+                        result.DownloadMbps,
+                        result.UploadMbps,
+                        result.DownloadRetransmits,
+                        result.UploadRetransmits,
+                        result.DownloadBytes,
+                        result.UploadBytes);
+                    result.PathAnalysis = analysis;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to retry path analysis for WAN result {Id}", result.Id);
+                }
+            }
+            await db.SaveChangesAsync();
+        }
+
+        return results;
     }
 
     /// <summary>
