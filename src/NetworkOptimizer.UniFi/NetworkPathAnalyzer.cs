@@ -1557,17 +1557,15 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     return (matchingNetwork.WanDownloadMbps.Value, matchingNetwork.WanUploadMbps.Value);
                 }
 
-                // Port matched but no ISP speed config - don't fall back to link speed,
-                // use highest WAN ISP speeds instead (link speed != ISP speed)
-                _logger.LogDebug("Matched WAN IP {Ip} to port {Port} but no ISP speed config, using highest WAN speeds",
+                _logger.LogDebug("Matched WAN IP {Ip} to port {Port} but no ISP speed config",
                     wanIp, matchingPort.NetworkName);
             }
             else
             {
-                _logger.LogDebug("WAN IP {Ip} did not match any gateway port, using highest WAN speeds", wanIp);
+                _logger.LogDebug("WAN IP {Ip} did not match any gateway port", wanIp);
             }
 
-            // No ISP speed match for this port, or no port match - use highest WAN speed pair
+            // No ISP speed for matched port - try highest configured WAN ISP speeds
             var bestWan = topology.Networks
                 .Where(n => n.IsWan && n.WanDownloadMbps > 0 && n.WanUploadMbps > 0)
                 .OrderByDescending(n => Math.Max(n.WanDownloadMbps ?? 0, n.WanUploadMbps ?? 0))
@@ -1577,6 +1575,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 _logger.LogDebug("Using highest WAN speeds: {Group} ({Down}/{Up} Mbps)",
                     bestWan.WanNetworkgroup ?? bestWan.Name, bestWan.WanDownloadMbps, bestWan.WanUploadMbps);
                 return (bestWan.WanDownloadMbps!.Value, bestWan.WanUploadMbps!.Value);
+            }
+
+            // No ISP speeds configured anywhere - use matched port link speed if we have one
+            if (matchingPort?.Speed > 0)
+            {
+                _logger.LogDebug("No ISP speeds configured, using matched port {Port} link speed {Speed} Mbps",
+                    matchingPort.NetworkName, matchingPort.Speed);
+                return (matchingPort.Speed, matchingPort.Speed);
             }
         }
 
