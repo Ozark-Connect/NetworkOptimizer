@@ -140,30 +140,30 @@ public partial class CloudflareSpeedTestService
             _logger.LogInformation("Latency: {Latency:F1} ms, Jitter: {Jitter:F1} ms", latencyMs, jitterMs);
             Report("Latency", 15, $"{latencyMs:F1} ms / {jitterMs:F1} ms jitter");
 
-            // Phase 3: Download (15-55%) - concurrent connections
+            // Phase 3: Download (15-55%) - concurrent connections + latency probes
             Report("Testing download", 16, null);
-            var (downloadBps, downloadBytes) = await MeasureThroughputAsync(
+            var (downloadBps, downloadBytes, dlLatencyMs, dlJitterMs) = await MeasureThroughputAsync(
                 isUpload: false,
                 DownloadDuration,
                 DownloadBytesPerRequest,
                 pct => Report("Testing download", 15 + (int)(pct * 40), null),
                 cancellationToken);
             var downloadMbps = downloadBps / 1_000_000.0;
-            _logger.LogInformation("Download: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers)",
-                downloadMbps, downloadBytes, Concurrency);
+            _logger.LogInformation("Download: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
+                downloadMbps, downloadBytes, Concurrency, dlLatencyMs);
             Report("Download complete", 55, $"{downloadMbps:F1} Mbps");
 
-            // Phase 4: Upload (55-95%) - concurrent connections
+            // Phase 4: Upload (55-95%) - concurrent connections + latency probes
             Report("Testing upload", 56, null);
-            var (uploadBps, uploadBytes) = await MeasureThroughputAsync(
+            var (uploadBps, uploadBytes, ulLatencyMs, ulJitterMs) = await MeasureThroughputAsync(
                 isUpload: true,
                 UploadDuration,
                 UploadBytesPerRequest,
                 pct => Report("Testing upload", 55 + (int)(pct * 40), null),
                 cancellationToken);
             var uploadMbps = uploadBps / 1_000_000.0;
-            _logger.LogInformation("Upload: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers)",
-                uploadMbps, uploadBytes, Concurrency);
+            _logger.LogInformation("Upload: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
+                uploadMbps, uploadBytes, Concurrency, ulLatencyMs);
             Report("Upload complete", 95, $"{uploadMbps:F1} Mbps");
 
             // Phase 5: Save result (95-100%)
@@ -187,6 +187,10 @@ public partial class CloudflareSpeedTestService
                 UploadBytes = uploadBytes,
                 PingMs = latencyMs,
                 JitterMs = jitterMs,
+                DownloadLatencyMs = dlLatencyMs > 0 ? dlLatencyMs : null,
+                DownloadJitterMs = dlJitterMs > 0 ? dlJitterMs : null,
+                UploadLatencyMs = ulLatencyMs > 0 ? ulLatencyMs : null,
+                UploadJitterMs = ulJitterMs > 0 ? ulJitterMs : null,
                 TestTime = DateTime.UtcNow,
                 Success = true,
                 ParallelStreams = Concurrency,
@@ -417,12 +421,13 @@ public partial class CloudflareSpeedTestService
     }
 
     /// <summary>
-    /// Measure throughput using concurrent workers for a fixed duration.
+    /// Measure throughput using concurrent workers for a fixed duration, with concurrent
+    /// latency probes to measure loaded latency (bufferbloat).
     /// Each worker continuously sends/receives data. Aggregate throughput is measured
     /// by sampling total bytes every 200ms and computing mean of per-interval Mbps.
     /// Skips the first 20% of samples (warmup) for accurate steady-state measurement.
     /// </summary>
-    private async Task<(double BitsPerSecond, long TotalBytes)> MeasureThroughputAsync(
+    private async Task<(double BitsPerSecond, long TotalBytes, double LoadedLatencyMs, double LoadedJitterMs)> MeasureThroughputAsync(
         bool isUpload,
         TimeSpan duration,
         int bytesPerRequest,
@@ -432,6 +437,9 @@ public partial class CloudflareSpeedTestService
         var stop = new CancellationTokenSource();
         var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, stop.Token);
         long totalBytes = 0;
+
+        // Loaded latency samples (collected by concurrent probe task)
+        var loadedLatencies = new System.Collections.Concurrent.ConcurrentBag<double>();
 
         // Launch concurrent workers
         var tasks = new Task[Concurrency];
@@ -483,6 +491,34 @@ public partial class CloudflareSpeedTestService
             }, linked.Token);
         }
 
+        // Launch latency probe task - runs 0-byte GETs every 500ms during throughput test
+        var probeTask = Task.Run(async () =>
+        {
+            using var probeClient = _httpClientFactory.CreateClient();
+            probeClient.Timeout = TimeSpan.FromSeconds(10);
+            probeClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+            var probeUrl = $"{BaseUrl}/{DownloadPath}0";
+
+            while (!linked.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    var sw = Stopwatch.StartNew();
+                    var response = await probeClient.GetAsync(probeUrl, linked.Token);
+                    sw.Stop();
+
+                    var serverMs = ParseServerTiming(response);
+                    var latency = sw.Elapsed.TotalMilliseconds - serverMs;
+                    if (latency > 0)
+                        loadedLatencies.Add(latency);
+
+                    await Task.Delay(500, linked.Token);
+                }
+                catch (OperationCanceledException) { break; }
+                catch { /* Probe failed, skip */ }
+            }
+        }, linked.Token);
+
         // Measure aggregate throughput over the test duration
         var startTime = Stopwatch.StartNew();
         var mbpsSamples = new List<double>();
@@ -517,13 +553,17 @@ public partial class CloudflareSpeedTestService
         try { await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None); }
         catch { /* Workers may throw on cancellation */ }
 
+        // Wait for probe task
+        try { await probeTask.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None); }
+        catch { /* Probe may throw on cancellation */ }
+
         stop.Dispose();
         linked.Dispose();
 
         // Compute mean Mbps from steady-state samples (skip first 20% warmup)
         var finalBytes = Interlocked.Read(ref totalBytes);
         if (mbpsSamples.Count == 0)
-            return (0, finalBytes);
+            return (0, finalBytes, 0, 0);
 
         var skipCount = (int)(mbpsSamples.Count * 0.20);
         var steadySamples = mbpsSamples.Skip(skipCount).ToList();
@@ -533,7 +573,31 @@ public partial class CloudflareSpeedTestService
         var meanMbps = steadySamples.Average();
         var bitsPerSecond = meanMbps * 1_000_000.0;
 
-        return (bitsPerSecond, finalBytes);
+        // Compute loaded latency median and jitter from probe samples
+        var sortedLatencies = loadedLatencies.OrderBy(l => l).ToList();
+        double loadedLatencyMs = 0, loadedJitterMs = 0;
+        if (sortedLatencies.Count > 0)
+        {
+            // Median
+            var count = sortedLatencies.Count;
+            loadedLatencyMs = count % 2 == 0
+                ? (sortedLatencies[count / 2 - 1] + sortedLatencies[count / 2]) / 2.0
+                : sortedLatencies[count / 2];
+
+            // Jitter: average of consecutive differences
+            if (sortedLatencies.Count >= 2)
+            {
+                var diffs = new List<double>();
+                for (int i = 1; i < sortedLatencies.Count; i++)
+                    diffs.Add(Math.Abs(sortedLatencies[i] - sortedLatencies[i - 1]));
+                loadedJitterMs = diffs.Average();
+            }
+
+            loadedLatencyMs = Math.Round(loadedLatencyMs, 1);
+            loadedJitterMs = Math.Round(loadedJitterMs, 1);
+        }
+
+        return (bitsPerSecond, finalBytes, loadedLatencyMs, loadedJitterMs);
     }
 
     private static double ParseServerTiming(HttpResponseMessage response)

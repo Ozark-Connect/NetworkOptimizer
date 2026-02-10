@@ -92,11 +92,24 @@ public class Iperf3Result
     public string? ErrorMessage { get; set; }
 
     // Browser speed test fields (OpenSpeedTest)
-    /// <summary>Ping/latency in milliseconds (browser tests only)</summary>
+    /// <summary>Ping/latency in milliseconds (unloaded)</summary>
     public double? PingMs { get; set; }
 
-    /// <summary>Jitter in milliseconds (browser tests only)</summary>
+    /// <summary>Jitter in milliseconds (unloaded)</summary>
     public double? JitterMs { get; set; }
+
+    // Loaded latency fields (measured during throughput tests)
+    /// <summary>Loaded latency during download in milliseconds</summary>
+    public double? DownloadLatencyMs { get; set; }
+
+    /// <summary>Loaded jitter during download in milliseconds</summary>
+    public double? DownloadJitterMs { get; set; }
+
+    /// <summary>Loaded latency during upload in milliseconds</summary>
+    public double? UploadLatencyMs { get; set; }
+
+    /// <summary>Loaded jitter during upload in milliseconds</summary>
+    public double? UploadJitterMs { get; set; }
 
     /// <summary>User agent string (browser tests only)</summary>
     [MaxLength(500)]

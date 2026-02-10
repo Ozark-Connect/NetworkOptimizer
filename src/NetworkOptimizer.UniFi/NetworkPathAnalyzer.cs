@@ -346,6 +346,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 {
                     targetDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
                     path.IsExternalPath = true;
+                    // Update DestinationHost to the resolved IP so DetectAndCreateVpnHop()
+                    // can parse it (it requires a valid IP address, not a hostname)
+                    if (!string.IsNullOrEmpty(resolvedIp))
+                        path.DestinationHost = resolvedIp;
                     _logger.LogDebug("External IP {Ip} - using gateway as target", ipToCheck);
                 }
 

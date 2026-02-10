@@ -59,6 +59,25 @@
     {
         <span>Ping: @(PingMs.Value % 1 == 0 && PingMs.Value >= 10 ? PingMs.Value.ToString("F0") : PingMs.Value.ToString("F1")) ms</span>
     }
+    @if (JitterMs.HasValue && JitterMs.Value > 0)
+    {
+        <span>Jitter: @(JitterMs.Value.ToString("F1")) ms</span>
+    }
+    @if (DownloadLatencyMs.HasValue || UploadLatencyMs.HasValue)
+    {
+        @if (DownloadLatencyMs.HasValue)
+        {
+            <span data-tooltip="Latency measured while downloading (link saturated). High values indicate bufferbloat.">
+                Loaded ↓: @(DownloadLatencyMs.Value.ToString("F1")) ms@(DownloadJitterMs.HasValue && DownloadJitterMs.Value > 0 ? $" ({DownloadJitterMs.Value:F1} jitter)" : "")
+            </span>
+        }
+        @if (UploadLatencyMs.HasValue)
+        {
+            <span data-tooltip="Latency measured while uploading (link saturated). High values indicate bufferbloat.">
+                Loaded ↑: @(UploadLatencyMs.Value.ToString("F1")) ms@(UploadJitterMs.HasValue && UploadJitterMs.Value > 0 ? $" ({UploadJitterMs.Value:F1} jitter)" : "")
+            </span>
+        }
+    }
     <span class="hide-mobile">Time: @TestTime.ToLocalTime().ToString("g")</span>
     <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
     @if (OnDelete.HasDelegate && Result != null)
@@ -342,6 +361,11 @@
     [Parameter] public bool IsInTableRow { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
     [Parameter] public double? PingMs { get; set; }
+    [Parameter] public double? JitterMs { get; set; }
+    [Parameter] public double? DownloadLatencyMs { get; set; }
+    [Parameter] public double? DownloadJitterMs { get; set; }
+    [Parameter] public double? UploadLatencyMs { get; set; }
+    [Parameter] public double? UploadJitterMs { get; set; }
 
     /// <summary>
     /// When true, uses WAN labels (Download/Upload) instead of LAN labels (From Device/To Device)
@@ -409,6 +433,11 @@
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;
             PingMs = Result.PingMs;
+            JitterMs = Result.JitterMs;
+            DownloadLatencyMs = Result.DownloadLatencyMs;
+            DownloadJitterMs = Result.DownloadJitterMs;
+            UploadLatencyMs = Result.UploadLatencyMs;
+            UploadJitterMs = Result.UploadJitterMs;
 
             // Sync PathAnalysis from Result when Result changes
             // This ensures we don't show stale analysis from a previous test
