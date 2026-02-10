@@ -780,11 +780,23 @@ public class UniFiApiClient : IDisposable
 
             if (response.IsSuccessStatusCode)
             {
-                var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientDetailResponse>>(
-                    cancellationToken: cancellationToken);
+                // Read raw JSON first so we can log it if deserialization fails
+                // (v2 API may return paginated wrapper instead of flat array on some controller versions)
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
-                _logger.LogDebug("Retrieved {Count} active clients", clients?.Count ?? 0);
-                return clients ?? new List<UniFiClientDetailResponse>();
+                try
+                {
+                    var clients = System.Text.Json.JsonSerializer.Deserialize<List<UniFiClientDetailResponse>>(json);
+                    _logger.LogDebug("Retrieved {Count} active clients", clients?.Count ?? 0);
+                    return clients ?? new List<UniFiClientDetailResponse>();
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    // Log the start of the response to help diagnose the structure
+                    var preview = json.Length > 200 ? json[..200] + "..." : json;
+                    _logger.LogWarning(ex, "Failed to deserialize active clients response. Preview: {Preview}", preview);
+                    return new List<UniFiClientDetailResponse>();
+                }
             }
 
             _logger.LogWarning("Failed to retrieve active clients: {StatusCode}", response.StatusCode);
