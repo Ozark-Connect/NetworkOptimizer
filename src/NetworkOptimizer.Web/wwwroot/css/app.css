@@ -11564,6 +11564,10 @@ a.affected-client:hover {
     font-weight: 500;
 }
 
+.wan-speedtest .test-details {
+    gap: 1.25rem;
+}
+
 @@media (max-width: 768px) {
     .wan-speedtest .wan-metadata {
         gap: 0.75rem;

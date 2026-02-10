@@ -50,7 +50,7 @@
     }
     else
     {
-        <span>Device: @DeviceName (@DeviceHost)</span>
+        <span>@(UseWanLabels ? "Host" : "Device"): @DeviceName (@DeviceHost)</span>
     }
     <span class="hide-mobile">Duration: @DurationSeconds seconds</span>
     <span class="show-mobile">Duration: @(DurationSeconds)s</span>
