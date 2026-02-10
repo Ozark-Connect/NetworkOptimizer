@@ -751,12 +751,13 @@
                         dotNetRef.invokeMethodAsync('OnMapResultClick', id);
                     }};
                     window._speedTestApFocus = function(mac) {{
-                        // Just open the AP popup - don't activate the filter
+                        // Pan to AP and open its popup - don't activate the filter
                         var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
-                        if (mapData && mapData.apLayerGroup) {{
+                        if (mapData && mapData.apLayerGroup && mapData.map) {{
                             mapData.apLayerGroup.eachLayer(function(layer) {{
                                 if (layer._apMac === mac) {{
-                                    layer.openPopup();
+                                    mapData.map.panTo(layer.getLatLng(), {{ animate: true }});
+                                    setTimeout(function() {{ layer.openPopup(); }}, 300);
                                 }}
                             }});
                         }}
