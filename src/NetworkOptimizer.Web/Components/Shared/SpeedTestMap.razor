@@ -751,8 +751,7 @@
                         dotNetRef.invokeMethodAsync('OnMapResultClick', id);
                     }};
                     window._speedTestApFocus = function(mac) {{
-                        dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
-                        // Find and open the AP marker's popup
+                        // Just open the AP popup - don't activate the filter
                         var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
                         if (mapData && mapData.apLayerGroup) {{
                             mapData.apLayerGroup.eachLayer(function(layer) {{
