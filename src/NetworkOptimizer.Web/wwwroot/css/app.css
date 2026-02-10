@@ -11670,11 +11670,12 @@ a.affected-client:hover {
 }
 
 .wan-filter-badge.active {
-    opacity: 1;
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
 }
 
 .wan-filter-badge.inactive {
-    opacity: 0.4;
+    color: var(--text-muted, #666);
 }
 
 .wan-badge-dot {
