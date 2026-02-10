@@ -47,14 +47,6 @@
                         @(apEditMode ? "Done" : "Edit APs")
                     </button>
                 }
-                @if (!string.IsNullOrEmpty(selectedApMacFilter))
-                {
-                    var apName = ApMarkers.FirstOrDefault(a => a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase))?.Name ?? "AP";
-                    <button class="btn btn-sm btn-ap-filter-active" @onclick="ClearApFilter"
-                            data-tooltip="Showing tests for this AP only. Click to clear.">
-                        @apName &times;
-                    </button>
-                }
                 <button class="btn btn-sm btn-secondary map-action-btn"
                         @onclick="FitToMarkers"
                         title="Fit map to all markers">
@@ -113,6 +105,13 @@
                             Drag APs to adjust their locations
                         </div>
                     }
+                }
+                @if (!string.IsNullOrEmpty(selectedApMacFilter))
+                {
+                    var apName = ApMarkers.FirstOrDefault(a => a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase))?.Name ?? "AP";
+                    <div class="map-ap-filter-chip" @onclick="ClearApFilter">
+                        Showing: @apName <span>&times;</span>
+                    </div>
                 }
             </div>
             <div class="map-footer">
@@ -643,13 +642,6 @@
                     // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
                         const mapData = window._speedTestMaps['{mapId}'];
-                        // Cancel any pending AP filter clear (cluster click doesn't open a popup)
-                        if (mapData._popupCloseTimer) {{
-                            clearTimeout(mapData._popupCloseTimer);
-                            mapData._popupCloseTimer = null;
-                        }}
-                        // Cancel any pending dismiss from mousedown (switching, not dismissing)
-                        mapData._dismissingSpider = false;
                         if (mapData.currentSpider) {{
                             switchingSpider = true;
                             var markers = mapData.currentSpider.getAllChildMarkers();
@@ -669,13 +661,7 @@
                     }});
 
                     clusterGroup.on('spiderfied', function(e) {{
-                        const mapData = window._speedTestMaps['{mapId}'];
-                        // Suppress re-spider if we're in the middle of dismissing
-                        if (mapData._dismissingSpider) {{
-                            mapData.clusterGroup.unspiderfy();
-                            return;
-                        }}
-                        mapData.currentSpider = e.cluster;
+                        window._speedTestMaps['{mapId}'].currentSpider = e.cluster;
                         switchingSpider = false;
                         // Disable clicks on the spiderfied cluster icon
                         if (e.cluster._icon) {{
@@ -747,40 +733,8 @@
                                     m._spiderLeg._path.style.opacity = '0';
                                 }}
                             }});
-
-                            // Set flag to suppress re-spider during marker update
-                            mapData._dismissingSpider = true;
-
-                            // Clear AP filter after fade completes (delay prevents UpdateMarkers
-                            // from re-spiderfying the cluster while it's still collapsing)
-                            setTimeout(() => {{
-                                mapData._dismissingSpider = false;
-                                if (mapData.dotNetRef) {{
-                                    mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
-                                }}
-                            }}, 300);
                         }}
                     }}, true);
-
-                    // Clear AP filter when any popup is dismissed (map-level handles both AP and speed test popups)
-                    map.on('popupclose', function() {{
-                        const md = window._speedTestMaps['{mapId}'];
-                        if (md) {{
-                            md._popupCloseTimer = setTimeout(() => {{
-                                if (md.dotNetRef) {{
-                                    md.dotNetRef.invokeMethodAsync('OnApPopupClosed');
-                                }}
-                            }}, 100);
-                        }}
-                    }});
-                    // Cancel the clear when any popup opens (switching between dots or APs)
-                    map.on('popupopen', function() {{
-                        const md = window._speedTestMaps['{mapId}'];
-                        if (md && md._popupCloseTimer) {{
-                            clearTimeout(md._popupCloseTimer);
-                            md._popupCloseTimer = null;
-                        }}
-                    }});
 
                     // AP layers use custom panes for z-ordering
                     const apGlowGroup = L.layerGroup({{ pane: 'apGlowPane' }}).addTo(map);
@@ -796,9 +750,6 @@
                     window._speedTestMapClick = function(id) {{
                         dotNetRef.invokeMethodAsync('OnMapResultClick', id);
                     }};
-                    window._speedTestApFilter = function(mac) {{
-                        dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
-                    }};
                     window._speedTestApFocus = function(mac) {{
                         dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
                         // Find and open the AP marker's popup
@@ -811,14 +762,10 @@
                             }});
                         }}
                     }};
-                    window._speedTestApToggle = function(mac, linkEl) {{
-                        if (linkEl.textContent.trim() === 'Show all tests') {{
-                            dotNetRef.invokeMethodAsync('OnApMarkerClick', '');
-                            linkEl.textContent = 'Show AP tests';
-                        }} else {{
-                            dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
-                            linkEl.textContent = 'Show all tests';
-                        }}
+                    window._speedTestApFilterAndClose = function(mapId, mac) {{
+                        dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
+                        var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                        if (mapData && mapData.map) mapData.map.closePopup();
                     }};
                     window._speedTestClientClick = function(mac) {{
                         dotNetRef.invokeMethodAsync('OnMapClientClick', mac);
@@ -888,7 +835,14 @@
                 popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true || r.PathAnalysis?.Path?.IsExternalPath == true)
             }).ToArray();
 
+            // Include AP positions as fallback bounds when no speed test dots exist
+            var apBounds = ApMarkers
+                .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                .Select(a => new[] { a.Latitude!.Value, a.Longitude!.Value })
+                .ToArray();
+
             var markersJson = System.Text.Json.JsonSerializer.Serialize(markers);
+            var apBoundsJson = System.Text.Json.JsonSerializer.Serialize(apBounds);
             var shouldFitBounds = fitBounds ? "true" : "false";
 
             await JS.InvokeVoidAsync("eval", $@"
@@ -979,25 +933,29 @@
                         markerToReopen.openPopup();
                     }}
 
+                    // Fall back to AP positions when no speed test dots
+                    const apBounds = {apBoundsJson};
+                    const fitTargets = bounds.length > 0 ? bounds : apBounds;
+
                     // Determine if we should fit bounds:
                     // 1. If explicitly requested (user hasn't zoomed), or
                     // 2. If none of the filtered markers are visible in current view
                     let shouldActuallyFitBounds = {shouldFitBounds};
-                    if (!shouldActuallyFitBounds && bounds.length > 0) {{
+                    if (!shouldActuallyFitBounds && fitTargets.length > 0) {{
                         const currentBounds = map.getBounds();
-                        const anyVisible = bounds.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
+                        const anyVisible = fitTargets.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
                         if (!anyVisible) {{
                             shouldActuallyFitBounds = true;
                         }}
                     }}
 
-                    if (shouldActuallyFitBounds && bounds.length > 0) {{
+                    if (shouldActuallyFitBounds && fitTargets.length > 0) {{
                         // Mark as programmatic so zoom/drag listeners don't fire
                         if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(true);
-                        if (bounds.length === 1) {{
-                            map.setView(bounds[0], 18);
+                        if (fitTargets.length === 1) {{
+                            map.setView(fitTargets[0], 18);
                         }} else {{
-                            map.fitBounds(bounds, {{ padding: [20, 20], maxZoom: 22 }});
+                            map.fitBounds(fitTargets, {{ padding: [20, 20], maxZoom: 22 }});
                         }}
                         // Reset after a short delay (after zoomend fires)
                         setTimeout(() => {{
@@ -1088,15 +1046,6 @@
 
                         marker._apMac = ap.mac;
                         marker.bindPopup(ap.popup);
-
-                        // Auto-filter speed tests when clicking an AP (non-edit mode)
-                        if (!draggable) {{
-                            marker.on('click', function(e) {{
-                                if (mapData.dotNetRef) {{
-                                    mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
-                                }}
-                            }});
-                        }}
 
                         if (draggable) {{
                             // Sync glow position during drag
@@ -1197,14 +1146,23 @@
             html += "</div>";
         }
 
-        // Footer: client count, test count, and show all toggle
+        // Footer: client count, test count, and filter link
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
         html += $"<span class='ap-popup-clients'>{ap.TotalClients} client{(ap.TotalClients != 1 ? "s" : "")}";
         if (testCount > 0)
             html += $" · {testCount} test{(testCount != 1 ? "s" : "")}";
         html += "</span>";
-        html += $"<a href='javascript:void(0)' onclick='window._speedTestApToggle(\"{ap.Mac}\", this)' class='map-popup-link'>Show all tests</a>";
+        var isFiltered = !string.IsNullOrEmpty(selectedApMacFilter) &&
+            selectedApMacFilter.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase);
+        if (isFiltered)
+        {
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"\")' class='map-popup-link'>Clear filter</a>";
+        }
+        else if (testCount > 0)
+        {
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"{ap.Mac}\")' class='map-popup-link'>Show AP tests</a>";
+        }
         html += "</div>";
 
         html += "</div>";
@@ -1239,24 +1197,6 @@
                 await UpdateApGlow();
             }
             StateHasChanged();
-        });
-    }
-
-    [JSInvokable]
-    public async Task OnApPopupClosed()
-    {
-        await InvokeAsync(async () =>
-        {
-            if (!string.IsNullOrEmpty(selectedApMacFilter))
-            {
-                selectedApMacFilter = null;
-                if (mapInitialized)
-                {
-                    await UpdateMarkers(fitBounds: false);
-                    await UpdateApGlow();
-                }
-                StateHasChanged();
-            }
         });
     }
 
@@ -1908,15 +1848,26 @@
         transform: scale(var(--ap-scale, 1));
     }
 
-    /* AP filter button */
-    .btn-ap-filter-active {
-        background: rgba(59, 130, 246, 0.25);
-        color: #60a5fa;
-        border: 1px solid rgba(59, 130, 246, 0.5);
+    /* On-map AP filter chip */
+    .map-ap-filter-chip {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        z-index: 1000;
+        background: rgba(59, 130, 246, 0.9);
+        color: white;
+        padding: 0.35rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
 
-    .btn-ap-filter-active:hover {
-        background: rgba(59, 130, 246, 0.35);
+    .map-ap-filter-chip:hover {
+        background: rgba(59, 130, 246, 1);
     }
 
     /* AP marker and popup styles */
