@@ -86,11 +86,11 @@ a:hover {
     color: var(--primary-hover);
 }
 
-.leaflet-container a {
+.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out) {
     color: var(--primary-hover) !important;
 }
 
-.leaflet-container a:hover {
+.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out):hover {
     color: var(--accent-color) !important;
     text-decoration: underline;
 }
@@ -1945,8 +1945,7 @@ select.form-control {
 .issue-type-description a,
 .issue-item-description a {
     color: var(--text-secondary);
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    text-decoration: none;
 }
 
 .issue-recommendation a:hover,
@@ -1955,6 +1954,8 @@ select.form-control {
 .issue-type-description a:hover,
 .issue-item-description a:hover {
     color: var(--text-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .no-issues {
