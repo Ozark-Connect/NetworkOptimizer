@@ -326,8 +326,8 @@
                 if (!tabs) return;
                 var hasOverflow = tabs.scrollWidth > tabs.clientWidth + 1;
                 wrapper.classList.toggle('has-overflow', hasOverflow);
-                wrapper.classList.toggle('at-start', tabs.scrollLeft <= 1);
-                wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 1);
+                wrapper.classList.toggle('at-start', tabs.scrollLeft <= 20);
+                wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 20);
             });
         }
         // Update on scroll
@@ -336,8 +336,8 @@
                 var wrapper = e.target.closest('.wifi-view-tabs-wrapper');
                 if (wrapper) {
                     var tabs = e.target;
-                    wrapper.classList.toggle('at-start', tabs.scrollLeft <= 1);
-                    wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 1);
+                    wrapper.classList.toggle('at-start', tabs.scrollLeft <= 20);
+                    wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 20);
                 }
             }
         }, true);
