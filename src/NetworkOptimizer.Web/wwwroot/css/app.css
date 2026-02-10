@@ -11674,6 +11674,10 @@ a.affected-client:hover {
     border-color: rgba(255, 255, 255, 0.5);
 }
 
+.wan-filter-badge.active:hover {
+    border-color: #fff;
+}
+
 .wan-filter-badge.inactive {
     color: var(--text-muted, #666);
 }
