@@ -1,10 +1,14 @@
 @page "/wifi-optimizer"
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
+@inject ClientSpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
+@inject ApMapService ApMapService
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -40,7 +44,7 @@
 @if (ConnectionService.IsConnected)
 {
     <!-- Quick Stats Row -->
-    <div class="stats-row">
+    <div class="stats-row wifi-stats-row">
         <div class="stat-card">
             <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)">
                 @if (_loading)
@@ -129,55 +133,63 @@
     </div>
 
     <!-- View Tabs -->
-    <div class="wifi-view-tabs">
-        <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("overview"))">
-            Overview
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "metrics" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("metrics"))">
-            Metrics
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("spectrum"))">
-            RF Environment
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "channels" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("channels"))">
-            Channels
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("client"))">
-            Client Stats
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("roaming"))">
-            Roaming
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("power"))">
-            Power/Coverage
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("loadbalance"))">
-            Load Balance
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("connectivity"))">
-            Connectivity
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "bandsteering" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("bandsteering"))">
-            Band Steering
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "airtime" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("airtime"))">
-            Airtime
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("environment"))">
-            Environment
-        </button>
+    <div class="wifi-view-tabs-wrapper">
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <div class="wifi-view-tabs">
+            <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("overview"))">
+                Overview
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "metrics" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("metrics"))">
+                Metrics
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("spectrum"))">
+                RF Environment
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "channels" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("channels"))">
+                Channels
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("client"))">
+                Client Stats
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "coverage" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("coverage"))">
+                Coverage Map
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("roaming"))">
+                Roaming
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("power"))">
+                Power/Coverage
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("loadbalance"))">
+                Load Balance
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("connectivity"))">
+                Connectivity
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "bandsteering" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("bandsteering"))">
+                Band Steering
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "airtime" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("airtime"))">
+                Airtime
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("environment"))">
+                Environment
+            </button>
+        </div>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
     </div>
 
     @if (_activeTab == "metrics")
@@ -194,16 +206,26 @@
         <!-- Client Stats Timeline -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" />
             </div>
         </div>
+    }
+    else if (_activeTab == "coverage")
+    {
+        <!-- Coverage / Speed Map -->
+        <SpeedTestMap Results="_speedTestResults"
+                      ApMarkers="_apMapMarkers"
+                      OnApLocationChanged="HandleApLocationChanged"
+                      OnClientClick="HandleMapClientClick"
+                      ClientDetailMode="true"
+                      MapHeight="676px" />
     }
     else if (_activeTab == "roaming")
     {
         <!-- Roaming Analytics -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.RoamingAnalytics />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.RoamingAnalytics OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -212,7 +234,7 @@
         <!-- Channel Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -221,7 +243,7 @@
         <!-- Spectrum Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.SpectrumAnalysis />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.SpectrumAnalysis OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -230,7 +252,7 @@
         <!-- AP Load Balance -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -239,7 +261,7 @@
         <!-- Power & Coverage Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -248,7 +270,7 @@
         <!-- Band Steering Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.BandSteeringAnalysis />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.BandSteeringAnalysis OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -257,7 +279,7 @@
         <!-- Airtime Fairness Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.AirtimeFairness />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.AirtimeFairness OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -266,7 +288,7 @@
         <!-- Environmental Correlation -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.EnvironmentalCorrelation />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.EnvironmentalCorrelation OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -275,7 +297,7 @@
         <!-- Connectivity Flow -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ConnectivityFlow />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ConnectivityFlow OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -413,9 +435,10 @@
         <div class="card card-span-2">
             <div class="card-header">
                 <h2 class="card-title">Health Issues</h2>
-                @if (_healthScore?.Issues.Count > 0)
+                @{ var overviewIssueCount = _healthScore?.Issues.Count(i => i.ShowOnOverview) ?? 0; }
+                @if (overviewIssueCount > 0)
                 {
-                    <span class="issue-count-sm">@_healthScore.Issues.Count issue@(_healthScore.Issues.Count != 1 ? "s" : "")</span>
+                    <span class="issue-count-sm">@overviewIssueCount issue@(overviewIssueCount != 1 ? "s" : "")</span>
                 }
             </div>
             <div class="card-body">
@@ -437,7 +460,7 @@
                 }
                 else
                 {
-                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" />
+                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" OnClientClick="HandleMapClientClick" />
                 }
             </div>
         </div>
@@ -512,26 +535,60 @@
             </div>
         </div>
     </div>
+
+        @if (_speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any())
+        {
+            <SpeedTestMap Results="_speedTestResults"
+                          ApMarkers="_apMapMarkers"
+                          OnApLocationChanged="HandleApLocationChanged"
+                          OnClientClick="HandleMapClientClick"
+                          ClientDetailMode="true" />
+        }
     } @* End of overview tab *@
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "client")]
+    public string? ClientQueryParam { get; set; }
+
     private bool _loading = true;
     private bool _refreshing = false;
     private string _activeTab = "overview";
+    private string? _initialClientMac;
 
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
+        // Clear client filter when manually switching tabs
+        _initialClientMac = null;
     }
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
+    private List<Iperf3Result> _speedTestResults = new();
+    private List<ApMapMarker> _apMapMarkers = new();
 
     protected override void OnInitialized()
     {
+        // Deep link: auto-open Client Stats tab with specific client
+        if (!string.IsNullOrEmpty(ClientQueryParam))
+        {
+            _activeTab = "client";
+            _initialClientMac = ClientQueryParam;
+        }
+
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         _ = LoadDataAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Handle query param changes when already on this page (Blazor reuses the component)
+        if (!string.IsNullOrEmpty(ClientQueryParam) && ClientQueryParam != _initialClientMac)
+        {
+            _activeTab = "client";
+            _initialClientMac = ClientQueryParam;
+        }
     }
 
     private async void OnConnectionChanged()
@@ -554,12 +611,17 @@
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync();
             var apsTask = WiFiService.GetAccessPointsAsync();
+            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
+            _speedTestResults = await speedTestTask;
+
+            // Build AP map markers (join AP snapshots with saved locations)
+            await LoadApMarkers();
         }
         finally
         {
@@ -580,18 +642,60 @@
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
+            _speedTestResults = await speedTestTask;
+
+            await LoadApMarkers();
         }
         finally
         {
             _refreshing = false;
             StateHasChanged();
         }
+    }
+
+    private async Task LoadApMarkers()
+    {
+        try
+        {
+            _apMapMarkers = await ApMapService.GetApMapMarkersAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"LoadApMarkers error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleApLocationChanged((string Mac, double Lat, double Lng) args)
+    {
+        try
+        {
+            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+
+            var marker = _apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
+            if (marker != null)
+            {
+                marker.Latitude = args.Lat;
+                marker.Longitude = args.Lng;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving AP location: {ex.Message}");
+        }
+    }
+
+    private void HandleMapClientClick(string mac)
+    {
+        _activeTab = "client";
+        _initialClientMac = mac;
+        StateHasChanged();
     }
 
     public void Dispose()

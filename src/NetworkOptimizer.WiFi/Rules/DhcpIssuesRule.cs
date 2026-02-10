@@ -31,6 +31,7 @@ public class DhcpIssuesRule : IWiFiOptimizerRule
             AffectedEntity = clientsWithoutIp.Count <= 5
                 ? string.Join(", ", clientsWithoutIp.Select(c => c.Name))
                 : $"{string.Join(", ", clientsWithoutIp.Take(5).Select(c => c.Name))} +{clientsWithoutIp.Count - 5} more",
+            AffectedClientMac = clientsWithoutIp.Count == 1 ? clientsWithoutIp[0].Mac : null,
             Recommendation = "Check for connectivity issues first - is the client in a weak signal area or experiencing interference? " +
                 "If connectivity is good, verify your DHCP pool isn't exhausted in UniFi: Settings > Networks > (Network) > DHCP Range.",
             ScoreImpact = -10,

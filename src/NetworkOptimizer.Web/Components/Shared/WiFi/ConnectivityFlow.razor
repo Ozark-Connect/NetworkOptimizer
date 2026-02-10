@@ -182,7 +182,7 @@
                                 <div class="affected-clients">
                                     @foreach (var client in issue.AffectedClients.Take(5))
                                     {
-                                        <span class="affected-client">@client</span>
+                                        <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="affected-client client-link">@client.Name</a>
                                     }
                                     @if (issue.AffectedClients.Count > 5)
                                     {
@@ -262,13 +262,15 @@
                     <h4>Recommendations</h4>
                 </div>
 
-                <IssuesList Issues="_connectivityIssues" />
+                <IssuesList Issues="_connectivityIssues" OnClientClick="OnClientClick" />
             </div>
         }
     }
 </div>
 
 @code {
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<WirelessClientSnapshot> _clients = new();
@@ -407,7 +409,7 @@
                 Title = "No IP Address",
                 Description = "These clients connected but didn't receive an IP address. Check DHCP server capacity and lease availability.",
                 Count = noIpClients.Count,
-                AffectedClients = noIpClients.Select(c => c.Name).ToList()
+                AffectedClients = noIpClients.Select(c => (c.Name, c.Mac)).ToList()
             });
         }
 
@@ -422,7 +424,7 @@
                 Title = "Blocked/Unauthorized",
                 Description = "These clients are blocked from network access. This may be intentional.",
                 Count = blockedClients.Count,
-                AffectedClients = blockedClients.Select(c => c.Name).ToList()
+                AffectedClients = blockedClients.Select(c => (c.Name, c.Mac)).ToList()
             });
         }
 
@@ -437,7 +439,7 @@
                 Title = "Weak Signal",
                 Description = "These clients have signal below -75 dBm and may experience intermittent connectivity or slow speeds.",
                 Count = weakSignalClients.Count,
-                AffectedClients = weakSignalClients.Select(c => c.Name).ToList()
+                AffectedClients = weakSignalClients.Select(c => (c.Name, c.Mac)).ToList()
             });
         }
 
@@ -452,7 +454,7 @@
                 Title = "Legacy Wi-Fi Clients",
                 Description = "These clients use older Wi-Fi standards and may have compatibility or performance issues.",
                 Count = legacyClients.Count,
-                AffectedClients = legacyClients.Select(c => c.Name).ToList()
+                AffectedClients = legacyClients.Select(c => (c.Name, c.Mac)).ToList()
             });
         }
     }
@@ -534,6 +536,6 @@
         public string Title { get; set; } = "";
         public string Description { get; set; } = "";
         public int Count { get; set; }
-        public List<string> AffectedClients { get; set; } = new();
+        public List<(string Name, string Mac)> AffectedClients { get; set; } = new();
     }
 }

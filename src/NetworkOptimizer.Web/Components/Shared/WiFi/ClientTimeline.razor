@@ -271,7 +271,7 @@
             else
             {
                 <div class="chart-empty">
-                    <p>No historical data available for this client</p>
+                    <p>No data for this client in this time range. Try selecting a broader range.</p>
                 </div>
             }
         </div>
@@ -310,6 +310,8 @@
 </div>
 
 @code {
+    [Parameter] public string? InitialClientMac { get; set; }
+
     private bool _loading = false;
     private string _selectedClientMac = "";
     private string _selectedRange = "1D";  // For client detail view
@@ -356,6 +358,12 @@
     {
         InitializeChartOptions();
         await LoadClientsAsync();
+
+        // Auto-select client from deep link parameter
+        if (!string.IsNullOrEmpty(InitialClientMac) && _clients.Any(c => c.Mac.Equals(InitialClientMac, StringComparison.OrdinalIgnoreCase)))
+        {
+            SelectClient(InitialClientMac);
+        }
     }
 
     private void InitializeChartOptions()
@@ -633,6 +641,7 @@
 
     private string GetSignalClass(int? signal) => signal switch
     {
+        null => "",
         >= -50 => "signal-excellent",
         >= -60 => "signal-good",
         >= -70 => "signal-fair",

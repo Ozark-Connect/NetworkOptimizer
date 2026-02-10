@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Web.Models
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
@@ -15,6 +16,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject SystemSettingsService SettingsService
+@inject ApMapService ApMapService
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
@@ -635,7 +637,7 @@
     }
 
     <!-- Test History -->
-    <div class="card">
+    <div class="card" id="test-history">
         <div class="card-header history-card-header">
             <div class="header-title-row">
                 <h2 class="card-title">Test History</h2>
@@ -823,7 +825,9 @@
     <!-- Test Locations Map -->
     <SpeedTestMap Results="testHistory"
                   OnRefresh="LoadHistory"
-                  OnResultClick="ScrollToResult" />
+                  OnResultClick="ScrollToResult"
+                  ApMarkers="apMapMarkers"
+                  OnApLocationChanged="HandleApLocationChanged" />
 
     <!-- How it Works -->
     <div class="card">
@@ -1134,6 +1138,7 @@
     private List<DeviceSshConfiguration> devices = new();
     private DeviceSshConfiguration editingDevice = new() { DeviceType = DeviceType.Server, Enabled = true };
     private List<Iperf3Result> testHistory = new();
+    private List<ApMapMarker> apMapMarkers = new();
     private Iperf3Result? currentResult;
     private bool sshConfigured = false;
 
@@ -1211,6 +1216,7 @@
         await LoadDevices();
         await LoadHistory();
         await LoadDiscoveredDevices();
+        await LoadApMarkers();
     }
 
     private async Task RecheckLocalIperf3()
@@ -1938,6 +1944,37 @@
         }
 
         InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadApMarkers()
+    {
+        try
+        {
+            apMapMarkers = await ApMapService.GetApMapMarkersAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"LoadApMarkers error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleApLocationChanged((string Mac, double Lat, double Lng) args)
+    {
+        try
+        {
+            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+
+            var marker = apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
+            if (marker != null)
+            {
+                marker.Latitude = args.Lat;
+                marker.Longitude = args.Lng;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving AP location: {ex.Message}");
+        }
     }
 
     public void Dispose()

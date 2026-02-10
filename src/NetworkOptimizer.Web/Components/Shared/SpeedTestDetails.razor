@@ -167,7 +167,7 @@
                                         ? GetWifiTooltip(lastHop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip">
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -202,7 +202,7 @@
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1">
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -216,16 +216,31 @@
                                 }
 
                                 @* Render the hop *@
-                                @if (!string.IsNullOrEmpty(deviceTooltip))
+                                var hopClasses = $"path-hop {(hop.IsBottleneck ? "bottleneck" : "")} {GetHopTypeClass(hop.Type)}";
+                                var isClickableClient = hop.Type == HopType.WirelessClient && !string.IsNullOrEmpty(Result?.ClientMac ?? hop.DeviceMac);
+                                var clientLinkMac = Result?.ClientMac ?? hop.DeviceMac;
+
+                                @if (isClickableClient)
                                 {
-                                    <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)" data-tooltip="@deviceTooltip">
+                                    <a href="./wifi-optimizer?client=@clientLinkMac" class="@hopClasses hop-clickable"
+                                       data-tooltip="@deviceTooltip"
+                                       data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
+                                        <span class="hop-icon">@GetHopIconMarkup(hop)</span>
+                                        <span class="hop-name">@hop.DeviceName</span>
+                                    </a>
+                                }
+                                else if (!string.IsNullOrEmpty(deviceTooltip))
+                                {
+                                    <div class="@hopClasses"
+                                         data-tooltip="@deviceTooltip"
+                                         data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
                                     </div>
                                 }
                                 else
                                 {
-                                    <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
+                                    <div class="@hopClasses">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
                                     </div>
@@ -243,7 +258,7 @@
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2">
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             <span class="wireless-icon">📶</span>
@@ -512,10 +527,20 @@
     };
 
     /// <summary>
-    /// Get device tooltip showing type, model, and firmware for UniFi devices
+    /// Get device tooltip showing type, model, and firmware for UniFi devices.
+    /// For wireless client hops, shows the WiFi tooltip from the connector.
     /// </summary>
     private string? GetDeviceTooltip(NetworkHop hop)
     {
+        // Wireless client hop: show WiFi stats (same as connector, mutually exclusive via Tippy)
+        if (hop.Type == HopType.WirelessClient && Result?.PathAnalysis?.Path?.Hops is { } hops)
+        {
+            var hopIdx = hops.IndexOf(hop);
+            var adjacentHop = hopIdx >= 0 && hopIdx < hops.Count - 1 ? hops[hopIdx + 1] : null;
+            if (adjacentHop != null)
+                return GetWifiTooltip(hop, adjacentHop, hop.IsBottleneck);
+        }
+
         // Only show tooltip for UniFi devices (those with a model)
         if (string.IsNullOrEmpty(hop.DeviceModel))
             return null;
@@ -649,11 +674,17 @@
         // For client wireless, also show signal/noise from Result
         if (isClientWireless && Result != null)
         {
+            var clientMac = Result.ClientMac ?? hop.DeviceMac;
+
             // Check for MLO (Multi-Link Operation) - use unified styling
             if (Result.WifiIsMlo && !string.IsNullOrEmpty(Result.WifiMloLinksJson))
             {
                 var mloTooltip = BuildMloTooltip();
-                return isBottleneck ? mloTooltip + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>" : mloTooltip;
+                if (isBottleneck)
+                    mloTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
+                if (!string.IsNullOrEmpty(clientMac))
+                    mloTooltip += "<div class='wifi-tooltip-client-link'><a href='./wifi-optimizer?client=" + clientMac + "'>View in Wi-Fi Optimizer</a></div>";
+                return mloTooltip;
             }
 
             // Single-link wireless - use same styled format as MLO
@@ -697,7 +728,11 @@
             }
 
             var clientTooltip = lines.Count > 0 ? string.Join("", lines) : "Wireless connection";
-            return isBottleneck ? clientTooltip + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>" : clientTooltip;
+            if (isBottleneck)
+                clientTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
+            if (!string.IsNullOrEmpty(clientMac))
+                clientTooltip += "<div class='wifi-tooltip-client-link'><a href='./wifi-optimizer?client=" + clientMac + "'>View in Wi-Fi Optimizer</a></div>";
+            return clientTooltip;
         }
 
         // For mesh/bridge wireless - use same styled format

@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
 @inject ClientSpeedTestService ClientSpeedTestService
@@ -14,6 +15,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject UniFiConnectionService ConnectionService
 @inject Iperf3ServerService Iperf3Server
+@inject ApMapService ApMapService
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -339,7 +341,9 @@
     <div id="coverage-map">
         <SpeedTestMap Results="testHistory"
                       OnRefresh="() => LoadHistory()"
-                      OnResultClick="ScrollToResult" />
+                      OnResultClick="ScrollToResult"
+                      ApMarkers="apMapMarkers"
+                      OnApLocationChanged="HandleApLocationChanged" />
     </div>
 
     <!-- How it Works -->
@@ -658,6 +662,9 @@
     private System.Threading.Timer? _pollTimer;
     private List<NetworkInfo>? _networks;
 
+    // AP map markers
+    private List<ApMapMarker> apMapMarkers = new();
+
     // Configuration
     private string? openSpeedTestUrl;
     private string? openSpeedTestHealthCheckUrl;  // Internal HTTP URL for health checks
@@ -758,6 +765,7 @@
         }
 
         await LoadHistory();
+        await LoadApMarkers();
 
         // Start polling for new results every 5 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
@@ -1035,6 +1043,38 @@
                 }}
             }})();
         ");
+    }
+
+    private async Task LoadApMarkers()
+    {
+        try
+        {
+            apMapMarkers = await ApMapService.GetApMapMarkersAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"LoadApMarkers error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleApLocationChanged((string Mac, double Lat, double Lng) args)
+    {
+        try
+        {
+            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
+
+            // Update local state
+            var marker = apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
+            if (marker != null)
+            {
+                marker.Latitude = args.Lat;
+                marker.Longitude = args.Lng;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving AP location: {ex.Message}");
+        }
     }
 
     public void Dispose()

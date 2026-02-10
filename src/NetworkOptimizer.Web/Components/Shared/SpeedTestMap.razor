@@ -2,14 +2,16 @@
 @using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
 @using Microsoft.JSInterop
 @implements IDisposable
 @inject IJSRuntime JS
 @inject UniFiConnectionService ConnectionService
 
-@if (HasAnyLocationData)
+@if (HasAnyMapData)
 {
     <div class="card speed-test-map-card">
         <div class="card-header">
@@ -32,6 +34,19 @@
                         title="Filter out low GPS accuracy results (>15m)">
                     ≤15m
                 </button>
+                @if (HasAnyApMarkers)
+                {
+                    <button class="btn btn-sm @(ShowApMarkers ? "btn-primary" : "btn-secondary")"
+                            @onclick="ToggleApMarkers"
+                            data-tooltip="Show/hide access point markers">
+                        APs (@PlacedApCount)
+                    </button>
+                    <button class="btn btn-sm @(apEditMode ? "btn-warning" : "btn-secondary")"
+                            @onclick="ToggleApEditMode"
+                            data-tooltip="@(apEditMode ? "Done editing AP locations" : "Edit AP locations")">
+                        @(apEditMode ? "Done" : "Edit APs")
+                    </button>
+                }
                 <button class="btn btn-sm btn-secondary map-action-btn"
                         @onclick="FitToMarkers"
                         title="Fit map to all markers">
@@ -46,7 +61,7 @@
         </div>
         <div class="card-body">
             <div class="map-container">
-                <div id="@mapId" class="speed-test-map"></div>
+                <div id="@mapId" class="speed-test-map" style="@(MapHeight != null ? $"height: {MapHeight}" : "")"></div>
                 @if (ShowNoResultsMessage)
                 {
                     <div class="map-no-results-overlay">
@@ -54,6 +69,48 @@
                             <span>No results matching "@searchFilter"</span>
                             <button class="btn btn-sm btn-secondary" @onclick="ClearSearchFilter">Clear filter</button>
                         </div>
+                    </div>
+                }
+                @if (apEditMode)
+                {
+                    @if (UnplacedAps.Any())
+                    {
+                        <div class="map-ap-panel">
+                            <div class="map-ap-panel-header">
+                                @if (selectedApForPlacement != null)
+                                {
+                                    <span>Click the map to place <strong>@selectedApForPlacement.Name</strong></span>
+                                }
+                                else
+                                {
+                                    <span>Select an AP to place on the map</span>
+                                }
+                            </div>
+                            <div class="map-ap-panel-list">
+                                @foreach (var ap in UnplacedAps)
+                                {
+                                    <button class="map-ap-item @(selectedApForPlacement?.Mac == ap.Mac ? "selected" : "")"
+                                            @onclick="() => SelectApForPlacement(ap)">
+                                        <img src="@(DeviceIcon.GetIconPath(ap.Model) ?? "/images/devices/default-ap.png")"
+                                             alt="@ap.Model" class="map-ap-item-icon" />
+                                        <span class="map-ap-item-name">@ap.Name</span>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="map-edit-hint">
+                            Drag APs to adjust their locations
+                        </div>
+                    }
+                }
+                @if (!string.IsNullOrEmpty(selectedApMacFilter))
+                {
+                    var apName = ApMarkers.FirstOrDefault(a => a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase))?.Name ?? "AP";
+                    <div class="map-ap-filter-chip" @onclick="ClearApFilter">
+                        @apName test results <span>&times;</span>
                     </div>
                 }
             </div>
@@ -83,6 +140,21 @@
     [Parameter]
     public EventCallback<int> OnResultClick { get; set; }
 
+    [Parameter]
+    public IEnumerable<ApMapMarker> ApMarkers { get; set; } = Enumerable.Empty<ApMapMarker>();
+
+    [Parameter]
+    public EventCallback<(string Mac, double Lat, double Lng)> OnApLocationChanged { get; set; }
+
+    [Parameter]
+    public bool ClientDetailMode { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnClientClick { get; set; }
+
+    [Parameter]
+    public string? MapHeight { get; set; }
+
     // Search filter state (internal to map only)
     private string searchFilter = "";
 
@@ -95,11 +167,19 @@
 
     private bool userHasZoomed = false; // Track if user manually zoomed/panned
     private bool initialSetupComplete = false; // Ignore zoom events during initial setup
+    private bool apEditMode = false; // Internal AP edit mode toggle
+    private bool ShowApMarkers { get; set; } = true; // AP layer visibility
+    private ApMapMarker? selectedApForPlacement = null; // AP selected for click-to-place
+    private string? selectedApMacFilter = null; // AP MAC to filter speed tests by (null = show all)
+
+    // Unplaced APs that need to be positioned on the map
+    private IEnumerable<ApMapMarker> UnplacedAps => ApMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
     private bool HighAccuracyOnly { get; set; } = false;
     private int lastResultCount = 0;
     private int? lastNewestResultId = null;
+    private int lastApMarkerCount = 0;
     private List<NetworkInfo>? _networks;
 
     // Time slider: log scale breakpoints (slider value -> hours, 0 = all time)
@@ -170,12 +250,31 @@
             var results = Enumerable.Empty<Iperf3Result>();
             if (ShowLan) results = results.Concat(LanResults);
             if (ShowExternal) results = results.Concat(ExternalResults);
+
+            // Filter by selected AP if one is active
+            if (!string.IsNullOrEmpty(selectedApMacFilter))
+            {
+                results = results.Where(r =>
+                    r.PathAnalysis?.Path?.Hops?.Any(h =>
+                        h.Type == HopType.AccessPoint &&
+                        h.DeviceMac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase)) == true);
+            }
+
             return results;
         }
     }
 
     // Check raw results for any location data (not filtered) - determines if map card shows at all
     private bool HasAnyLocationData => Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
+
+    // Whether there are any AP markers (placed or unplaced) passed to this component
+    private bool HasAnyApMarkers => ApMarkers.Any();
+
+    // Count of APs with saved locations
+    private int PlacedApCount => ApMarkers.Count(a => a.Latitude.HasValue && a.Longitude.HasValue);
+
+    // Show map if we have speed test location data OR placed AP markers
+    private bool HasAnyMapData => HasAnyLocationData || HasAnyApMarkers;
 
     // Check if current filter/time settings return any results (for "no results" message)
     private bool HasFilteredResults => FilteredResults.Any();
@@ -264,6 +363,101 @@
         StateHasChanged();
     }
 
+    private async Task ToggleApMarkers()
+    {
+        ShowApMarkers = !ShowApMarkers;
+        if (mapInitialized)
+        {
+            await UpdateApMarkers();
+        }
+    }
+
+    private async Task ToggleApEditMode()
+    {
+        apEditMode = !apEditMode;
+        selectedApForPlacement = null;
+        if (mapInitialized)
+        {
+            await UpdateApMarkers();
+            await SetMapClickToPlaceMode(apEditMode);
+        }
+    }
+
+    private async Task SelectApForPlacement(ApMapMarker ap)
+    {
+        selectedApForPlacement = selectedApForPlacement?.Mac == ap.Mac ? null : ap;
+        await UpdateMapCursor(selectedApForPlacement != null);
+    }
+
+    [JSInvokable]
+    public async Task OnMapClickForPlacement(double lat, double lng)
+    {
+        if (selectedApForPlacement == null) return;
+
+        var mac = selectedApForPlacement.Mac;
+        selectedApForPlacement = null;
+
+        // Fire the location changed event (parent saves to DB)
+        if (OnApLocationChanged.HasDelegate)
+        {
+            await OnApLocationChanged.InvokeAsync((mac, lat, lng));
+        }
+
+        // Reset cursor and refresh AP markers
+        await UpdateMapCursor(false);
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (mapInitialized)
+            {
+                await UpdateApMarkers();
+            }
+        });
+    }
+
+    private async Task SetMapClickToPlaceMode(bool enabled)
+    {
+        if (!mapInitialized) return;
+
+        var enableStr = enabled ? "true" : "false";
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                if (!mapData || !mapData.map) return;
+
+                // Remove existing click handler if any
+                if (mapData._placementClickHandler) {{
+                    mapData.map.off('click', mapData._placementClickHandler);
+                    mapData._placementClickHandler = null;
+                }}
+
+                if ({enableStr}) {{
+                    mapData._placementClickHandler = function(e) {{
+                        if (mapData.dotNetRef) {{
+                            mapData.dotNetRef.invokeMethodAsync('OnMapClickForPlacement', e.latlng.lat, e.latlng.lng);
+                        }}
+                    }};
+                    mapData.map.on('click', mapData._placementClickHandler);
+                }} else {{
+                    mapData.map.getContainer().style.cursor = '';
+                }}
+            }})();
+        ");
+    }
+
+    private async Task UpdateMapCursor(bool crosshair)
+    {
+        if (!mapInitialized) return;
+
+        var cursor = crosshair ? "crosshair" : "";
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                if (mapData && mapData.map) mapData.map.getContainer().style.cursor = '{cursor}';
+            }})();
+        ");
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Load networks for VPN detection
@@ -272,8 +466,8 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Initialize map when we have location data and DOM is ready
-        if (!mapInitialized && HasAnyLocationData)
+        // Initialize map when we have any data (speed tests with location OR placed APs) and DOM is ready
+        if (!mapInitialized && HasAnyMapData)
         {
             await InitializeMap();
         }
@@ -291,6 +485,17 @@
             lastNewestResultId = newestId;
             await UpdateMarkers(fitBounds: false);
             StateHasChanged();
+        }
+
+        // Update AP markers only when AP data actually changes
+        if (mapInitialized)
+        {
+            var currentApCount = ApMarkers.Count();
+            if (currentApCount != lastApMarkerCount)
+            {
+                lastApMarkerCount = currentApCount;
+                await UpdateApMarkers();
+            }
         }
     }
 
@@ -380,6 +585,25 @@
                         attribution: tileAttribution
                     }}).addTo(map);
 
+                    // Custom panes for z-ordering (bottom to top):
+                    // apGlowPane(390) < clusterPane(420) < apIconPane(450) < overlayPane(500) < markerPane(600)
+                    map.createPane('apGlowPane');
+                    map.getPane('apGlowPane').style.zIndex = 390;
+                    map.createPane('clusterPane');
+                    map.getPane('clusterPane').style.zIndex = 420;
+                    map.createPane('apIconPane');
+                    map.getPane('apIconPane').style.zIndex = 450;
+                    // Raise overlayPane so individual speed test dots render above AP icons
+                    map.getPane('overlayPane').style.zIndex = 500;
+
+                    // Scale AP icons with zoom level (up to 25% larger at high zoom)
+                    function updateApScale() {{
+                        const zoom = map.getZoom();
+                        const scale = Math.min(1.25, Math.max(1.0, 1.0 + (zoom - 20) * 0.125));
+                        container.style.setProperty('--ap-scale', scale.toFixed(3));
+                    }}
+                    map.on('zoomend', updateApScale);
+                    updateApScale();
 
                     // Speed color function for clusters
                     function getSpeedColor(speed) {{
@@ -391,6 +615,7 @@
 
                     // Create marker cluster group with speed-based coloring
                     const clusterGroup = L.markerClusterGroup({{
+                        clusterPane: 'clusterPane',
                         maxClusterRadius: 24,
                         spiderfyOnMaxZoom: true,
                         showCoverageOnHover: false,
@@ -466,7 +691,7 @@
                         window._speedTestMaps['{mapId}'].currentSpider = null;
                         // Only reset z-index if not switching to a new spider
                         if (!switchingSpider) {{
-                            map.getPane('overlayPane').style.zIndex = '';
+                            map.getPane('overlayPane').style.zIndex = 500;
                         }}
                     }});
 
@@ -486,6 +711,17 @@
                             var clickedOnPopup = e.target.closest && e.target.closest('.leaflet-popup');
                             if (clickedOnPopup) return;
 
+                            // Check if click is on another cluster - if so, let clusterclick handle it
+                            var clickedOnCluster = e.target.closest && e.target.closest('.speed-cluster');
+                            if (clickedOnCluster) return;
+
+                            // Check if click is on an AP marker - if so, don't fade
+                            var clickedOnAp = e.target.closest && e.target.closest('.ap-marker-icon');
+                            if (clickedOnAp) return;
+
+                            // Check if click is on any interactive marker (speed test dots, etc.)
+                            if (e.target.classList && e.target.classList.contains('leaflet-interactive')) return;
+
                             // Fade out spider when clicking outside
                             markers.forEach(m => {{
                                 if (m._path) {{
@@ -500,7 +736,11 @@
                         }}
                     }}, true);
 
-                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, currentSpider: null }};
+                    // AP layers use custom panes for z-ordering
+                    const apGlowGroup = L.layerGroup({{ pane: 'apGlowPane' }}).addTo(map);
+                    const apLayerGroup = L.layerGroup({{ pane: 'apIconPane' }}).addTo(map);
+
+                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, apGlowGroup: apGlowGroup, apLayerGroup: apLayerGroup, currentSpider: null }};
                 }})();
             ");
 
@@ -510,9 +750,38 @@
                     window._speedTestMapClick = function(id) {{
                         dotNetRef.invokeMethodAsync('OnMapResultClick', id);
                     }};
+                    window._speedTestApFocus = function(mac) {{
+                        // Pan to AP and open its popup - don't activate the filter
+                        var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                        if (mapData && mapData.apLayerGroup && mapData.map) {{
+                            mapData.apLayerGroup.eachLayer(function(layer) {{
+                                if (layer._apMac === mac) {{
+                                    mapData.map.panTo(layer.getLatLng(), {{ animate: true }});
+                                    setTimeout(function() {{ layer.openPopup(); }}, 300);
+                                }}
+                            }});
+                        }}
+                    }};
+                    window._speedTestApFilterAndClose = function(mapId, mac) {{
+                        dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
+                        var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                        if (mapData && mapData.map) mapData.map.closePopup();
+                    }};
+                    window._speedTestClientClick = function(mac) {{
+                        // Close popup and destroy tippy instances before navigating
+                        var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                        if (mapData && mapData.map) mapData.map.closePopup();
+                        document.querySelectorAll('[data-tippy-root]').forEach(function(el) {{ el.remove(); }});
+                        dotNetRef.invokeMethodAsync('OnMapClientClick', mac);
+                    }};
+
+                    // Store .NET ref on map data for AP drag callbacks
+                    var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                    if (mapData) {{
+                        mapData.dotNetRef = dotNetRef;
+                    }}
 
                     // Track user zoom/drag interactions
-                    var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
                     if (mapData && mapData.map) {{
                         var programmaticMove = false;
                         mapData.setProgrammaticMove = function(val) {{ programmaticMove = val; }};
@@ -541,6 +810,7 @@
             lastResultCount = Results.Count();
             lastNewestResultId = Results.FirstOrDefault()?.Id;
             await UpdateMarkers(fitBounds: true);
+            await UpdateApMarkers();
 
             // Allow time for initial fitBounds animation to complete before tracking user interactions
             await Task.Delay(500);
@@ -552,7 +822,7 @@
         }
     }
 
-    private async Task UpdateMarkers(bool fitBounds)
+    private async Task UpdateMarkers(bool fitBounds, bool fitIfNarrowing = false)
     {
         if (!mapInitialized) return;
 
@@ -569,8 +839,16 @@
                 popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true || r.PathAnalysis?.Path?.IsExternalPath == true)
             }).ToArray();
 
+            // Include AP positions as fallback bounds when no speed test dots exist
+            var apBounds = ApMarkers
+                .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                .Select(a => new[] { a.Latitude!.Value, a.Longitude!.Value })
+                .ToArray();
+
             var markersJson = System.Text.Json.JsonSerializer.Serialize(markers);
+            var apBoundsJson = System.Text.Json.JsonSerializer.Serialize(apBounds);
             var shouldFitBounds = fitBounds ? "true" : "false";
+            var shouldFitIfNarrowing = fitIfNarrowing ? "true" : "false";
 
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
@@ -660,25 +938,40 @@
                         markerToReopen.openPopup();
                     }}
 
+                    // Fall back to AP positions when no speed test dots
+                    const apBounds = {apBoundsJson};
+                    const fitTargets = bounds.length > 0 ? bounds : apBounds;
+
                     // Determine if we should fit bounds:
-                    // 1. If explicitly requested (user hasn't zoomed), or
-                    // 2. If none of the filtered markers are visible in current view
+                    // 1. If explicitly requested (fitBounds=true), or
+                    // 2. If fitIfNarrowing and the new bounds are inside the current view (zoom in only), or
+                    // 3. If none of the filtered markers are visible in current view
                     let shouldActuallyFitBounds = {shouldFitBounds};
-                    if (!shouldActuallyFitBounds && bounds.length > 0) {{
+                    if (!shouldActuallyFitBounds && fitTargets.length > 0) {{
                         const currentBounds = map.getBounds();
-                        const anyVisible = bounds.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
-                        if (!anyVisible) {{
-                            shouldActuallyFitBounds = true;
+                        if ({shouldFitIfNarrowing}) {{
+                            // Only auto-fit if it would narrow (zoom in) the view
+                            const newBounds = L.latLngBounds(fitTargets.map(b => L.latLng(b[0], b[1])));
+                            if (currentBounds.contains(newBounds)) {{
+                                shouldActuallyFitBounds = true;
+                            }}
+                        }}
+                        // Always fit if all markers are off-screen (safety net)
+                        if (!shouldActuallyFitBounds) {{
+                            const anyVisible = fitTargets.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
+                            if (!anyVisible) {{
+                                shouldActuallyFitBounds = true;
+                            }}
                         }}
                     }}
 
-                    if (shouldActuallyFitBounds && bounds.length > 0) {{
+                    if (shouldActuallyFitBounds && fitTargets.length > 0) {{
                         // Mark as programmatic so zoom/drag listeners don't fire
                         if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(true);
-                        if (bounds.length === 1) {{
-                            map.setView(bounds[0], 18);
+                        if (fitTargets.length === 1) {{
+                            map.setView(fitTargets[0], 18);
                         }} else {{
-                            map.fitBounds(bounds, {{ padding: [20, 20], maxZoom: 22 }});
+                            map.fitBounds(fitTargets, {{ padding: [20, 20], maxZoom: 22 }});
                         }}
                         // Reset after a short delay (after zoomend fires)
                         setTimeout(() => {{
@@ -693,6 +986,357 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Marker update error: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateApMarkers()
+    {
+        if (!mapInitialized) return;
+
+        try
+        {
+            var placedAps = ShowApMarkers
+                ? ApMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToArray()
+                : Array.Empty<ApMapMarker>();
+
+            var apData = placedAps.Select(a => new
+            {
+                mac = a.Mac,
+                lat = a.Latitude!.Value,
+                lng = a.Longitude!.Value,
+                name = a.Name,
+                model = a.Model,
+                isOnline = a.IsOnline,
+                totalClients = a.TotalClients,
+                iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
+                isSelected = a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase),
+                popup = BuildApPopup(a)
+            }).ToArray();
+
+            var apJson = System.Text.Json.JsonSerializer.Serialize(apData);
+            var isDraggable = apEditMode ? "true" : "false";
+
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                    if (!mapData || !mapData.apLayerGroup) return;
+
+                    mapData.apLayerGroup.clearLayers();
+                    if (mapData.apGlowGroup) mapData.apGlowGroup.clearLayers();
+
+                    const aps = {apJson};
+                    const draggable = {isDraggable};
+
+                    if (!mapData._apGlowByMac) mapData._apGlowByMac = {{}};
+
+                    aps.forEach(ap => {{
+                        // Glow layer in apGlowPane (behind everything)
+                        if (mapData.apGlowGroup) {{
+                            const glowIcon = L.divIcon({{
+                                html: ""<div class='ap-glow-dot"" + (ap.isSelected ? "" ap-glow-selected"" : """") + ""'></div>"",
+                                className: 'ap-glow-container',
+                                iconSize: [48, 48],
+                                iconAnchor: [24, 24]
+                            }});
+                            const glowMarker = L.marker([ap.lat, ap.lng], {{
+                                icon: glowIcon,
+                                interactive: false,
+                                pane: 'apGlowPane'
+                            }});
+                            mapData.apGlowGroup.addLayer(glowMarker);
+                            mapData._apGlowByMac[ap.mac.toLowerCase()] = glowMarker;
+                        }}
+
+                        // Icon layer in apIconPane (above clusters, below individual dots)
+                        const icon = L.divIcon({{
+                            html: ""<img src='"" + ap.iconUrl + ""' class='ap-marker-icon' style='opacity:"" + (ap.isOnline ? 1.0 : 0.4) + ""' />"",
+                            className: 'ap-marker-container',
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 16],
+                            popupAnchor: [0, -16]
+                        }});
+
+                        const marker = L.marker([ap.lat, ap.lng], {{
+                            icon: icon,
+                            draggable: draggable,
+                            pane: 'apIconPane'
+                        }});
+
+                        marker._apMac = ap.mac;
+                        marker.bindPopup(ap.popup);
+
+                        if (draggable) {{
+                            marker.on('drag', function(e) {{
+                                var gm = mapData._apGlowByMac && mapData._apGlowByMac[ap.mac.toLowerCase()];
+                                if (gm) gm.setLatLng(e.target.getLatLng());
+                            }});
+                            marker.on('dragend', function(e) {{
+                                const pos = e.target.getLatLng();
+                                if (mapData.dotNetRef) {{
+                                    mapData.dotNetRef.invokeMethodAsync('OnApDragEnd', ap.mac, pos.lat, pos.lng);
+                                }}
+                            }});
+                        }}
+
+                        // Highlight glow when popup is open (look up dynamically so it survives glow rebuilds)
+                        marker.on('popupopen', function() {{
+                            var gm = mapData._apGlowByMac && mapData._apGlowByMac[ap.mac.toLowerCase()];
+                            if (gm) {{
+                                var el = gm.getElement();
+                                if (el) el.querySelector('.ap-glow-dot')?.classList.add('ap-glow-selected');
+                            }}
+                        }});
+                        marker.on('popupclose', function() {{
+                            if (mapData._selectedApMac && mapData._selectedApMac.toLowerCase() === ap.mac.toLowerCase()) return;
+                            var gm = mapData._apGlowByMac && mapData._apGlowByMac[ap.mac.toLowerCase()];
+                            if (gm) {{
+                                var el = gm.getElement();
+                                if (el) el.querySelector('.ap-glow-dot')?.classList.remove('ap-glow-selected');
+                            }}
+                        }});
+
+                        mapData.apLayerGroup.addLayer(marker);
+                    }});
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"AP marker update error: {ex.Message}");
+        }
+    }
+
+    private string BuildApPopup(ApMapMarker ap)
+    {
+        var name = ap.Name?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown AP";
+        var model = ap.Model?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "";
+        var statusClass = ap.IsOnline ? "ap-status-online" : "ap-status-offline";
+        var statusText = ap.IsOnline ? "Online" : "Offline";
+
+        // Count speed tests connected to this AP
+        var testCount = Results.Count(r =>
+            r.PathAnalysis?.Path?.Hops?.Any(h =>
+                h.Type == HopType.AccessPoint &&
+                h.DeviceMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase)) == true);
+
+        var html = "<div class='map-popup ap-popup'>";
+
+        // Header: status dot + name
+        html += "<div class='wifi-tooltip-header'>";
+        html += $"<span class='ap-status-dot {statusClass}'></span> {name}";
+        html += "</div>";
+
+        // Model + status subtitle
+        if (!string.IsNullOrEmpty(model))
+        {
+            html += $"<div class='ap-popup-subtitle'>{model} - {statusText}</div>";
+        }
+
+        // Per-radio details as structured rows
+        if (ap.Radios.Count > 0)
+        {
+            html += "<div class='ap-popup-radios'>";
+            foreach (var radio in ap.Radios)
+            {
+                var radioCode = radio.RadioCode ?? "";
+                var bandDisplay = radio.Band?.Replace("'", "\\'") ?? "";
+                html += "<div class='ap-popup-radio'>";
+
+                // Band badge (uses standard wifi-band-ng/na/6e CSS classes)
+                html += $"<span class='wifi-band-badge wifi-band-{radioCode}'>{bandDisplay}</span>";
+
+                // Channel info
+                if (radio.Channel.HasValue)
+                {
+                    html += $"<span class='ap-radio-detail'>Ch {radio.Channel}";
+                    if (radio.ChannelWidth.HasValue)
+                        html += $"/{radio.ChannelWidth}";
+                    html += "</span>";
+                }
+
+                // TX power
+                if (radio.TxPowerDbm.HasValue)
+                {
+                    html += $"<span class='ap-radio-detail'>{radio.TxPowerDbm} dBm";
+                    if (radio.Eirp.HasValue)
+                        html += $" ({radio.Eirp} EIRP)";
+                    html += "</span>";
+                }
+
+                html += "</div>";
+
+                // Clients + utilization on second line
+                if (radio.Clients.HasValue || radio.Utilization.HasValue)
+                {
+                    html += "<div class='ap-popup-radio-stats'>";
+                    if (radio.Clients.HasValue)
+                        html += $"<span>{radio.Clients} client{(radio.Clients != 1 ? "s" : "")}</span>";
+                    if (radio.Utilization.HasValue)
+                        html += $"<span>{radio.Utilization}% utilization</span>";
+                    html += "</div>";
+                }
+            }
+            html += "</div>";
+        }
+
+        // Footer: client count, test count, and filter link
+        html += "<div class='wifi-tooltip-divider'></div>";
+        html += "<div class='map-popup-footer'>";
+        html += $"<span class='ap-popup-clients'>{ap.TotalClients} client{(ap.TotalClients != 1 ? "s" : "")}";
+        if (testCount > 0)
+            html += $" · {testCount} test{(testCount != 1 ? "s" : "")}";
+        html += "</span>";
+        var isFiltered = !string.IsNullOrEmpty(selectedApMacFilter) &&
+            selectedApMacFilter.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase);
+        if (isFiltered)
+        {
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"\")' class='map-popup-link'>Clear filter</a>";
+        }
+        else if (testCount > 0)
+        {
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"{ap.Mac}\")' class='map-popup-link'>Show AP tests</a>";
+        }
+        html += "</div>";
+
+        html += "</div>";
+        return html;
+    }
+
+    [JSInvokable]
+    public async Task OnApDragEnd(string mac, double lat, double lng)
+    {
+        if (OnApLocationChanged.HasDelegate)
+        {
+            await OnApLocationChanged.InvokeAsync((mac, lat, lng));
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnApMarkerClick(string mac)
+    {
+        await InvokeAsync(async () =>
+        {
+            var newFilter = string.IsNullOrEmpty(mac) ? null : mac;
+
+            // Skip update if filter hasn't changed (avoids dot flash when reopening same AP)
+            if (string.Equals(selectedApMacFilter, newFilter, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (newFilter != null && mapInitialized)
+            {
+                if (selectedApMacFilter == null)
+                {
+                    // No filter → filter: save current view for later restore
+                    await JS.InvokeVoidAsync("eval", $@"
+                        (function() {{
+                            var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                            if (md && md.map) md._preFilterBounds = md.map.getBounds();
+                        }})();
+                    ");
+                }
+                else
+                {
+                    // Switching APs: clear saved view (old context is stale)
+                    await JS.InvokeVoidAsync("eval", $@"
+                        (function() {{
+                            var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                            if (md) md._preFilterBounds = null;
+                        }})();
+                    ");
+                }
+            }
+
+            selectedApMacFilter = newFilter;
+
+            if (mapInitialized)
+            {
+                // Auto-fit only if it narrows the view (zooms in to show fewer dots)
+                // JS fallback will still fit if all filtered dots are off-screen
+                await UpdateMarkers(fitBounds: false, fitIfNarrowing: true);
+                await UpdateApMarkers(); // Rebuild popups with updated filter text
+                await UpdateApGlow();
+            }
+            StateHasChanged();
+        });
+    }
+
+    private async Task ClearApFilter()
+    {
+        selectedApMacFilter = null;
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: false);
+            await UpdateApMarkers(); // Rebuild popups with updated filter text
+            await UpdateApGlow();
+
+            // Restore the view from before the filter was applied
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                    if (md && md.map && md._preFilterBounds) {{
+                        if (md.setProgrammaticMove) md.setProgrammaticMove(true);
+                        md.map.fitBounds(md._preFilterBounds);
+                        md._preFilterBounds = null;
+                        setTimeout(function() {{
+                            if (md.setProgrammaticMove) md.setProgrammaticMove(false);
+                        }}, 300);
+                    }}
+                }})();
+            ");
+        }
+    }
+
+    private async Task UpdateApGlow()
+    {
+        if (!mapInitialized) return;
+
+        try
+        {
+            var placedAps = ShowApMarkers
+                ? ApMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToArray()
+                : Array.Empty<ApMapMarker>();
+
+            var glowData = placedAps.Select(a => new
+            {
+                lat = a.Latitude!.Value,
+                lng = a.Longitude!.Value,
+                mac = a.Mac,
+                isSelected = a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase)
+            }).ToArray();
+
+            var glowJson = System.Text.Json.JsonSerializer.Serialize(glowData);
+
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                    if (!mapData || !mapData.apGlowGroup) return;
+
+                    mapData._selectedApMac = {(string.IsNullOrEmpty(selectedApMacFilter) ? "null" : $"'{selectedApMacFilter}'")};
+                    mapData.apGlowGroup.clearLayers();
+                    mapData._apGlowByMac = {{}};
+                    const glows = {glowJson};
+
+                    glows.forEach(g => {{
+                        const glowIcon = L.divIcon({{
+                            html: ""<div class='ap-glow-dot"" + (g.isSelected ? "" ap-glow-selected"" : """") + ""'></div>"",
+                            className: 'ap-glow-container',
+                            iconSize: [48, 48],
+                            iconAnchor: [24, 24]
+                        }});
+                        const glowMarker = L.marker([g.lat, g.lng], {{
+                            icon: glowIcon,
+                            interactive: false,
+                            pane: 'apGlowPane'
+                        }});
+                        mapData.apGlowGroup.addLayer(glowMarker);
+                        mapData._apGlowByMac[g.mac.toLowerCase()] = glowMarker;
+                    }});
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"AP glow update error: {ex.Message}");
         }
     }
 
@@ -803,9 +1447,11 @@
             badgeClass = "map-badge-lan";
         }
 
-        // Get AP name from path analysis
-        var apName = result.PathAnalysis?.Path?.Hops?
-            .FirstOrDefault(h => h.Type == HopType.AccessPoint)?.DeviceName;
+        // Get AP name and MAC from path analysis
+        var apHop = result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.AccessPoint);
+        var apName = apHop?.DeviceName;
+        var apMac = apHop?.DeviceMac;
 
         // Escape for JS string
         deviceName = deviceName?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
@@ -822,10 +1468,13 @@
         html += $"<span class='wifi-speed-tx'>↑ {result.UploadMbps:F0}</span> Mbps";
         html += "</div>";
 
-        // AP name if available
+        // AP name if available (clickable to filter + open AP popup)
         if (!string.IsNullOrEmpty(apName))
         {
-            html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
+            if (!string.IsNullOrEmpty(apMac))
+                html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> <a href='javascript:void(0)' onclick='window._speedTestApFocus(\"{apMac}\")' class='map-popup-link'>{apName}</a></div>";
+            else
+                html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
         }
 
         // Band and signal if available
@@ -844,11 +1493,21 @@
             html += "</div>";
         }
 
-        // Time and view link
+        // Time and view/client link
         html += "<div class='wifi-tooltip-divider'></div>";
         html += $"<div class='map-popup-footer'>";
         html += $"<span class='map-popup-time'>{time}</span>";
-        html += $"<a href='javascript:void(0)' onclick='window._speedTestMapClick({result.Id})' class='map-popup-link'>View →</a>";
+        var clientMac = result.ClientMac ?? result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
+        if (ClientDetailMode && !string.IsNullOrEmpty(clientMac))
+        {
+            var escapedMac = clientMac.Replace("'", "\\'").Replace("\"", "&quot;");
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestClientClick(\"{escapedMac}\")' class='map-popup-link'>Client details →</a>";
+        }
+        else if (OnResultClick.HasDelegate)
+        {
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestMapClick({result.Id})' class='map-popup-link'>View →</a>";
+        }
         html += "</div>";
 
         html += "</div>";
@@ -861,6 +1520,15 @@
         if (OnResultClick.HasDelegate)
         {
             await OnResultClick.InvokeAsync(resultId);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnMapClientClick(string mac)
+    {
+        if (OnClientClick.HasDelegate)
+        {
+            await OnClientClick.InvokeAsync(mac);
         }
     }
 
@@ -1124,14 +1792,7 @@
     }
 
     .map-popup-link {
-        color: #60a5fa;
-        text-decoration: none;
         font-weight: 500;
-    }
-
-    .map-popup-link:hover {
-        color: #93c5fd;
-        text-decoration: underline;
     }
 
     .map-tooltip-ap {
@@ -1228,5 +1889,207 @@
         to { opacity: 1; }
     }
 
+    /* AP marker glow (separate layer behind speed test dots) */
+    .ap-glow-container {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .ap-glow-dot {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.55) 0%, rgba(59, 130, 246, 0.12) 55%, transparent 100%);
+        filter: blur(3px);
+        transform: scale(var(--ap-scale, 1));
+    }
+
+    .ap-glow-dot.ap-glow-selected {
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.85) 0%, rgba(59, 130, 246, 0.25) 55%, transparent 100%);
+        filter: blur(4px);
+    }
+
+    /* AP marker icon (on top of speed test dots) */
+    .ap-marker-container {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .ap-marker-icon {
+        width: 32px;
+        height: 32px;
+        transform: scale(var(--ap-scale, 1));
+    }
+
+    /* On-map AP filter chip */
+    .map-ap-filter-chip {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        z-index: 1000;
+        background: var(--primary-color);
+        color: white;
+        padding: 0.35rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .map-ap-filter-chip:hover {
+        background: var(--primary-hover);
+    }
+
+    /* AP marker and popup styles */
+    .map-edit-hint {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        background: rgba(234, 179, 8, 0.9);
+        color: #1e293b;
+        padding: 0.35rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        pointer-events: none;
+    }
+
+    .map-ap-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.95);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 0.75rem;
+        max-width: 220px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .map-ap-panel-header {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+        line-height: 1.4;
+    }
+
+    .map-ap-panel-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .map-ap-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        background: var(--bg-tertiary);
+        border: 1px solid transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-primary);
+        font-size: 0.8rem;
+        text-align: left;
+        transition: all 0.15s ease;
+    }
+
+    .map-ap-item:hover {
+        background: var(--bg-hover);
+        border-color: var(--border-color);
+    }
+
+    .map-ap-item.selected {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: #3b82f6;
+    }
+
+    .map-ap-item-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+
+    .map-ap-item-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .ap-popup {
+        min-width: 220px;
+    }
+
+    .ap-status-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 0.3rem;
+    }
+
+    .ap-status-online {
+        background: #22c55e;
+    }
+
+    .ap-status-offline {
+        background: #ef4444;
+    }
+
+    .ap-popup-subtitle {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        margin-bottom: 0.5rem;
+    }
+
+    .ap-popup-radios {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        margin: 0.35rem 0;
+    }
+
+    .ap-popup-radio {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        line-height: 1.4;
+    }
+
+    .ap-radio-detail {
+        color: #cbd5e1;
+    }
+
+    .ap-popup-radio-stats {
+        display: flex;
+        gap: 0.75rem;
+        font-size: 0.7rem;
+        color: #64748b;
+        padding-left: 0.2rem;
+        margin-bottom: 0.2rem;
+    }
+
+    .ap-popup-clients {
+        font-size: 0.8rem;
+        color: #94a3b8;
+    }
+
+    .btn-warning {
+        background: rgba(234, 179, 8, 0.3);
+        color: #facc15;
+        border: 1px solid rgba(234, 179, 8, 0.5);
+    }
+
+    .btn-warning:hover {
+        background: rgba(234, 179, 8, 0.4);
+    }
 
 </style>

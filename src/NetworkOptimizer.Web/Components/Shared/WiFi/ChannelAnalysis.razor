@@ -289,13 +289,15 @@
                     <h4>Channel Issues</h4>
                 </div>
 
-                <IssuesList Issues="_channelIssues" />
+                <IssuesList Issues="_channelIssues" OnClientClick="OnClientClick" />
             </div>
         }
     }
 </div>
 
 @code {
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private RegulatoryChannelData? _regulatoryData;

@@ -189,7 +189,8 @@
                     }
                     el._tippy.destroy();
                 }
-                tippy(el, {
+                var isInteractive = el.hasAttribute('data-tooltip-interactive');
+                var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
                     trigger: 'mouseenter click',
@@ -198,8 +199,36 @@
                     placement: 'top',
                     theme: 'custom',
                     appendTo: document.body,
-                    maxWidth: 'none'
-                });
+                    maxWidth: 'none',
+                    onShow: function(instance) {
+                        // Suppress if an adjacent sibling already shows the same tooltip
+                        var ref = instance.reference;
+                        var siblings = [ref.previousElementSibling, ref.nextElementSibling];
+                        for (var i = 0; i < siblings.length; i++) {
+                            var sib = siblings[i];
+                            if (sib && sib._tippy && sib._tippy.state.isVisible &&
+                                sib._tippy.props.content === instance.props.content) {
+                                return false; // Cancel showing
+                            }
+                        }
+                    }
+                };
+                if (isInteractive) {
+                    opts.interactive = true;
+                    opts.interactiveBorder = 10;
+                    opts.onMount = function(instance) {
+                        instance.popper.querySelectorAll('a').forEach(function(link) {
+                            link.addEventListener('click', function() { instance.unmount(); });
+                        });
+                    };
+                }
+                if (el.hasAttribute('data-tooltip-follow')) {
+                    opts.followCursor = true;
+                }
+                if (el.hasAttribute('data-tooltip-hover-only')) {
+                    opts.trigger = 'mouseenter';
+                }
+                tippy(el, opts);
             });
         }
 
@@ -214,35 +243,53 @@
             });
 
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
+                var isInteractive = el.hasAttribute('data-tooltip-interactive');
+                var opts = {
+                    content: el.dataset.tooltip,
+                    allowHTML: true,
+                    trigger: 'mouseenter click',
+                    hideOnClick: true,
+                    delay: [100, 200],
+                    placement: 'top',
+                    theme: 'custom',
+                    appendTo: document.body,
+                    maxWidth: 'none',
+                    onShow: function(instance) {
+                        var ref = instance.reference;
+                        var siblings = [ref.previousElementSibling, ref.nextElementSibling];
+                        for (var i = 0; i < siblings.length; i++) {
+                            var sib = siblings[i];
+                            if (sib && sib._tippy && sib._tippy.state.isVisible &&
+                                sib._tippy.props.content === instance.props.content) {
+                                return false;
+                            }
+                        }
+                    }
+                };
+                if (isInteractive) {
+                    opts.interactive = true;
+                    opts.interactiveBorder = 10;
+                    opts.onMount = function(instance) {
+                        instance.popper.querySelectorAll('a').forEach(function(link) {
+                            link.addEventListener('click', function() { instance.unmount(); });
+                        });
+                    };
+                }
+                if (el.hasAttribute('data-tooltip-follow')) {
+                    opts.followCursor = true;
+                }
+                if (el.hasAttribute('data-tooltip-hover-only')) {
+                    opts.trigger = 'mouseenter';
+                }
                 if (el._tippy) {
                     // Update existing tooltip if content changed
                     if (el._tippy.props.content !== el.dataset.tooltip) {
                         el._tippy.destroy();
-                        tippy(el, {
-                            content: el.dataset.tooltip,
-                            allowHTML: true,
-                            trigger: 'mouseenter click',
-                            hideOnClick: true,
-                            delay: [100, 200],
-                            placement: 'top',
-                            theme: 'custom',
-                            appendTo: document.body,
-                            maxWidth: 'none'
-                        });
+                        tippy(el, opts);
                     }
                 } else {
                     // Initialize new tooltip for dynamically added element
-                    tippy(el, {
-                        content: el.dataset.tooltip,
-                        allowHTML: true,
-                        trigger: 'mouseenter click',
-                        hideOnClick: true,
-                        delay: [100, 200],
-                        placement: 'top',
-                        theme: 'custom',
-                        appendTo: document.body,
-                        maxWidth: 'none'
-                    });
+                    tippy(el, opts);
                 }
             });
         }, 500);
@@ -250,11 +297,11 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', initTooltips);
 
-        // Clean up tippy elements before navigation
+        // Clean up tippy elements before navigation (covers absolute /path and relative ./path links)
         document.addEventListener('click', function(e) {
-            var link = e.target.closest('a[href^="/"]');
+            var link = e.target.closest('a[href^="/"], a[href^="./"]');
             if (link) {
-                document.querySelectorAll('[data-tippy-root=""]').forEach(function(el) {
+                document.querySelectorAll('[data-tippy-root]').forEach(function(el) {
                     el.remove();
                 });
             }
@@ -283,6 +330,32 @@
             }
         });
         observer.observe(document.body, { childList: true, subtree: true });
+
+        // Scrollable tab bar overflow detection
+        function updateTabScrollState() {
+            document.querySelectorAll('.wifi-view-tabs-wrapper').forEach(function(wrapper) {
+                var tabs = wrapper.querySelector('.wifi-view-tabs');
+                if (!tabs) return;
+                var hasOverflow = tabs.scrollWidth > tabs.clientWidth + 1;
+                wrapper.classList.toggle('has-overflow', hasOverflow);
+                wrapper.classList.toggle('at-start', tabs.scrollLeft <= 20);
+                wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 20);
+            });
+        }
+        // Update on scroll
+        document.addEventListener('scroll', function(e) {
+            if (e.target.classList && e.target.classList.contains('wifi-view-tabs')) {
+                var wrapper = e.target.closest('.wifi-view-tabs-wrapper');
+                if (wrapper) {
+                    var tabs = e.target;
+                    wrapper.classList.toggle('at-start', tabs.scrollLeft <= 20);
+                    wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 20);
+                }
+            }
+        }, true);
+        // Update on resize and periodically for Blazor dynamic content
+        window.addEventListener('resize', updateTabScrollState);
+        setInterval(updateTabScrollState, 1000);
 
         // Auto-reload when Blazor reconnects after a real disconnection
         // After server restart, client state is stale and causes loading issues

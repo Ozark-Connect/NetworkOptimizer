@@ -1,8 +1,10 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
+@using Microsoft.JSInterop
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
+@inject IJSRuntime JS
 
 <div class="roaming-analytics-container wifi-sections">
     <div class="roaming-header">
@@ -89,12 +91,22 @@
                             var pos2 = GetNodePosition(edge.Endpoint2Mac);
                             var strokeClass = GetEdgeClass(edge.SuccessRate);
                             var strokeWidth = GetEdgeWidth(edge.TotalRoamAttempts);
+                            <!-- Visible line -->
                             <line x1="@pos1.Left" y1="@pos1.Top"
                                   x2="@pos2.Left" y2="@pos2.Top"
                                   class="topology-edge @strokeClass"
                                   stroke-width="@strokeWidth"
                                   vector-effect="non-scaling-stroke"
-                                  data-tooltip="@GetEdgeTooltip(edge)" />
+                                  pointer-events="none" />
+                            <!-- Wider invisible hit area for tooltip/click -->
+                            <line x1="@pos1.Left" y1="@pos1.Top"
+                                  x2="@pos2.Left" y2="@pos2.Top"
+                                  class="topology-edge-hit"
+                                  vector-effect="non-scaling-stroke"
+                                  data-tooltip="@GetEdgeTooltip(edge)"
+                                  data-tooltip-follow="true"
+                                  data-tooltip-hover-only=""
+                                  @onclick="() => SelectEdgeAndScroll(edge)" />
                         }
                     </svg>
                 </div>
@@ -158,6 +170,7 @@
         </div>
 
         <!-- Selected Edge Details -->
+        <div id="roaming-edge-details"></div>
         @if (_selectedEdge != null)
         {
             var ap1 = _topology.Vertices.FirstOrDefault(v => v.Mac == _selectedEdge.Endpoint1Mac);
@@ -259,7 +272,7 @@
                             {
                                 var clientInfo = _topology.Clients.FirstOrDefault(c => c.Mac == client.Mac);
                                 <div class="top-client-item">
-                                    <span class="client-name">@(clientInfo?.Name ?? client.Mac)</span>
+                                    <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="client-name client-link">@(clientInfo?.Name ?? client.Mac)</a>
                                     <span class="client-mac">@client.Mac</span>
                                     <span class="client-roams">@client.RoamAttempts roams</span>
                                     <span class="client-rate @GetSuccessRateClass(client.SuccessRate)">
@@ -286,7 +299,7 @@
                     var stats = GetClientStats(client.Mac);
                     <div class="client-card">
                         <div class="client-info">
-                            <span class="client-name">@(client.Name ?? "Unknown")</span>
+                            <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="client-name client-link">@(client.Name ?? "Unknown")</a>
                             <span class="client-mac">@client.Mac</span>
                         </div>
                         @if (stats != null)
@@ -304,6 +317,8 @@
 </div>
 
 @code {
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
     private bool _loading = true;
     private RoamingTopology? _topology;
     private RoamingEdge? _selectedEdge;
@@ -410,6 +425,18 @@
     private void SelectEdge(RoamingEdge edge)
     {
         _selectedEdge = _selectedEdge == edge ? null : edge;
+    }
+
+    private async Task SelectEdgeAndScroll(RoamingEdge edge)
+    {
+        SelectEdge(edge);
+        if (_selectedEdge != null)
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await JS.InvokeVoidAsync("eval",
+                "document.getElementById('roaming-edge-details')?.scrollIntoView({behavior:'smooth',block:'start'})");
+        }
     }
 
     private double GetFastRoamingPct(RoamingEdge edge)

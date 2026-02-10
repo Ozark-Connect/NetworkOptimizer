@@ -21,7 +21,23 @@
                     <div class="issue-description">@issue.Description</div>
                     @if (ShowDetails && !string.IsNullOrEmpty(issue.AffectedEntity))
                     {
-                        <div class="issue-entity">Affected: @issue.AffectedEntity</div>
+                        <div class="issue-entity">Affected:
+                            @if (!string.IsNullOrEmpty(issue.AffectedClientMac))
+                            {
+                                @if (OnClientClick.HasDelegate)
+                                {
+                                    <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(issue.AffectedClientMac)" class="issue-client-link">@issue.AffectedEntity</a>
+                                }
+                                else
+                                {
+                                    <a href="./wifi-optimizer?client=@issue.AffectedClientMac" class="issue-client-link">@issue.AffectedEntity</a>
+                                }
+                            }
+                            else
+                            {
+                                @issue.AffectedEntity
+                            }
+                        </div>
                     }
                     @if (!string.IsNullOrEmpty(issue.Recommendation))
                     {
@@ -39,6 +55,9 @@
 
     [Parameter]
     public bool ShowDetails { get; set; } = false;
+
+    [Parameter]
+    public EventCallback<string> OnClientClick { get; set; }
 
     private static string GetSeverityClass(HealthIssueSeverity severity) => severity switch
     {
@@ -126,5 +145,19 @@
         font-size: 0.8rem;
         color: var(--text-muted);
         margin-top: 0.25rem;
+    }
+
+    .issue-client-link {
+        color: var(--primary-hover);
+        text-decoration: none;
+    }
+
+    .issue-client-link:visited {
+        color: var(--primary-hover);
+    }
+
+    .issue-client-link:hover {
+        color: var(--accent-color);
+        text-decoration: underline;
     }
 </style>

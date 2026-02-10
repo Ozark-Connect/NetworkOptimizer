@@ -27,6 +27,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
     public DbSet<AdminSettings> AdminSettings { get; set; }
     public DbSet<UpnpNote> UpnpNotes { get; set; }
+    public DbSet<ApLocation> ApLocations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -149,6 +150,13 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("UpnpNotes");
             entity.HasIndex(e => new { e.HostIp, e.Port, e.Protocol }).IsUnique();
+        });
+
+        // ApLocation configuration (one per AP MAC)
+        modelBuilder.Entity<ApLocation>(entity =>
+        {
+            entity.ToTable("ApLocations");
+            entity.HasIndex(e => e.ApMac).IsUnique();
         });
     }
 }

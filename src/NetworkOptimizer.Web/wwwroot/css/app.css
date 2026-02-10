@@ -86,6 +86,15 @@ a:hover {
     color: var(--primary-hover);
 }
 
+.leaflet-container a.map-popup-link {
+    color: var(--primary-hover);
+}
+
+.leaflet-container a.map-popup-link:hover {
+    color: var(--accent-color);
+    text-decoration: underline;
+}
+
 /* App Container Layout */
 .app-container {
     display: flex;
@@ -1936,8 +1945,7 @@ select.form-control {
 .issue-type-description a,
 .issue-item-description a {
     color: var(--text-secondary);
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    text-decoration: none;
 }
 
 .issue-recommendation a:hover,
@@ -1946,6 +1954,8 @@ select.form-control {
 .issue-type-description a:hover,
 .issue-item-description a:hover {
     color: var(--text-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .no-issues {
@@ -3899,6 +3909,47 @@ select.form-control {
     font-weight: 500;
 }
 
+.wifi-tooltip-client-link {
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: #60a5fa;
+    font-size: 0.75rem;
+}
+
+.device-tooltip-link {
+    color: #60a5fa;
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+/* Client name links to Wi-Fi Optimizer */
+a.client-link {
+    color: var(--primary-hover);
+    text-decoration: none;
+}
+
+a.client-link:visited {
+    color: var(--primary-hover);
+}
+
+a.client-link:hover {
+    color: var(--accent-color);
+    text-decoration: underline;
+}
+
+/* Clickable hop (wireless client linking to Wi-Fi Optimizer) */
+a.path-hop.hop-clickable {
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+a.path-hop.hop-clickable:hover {
+    border-color: #60a5fa;
+    background: rgba(59, 130, 246, 0.15);
+}
+
 /* VPN hop icons (Teleport, Tailscale, generic VPN) */
 .vpn-icon {
     color: currentColor;
@@ -4764,12 +4815,13 @@ select.form-control {
 /* Links inside Tippy tooltips */
 .tippy-box[data-theme~='custom'] a {
     color: var(--primary-hover);
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    text-decoration: none;
 }
 
 .tippy-box[data-theme~='custom'] a:hover {
     color: var(--accent-color);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .tippy-box[data-theme~='custom'] strong {
@@ -7045,8 +7097,12 @@ select.form-control {
     gap: 1rem;
 }
 
+.client-info-main .client-name {
+    font-size: 1.1rem;
+}
+
 .client-name {
-    font-size: 1.125rem;
+    font-size: 0.95rem;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -7229,13 +7285,21 @@ select.form-control {
 }
 
 /* Wi-Fi View Tabs */
+.wifi-view-tabs-wrapper {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 1.5rem;
+}
+
 .wifi-view-tabs {
     display: flex;
     gap: 0.5rem;
-    margin-bottom: 1.5rem;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 0.5rem;
     overflow-x: auto;
+    flex: 1;
+    min-width: 0;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
@@ -7245,8 +7309,46 @@ select.form-control {
     display: none; /* Chrome/Safari */
 }
 
+.wifi-tabs-scroll-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0 0.4rem;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+    z-index: 1;
+    transition: color 0.15s ease;
+}
+
+.wifi-tabs-scroll-btn:hover {
+    color: var(--text-primary);
+}
+
+/* Show scroll buttons when tabs overflow */
+.wifi-view-tabs-wrapper.has-overflow .wifi-tabs-scroll-btn {
+    display: flex;
+}
+
+.wifi-view-tabs-wrapper.has-overflow .wifi-view-tabs {
+    padding-top: 0.5rem;
+}
+
+/* Collapse button when scrolled to start/end */
+.wifi-view-tabs-wrapper.at-start .wifi-tabs-scroll-left,
+.wifi-view-tabs-wrapper.at-end .wifi-tabs-scroll-right {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
 .wifi-view-tab {
-    padding: 0.5rem 1rem;
+    padding: 0.5rem 0.8rem;
     background: transparent;
     border: none;
     color: var(--text-secondary);
@@ -7267,6 +7369,16 @@ select.form-control {
     background: var(--primary-color);
     color: white;
     border-radius: 4px;
+}
+
+@@media (max-width: 768px) {
+    .wifi-view-tabs-wrapper {
+        margin-bottom: 0.75rem;
+    }
+
+    .wifi-stats-row {
+        margin-bottom: 16px;
+    }
 }
 
 /* ============================================
@@ -7428,6 +7540,14 @@ select.form-control {
 .topology-edge {
     fill: none;
     stroke-linecap: round;
+}
+
+.topology-edge-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 12px;
+    stroke-linecap: round;
+    cursor: pointer;
 }
 
 .topology-edge.edge-excellent { stroke: var(--success-color); }
@@ -7635,6 +7755,7 @@ select.form-control {
 }
 
 .top-client-item .client-name {
+    font-size: 0.8rem;
     font-weight: 500;
     flex: 1;
 }
@@ -10321,7 +10442,8 @@ select.form-control {
 .airtime-client-card .client-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
+    gap: 0.5rem;
     margin-bottom: 0.5rem;
 }
 
@@ -10336,6 +10458,7 @@ select.form-control {
     border-radius: 3px;
     background: var(--bg-secondary);
     color: var(--text-muted);
+    white-space: nowrap;
 }
 
 .airtime-client-card.airtime-high .airtime-indicator {
@@ -11146,6 +11269,16 @@ select.form-control {
     border-radius: 4px;
     font-size: 0.75rem;
     color: var(--text-secondary);
+}
+
+a.affected-client {
+    color: #60a5fa;
+    text-decoration: none;
+}
+
+a.affected-client:hover {
+    color: #93c5fd;
+    text-decoration: underline;
 }
 
 .affected-more {

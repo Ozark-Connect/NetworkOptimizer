@@ -188,13 +188,15 @@
                     <h4>Recommendations</h4>
                 </div>
 
-                <IssuesList Issues="_loadBalanceIssues" />
+                <IssuesList Issues="_loadBalanceIssues" OnClientClick="OnClientClick" />
             </div>
         }
     }
 </div>
 
 @code {
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<WirelessClientSnapshot> _clients = new();
