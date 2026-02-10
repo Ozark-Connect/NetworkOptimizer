@@ -659,11 +659,12 @@
 
     private async Task OnSliderChanged()
     {
+        await LockCardHeight();
         _historyPage = 1;
         _expandedHistoryId = null;
         ApplyFilters();
         await RenderChartAsync();
-        await ScrollToHistoryCard();
+        await ReleaseCardHeight();
     }
 
     private async Task ToggleWanFilter(string wanKey)
@@ -680,19 +681,27 @@
             return;
         }
 
+        await LockCardHeight();
         _historyPage = 1;
         _expandedHistoryId = null;
         ApplyFilters();
         await RenderChartAsync();
-        await ScrollToHistoryCard();
+        await ReleaseCardHeight();
     }
 
-    private async Task ScrollToHistoryCard()
+    private async Task LockCardHeight()
+    {
+        // Pin the card's current height so the content area can't shrink during filter transition
+        await JS.InvokeVoidAsync("eval",
+            "var el = document.getElementById('speed-history-card'); if(el) el.style.minHeight = el.offsetHeight + 'px'");
+    }
+
+    private async Task ReleaseCardHeight()
     {
         StateHasChanged();
-        await Task.Delay(100);
+        await Task.Delay(150);
         await JS.InvokeVoidAsync("eval",
-            "document.getElementById('speed-history-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+            "var el = document.getElementById('speed-history-card'); if(el) el.style.minHeight = ''");
     }
 
     private async Task RenderChartAsync()
