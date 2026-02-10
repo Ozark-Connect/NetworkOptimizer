@@ -69,7 +69,7 @@
         </div>
         <div class="card-body">
             <div class="map-container">
-                <div id="@mapId" class="speed-test-map"></div>
+                <div id="@mapId" class="speed-test-map" style="@(MapHeight != null ? $"height: {MapHeight}" : "")"></div>
                 @if (ShowNoResultsMessage)
                 {
                     <div class="map-no-results-overlay">
@@ -152,6 +152,9 @@
 
     [Parameter]
     public EventCallback<string> OnClientClick { get; set; }
+
+    [Parameter]
+    public string? MapHeight { get; set; }
 
     // Search filter state (internal to map only)
     private string searchFilter = "";

@@ -214,23 +214,12 @@
     else if (_activeTab == "coverage")
     {
         <!-- Coverage / Speed Map -->
-        @if (_speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any())
-        {
-            <SpeedTestMap Results="_speedTestResults"
-                          ApMarkers="_apMapMarkers"
-                          OnApLocationChanged="HandleApLocationChanged"
-                          OnClientClick="HandleMapClientClick"
-                          ClientDetailMode="true" />
-        }
-        else
-        {
-            <div class="card">
-                <div class="card-body" style="text-align: center; padding: 3rem;">
-                    <p style="color: var(--text-muted);">No GPS-tagged speed test results or AP locations yet.</p>
-                    <p style="color: var(--text-muted); font-size: 0.875rem;">Run client speed tests with location enabled, or place APs on the map to get started.</p>
-                </div>
-            </div>
-        }
+        <SpeedTestMap Results="_speedTestResults"
+                      ApMarkers="_apMapMarkers"
+                      OnApLocationChanged="HandleApLocationChanged"
+                      OnClientClick="HandleMapClientClick"
+                      ClientDetailMode="true"
+                      MapHeight="676px" />
     }
     else if (_activeTab == "roaming")
     {
@@ -590,6 +579,16 @@
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         _ = LoadDataAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Handle query param changes when already on this page (Blazor reuses the component)
+        if (!string.IsNullOrEmpty(ClientQueryParam) && ClientQueryParam != _initialClientMac)
+        {
+            _activeTab = "client";
+            _initialClientMac = ClientQueryParam;
+        }
     }
 
     private async void OnConnectionChanged()
