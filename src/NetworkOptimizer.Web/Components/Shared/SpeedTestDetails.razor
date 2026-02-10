@@ -222,14 +222,18 @@
 
                                 @if (isClickableClient)
                                 {
-                                    <a href="./wifi-optimizer?client=@clientLinkMac" class="@hopClasses hop-clickable" data-tooltip="@deviceTooltip">
+                                    <a href="./wifi-optimizer?client=@clientLinkMac" class="@hopClasses hop-clickable"
+                                       data-tooltip="@deviceTooltip"
+                                       data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
                                     </a>
                                 }
                                 else if (!string.IsNullOrEmpty(deviceTooltip))
                                 {
-                                    <div class="@hopClasses" data-tooltip="@deviceTooltip">
+                                    <div class="@hopClasses"
+                                         data-tooltip="@deviceTooltip"
+                                         data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
                                     </div>
