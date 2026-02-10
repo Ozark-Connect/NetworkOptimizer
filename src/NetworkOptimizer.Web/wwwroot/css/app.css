@@ -3222,10 +3222,6 @@ select.form-control {
     margin-top: 0.5rem;
 }
 
-.test-details-wrapper {
-    position: relative;
-}
-
 .test-details {
     display: flex;
     gap: 1rem 2rem;
@@ -3234,14 +3230,15 @@ select.form-control {
     color: var(--text-secondary);
     font-size: 0.875rem;
     padding-top: 1rem;
+    padding-right: 2rem;
     border-top: 1px solid var(--border-color);
-    max-width: 95%;
 }
 
-.test-details-wrapper > .delete-action {
+.test-details .delete-action {
     position: absolute;
     right: 0;
-    top: 1rem;
+    padding-top: 1rem;
+    transform: translateY(-50%);
 }
 
 .test-details .btn-link-danger {
@@ -3353,10 +3350,9 @@ select.form-control {
         text-align: center;
     }
 
-    .test-details-wrapper > .delete-action {
+    .test-details .delete-action {
         min-width: 0;
-        top: 1.25rem;
-        padding-top: 0;
+        padding-top: 1.25rem;
     }
 
     .hide-mobile {
