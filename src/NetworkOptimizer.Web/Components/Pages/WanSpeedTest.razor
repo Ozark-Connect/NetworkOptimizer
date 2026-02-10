@@ -587,7 +587,7 @@
             _wanSeries.Add(new WanSeriesInfo
             {
                 Key = "WAN",
-                DisplayName = "WAN",
+                DisplayName = "WAN1",
                 Color = WanColors[0],
                 IsVisible = true,
                 DownloadData = new(),
@@ -637,13 +637,19 @@
         return !string.IsNullOrEmpty(result.WanNetworkGroup) ? result.WanNetworkGroup : "WAN";
     }
 
+    private static string NormalizeWanDisplay(string value)
+    {
+        // "WAN" -> "WAN1" for display consistency
+        return string.Equals(value, "WAN", StringComparison.OrdinalIgnoreCase) ? "WAN1" : value;
+    }
+
     private static string GetWanDisplayName(Iperf3Result result)
     {
         if (!string.IsNullOrEmpty(result.WanName))
             return result.WanName;
         if (!string.IsNullOrEmpty(result.WanNetworkGroup))
-            return result.WanNetworkGroup;
-        return "WAN";
+            return NormalizeWanDisplay(result.WanNetworkGroup);
+        return "WAN1";
     }
 
     private string GetWanDisplayNameForKey(string key)
@@ -652,7 +658,7 @@
         var recentResult = _testHistory
             .Where(r => r.Success && GetWanKey(r) == key && !string.IsNullOrEmpty(r.WanName))
             .FirstOrDefault();
-        return recentResult?.WanName ?? key;
+        return recentResult?.WanName ?? NormalizeWanDisplay(key);
     }
 
     private string GetTimeLabel() => TimeBreakpoints[_sliderValue].label;
@@ -841,6 +847,7 @@
             _testHistory = await WanSpeedTestService.GetResultsAsync(count: 0);
             TransformChartData();
             ApplyFilters();
+            await RenderChartAsync();
         }
         catch (Exception ex)
         {
