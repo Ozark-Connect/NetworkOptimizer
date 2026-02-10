@@ -159,6 +159,14 @@ public class Iperf3Result
     /// <summary>MLO link details as JSON array (wireless clients with MLO only)</summary>
     public string? WifiMloLinksJson { get; set; }
 
+    /// <summary>WAN network group identifier - e.g. "WAN", "WAN2" (CloudflareWan tests only)</summary>
+    [MaxLength(50)]
+    public string? WanNetworkGroup { get; set; }
+
+    /// <summary>WAN friendly name from UniFi - e.g. "Starlink", "AT&T Fiber" (CloudflareWan tests only)</summary>
+    [MaxLength(100)]
+    public string? WanName { get; set; }
+
     /// <summary>User notes about this test result</summary>
     [MaxLength(2000)]
     public string? Notes { get; set; }

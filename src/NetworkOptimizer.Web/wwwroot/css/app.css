@@ -11591,3 +11591,122 @@ a.affected-client:hover {
         width: 100%;
     }
 }
+
+/* WAN Speed Chart */
+.wan-chart-container {
+    margin-bottom: 0.5rem;
+}
+
+.wan-time-slider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0 1rem;
+}
+
+.wan-time-slider input[type="range"] {
+    width: 280px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(to right, #3b82f6, #60a5fa);
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.wan-time-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.wan-time-slider input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.wan-time-slider .time-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    min-width: 60px;
+}
+
+/* WAN Filter Badges */
+.wan-filter-badges {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding-bottom: 1rem;
+}
+
+.wan-filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: opacity 0.15s, border-color 0.15s;
+}
+
+.wan-filter-badge:hover {
+    border-color: var(--text-secondary);
+}
+
+.wan-filter-badge.active {
+    opacity: 1;
+}
+
+.wan-filter-badge.inactive {
+    opacity: 0.4;
+}
+
+.wan-badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.wan-badge-dot-inline {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 0.3rem;
+    vertical-align: middle;
+}
+
+@@media (max-width: 768px) {
+    .wan-time-slider input[type="range"] {
+        width: 200px;
+        height: 8px;
+    }
+
+    .wan-time-slider input[type="range"]::-webkit-slider-thumb {
+        width: 20px;
+        height: 20px;
+    }
+
+    .wan-time-slider input[type="range"]::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+    }
+}

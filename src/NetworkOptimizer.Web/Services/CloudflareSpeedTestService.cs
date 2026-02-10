@@ -210,6 +210,18 @@ public partial class CloudflareSpeedTestService
                 DurationSeconds = (int)(DownloadDuration + UploadDuration).TotalSeconds,
             };
 
+            // Identify which WAN connection was used based on Cloudflare-reported IP
+            try
+            {
+                var (wanGroup, wanName) = await _pathAnalyzer.IdentifyWanConnectionAsync(metadata.Ip, cancellationToken);
+                result.WanNetworkGroup = wanGroup;
+                result.WanName = wanName;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not identify WAN connection for IP {Ip}", metadata.Ip);
+            }
+
             await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
             db.Iperf3Results.Add(result);
             await db.SaveChangesAsync(cancellationToken);

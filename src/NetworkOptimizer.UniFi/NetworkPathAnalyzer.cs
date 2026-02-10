@@ -38,6 +38,12 @@ public interface INetworkPathAnalyzer
     Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, string? wanIp = null, CancellationToken cancellationToken = default);
 
     PathAnalysisResult AnalyzeSpeedTest(NetworkPath path, double fromDeviceMbps, double toDeviceMbps, int fromDeviceRetransmits = 0, int toDeviceRetransmits = 0, long fromDeviceBytes = 0, long toDeviceBytes = 0);
+
+    /// <summary>
+    /// Identifies which WAN connection was used based on the Cloudflare-reported external IP.
+    /// Returns the WAN network group (e.g. "WAN", "WAN2") and friendly name (e.g. "Starlink").
+    /// </summary>
+    Task<(string? NetworkGroup, string? Name)> IdentifyWanConnectionAsync(string externalIp, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -1518,6 +1524,53 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return true;
 
         return false;
+    }
+
+    /// <inheritdoc />
+    public async Task<(string? NetworkGroup, string? Name)> IdentifyWanConnectionAsync(
+        string externalIp, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(externalIp))
+            return (null, null);
+
+        var topology = await GetTopologyAsync(cancellationToken);
+        if (topology == null)
+            return (null, null);
+
+        var rawDevices = await GetRawDevicesAsync(cancellationToken);
+
+        var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+        UniFiDeviceResponse? gatewayDevice = null;
+        if (gateway != null && !string.IsNullOrEmpty(gateway.Mac))
+            rawDevices.TryGetValue(gateway.Mac, out gatewayDevice);
+
+        if (gatewayDevice?.PortTable == null)
+            return (null, null);
+
+        // Match external IP to a gateway WAN port
+        var matchingPort = gatewayDevice.PortTable
+            .FirstOrDefault(p => p.Up && !string.IsNullOrEmpty(p.Ip) &&
+                p.Ip.Equals(externalIp, StringComparison.OrdinalIgnoreCase));
+
+        if (matchingPort == null || string.IsNullOrEmpty(matchingPort.NetworkName))
+        {
+            // No port match - fall back to primary WAN identity
+            var primaryWan = topology.Networks.FirstOrDefault(n => n.IsPrimaryWan);
+            return primaryWan != null
+                ? (primaryWan.WanNetworkgroup, primaryWan.Name)
+                : (null, null);
+        }
+
+        // Found the port - look up the network for its friendly name
+        var matchingNetwork = topology.Networks.FirstOrDefault(n =>
+            n.IsWan && n.WanNetworkgroup != null &&
+            n.WanNetworkgroup.Equals(matchingPort.NetworkName, StringComparison.OrdinalIgnoreCase));
+
+        if (matchingNetwork != null)
+            return (matchingNetwork.WanNetworkgroup, matchingNetwork.Name);
+
+        // Port matched but no network config - use port network name as group
+        return (matchingPort.NetworkName, null);
     }
 
     /// <summary>

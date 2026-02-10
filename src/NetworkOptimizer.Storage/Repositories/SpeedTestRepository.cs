@@ -313,12 +313,15 @@ public class SpeedTestRepository : ISpeedTestRepository
     {
         try
         {
-            var allResults = await _context.Iperf3Results.ToListAsync(cancellationToken);
-            if (allResults.Count > 0)
+            // Only clear LAN speed test results - preserve WAN (Cloudflare) results
+            var lanResults = await _context.Iperf3Results
+                .Where(r => r.Direction != SpeedTestDirection.CloudflareWan)
+                .ToListAsync(cancellationToken);
+            if (lanResults.Count > 0)
             {
-                _context.Iperf3Results.RemoveRange(allResults);
+                _context.Iperf3Results.RemoveRange(lanResults);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Cleared {Count} iperf3 results", allResults.Count);
+                _logger.LogInformation("Cleared {Count} LAN speed test results", lanResults.Count);
             }
         }
         catch (Exception ex)
