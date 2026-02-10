@@ -659,11 +659,11 @@ public partial class CloudflareSpeedTestService
         // Log summary for diagnostics
         var totalRequests = Interlocked.Read(ref requestCount);
         var totalErrors = Interlocked.Read(ref errorCount);
-        _logger.LogInformation(
+        _logger.LogDebug(
             "WAN {Direction} phase complete: {Requests} requests, {Errors} errors, {Bytes} bytes, {Samples} throughput samples",
             direction, totalRequests, totalErrors, Interlocked.Read(ref totalBytes), mbpsSamples.Count);
         if (totalErrors > 0)
-            _logger.LogWarning("WAN {Direction} had {Errors}/{Requests} failed requests ({Pct:F0}% error rate)",
+            _logger.LogDebug("WAN {Direction} had {Errors}/{Requests} failed requests ({Pct:F0}% error rate)",
                 direction, totalErrors, totalRequests, totalErrors * 100.0 / Math.Max(totalRequests, 1));
 
         // Compute mean Mbps from steady-state samples (skip first 20% warmup)

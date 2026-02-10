@@ -1551,7 +1551,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 if (matchingNetwork?.WanDownloadMbps > 0 && matchingNetwork?.WanUploadMbps > 0)
                 {
-                    _logger.LogInformation("Matched WAN IP {Ip} to {NetworkGroup} ({Down}/{Up} Mbps)",
+                    _logger.LogDebug("Matched WAN IP {Ip} to {NetworkGroup} ({Down}/{Up} Mbps)",
                         wanIp, matchingNetwork.WanNetworkgroup,
                         matchingNetwork.WanDownloadMbps, matchingNetwork.WanUploadMbps);
                     return (matchingNetwork.WanDownloadMbps.Value, matchingNetwork.WanUploadMbps.Value);
@@ -1559,12 +1559,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 // Port matched but no ISP speed config - don't fall back to link speed,
                 // use highest WAN ISP speeds instead (link speed != ISP speed)
-                _logger.LogInformation("Matched WAN IP {Ip} to port {Port} but no ISP speed config, using highest WAN speeds",
+                _logger.LogDebug("Matched WAN IP {Ip} to port {Port} but no ISP speed config, using highest WAN speeds",
                     wanIp, matchingPort.NetworkName);
             }
             else
             {
-                _logger.LogInformation("WAN IP {Ip} did not match any gateway port, using highest WAN speeds", wanIp);
+                _logger.LogDebug("WAN IP {Ip} did not match any gateway port, using highest WAN speeds", wanIp);
             }
 
             // No ISP speed match for this port, or no port match - use highest WAN speed pair
@@ -1574,7 +1574,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 .FirstOrDefault();
             if (bestWan != null)
             {
-                _logger.LogInformation("Using highest WAN speeds: {Group} ({Down}/{Up} Mbps)",
+                _logger.LogDebug("Using highest WAN speeds: {Group} ({Down}/{Up} Mbps)",
                     bestWan.WanNetworkgroup ?? bestWan.Name, bestWan.WanDownloadMbps, bestWan.WanUploadMbps);
                 return (bestWan.WanDownloadMbps!.Value, bestWan.WanUploadMbps!.Value);
             }
