@@ -1189,6 +1189,20 @@
             if (string.Equals(selectedApMacFilter, newFilter, StringComparison.OrdinalIgnoreCase))
                 return;
 
+            // Save current view before filtering so we can restore on clear
+            if (newFilter != null && selectedApMacFilter == null && mapInitialized)
+            {
+                await JS.InvokeVoidAsync("eval", $@"
+                    (function() {{
+                        var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                        if (md && md.map) {{
+                            md._preFilterBounds = md.map.getBounds();
+                            md._preFilterZoom = md.map.getZoom();
+                        }}
+                    }})();
+                ");
+            }
+
             selectedApMacFilter = newFilter;
 
             if (mapInitialized)
@@ -1208,6 +1222,21 @@
         {
             await UpdateMarkers(fitBounds: false);
             await UpdateApGlow();
+
+            // Restore the view from before the filter was applied
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                    if (md && md.map && md._preFilterBounds) {{
+                        if (md.setProgrammaticMove) md.setProgrammaticMove(true);
+                        md.map.fitBounds(md._preFilterBounds);
+                        md._preFilterBounds = null;
+                        setTimeout(function() {{
+                            if (md.setProgrammaticMove) md.setProgrammaticMove(false);
+                        }}, 300);
+                    }}
+                }})();
+            ");
         }
     }
 
