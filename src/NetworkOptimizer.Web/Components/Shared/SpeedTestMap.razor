@@ -1073,6 +1073,20 @@
                             }});
                         }}
 
+                        // Highlight glow when popup is open
+                        if (glowMarker) {{
+                            marker.on('popupopen', function() {{
+                                var el = glowMarker.getElement();
+                                if (el) el.querySelector('.ap-glow-dot')?.classList.add('ap-glow-selected');
+                            }});
+                            marker.on('popupclose', function() {{
+                                // Keep glow if this AP is the active filter
+                                if (mapData._selectedApMac && mapData._selectedApMac.toLowerCase() === ap.mac.toLowerCase()) return;
+                                var el = glowMarker.getElement();
+                                if (el) el.querySelector('.ap-glow-dot')?.classList.remove('ap-glow-selected');
+                            }});
+                        }}
+
                         mapData.apLayerGroup.addLayer(marker);
                     }});
                 }})();
@@ -1286,6 +1300,7 @@
                     const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
                     if (!mapData || !mapData.apGlowGroup) return;
 
+                    mapData._selectedApMac = {(string.IsNullOrEmpty(selectedApMacFilter) ? "null" : $"'{selectedApMacFilter}'")};
                     mapData.apGlowGroup.clearLayers();
                     const glows = {glowJson};
 
