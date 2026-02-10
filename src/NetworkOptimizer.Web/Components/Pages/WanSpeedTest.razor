@@ -42,15 +42,15 @@
                 {
                     <div class="wan-progress-status">@_progressStatus</div>
                 }
-            </div>
 
-            <div class="wan-test-hint">
-                @if (_hasMultipleWans)
-                {
-                    <strong>Multiple WAN connections?</strong>
-                    <text>This test uses whichever WAN your gateway routes to speed.cloudflare.com.
-                    To test a specific WAN, create a Policy-Based Route in UniFi targeting speed.cloudflare.com through your desired interface.</text>
-                }
+                <div class="wan-test-hint">
+                    @if (_hasMultipleWans)
+                    {
+                        <strong>Multiple WAN connections?</strong>
+                        <text>This test uses whichever WAN your gateway routes to speed.cloudflare.com.
+                        To test a specific WAN, create a Policy-Based Route in UniFi targeting speed.cloudflare.com through your desired interface.</text>
+                    }
+                </div>
             </div>
 
             @if (!string.IsNullOrEmpty(_errorMessage))
@@ -332,7 +332,7 @@
             try
             {
                 var networks = await ConnectionService.GetNetworksAsync();
-                _hasMultipleWans = networks.Count(n => n.IsWan) > 1;
+                _hasMultipleWans = networks.Count(n => n.IsWan && n.Enabled) > 1;
             }
             catch { /* Non-critical */ }
         }
