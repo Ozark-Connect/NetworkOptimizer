@@ -362,7 +362,7 @@ public partial class CloudflareSpeedTestService
         // Use /cdn-cgi/trace which reliably returns key=value metadata
         // (cf-meta-* headers are no longer consistently populated)
         var url = $"{BaseUrl}/cdn-cgi/trace";
-        var response = await client.GetAsync(url, ct);
+        using var response = await client.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync(ct);
 
@@ -436,7 +436,7 @@ public partial class CloudflareSpeedTestService
         for (int i = 0; i < 20; i++)
         {
             var sw = Stopwatch.StartNew();
-            var response = await client.GetAsync(url, ct);
+            using var response = await client.GetAsync(url, ct);
             sw.Stop();
 
             var serverMs = ParseServerTiming(response);
@@ -487,6 +487,9 @@ public partial class CloudflareSpeedTestService
         // Loaded latency samples (collected by concurrent probe task)
         var loadedLatencies = new System.Collections.Concurrent.ConcurrentBag<double>();
 
+        // Shared upload payload - reused across all workers (content is irrelevant, just need bytes)
+        var uploadPayload = isUpload ? new byte[bytesPerRequest] : null;
+
         // Launch concurrent workers
         var tasks = new Task[Concurrency];
         for (int w = 0; w < Concurrency; w++)
@@ -496,6 +499,7 @@ public partial class CloudflareSpeedTestService
                 using var workerClient = _httpClientFactory.CreateClient();
                 workerClient.Timeout = TimeSpan.FromSeconds(60);
                 workerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+                var readBuffer = isUpload ? null : new byte[81920]; // One 80KB buffer per worker
 
                 while (!linked.Token.IsCancellationRequested)
                 {
@@ -504,8 +508,7 @@ public partial class CloudflareSpeedTestService
                         if (isUpload)
                         {
                             var url = $"{BaseUrl}/{UploadPath}";
-                            var payload = new byte[bytesPerRequest];
-                            using var content = new ByteArrayContent(payload);
+                            using var content = new ByteArrayContent(uploadPayload!);
                             await workerClient.PostAsync(url, content, linked.Token);
                             Interlocked.Add(ref totalBytes, bytesPerRequest);
                         }
@@ -517,9 +520,8 @@ public partial class CloudflareSpeedTestService
                             using var response = await workerClient.GetAsync(url,
                                 HttpCompletionOption.ResponseHeadersRead, linked.Token);
                             await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
-                            var buffer = new byte[81920]; // 80 KB read buffer
                             int bytesRead;
-                            while ((bytesRead = await stream.ReadAsync(buffer, linked.Token)) > 0)
+                            while ((bytesRead = await stream.ReadAsync(readBuffer!, linked.Token)) > 0)
                             {
                                 Interlocked.Add(ref totalBytes, bytesRead);
                             }
@@ -550,7 +552,7 @@ public partial class CloudflareSpeedTestService
                 try
                 {
                     var sw = Stopwatch.StartNew();
-                    var response = await probeClient.GetAsync(probeUrl, linked.Token);
+                    using var response = await probeClient.GetAsync(probeUrl, linked.Token);
                     sw.Stop();
 
                     var serverMs = ParseServerTiming(response);
