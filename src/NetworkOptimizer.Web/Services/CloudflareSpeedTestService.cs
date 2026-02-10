@@ -159,7 +159,7 @@ public partial class CloudflareSpeedTestService
             var downloadMbps = downloadBps / 1_000_000.0;
             _logger.LogInformation("Download: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
                 downloadMbps, downloadBytes, Concurrency, dlLatencyMs);
-            Report("Download complete", 55, $"{downloadMbps:F1} Mbps");
+            Report("Download complete", 55, $"Down: {downloadMbps:F1} Mbps");
 
             // Reclaim download phase memory before starting upload
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
@@ -176,7 +176,7 @@ public partial class CloudflareSpeedTestService
             var uploadMbps = uploadBps / 1_000_000.0;
             _logger.LogInformation("Upload: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
                 uploadMbps, uploadBytes, Concurrency, ulLatencyMs);
-            Report("Upload complete", 95, $"{uploadMbps:F1} Mbps");
+            Report("Upload complete", 95, $"Up: {uploadMbps:F1} Mbps");
 
             // Phase 5: Save result (95-100%)
             Report("Saving", 96, "Saving results...");
