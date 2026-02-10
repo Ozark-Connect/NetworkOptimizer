@@ -68,6 +68,12 @@ public partial class CloudflareSpeedTestService
     }
     private CloudflareMetadata? _lastMetadata;
 
+    /// <summary>
+    /// Fired when background path analysis completes for a result.
+    /// UI components subscribe to refresh their display.
+    /// </summary>
+    public event Action<int>? OnPathAnalysisComplete;
+
     public CloudflareSpeedTestService(
         ILogger<CloudflareSpeedTestService> logger,
         IHttpClientFactory httpClientFactory,
@@ -681,6 +687,9 @@ public partial class CloudflareSpeedTestService
             await db.SaveChangesAsync();
 
             _logger.LogDebug("WAN speed test path analysis complete for result {Id}", resultId);
+
+            // Notify UI components to refresh
+            OnPathAnalysisComplete?.Invoke(resultId);
         }
         catch (Exception ex)
         {

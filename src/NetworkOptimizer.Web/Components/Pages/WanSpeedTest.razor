@@ -316,6 +316,9 @@
             SyncProgressFromService();
             StartPolling();
         }
+
+        // Subscribe to path analysis completion to refresh UI
+        WanSpeedTestService.OnPathAnalysisComplete += OnPathAnalysisComplete;
     }
 
     private async Task RunTest()
@@ -521,8 +524,26 @@
         }
     }
 
+    private void OnPathAnalysisComplete(int resultId)
+    {
+        InvokeAsync(async () =>
+        {
+            // Reload history to pick up the path analysis
+            await LoadHistory(resetPage: false);
+
+            // Update latest result if it's the one that got analyzed
+            if (_latestResult?.Id == resultId)
+            {
+                _latestResult = _testHistory.FirstOrDefault(r => r.Id == resultId) ?? _latestResult;
+            }
+
+            StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
         StopPolling();
+        WanSpeedTestService.OnPathAnalysisComplete -= OnPathAnalysisComplete;
     }
 }
