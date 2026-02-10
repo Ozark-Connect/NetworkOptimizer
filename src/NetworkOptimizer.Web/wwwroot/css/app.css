@@ -7319,10 +7319,12 @@ a.path-hop.hop-clickable:hover {
     padding-top: 0.5rem;
 }
 
-/* Dim arrow when scrolled to start/end (border stays full opacity) */
+/* Collapse button when scrolled to start/end */
 .wifi-view-tabs-wrapper.at-start .wifi-tabs-scroll-left,
 .wifi-view-tabs-wrapper.at-end .wifi-tabs-scroll-right {
-    color: transparent;
+    width: 0;
+    padding: 0;
+    overflow: hidden;
     pointer-events: none;
 }
 
