@@ -379,7 +379,7 @@
 
     private async Task RefreshData()
     {
-        await LoadDataAsync();
+        await LoadDataAsync(forceRefresh: true);
     }
 
     private async Task OnApFilterChanged()
@@ -387,17 +387,17 @@
         await LoadDataAsync();
     }
 
-    private async Task LoadDataAsync()
+    private async Task LoadDataAsync(bool forceRefresh = false)
     {
         _loading = true;
         StateHasChanged();
 
         try
         {
-            // Load APs list if not loaded yet
-            if (_accessPoints.Count == 0)
+            // Load APs list if not loaded yet (or force refresh)
+            if (_accessPoints.Count == 0 || forceRefresh)
             {
-                _accessPoints = await WiFiService.GetAccessPointsAsync();
+                _accessPoints = await WiFiService.GetAccessPointsAsync(forceRefresh: forceRefresh);
             }
 
             var end = DateTimeOffset.UtcNow;

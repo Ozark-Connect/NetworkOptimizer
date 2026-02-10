@@ -404,9 +404,9 @@
         UpdateChartOptionsForVisibleSeries();
     }
 
-    private async Task LoadClientsAsync()
+    private async Task LoadClientsAsync(bool forceRefresh = false)
     {
-        _clients = await WiFiService.GetWirelessClientsAsync();
+        _clients = await WiFiService.GetWirelessClientsAsync(forceRefresh: forceRefresh);
     }
 
     private async Task RefreshClients()
@@ -415,7 +415,7 @@
         StateHasChanged();
         try
         {
-            await LoadClientsAsync();
+            await LoadClientsAsync(forceRefresh: true);
             if (!string.IsNullOrEmpty(_selectedClientMac))
             {
                 await LoadClientDataAsync();
