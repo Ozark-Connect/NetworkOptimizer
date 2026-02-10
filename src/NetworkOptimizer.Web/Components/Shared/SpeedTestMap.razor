@@ -1022,9 +1022,10 @@
                     const aps = {apJson};
                     const draggable = {isDraggable};
 
+                    if (!mapData._apGlowByMac) mapData._apGlowByMac = {{}};
+
                     aps.forEach(ap => {{
                         // Glow layer in apGlowPane (behind everything)
-                        var glowMarker = null;
                         if (mapData.apGlowGroup) {{
                             const glowIcon = L.divIcon({{
                                 html: ""<div class='ap-glow-dot"" + (ap.isSelected ? "" ap-glow-selected"" : """") + ""'></div>"",
@@ -1032,12 +1033,13 @@
                                 iconSize: [48, 48],
                                 iconAnchor: [24, 24]
                             }});
-                            glowMarker = L.marker([ap.lat, ap.lng], {{
+                            const glowMarker = L.marker([ap.lat, ap.lng], {{
                                 icon: glowIcon,
                                 interactive: false,
                                 pane: 'apGlowPane'
                             }});
                             mapData.apGlowGroup.addLayer(glowMarker);
+                            mapData._apGlowByMac[ap.mac.toLowerCase()] = glowMarker;
                         }}
 
                         // Icon layer in apIconPane (above clusters, below individual dots)
@@ -1059,12 +1061,10 @@
                         marker.bindPopup(ap.popup);
 
                         if (draggable) {{
-                            // Sync glow position during drag
-                            if (glowMarker) {{
-                                marker.on('drag', function(e) {{
-                                    glowMarker.setLatLng(e.target.getLatLng());
-                                }});
-                            }}
+                            marker.on('drag', function(e) {{
+                                var gm = mapData._apGlowByMac && mapData._apGlowByMac[ap.mac.toLowerCase()];
+                                if (gm) gm.setLatLng(e.target.getLatLng());
+                            }});
                             marker.on('dragend', function(e) {{
                                 const pos = e.target.getLatLng();
                                 if (mapData.dotNetRef) {{
@@ -1073,19 +1073,22 @@
                             }});
                         }}
 
-                        // Highlight glow when popup is open
-                        if (glowMarker) {{
-                            marker.on('popupopen', function() {{
-                                var el = glowMarker.getElement();
+                        // Highlight glow when popup is open (look up dynamically so it survives glow rebuilds)
+                        marker.on('popupopen', function() {{
+                            var gm = mapData._apGlowByMac && mapData._apGlowByMac[ap.mac.toLowerCase()];
+                            if (gm) {{
+                                var el = gm.getElement();
                                 if (el) el.querySelector('.ap-glow-dot')?.classList.add('ap-glow-selected');
-                            }});
-                            marker.on('popupclose', function() {{
-                                // Keep glow if this AP is the active filter
-                                if (mapData._selectedApMac && mapData._selectedApMac.toLowerCase() === ap.mac.toLowerCase()) return;
-                                var el = glowMarker.getElement();
+                            }}
+                        }});
+                        marker.on('popupclose', function() {{
+                            if (mapData._selectedApMac && mapData._selectedApMac.toLowerCase() === ap.mac.toLowerCase()) return;
+                            var gm = mapData._apGlowByMac && mapData._apGlowByMac[ap.mac.toLowerCase()];
+                            if (gm) {{
+                                var el = gm.getElement();
                                 if (el) el.querySelector('.ap-glow-dot')?.classList.remove('ap-glow-selected');
-                            }});
-                        }}
+                            }}
+                        }});
 
                         mapData.apLayerGroup.addLayer(marker);
                     }});
@@ -1290,6 +1293,7 @@
             {
                 lat = a.Latitude!.Value,
                 lng = a.Longitude!.Value,
+                mac = a.Mac,
                 isSelected = a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase)
             }).ToArray();
 
@@ -1302,6 +1306,7 @@
 
                     mapData._selectedApMac = {(string.IsNullOrEmpty(selectedApMacFilter) ? "null" : $"'{selectedApMacFilter}'")};
                     mapData.apGlowGroup.clearLayers();
+                    mapData._apGlowByMac = {{}};
                     const glows = {glowJson};
 
                     glows.forEach(g => {{
@@ -1317,6 +1322,7 @@
                             pane: 'apGlowPane'
                         }});
                         mapData.apGlowGroup.addLayer(glowMarker);
+                        mapData._apGlowByMac[g.mac.toLowerCase()] = glowMarker;
                     }});
                 }})();
             ");
