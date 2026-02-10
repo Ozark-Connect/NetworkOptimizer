@@ -270,6 +270,13 @@ public class SwitchPort
     public bool IsUplink { get; set; }
 
     /// <summary>
+    /// IP address assigned to this port (present on gateway WAN ports).
+    /// For WAN ports this is the public-facing IP from DHCP or static config.
+    /// </summary>
+    [JsonPropertyName("ip")]
+    public string? Ip { get; set; }
+
+    /// <summary>
     /// Network name for this port (e.g., "wan", "wan2", "lan").
     /// Used to identify which network/WAN interface the port belongs to.
     /// </summary>

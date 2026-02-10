@@ -226,8 +226,9 @@ public partial class CloudflareSpeedTestService
             GC.WaitForPendingFinalizers();
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 
-            // Trigger background path analysis
-            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId), CancellationToken.None);
+            // Trigger background path analysis with Cloudflare-reported WAN IP for correct WAN speed matching
+            var cfWanIp = metadata.Ip;
+            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, cfWanIp), CancellationToken.None);
 
             return result;
         }
@@ -722,7 +723,7 @@ public partial class CloudflareSpeedTestService
     /// <summary>
     /// Background path analysis after test completes.
     /// </summary>
-    private async Task AnalyzePathInBackgroundAsync(int resultId)
+    private async Task AnalyzePathInBackgroundAsync(int resultId, string? wanIp = null)
     {
         try
         {
@@ -733,7 +734,7 @@ public partial class CloudflareSpeedTestService
             if (result == null) return;
 
             var path = await _pathAnalyzer.CalculatePathAsync(
-                result.DeviceHost, result.LocalIp, retryOnFailure: true);
+                result.DeviceHost, result.LocalIp, retryOnFailure: true, wanIp: wanIp);
 
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
                 path,

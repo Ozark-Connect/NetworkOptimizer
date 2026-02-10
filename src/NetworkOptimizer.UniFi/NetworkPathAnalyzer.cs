@@ -29,13 +29,13 @@ public interface INetworkPathAnalyzer
     /// Calculates the network path from the server to a target device or client.
     /// If retryOnFailure is true and target not found or data stale, invalidates cache and retries once.
     /// </summary>
-    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp = null, bool retryOnFailure = true, CancellationToken cancellationToken = default);
+    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp = null, bool retryOnFailure = true, string? wanIp = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Calculates the network path from the server to a target device or client.
     /// Uses the provided snapshot to compare wireless rates and pick the highest values.
     /// </summary>
-    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, CancellationToken cancellationToken = default);
+    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, string? wanIp = null, CancellationToken cancellationToken = default);
 
     PathAnalysisResult AnalyzeSpeedTest(NetworkPath path, double fromDeviceMbps, double toDeviceMbps, int fromDeviceRetransmits = 0, int toDeviceRetransmits = 0, long fromDeviceBytes = 0, long toDeviceBytes = 0);
 }
@@ -270,8 +270,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string targetHost,
         string? sourceIp = null,
         bool retryOnFailure = true,
+        string? wanIp = null,
         CancellationToken cancellationToken = default)
-        => CalculatePathAsync(targetHost, sourceIp, retryOnFailure, priorSnapshot: null, cancellationToken);
+        => CalculatePathAsync(targetHost, sourceIp, retryOnFailure, priorSnapshot: null, wanIp: wanIp, cancellationToken);
 
     /// <summary>
     /// Calculates the network path from the server to a target device or client.
@@ -281,12 +282,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// <param name="sourceIp">Optional source IP (from iperf3 output). If null, auto-detects.</param>
     /// <param name="retryOnFailure">If true, retry once with fresh topology when target not found</param>
     /// <param name="priorSnapshot">Optional snapshot of wireless rates captured earlier in the test</param>
+    /// <param name="wanIp">Optional WAN IP to match against gateway WAN ports for speed selection</param>
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task<NetworkPath> CalculatePathAsync(
         string targetHost,
         string? sourceIp,
         bool retryOnFailure,
         WirelessRateSnapshot? priorSnapshot,
+        string? wanIp = null,
         CancellationToken cancellationToken = default)
     {
         var path = new NetworkPath
@@ -366,7 +369,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     {
                         _logger.LogDebug("Target not found, invalidating topology cache and retrying");
                         InvalidateTopologyCache();
-                        return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, cancellationToken);
+                        return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, wanIp: wanIp, cancellationToken: cancellationToken);
                     }
 
                     return path;
@@ -433,7 +436,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             var rawDevices = await GetRawDevicesAsync(cancellationToken);
 
             // Build the hop list
-            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices, priorSnapshot);
+            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices, priorSnapshot, wanIp);
 
             // Check if BuildHopList marked the path invalid due to stale data (retry if enabled)
             if (!path.IsValid && retryOnFailure &&
@@ -441,7 +444,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 _logger.LogDebug("Stale client data detected, invalidating topology cache and retrying");
                 InvalidateTopologyCache();
-                return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, priorSnapshot, cancellationToken);
+                return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, priorSnapshot, wanIp, cancellationToken);
             }
 
             // Set MLO status on AP hops based on which WLANs each AP broadcasts
@@ -785,7 +788,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         DiscoveredClient? targetClient,
         NetworkTopology topology,
         Dictionary<string, UniFiDeviceResponse> rawDevices,
-        WirelessRateSnapshot? priorSnapshot = null)
+        WirelessRateSnapshot? priorSnapshot = null,
+        string? wanIp = null)
     {
         var hops = new List<NetworkHop>();
         var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
@@ -1360,7 +1364,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         hops.Add(serverHop);
 
         // Check if we need to prepend a VPN hop (Teleport or Tailscale)
-        var vpnHop = DetectAndCreateVpnHop(path.DestinationHost, topology, rawDevices);
+        var vpnHop = DetectAndCreateVpnHop(path.DestinationHost, topology, rawDevices, wanIp);
         if (vpnHop != null)
         {
             // VPN hop becomes first (order -1 sorts before 0)
@@ -1382,14 +1386,15 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private NetworkHop? DetectAndCreateVpnHop(
         string clientIp,
         NetworkTopology topology,
-        Dictionary<string, UniFiDeviceResponse> rawDevices)
+        Dictionary<string, UniFiDeviceResponse> rawDevices,
+        string? wanIp = null)
     {
         if (string.IsNullOrEmpty(clientIp) || !System.Net.IPAddress.TryParse(clientIp, out _))
             return null;
 
-        // Get WAN speeds for VPN bottleneck calculation
-        // VPN traffic traverses the WAN, so WAN speed is the limiting factor
-        var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices);
+        // Get WAN speeds for VPN/WAN bottleneck calculation
+        // When wanIp is provided, matches the specific WAN interface by IP
+        var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices, wanIp);
 
         // Check for Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
         if (clientIp.StartsWith("100."))
@@ -1516,14 +1521,62 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     }
 
     /// <summary>
-    /// Gets WAN speed from primary WAN provider capabilities, or falls back to primary WAN port link speed.
-    /// Only uses primary WAN (wan_networkgroup = "WAN"), does not aggregate from secondary WANs.
+    /// Gets WAN speed from provider capabilities. When wanIp is provided, matches the
+    /// specific WAN interface by comparing the IP against gateway port table IPs.
+    /// Falls back to primary WAN when no wanIp or no match, then highest WAN speeds if no primary.
     /// </summary>
     private (int downloadMbps, int uploadMbps) GetWanSpeed(
         NetworkTopology topology,
-        Dictionary<string, UniFiDeviceResponse> rawDevices)
+        Dictionary<string, UniFiDeviceResponse> rawDevices,
+        string? wanIp = null)
     {
-        // First: Primary WAN provider capabilities (ISP speed configuration)
+        var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+        UniFiDeviceResponse? gatewayDevice = null;
+        if (gateway != null && !string.IsNullOrEmpty(gateway.Mac))
+            rawDevices.TryGetValue(gateway.Mac, out gatewayDevice);
+
+        // When wanIp is provided, try to match it to a specific WAN port on the gateway
+        if (!string.IsNullOrEmpty(wanIp) && gatewayDevice?.PortTable != null)
+        {
+            var matchingPort = gatewayDevice.PortTable
+                .FirstOrDefault(p => p.Up && !string.IsNullOrEmpty(p.Ip) &&
+                    p.Ip.Equals(wanIp, StringComparison.OrdinalIgnoreCase));
+
+            if (matchingPort != null && !string.IsNullOrEmpty(matchingPort.NetworkName))
+            {
+                // Found the WAN port - look up the corresponding network for ISP speed config
+                var matchingNetwork = topology.Networks.FirstOrDefault(n =>
+                    n.IsWan && n.WanNetworkgroup != null &&
+                    n.WanNetworkgroup.Equals(matchingPort.NetworkName, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingNetwork?.WanDownloadMbps > 0 && matchingNetwork?.WanUploadMbps > 0)
+                {
+                    _logger.LogDebug("Matched WAN IP {Ip} to {NetworkGroup} ({Down}/{Up} Mbps)",
+                        wanIp, matchingNetwork.WanNetworkgroup,
+                        matchingNetwork.WanDownloadMbps, matchingNetwork.WanUploadMbps);
+                    return (matchingNetwork.WanDownloadMbps.Value, matchingNetwork.WanUploadMbps.Value);
+                }
+
+                // Port matched but no ISP speed config - use port link speed
+                if (matchingPort.Speed > 0)
+                {
+                    _logger.LogDebug("Matched WAN IP {Ip} to port {Port} (link speed {Speed} Mbps, no ISP config)",
+                        wanIp, matchingPort.NetworkName, matchingPort.Speed);
+                    return (matchingPort.Speed, matchingPort.Speed);
+                }
+            }
+
+            // No port match - fall back to highest WAN speed pair
+            _logger.LogDebug("WAN IP {Ip} did not match any gateway port, using highest WAN speeds", wanIp);
+            var bestWan = topology.Networks
+                .Where(n => n.IsWan && n.WanDownloadMbps > 0 && n.WanUploadMbps > 0)
+                .OrderByDescending(n => Math.Max(n.WanDownloadMbps ?? 0, n.WanUploadMbps ?? 0))
+                .FirstOrDefault();
+            if (bestWan != null)
+                return (bestWan.WanDownloadMbps!.Value, bestWan.WanUploadMbps!.Value);
+        }
+
+        // Default behavior (no wanIp): use primary WAN provider capabilities
         var primaryWan = topology.Networks.FirstOrDefault(n => n.IsPrimaryWan);
         if (primaryWan != null && primaryWan.WanDownloadMbps > 0 && primaryWan.WanUploadMbps > 0)
         {
@@ -1531,8 +1584,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         // Fallback: Gateway port where network_name = "wan" exactly (primary WAN interface)
-        var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
-        if (gateway != null && rawDevices.TryGetValue(gateway.Mac, out var gatewayDevice))
+        if (gatewayDevice != null)
         {
             var wanPort = gatewayDevice.PortTable?
                 .FirstOrDefault(p => p.Up && p.Speed > 0 &&
