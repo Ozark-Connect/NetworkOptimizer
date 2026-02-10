@@ -98,7 +98,7 @@
     }
 
     @* Speed History (chart + filters + table) *@
-    <div class="card">
+    <div class="card" id="speed-history-card">
         <div class="card-header history-card-header">
             <div class="header-title-row">
                 <h2 class="card-title">Speed History</h2>
@@ -663,6 +663,7 @@
         _expandedHistoryId = null;
         ApplyFilters();
         await RenderChartAsync();
+        await ScrollToHistoryCard();
     }
 
     private async Task ToggleWanFilter(string wanKey)
@@ -683,6 +684,15 @@
         _expandedHistoryId = null;
         ApplyFilters();
         await RenderChartAsync();
+        await ScrollToHistoryCard();
+    }
+
+    private async Task ScrollToHistoryCard()
+    {
+        StateHasChanged();
+        await Task.Delay(100);
+        await JS.InvokeVoidAsync("eval",
+            "document.getElementById('speed-history-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
 
     private async Task RenderChartAsync()
