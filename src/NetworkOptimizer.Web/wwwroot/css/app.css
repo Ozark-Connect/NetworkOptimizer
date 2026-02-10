@@ -92,6 +92,7 @@ a:hover {
 
 .leaflet-container a:hover {
     color: var(--accent-color) !important;
+    text-decoration: underline;
 }
 
 /* App Container Layout */
@@ -4809,12 +4810,13 @@ a.path-hop.hop-clickable:hover {
 /* Links inside Tippy tooltips */
 .tippy-box[data-theme~='custom'] a {
     color: var(--primary-hover);
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    text-decoration: none;
 }
 
 .tippy-box[data-theme~='custom'] a:hover {
     color: var(--accent-color);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .tippy-box[data-theme~='custom'] strong {
