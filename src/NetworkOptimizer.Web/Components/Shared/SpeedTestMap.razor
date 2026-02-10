@@ -767,6 +767,10 @@
                         if (mapData && mapData.map) mapData.map.closePopup();
                     }};
                     window._speedTestClientClick = function(mac) {{
+                        // Close popup and destroy tippy instances before navigating
+                        var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                        if (mapData && mapData.map) mapData.map.closePopup();
+                        document.querySelectorAll('[data-tippy-root]').forEach(function(el) {{ el.remove(); }});
                         dotNetRef.invokeMethodAsync('OnMapClientClick', mac);
                     }};
 

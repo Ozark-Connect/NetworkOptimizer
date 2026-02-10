@@ -285,11 +285,11 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', initTooltips);
 
-        // Clean up tippy elements before navigation
+        // Clean up tippy elements before navigation (covers absolute /path and relative ./path links)
         document.addEventListener('click', function(e) {
-            var link = e.target.closest('a[href^="/"]');
+            var link = e.target.closest('a[href^="/"], a[href^="./"]');
             if (link) {
-                document.querySelectorAll('[data-tippy-root=""]').forEach(function(el) {
+                document.querySelectorAll('[data-tippy-root]').forEach(function(el) {
                     el.remove();
                 });
             }
