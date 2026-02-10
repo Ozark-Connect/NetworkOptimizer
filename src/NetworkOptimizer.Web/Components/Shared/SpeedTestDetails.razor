@@ -670,10 +670,9 @@
         if (hop.Type == HopType.WirelessClient && hop.IsBottleneck)
             return true;
 
-        // For hops marked as bottleneck, check if the specific side matches
-        if (hop.IsBottleneck && hop.EgressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps)
-            return true;
-        if (nextHop.IsBottleneck && nextHop.IngressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps)
+        // For hops marked as bottleneck, check if this link's speed matches the theoretical max.
+        // Uses the pre-computed linkSpeed which already handles WAN/VPN direction (see GetLinkSpeed).
+        if ((hop.IsBottleneck || nextHop.IsBottleneck) && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps)
             return true;
 
         // For symmetric (wired) links, highlight ALL links matching the bottleneck speed
