@@ -11666,12 +11666,12 @@ a.affected-client:hover {
 }
 
 .wan-filter-badge:hover {
-    border-color: var(--text-secondary);
+    border-color: #fff;
 }
 
 .wan-filter-badge.active {
     color: var(--text-primary);
-    border-color: var(--text-secondary);
+    border-color: rgba(255, 255, 255, 0.5);
 }
 
 .wan-filter-badge.inactive {
