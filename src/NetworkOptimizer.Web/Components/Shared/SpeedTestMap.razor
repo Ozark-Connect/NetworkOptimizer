@@ -817,7 +817,7 @@
         }
     }
 
-    private async Task UpdateMarkers(bool fitBounds)
+    private async Task UpdateMarkers(bool fitBounds, bool fitIfNarrowing = false)
     {
         if (!mapInitialized) return;
 
@@ -843,6 +843,7 @@
             var markersJson = System.Text.Json.JsonSerializer.Serialize(markers);
             var apBoundsJson = System.Text.Json.JsonSerializer.Serialize(apBounds);
             var shouldFitBounds = fitBounds ? "true" : "false";
+            var shouldFitIfNarrowing = fitIfNarrowing ? "true" : "false";
 
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
@@ -937,14 +938,25 @@
                     const fitTargets = bounds.length > 0 ? bounds : apBounds;
 
                     // Determine if we should fit bounds:
-                    // 1. If explicitly requested (user hasn't zoomed), or
-                    // 2. If none of the filtered markers are visible in current view
+                    // 1. If explicitly requested (fitBounds=true), or
+                    // 2. If fitIfNarrowing and the new bounds are inside the current view (zoom in only), or
+                    // 3. If none of the filtered markers are visible in current view
                     let shouldActuallyFitBounds = {shouldFitBounds};
                     if (!shouldActuallyFitBounds && fitTargets.length > 0) {{
                         const currentBounds = map.getBounds();
-                        const anyVisible = fitTargets.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
-                        if (!anyVisible) {{
-                            shouldActuallyFitBounds = true;
+                        if ({shouldFitIfNarrowing}) {{
+                            // Only auto-fit if it would narrow (zoom in) the view
+                            const newBounds = L.latLngBounds(fitTargets.map(b => L.latLng(b[0], b[1])));
+                            if (currentBounds.contains(newBounds)) {{
+                                shouldActuallyFitBounds = true;
+                            }}
+                        }}
+                        // Always fit if all markers are off-screen (safety net)
+                        if (!shouldActuallyFitBounds) {{
+                            const anyVisible = fitTargets.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
+                            if (!anyVisible) {{
+                                shouldActuallyFitBounds = true;
+                            }}
                         }}
                     }}
 
@@ -1216,9 +1228,9 @@
 
             if (mapInitialized)
             {
-                // Same logic as time slider: auto-fit unless user has manually zoomed
-                // (JS fallback will still fit if all filtered dots are off-screen)
-                await UpdateMarkers(fitBounds: !userHasZoomed);
+                // Auto-fit only if it narrows the view (zooms in to show fewer dots)
+                // JS fallback will still fit if all filtered dots are off-screen
+                await UpdateMarkers(fitBounds: false, fitIfNarrowing: true);
                 await UpdateApGlow();
             }
             StateHasChanged();
