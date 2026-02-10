@@ -483,12 +483,16 @@ public partial class CloudflareSpeedTestService
         var stop = new CancellationTokenSource();
         var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, stop.Token);
         long totalBytes = 0;
+        long errorCount = 0;
+        long requestCount = 0;
 
         // Loaded latency samples (collected by concurrent probe task)
         var loadedLatencies = new System.Collections.Concurrent.ConcurrentBag<double>();
 
         // Shared upload payload - reused across all workers (content is irrelevant, just need bytes)
         var uploadPayload = isUpload ? new byte[bytesPerRequest] : null;
+
+        var direction = isUpload ? "upload" : "download";
 
         // Launch concurrent workers
         var tasks = new Task[Concurrency];
@@ -510,6 +514,14 @@ public partial class CloudflareSpeedTestService
                             var url = $"{BaseUrl}/{UploadPath}";
                             using var content = new ByteArrayContent(uploadPayload!);
                             using var uploadResponse = await workerClient.PostAsync(url, content, linked.Token);
+                            Interlocked.Increment(ref requestCount);
+                            if (!uploadResponse.IsSuccessStatusCode)
+                            {
+                                Interlocked.Increment(ref errorCount);
+                                _logger.LogDebug("WAN {Direction} worker got HTTP {Status}",
+                                    direction, (int)uploadResponse.StatusCode);
+                                continue;
+                            }
                             Interlocked.Add(ref totalBytes, bytesPerRequest);
                         }
                         else
@@ -519,6 +531,14 @@ public partial class CloudflareSpeedTestService
                             var url = $"{BaseUrl}/{DownloadPath}{bytesPerRequest}";
                             using var response = await workerClient.GetAsync(url,
                                 HttpCompletionOption.ResponseHeadersRead, linked.Token);
+                            Interlocked.Increment(ref requestCount);
+                            if (!response.IsSuccessStatusCode)
+                            {
+                                Interlocked.Increment(ref errorCount);
+                                _logger.LogDebug("WAN {Direction} worker got HTTP {Status}",
+                                    direction, (int)response.StatusCode);
+                                continue;
+                            }
                             await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
                             int bytesRead;
                             while ((bytesRead = await stream.ReadAsync(readBuffer!, linked.Token)) > 0)
@@ -531,9 +551,11 @@ public partial class CloudflareSpeedTestService
                     {
                         break;
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Request failed - continue with next request
+                        Interlocked.Increment(ref errorCount);
+                        Interlocked.Increment(ref requestCount);
+                        _logger.LogDebug(ex, "WAN {Direction} worker request failed", direction);
                     }
                 }
             }, linked.Token);
@@ -607,6 +629,16 @@ public partial class CloudflareSpeedTestService
 
         stop.Dispose();
         linked.Dispose();
+
+        // Log summary for diagnostics
+        var totalRequests = Interlocked.Read(ref requestCount);
+        var totalErrors = Interlocked.Read(ref errorCount);
+        _logger.LogInformation(
+            "WAN {Direction} phase complete: {Requests} requests, {Errors} errors, {Bytes} bytes, {Samples} throughput samples",
+            direction, totalRequests, totalErrors, Interlocked.Read(ref totalBytes), mbpsSamples.Count);
+        if (totalErrors > 0)
+            _logger.LogWarning("WAN {Direction} had {Errors}/{Requests} failed requests ({Pct:F0}% error rate)",
+                direction, totalErrors, totalRequests, totalErrors * 100.0 / Math.Max(totalRequests, 1));
 
         // Compute mean Mbps from steady-state samples (skip first 20% warmup)
         var finalBytes = Interlocked.Read(ref totalBytes);
