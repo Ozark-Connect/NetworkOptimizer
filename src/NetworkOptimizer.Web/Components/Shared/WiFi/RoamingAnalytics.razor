@@ -1,8 +1,10 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
+@using Microsoft.JSInterop
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
+@inject IJSRuntime JS
 
 <div class="roaming-analytics-container wifi-sections">
     <div class="roaming-header">
@@ -103,7 +105,8 @@
                                   vector-effect="non-scaling-stroke"
                                   data-tooltip="@GetEdgeTooltip(edge)"
                                   data-tooltip-follow="true"
-                                  @onclick="() => SelectEdge(edge)" />
+                                  data-tooltip-hover-only=""
+                                  @onclick="() => SelectEdgeAndScroll(edge)" />
                         }
                     </svg>
                 </div>
@@ -167,6 +170,7 @@
         </div>
 
         <!-- Selected Edge Details -->
+        <div id="roaming-edge-details"></div>
         @if (_selectedEdge != null)
         {
             var ap1 = _topology.Vertices.FirstOrDefault(v => v.Mac == _selectedEdge.Endpoint1Mac);
@@ -421,6 +425,18 @@
     private void SelectEdge(RoamingEdge edge)
     {
         _selectedEdge = _selectedEdge == edge ? null : edge;
+    }
+
+    private async Task SelectEdgeAndScroll(RoamingEdge edge)
+    {
+        SelectEdge(edge);
+        if (_selectedEdge != null)
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await JS.InvokeVoidAsync("eval",
+                "document.getElementById('roaming-edge-details')?.scrollIntoView({behavior:'smooth',block:'start'})");
+        }
     }
 
     private double GetFastRoamingPct(RoamingEdge edge)

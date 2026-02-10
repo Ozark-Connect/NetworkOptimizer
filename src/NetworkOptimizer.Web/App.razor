@@ -225,6 +225,9 @@
                 if (el.hasAttribute('data-tooltip-follow')) {
                     opts.followCursor = true;
                 }
+                if (el.hasAttribute('data-tooltip-hover-only')) {
+                    opts.trigger = 'mouseenter';
+                }
                 tippy(el, opts);
             });
         }
