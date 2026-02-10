@@ -27,7 +27,7 @@ public partial class CloudflareSpeedTestService
     private static readonly TimeSpan UploadDuration = TimeSpan.FromSeconds(10);
     private const int DownloadBytesPerRequest = 10_000_000; // 10 MB per request (matches cloudflare-speed-cli)
     private const int MinDownloadBytesPerRequest = 100_000; // Floor for adaptive chunk reduction on 429
-    private const int UploadBytesPerRequest = 1_000_000;    // 1 MB per request (small so many complete per duration)
+    private const int UploadBytesPerRequest = 5_000_000;    // 5 MB per request (matches cloudflare-speed-cli)
 
     private readonly ILogger<CloudflareSpeedTestService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
