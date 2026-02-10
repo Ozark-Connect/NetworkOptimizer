@@ -182,6 +182,9 @@ builder.Services.AddSingleton<GatewaySpeedTestService>();
 // Register Client Speed Test service (singleton - receives browser/iperf3 client results)
 builder.Services.AddSingleton<ClientSpeedTestService>();
 
+// Register Cloudflare WAN Speed Test service (singleton - server-side WAN speed tests)
+builder.Services.AddSingleton<CloudflareSpeedTestService>();
+
 // Register Topology Snapshot service (singleton - captures wireless rate snapshots during speed tests)
 builder.Services.AddSingleton<TopologySnapshotService>();
 builder.Services.AddSingleton<ITopologySnapshotService>(sp => sp.GetRequiredService<TopologySnapshotService>());

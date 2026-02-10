@@ -1,0 +1,466 @@
+@page "/wan-speedtest"
+@rendermode InteractiveServer
+@implements IDisposable
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Helpers
+@using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Web.Components.Shared
+@inject CloudflareSpeedTestService WanSpeedTestService
+@inject IJSRuntime JS
+
+<PageTitle>WAN Speed Test - Network Optimizer</PageTitle>
+
+<div class="speedtest-container wan-speedtest">
+    <div class="page-header">
+        <h1>WAN Speed Test</h1>
+    </div>
+
+    @* Run Test Card *@
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Internet Speed Test</h2>
+        </div>
+        <div class="card-body">
+            <div class="wan-test-controls">
+                <button class="btn btn-primary test-button wan-test-button"
+                        @onclick="RunTest"
+                        disabled="@_isRunning">
+                    @if (_isRunning)
+                    {
+                        <div class="test-progress">
+                            <div class="progress-bar" style="width: @(_progressPercent)%"></div>
+                        </div>
+                        <span class="test-phase">@_progressPhase...</span>
+                    }
+                    else
+                    {
+                        <span>Run WAN Speed Test</span>
+                    }
+                </button>
+                @if (!string.IsNullOrEmpty(_progressStatus) && _isRunning)
+                {
+                    <div class="wan-progress-status">@_progressStatus</div>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger">@_errorMessage</div>
+            }
+
+            @if (_metadata != null)
+            {
+                <div class="wan-metadata">
+                    <div class="metadata-item">
+                        <span class="metadata-label">Edge</span>
+                        <span class="metadata-value">@_metadata.Colo</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">Location</span>
+                        <span class="metadata-value">@_metadata.City, @_metadata.Country</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">IP</span>
+                        <span class="metadata-value">@_metadata.Ip</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">ASN</span>
+                        <span class="metadata-value">@_metadata.Asn</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Latest Result *@
+    @if (_latestResult != null && _latestResult.Success)
+    {
+        <div class="card" id="latest-result">
+            <div class="card-header">
+                <h2 class="card-title">Latest Result</h2>
+            </div>
+            <div class="card-body">
+                <SpeedTestDetails Result="_latestResult"
+                                  UseWanLabels="true"
+                                  OnDelete="HandleDeleteResult"
+                                  OnNotesChanged="HandleNotesChanged" />
+            </div>
+        </div>
+    }
+
+    @* Test History *@
+    <div class="card">
+        <div class="card-header history-card-header">
+            <div class="header-title-row">
+                <h2 class="card-title">Test History</h2>
+                <div class="header-actions">
+                    <button class="btn btn-sm btn-secondary" @onclick="() => LoadHistory(true)" disabled="@_loadingHistory">
+                        @if (_loadingHistory)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
+                    </button>
+                </div>
+            </div>
+            @if (_testHistory.Count > 0)
+            {
+                <div class="history-search-row">
+                    <SpeedTestSearchFilter @bind-SearchFilter="_historySearchFilter"
+                                           OnSearch="OnFilterChanged"
+                                           ShowStatus="true"
+                                           ResultCount="_filteredHistory.Count" />
+                </div>
+            }
+        </div>
+        <div class="card-body">
+            @if (_testHistory.Count > 0)
+            {
+                <div class="history-table-wrap">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th class="hide-mobile">Edge</th>
+                                <th class="hide-mobile">
+                                    <span data-tooltip="Download speed - data received from the internet">↓ Mbps</span>
+                                </th>
+                                <th class="hide-mobile">
+                                    <span data-tooltip="Upload speed - data sent to the internet">↑ Mbps</span>
+                                </th>
+                                <th class="show-mobile">Mbps</th>
+                                <th class="hide-mobile">
+                                    <span data-tooltip="Network latency to Cloudflare edge">Latency</span>
+                                </th>
+                                <th class="th-status">Status</th>
+                                <th class="th-expand"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var result in _pagedHistory)
+                            {
+                                var isExpanded = _expandedHistoryId == result.Id || _collapsingHistoryId == result.Id;
+                                <tr id="wan-result-@result.Id"
+                                    class="history-row-clickable @(isExpanded ? "history-row-expanded" : "") @(!result.Success ? "history-row-failed" : "")"
+                                    @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
+                                    <td>
+                                        <span class="hide-mobile">@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</span>
+                                        <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(result.TestTime)</span>
+                                    </td>
+                                    <td class="hide-mobile">
+                                        <span class="device-name-cell" data-tooltip="@result.DeviceName">
+                                            @(result.DeviceName ?? "Cloudflare")
+                                        </span>
+                                    </td>
+                                    <td class="hide-mobile speed-cell">@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
+                                    <td class="hide-mobile speed-cell">@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
+                                    <td class="show-mobile speed-cell">
+                                        @if (result.Success)
+                                        {
+                                            <span>↓@result.DownloadMbps.ToString("F0") ↑@result.UploadMbps.ToString("F0")</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                    <td class="hide-mobile">
+                                        @if (result.PingMs.HasValue)
+                                        {
+                                            <span>@(result.PingMs.Value.ToString("F1")) ms</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (result.Success)
+                                        {
+                                            <span class="status-badge status-connected">OK</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="status-badge status-disconnected" data-tooltip="@result.ErrorMessage">Failed</span>
+                                        }
+                                    </td>
+                                    <td class="td-expand">
+                                        @if (result.Success)
+                                        {
+                                            <span class="expand-chevron">@(isExpanded ? "▲" : "▼")</span>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (result.Success)
+                                {
+                                    <tr class="history-details-row">
+                                        <td colspan="8">
+                                            <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                                                <div class="expand-content">
+                                                    <div class="history-details">
+                                                        <SpeedTestDetails Result="result"
+                                                                          PathAnalysis="result.PathAnalysis"
+                                                                          UseWanLabels="true"
+                                                                          OnDelete="HandleDeleteResult"
+                                                                          OnNotesChanged="HandleNotesChanged"
+                                                                          IsInTableRow="true" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (_historyTotalPages > 1)
+                {
+                    <div class="pagination" id="wan-history-pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangePage(-1)">← Prev</button>
+                        <span class="pagination-info">
+                            Page @_historyPage of @_historyTotalPages (@_filteredHistory.Count@(string.IsNullOrEmpty(_historySearchFilter) ? " total" : $" of {_testHistory.Count}"))
+                        </span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= _historyTotalPages)" @onclick="() => ChangePage(1)">Next →</button>
+                    </div>
+                }
+            }
+            else if (!_loadingHistory)
+            {
+                <div class="empty-state">
+                    <p>No WAN speed tests recorded yet.</p>
+                    <p class="form-help">Click "Run WAN Speed Test" above to measure your internet connection speed via Cloudflare.</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    // Test state
+    private bool _isRunning;
+    private string _progressPhase = "";
+    private int _progressPercent;
+    private string? _progressStatus;
+    private string? _errorMessage;
+    private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
+    private Iperf3Result? _latestResult;
+
+    // History state
+    private List<Iperf3Result> _testHistory = new();
+    private bool _loadingHistory;
+    private string _historySearchFilter = "";
+
+    private List<Iperf3Result> _filteredHistory => string.IsNullOrEmpty(_historySearchFilter)
+        ? _testHistory
+        : _testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, _historySearchFilter.ToLowerInvariant())).ToList();
+
+    private int _historyPage = 1;
+    private const int HistoryPageSize = 10;
+    private int _historyTotalPages => (int)Math.Ceiling(_filteredHistory.Count / (double)HistoryPageSize);
+    private IEnumerable<Iperf3Result> _pagedHistory => _filteredHistory.Skip((_historyPage - 1) * HistoryPageSize).Take(HistoryPageSize);
+
+    // Expand state
+    private int? _expandedHistoryId;
+    private int? _collapsingHistoryId;
+
+    // Poll timer for tracking in-progress test state
+    private System.Threading.Timer? _pollTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadHistory(resetPage: true);
+        if (_testHistory.Count > 0)
+        {
+            _latestResult = _testHistory.FirstOrDefault(r => r.Success);
+        }
+
+        // If a test is already running (user navigated away and back), start polling
+        if (WanSpeedTestService.IsRunning)
+        {
+            _isRunning = true;
+            SyncProgressFromService();
+            StartPolling();
+        }
+    }
+
+    private async Task RunTest()
+    {
+        if (_isRunning) return;
+
+        _isRunning = true;
+        _errorMessage = null;
+        _metadata = null;
+        _progressPhase = "Starting";
+        _progressPercent = 0;
+        _progressStatus = null;
+        StateHasChanged();
+
+        // Start polling for progress updates (handles navigate-away scenario)
+        StartPolling();
+
+        var result = await WanSpeedTestService.RunTestAsync(
+            progress =>
+            {
+                _progressPhase = progress.Phase;
+                _progressPercent = progress.Percent;
+                _progressStatus = progress.Status;
+                _metadata = WanSpeedTestService.LastMetadata;
+                InvokeAsync(StateHasChanged);
+            });
+
+        StopPolling();
+        _isRunning = false;
+
+        if (result != null)
+        {
+            if (result.Success)
+            {
+                _latestResult = result;
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Test failed";
+            }
+        }
+        else
+        {
+            _errorMessage = "Test was cancelled or could not start";
+        }
+
+        // Reload history to include new result
+        await LoadHistory(resetPage: true);
+        StateHasChanged();
+    }
+
+    private void StartPolling()
+    {
+        StopPolling();
+        _pollTimer = new System.Threading.Timer(async _ =>
+        {
+            if (!WanSpeedTestService.IsRunning)
+            {
+                // Test finished while we were polling (navigate-away case)
+                StopPolling();
+                _isRunning = false;
+
+                var lastResult = WanSpeedTestService.LastCompletedResult;
+                if (lastResult != null)
+                    _latestResult = lastResult;
+
+                await InvokeAsync(async () =>
+                {
+                    await LoadHistory(resetPage: true);
+                    StateHasChanged();
+                });
+                return;
+            }
+
+            SyncProgressFromService();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
+    }
+
+    private void StopPolling()
+    {
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+    }
+
+    private void SyncProgressFromService()
+    {
+        var (phase, percent, status) = WanSpeedTestService.CurrentProgress;
+        _progressPhase = phase;
+        _progressPercent = percent;
+        _progressStatus = status;
+        _metadata = WanSpeedTestService.LastMetadata;
+    }
+
+    private async Task LoadHistory(bool resetPage = false)
+    {
+        _loadingHistory = true;
+        if (resetPage)
+        {
+            _historyPage = 1;
+            _expandedHistoryId = null;
+        }
+
+        try
+        {
+            _testHistory = await WanSpeedTestService.GetResultsAsync(count: 0);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load history: {ex.Message}";
+        }
+        finally
+        {
+            _loadingHistory = false;
+        }
+    }
+
+    private async Task ToggleHistoryExpand(int resultId)
+    {
+        if (_expandedHistoryId == resultId)
+        {
+            _expandedHistoryId = null;
+        }
+        else if (_expandedHistoryId.HasValue)
+        {
+            _collapsingHistoryId = _expandedHistoryId;
+            _expandedHistoryId = resultId;
+            StateHasChanged();
+
+            await Task.Delay(50);
+            _collapsingHistoryId = null;
+        }
+        else
+        {
+            _expandedHistoryId = resultId;
+        }
+    }
+
+    private void OnFilterChanged(string filter)
+    {
+        _historyPage = 1;
+        _expandedHistoryId = null;
+        StateHasChanged();
+    }
+
+    private void ChangePage(int delta)
+    {
+        _historyPage += delta;
+        _expandedHistoryId = null;
+    }
+
+    private async Task HandleDeleteResult(int resultId)
+    {
+        var deleted = await WanSpeedTestService.DeleteResultAsync(resultId);
+        if (deleted)
+        {
+            _testHistory.RemoveAll(r => r.Id == resultId);
+            if (_latestResult?.Id == resultId)
+            {
+                _latestResult = _testHistory.FirstOrDefault(r => r.Success);
+            }
+            if (_expandedHistoryId == resultId)
+                _expandedHistoryId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleNotesChanged((int Id, string? Notes) args)
+    {
+        await WanSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
+    }
+
+    public void Dispose()
+    {
+        StopPolling();
+    }
+}

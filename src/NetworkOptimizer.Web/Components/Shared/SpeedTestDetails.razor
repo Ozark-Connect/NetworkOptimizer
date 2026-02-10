@@ -15,7 +15,7 @@
                 </svg>
             </div>
             <div class="speed-details">
-                <div class="speed-label">From Device <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Data transferred from the tested device to this server">?</span></div>
+                <div class="speed-label">@(UseWanLabels ? "Download" : "From Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data downloaded from the internet (WAN to server)" : "Data transferred from the tested device to this server")">?</span></div>
                 <div class="speed-value">@DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
                 <div class="speed-meta">@FormatBytes(DownloadBytes) transferred</div>
             </div>
@@ -30,7 +30,7 @@
                 </svg>
             </div>
             <div class="speed-details">
-                <div class="speed-label">To Device <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Data transferred to the tested device from this server">?</span></div>
+                <div class="speed-label">@(UseWanLabels ? "Upload" : "To Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data uploaded to the internet (server to WAN)" : "Data transferred to the tested device from this server")">?</span></div>
                 <div class="speed-value">@UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
                 <div class="speed-meta">@FormatBytes(UploadBytes) transferred</div>
             </div>
@@ -342,6 +342,11 @@
     [Parameter] public bool IsInTableRow { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
     [Parameter] public double? PingMs { get; set; }
+
+    /// <summary>
+    /// When true, uses WAN labels (Download/Upload) instead of LAN labels (From Device/To Device)
+    /// </summary>
+    [Parameter] public bool UseWanLabels { get; set; }
 
     /// <summary>
     /// Path analysis result (set automatically when using Result parameter)

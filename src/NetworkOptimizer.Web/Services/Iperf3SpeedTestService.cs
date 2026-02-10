@@ -500,6 +500,9 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
         var results = await repository.GetRecentIperf3ResultsAsync(count, hours);
 
+        // Exclude WAN (Cloudflare) results - LAN page shows both server-initiated and client-initiated tests
+        results = results.Where(r => r.Direction != SpeedTestDirection.CloudflareWan).ToList();
+
         // Retry path analysis for recent results (last 30 min) without a valid path
         var retryWindow = DateTime.UtcNow.AddMinutes(-30);
         var needsRetry = results.Where(r =>

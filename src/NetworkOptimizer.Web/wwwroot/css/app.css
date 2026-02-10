@@ -11501,3 +11501,63 @@ a.affected-client:hover {
         font-size: 1.5rem;
     }
 }
+
+/* ============================================
+   WAN Speed Test
+   ============================================ */
+
+.wan-speedtest .wan-test-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.wan-speedtest .wan-test-button {
+    min-width: 220px;
+}
+
+.wan-speedtest .wan-progress-status {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.wan-speedtest .wan-metadata {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.wan-speedtest .metadata-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.wan-speedtest .metadata-label {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.wan-speedtest .metadata-value {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+@@media (max-width: 768px) {
+    .wan-speedtest .wan-metadata {
+        gap: 0.75rem;
+    }
+
+    .wan-speedtest .wan-test-button {
+        width: 100%;
+    }
+}

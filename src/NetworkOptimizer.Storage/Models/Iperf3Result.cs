@@ -18,7 +18,10 @@ public enum SpeedTestDirection
     ClientToServer = 1,
 
     /// <summary>Browser-based: OpenSpeedTest or similar browser speed test</summary>
-    BrowserToServer = 2
+    BrowserToServer = 2,
+
+    /// <summary>WAN speed test via Cloudflare: measures internet throughput from server</summary>
+    CloudflareWan = 3
 }
 
 /// <summary>
