@@ -87,11 +87,11 @@ a:hover {
 }
 
 a.map-popup-link {
-    color: var(--primary-hover) !important;
+    color: var(--primary-hover);
 }
 
 a.map-popup-link:hover {
-    color: var(--accent-color) !important;
+    color: var(--accent-color);
     text-decoration: underline;
 }
 
