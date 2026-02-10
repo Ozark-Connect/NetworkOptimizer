@@ -18,7 +18,10 @@ public enum SpeedTestDirection
     ClientToServer = 1,
 
     /// <summary>Browser-based: OpenSpeedTest or similar browser speed test</summary>
-    BrowserToServer = 2
+    BrowserToServer = 2,
+
+    /// <summary>WAN speed test via Cloudflare: measures internet throughput from server</summary>
+    CloudflareWan = 3
 }
 
 /// <summary>
@@ -89,11 +92,24 @@ public class Iperf3Result
     public string? ErrorMessage { get; set; }
 
     // Browser speed test fields (OpenSpeedTest)
-    /// <summary>Ping/latency in milliseconds (browser tests only)</summary>
+    /// <summary>Ping/latency in milliseconds (unloaded)</summary>
     public double? PingMs { get; set; }
 
-    /// <summary>Jitter in milliseconds (browser tests only)</summary>
+    /// <summary>Jitter in milliseconds (unloaded)</summary>
     public double? JitterMs { get; set; }
+
+    // Loaded latency fields (measured during throughput tests)
+    /// <summary>Loaded latency during download in milliseconds</summary>
+    public double? DownloadLatencyMs { get; set; }
+
+    /// <summary>Loaded jitter during download in milliseconds</summary>
+    public double? DownloadJitterMs { get; set; }
+
+    /// <summary>Loaded latency during upload in milliseconds</summary>
+    public double? UploadLatencyMs { get; set; }
+
+    /// <summary>Loaded jitter during upload in milliseconds</summary>
+    public double? UploadJitterMs { get; set; }
 
     /// <summary>User agent string (browser tests only)</summary>
     [MaxLength(500)]
@@ -142,6 +158,14 @@ public class Iperf3Result
 
     /// <summary>MLO link details as JSON array (wireless clients with MLO only)</summary>
     public string? WifiMloLinksJson { get; set; }
+
+    /// <summary>WAN network group identifier - e.g. "WAN", "WAN2" (CloudflareWan tests only)</summary>
+    [MaxLength(50)]
+    public string? WanNetworkGroup { get; set; }
+
+    /// <summary>WAN friendly name from UniFi - e.g. "Starlink", "AT&T Fiber" (CloudflareWan tests only)</summary>
+    [MaxLength(100)]
+    public string? WanName { get; set; }
 
     /// <summary>User notes about this test result</summary>
     [MaxLength(2000)]

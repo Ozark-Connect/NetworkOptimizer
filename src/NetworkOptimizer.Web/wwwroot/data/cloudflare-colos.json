@@ -1,0 +1,2926 @@
+{
+    "AAE": {
+        "cca2": "DZ",
+        "city": "Annabah",
+        "country": "Algeria",
+        "lat": 36.822201,
+        "lon": 7.80917,
+        "name": "Annaba, Algeria",
+        "region": "Africa"
+    },
+    "ABJ": {
+        "cca2": "CI",
+        "city": "Abidjan",
+        "country": "Ivory Coast",
+        "lat": 5.26139,
+        "lon": -3.92629,
+        "name": "Abidjan, Ivory Coast",
+        "region": "Africa"
+    },
+    "ABQ": {
+        "cca2": "US",
+        "city": "Albuquerque",
+        "country": "United States",
+        "lat": 35.040199,
+        "lon": -106.609001,
+        "name": "Albuquerque, NM, United States",
+        "region": "North America"
+    },
+    "ACC": {
+        "cca2": "GH",
+        "city": "Accra",
+        "country": "Ghana",
+        "lat": 5.60519,
+        "lon": -0.166786,
+        "name": "Accra, Ghana",
+        "region": "Africa"
+    },
+    "ADB": {
+        "cca2": "TR",
+        "city": "Izmir",
+        "country": "Turkey",
+        "lat": 38.2924,
+        "lon": 27.157,
+        "name": "Izmir, Turkey",
+        "region": "Europe"
+    },
+    "ADD": {
+        "cca2": "ET",
+        "city": "Addis Ababa",
+        "country": "Ethiopia",
+        "lat": 8.97789,
+        "lon": 38.799301,
+        "name": "Addis Ababa, Ethiopia",
+        "region": "Africa"
+    },
+    "ADL": {
+        "cca2": "AU",
+        "city": "Adelaide",
+        "country": "Australia",
+        "lat": -34.945,
+        "lon": 138.531006,
+        "name": "Adelaide, SA, Australia",
+        "region": "Oceania"
+    },
+    "AGR": {
+        "cca2": "IN",
+        "city": "",
+        "country": "India",
+        "lat": 27.1558,
+        "lon": 77.960899,
+        "name": "Agra, India",
+        "region": "Asia Pacific"
+    },
+    "AKL": {
+        "cca2": "NZ",
+        "city": "Auckland",
+        "country": "New Zealand",
+        "lat": -37.008099,
+        "lon": 174.792007,
+        "name": "Auckland, New Zealand",
+        "region": "Oceania"
+    },
+    "AKX": {
+        "cca2": "KZ",
+        "city": "Aktyubinsk",
+        "country": "Kazakhstan",
+        "lat": 50.2458,
+        "lon": 57.206699,
+        "name": "Aktobe, Kazakhstan",
+        "region": "Europe"
+    },
+    "ALA": {
+        "cca2": "KZ",
+        "city": "Almaty",
+        "country": "Kazakhstan",
+        "lat": 43.3521,
+        "lon": 77.040497,
+        "name": "Almaty, Kazakhstan",
+        "region": "Europe"
+    },
+    "ALG": {
+        "cca2": "DZ",
+        "city": "Algiers",
+        "country": "Algeria",
+        "lat": 36.691002,
+        "lon": 3.21541,
+        "name": "Algiers, Algeria",
+        "region": "Africa"
+    },
+    "AMD": {
+        "cca2": "IN",
+        "city": "Ahmedabad",
+        "country": "India",
+        "lat": 23.0772,
+        "lon": 72.634697,
+        "name": "Ahmedabad, India",
+        "region": "Asia Pacific"
+    },
+    "AMM": {
+        "cca2": "JO",
+        "city": "Amman",
+        "country": "Jordan",
+        "lat": 31.722601,
+        "lon": 35.993198,
+        "name": "Amman, Jordan",
+        "region": "Middle East"
+    },
+    "AMS": {
+        "cca2": "NL",
+        "city": "Amsterdam",
+        "country": "Netherlands",
+        "lat": 52.308601,
+        "lon": 4.76389,
+        "name": "Amsterdam, Netherlands",
+        "region": "Europe"
+    },
+    "ANC": {
+        "cca2": "US",
+        "city": "Anchorage",
+        "country": "United States",
+        "lat": 61.1744,
+        "lon": -149.996002,
+        "name": "Anchorage, AK, United States",
+        "region": "North America"
+    },
+    "ARI": {
+        "cca2": "CL",
+        "city": "Arica",
+        "country": "Chile",
+        "lat": -18.348499,
+        "lon": -70.338699,
+        "name": "Arica, Chile",
+        "region": "South America"
+    },
+    "ARN": {
+        "cca2": "SE",
+        "city": "Stockholm",
+        "country": "Sweden",
+        "lat": 59.651901,
+        "lon": 17.9186,
+        "name": "Stockholm, Sweden",
+        "region": "Europe"
+    },
+    "ARU": {
+        "cca2": "BR",
+        "city": "Aracatuba",
+        "country": "Brazil",
+        "lat": -21.1413,
+        "lon": -50.424702,
+        "name": "Aracatuba, Brazil",
+        "region": "South America"
+    },
+    "ASK": {
+        "cca2": "CI",
+        "city": "Yamoussoukro",
+        "country": "Ivory Coast",
+        "lat": 6.90317,
+        "lon": -5.36558,
+        "name": "Yamoussoukro, Ivory Coast",
+        "region": "Africa"
+    },
+    "ASU": {
+        "cca2": "PY",
+        "city": "Asuncion",
+        "country": "Paraguay",
+        "lat": -25.24,
+        "lon": -57.52,
+        "name": "Asunción, Paraguay",
+        "region": "South America"
+    },
+    "ATH": {
+        "cca2": "GR",
+        "city": "Athens",
+        "country": "Greece",
+        "lat": 37.936401,
+        "lon": 23.9445,
+        "name": "Athens, Greece",
+        "region": "Europe"
+    },
+    "ATL": {
+        "cca2": "US",
+        "city": "Atlanta",
+        "country": "United States",
+        "lat": 33.6367,
+        "lon": -84.428101,
+        "name": "Atlanta, GA, United States",
+        "region": "North America"
+    },
+    "AUS": {
+        "cca2": "US",
+        "city": "Austin",
+        "country": "United States",
+        "lat": 30.1945,
+        "lon": -97.669899,
+        "name": "Austin, TX, United States",
+        "region": "North America"
+    },
+    "BAH": {
+        "cca2": "BH",
+        "city": "Manama",
+        "country": "Bahrain",
+        "lat": 26.2708,
+        "lon": 50.633598,
+        "name": "Manama, Bahrain",
+        "region": "Middle East"
+    },
+    "BAQ": {
+        "cca2": "CO",
+        "city": "Barranquilla",
+        "country": "Colombia",
+        "lat": 10.8896,
+        "lon": -74.7808,
+        "name": "Barranquilla, Colombia",
+        "region": "South America"
+    },
+    "BCN": {
+        "cca2": "ES",
+        "city": "Barcelona",
+        "country": "Spain",
+        "lat": 41.2971,
+        "lon": 2.07846,
+        "name": "Barcelona, Spain",
+        "region": "Europe"
+    },
+    "BEG": {
+        "cca2": "RS",
+        "city": "Belgrad",
+        "country": "Serbia",
+        "lat": 44.818401,
+        "lon": 20.309099,
+        "name": "Belgrade, Serbia",
+        "region": "Europe"
+    },
+    "BEL": {
+        "cca2": "BR",
+        "city": "Belem",
+        "country": "Brazil",
+        "lat": -1.37925,
+        "lon": -48.476299,
+        "name": "Belém, Brazil",
+        "region": "South America"
+    },
+    "BEY": {
+        "cca2": "LB",
+        "city": "Beirut",
+        "country": "Lebanon",
+        "lat": 33.8209,
+        "lon": 35.4884,
+        "name": "Beirut, Lebanon",
+        "region": "Middle East"
+    },
+    "BGI": {
+        "cca2": "BB",
+        "city": "Bridgetown",
+        "country": "Barbados",
+        "lat": 13.0746,
+        "lon": -59.4925,
+        "name": "Bridgetown, Barbados",
+        "region": "North America"
+    },
+    "BGR": {
+        "cca2": "US",
+        "city": "Bangor",
+        "country": "United States",
+        "lat": 44.8074,
+        "lon": -68.828102,
+        "name": "Bangor, ME, United States",
+        "region": "North America"
+    },
+    "BGW": {
+        "cca2": "IQ",
+        "city": "Baghdad",
+        "country": "Iraq",
+        "lat": 33.262501,
+        "lon": 44.2346,
+        "name": "Baghdad, Iraq",
+        "region": "Middle East"
+    },
+    "BHY": {
+        "cca2": "CN",
+        "city": "Beihai",
+        "country": "China",
+        "name": "Beihai, China",
+        "region": "Asia"
+    },
+    "BKK": {
+        "cca2": "TH",
+        "city": "Bangkok",
+        "country": "Thailand",
+        "lat": 13.6811,
+        "lon": 100.747002,
+        "name": "Bangkok, Thailand",
+        "region": "Asia Pacific"
+    },
+    "BLR": {
+        "cca2": "IN",
+        "city": "Bangalore",
+        "country": "India",
+        "lat": 13.1979,
+        "lon": 77.706299,
+        "name": "Bangalore, India",
+        "region": "Asia Pacific"
+    },
+    "BNA": {
+        "cca2": "US",
+        "city": "Nashville",
+        "country": "United States",
+        "lat": 36.1245,
+        "lon": -86.6782,
+        "name": "Nashville, United States",
+        "region": "North America"
+    },
+    "BNE": {
+        "cca2": "AU",
+        "city": "Brisbane",
+        "country": "Australia",
+        "lat": -27.384199,
+        "lon": 153.117004,
+        "name": "Brisbane, QLD, Australia",
+        "region": "Oceania"
+    },
+    "BNU": {
+        "cca2": "BR",
+        "city": "Blumenau",
+        "country": "Brazil",
+        "lat": -26.830601,
+        "lon": -49.090302,
+        "name": "Blumenau, Brazil",
+        "region": "South America"
+    },
+    "BOD": {
+        "cca2": "FR",
+        "city": "Bordeaux/Merignac",
+        "country": "France",
+        "lat": 44.8283,
+        "lon": -0.715556,
+        "name": "Bordeaux, France",
+        "region": "Europe"
+    },
+    "BOG": {
+        "cca2": "CO",
+        "city": "Bogota",
+        "country": "Colombia",
+        "lat": 4.70159,
+        "lon": -74.1469,
+        "name": "Bogota, Colombia",
+        "region": "South America"
+    },
+    "BOM": {
+        "cca2": "IN",
+        "city": "Mumbai",
+        "country": "India",
+        "lat": 19.088699,
+        "lon": 72.867897,
+        "name": "Mumbai, India",
+        "region": "Asia Pacific"
+    },
+    "BOS": {
+        "cca2": "US",
+        "city": "Boston",
+        "country": "United States",
+        "lat": 42.3643,
+        "lon": -71.005203,
+        "name": "Boston, MA, United States",
+        "region": "North America"
+    },
+    "BRU": {
+        "cca2": "BE",
+        "city": "Brussels",
+        "country": "Belgium",
+        "lat": 50.901402,
+        "lon": 4.48444,
+        "name": "Brussels, Belgium",
+        "region": "Europe"
+    },
+    "BSB": {
+        "cca2": "BR",
+        "city": "Brasilia",
+        "country": "Brazil",
+        "lat": -15.869167,
+        "lon": -47.920834,
+        "name": "Brasilia, Brazil",
+        "region": "South America"
+    },
+    "BSR": {
+        "cca2": "IQ",
+        "city": "Basrah",
+        "country": "Iraq",
+        "lat": 30.549101,
+        "lon": 47.662102,
+        "name": "Basra, Iraq",
+        "region": "Middle East"
+    },
+    "BTS": {
+        "cca2": "SK",
+        "city": "Bratislava",
+        "country": "Slovakia",
+        "lat": 48.1702,
+        "lon": 17.2127,
+        "name": "Bratislava, Slovakia",
+        "region": "Europe"
+    },
+    "BUD": {
+        "cca2": "HU",
+        "city": "Budapest",
+        "country": "Hungary",
+        "lat": 47.436901,
+        "lon": 19.2556,
+        "name": "Budapest, Hungary",
+        "region": "Europe"
+    },
+    "BUF": {
+        "cca2": "US",
+        "city": "Buffalo",
+        "country": "United States",
+        "lat": 42.940498,
+        "lon": -78.732201,
+        "name": "Buffalo, NY, United States",
+        "region": "North America"
+    },
+    "BWN": {
+        "cca2": "BN",
+        "city": "Bandar Seri Begawan",
+        "country": "Brunei",
+        "lat": 4.9442,
+        "lon": 114.928001,
+        "name": "Bandar Seri Begawan, Brunei",
+        "region": "Asia Pacific"
+    },
+    "CAI": {
+        "cca2": "EG",
+        "city": "Cairo",
+        "country": "Egypt",
+        "lat": 30.121901,
+        "lon": 31.4056,
+        "name": "Cairo, Egypt",
+        "region": "Africa"
+    },
+    "CAN": {
+        "cca2": "CN",
+        "city": "Guangzhou",
+        "country": "China",
+        "name": "Guangzhou, China",
+        "region": "Asia"
+    },
+    "CAW": {
+        "cca2": "BR",
+        "city": "Campos Dos Goytacazes",
+        "country": "Brazil",
+        "lat": -21.698299,
+        "lon": -41.301701,
+        "name": "Campos dos Goytacazes, Brazil",
+        "region": "South America"
+    },
+    "CBR": {
+        "cca2": "AU",
+        "city": "Canberra",
+        "country": "Australia",
+        "lat": -35.3069,
+        "lon": 149.195007,
+        "name": "Canberra, ACT, Australia",
+        "region": "Oceania"
+    },
+    "CCP": {
+        "cca2": "CL",
+        "city": "Concepcion",
+        "country": "Chile",
+        "lat": -36.772701,
+        "lon": -73.063103,
+        "name": "Concepción, Chile",
+        "region": "South America"
+    },
+    "CCU": {
+        "cca2": "IN",
+        "city": "Kolkata",
+        "country": "India",
+        "lat": 22.654699,
+        "lon": 88.446701,
+        "name": "Kolkata, India",
+        "region": "Asia Pacific"
+    },
+    "CDG": {
+        "cca2": "FR",
+        "city": "Paris",
+        "country": "France",
+        "lat": 49.012798,
+        "lon": 2.55,
+        "name": "Paris, France",
+        "region": "Europe"
+    },
+    "CEB": {
+        "cca2": "PH",
+        "city": "Lapu-Lapu City",
+        "country": "Philippines",
+        "lat": 10.3075,
+        "lon": 123.978996,
+        "name": "Cebu, Philippines",
+        "region": "Asia Pacific"
+    },
+    "CFC": {
+        "cca2": "BR",
+        "city": "Caçador",
+        "country": "Brazil",
+        "lat": -26.7762,
+        "lon": -51.0125,
+        "name": "Cacador, Brazil",
+        "region": "South America"
+    },
+    "CGB": {
+        "cca2": "BR",
+        "city": "Cuiaba",
+        "country": "Brazil",
+        "lat": -15.6529,
+        "lon": -56.116699,
+        "name": "Cuiaba, Brazil",
+        "region": "South America"
+    },
+    "CGD": {
+        "cca2": "CN",
+        "city": "Changde",
+        "country": "China",
+        "name": "Changde, China",
+        "region": "Asia"
+    },
+    "CGK": {
+        "cca2": "ID",
+        "city": "Jakarta",
+        "country": "Indonesia",
+        "lat": -6.12557,
+        "lon": 106.655998,
+        "name": "Jakarta, Indonesia",
+        "region": "Asia Pacific"
+    },
+    "CGO": {
+        "cca2": "CN",
+        "city": "Zhengzhou",
+        "country": "China",
+        "name": "Zhengzhou, China",
+        "region": "Asia"
+    },
+    "CGP": {
+        "cca2": "BD",
+        "city": "Chittagong",
+        "country": "Bangladesh",
+        "lat": 22.249599,
+        "lon": 91.813301,
+        "name": "Chittagong, Bangladesh",
+        "region": "Asia Pacific"
+    },
+    "CGY": {
+        "cca2": "PH",
+        "city": "Cagayan De Oro City",
+        "country": "Philippines",
+        "lat": 8.41562,
+        "lon": 124.611,
+        "name": "Cagayan de Oro, Philippines",
+        "region": "Asia Pacific"
+    },
+    "CHC": {
+        "cca2": "NZ",
+        "city": "Christchurch",
+        "country": "New Zealand",
+        "lat": -43.489399,
+        "lon": 172.531998,
+        "name": "Christchurch, New Zealand",
+        "region": "Oceania"
+    },
+    "CJB": {
+        "cca2": "IN",
+        "city": "Coimbatore",
+        "country": "India",
+        "lat": 11.03,
+        "lon": 77.043404,
+        "name": "Coimbatore, India",
+        "region": "Asia Pacific"
+    },
+    "CKG": {
+        "cca2": "CN",
+        "city": "Chongqing",
+        "country": "China",
+        "name": "Chongqing, China",
+        "region": "Asia"
+    },
+    "CLE": {
+        "cca2": "US",
+        "city": "Cleveland",
+        "country": "United States",
+        "lat": 41.411701,
+        "lon": -81.8498,
+        "name": "Cleveland, OH, United States",
+        "region": "North America"
+    },
+    "CLO": {
+        "cca2": "CO",
+        "city": "Cali",
+        "country": "Colombia",
+        "lat": 3.54322,
+        "lon": -76.3816,
+        "name": "Cali, Colombia",
+        "region": "South America"
+    },
+    "CLT": {
+        "cca2": "US",
+        "city": "Charlotte",
+        "country": "United States",
+        "lat": 35.214001,
+        "lon": -80.9431,
+        "name": "Charlotte, NC, United States",
+        "region": "North America"
+    },
+    "CMB": {
+        "cca2": "LK",
+        "city": "Colombo",
+        "country": "Sri Lanka",
+        "lat": 7.18076,
+        "lon": 79.884102,
+        "name": "Colombo, Sri Lanka",
+        "region": "Asia Pacific"
+    },
+    "CMH": {
+        "cca2": "US",
+        "city": "Columbus",
+        "country": "United States",
+        "lat": 39.998001,
+        "lon": -82.891899,
+        "name": "Columbus, OH, United States",
+        "region": "North America"
+    },
+    "CNF": {
+        "cca2": "BR",
+        "city": "Belo Horizonte",
+        "country": "Brazil",
+        "lat": -19.624443,
+        "lon": -43.971943,
+        "name": "Belo Horizonte, Brazil",
+        "region": "South America"
+    },
+    "CNN": {
+        "cca2": "IN",
+        "city": "Mattanur",
+        "country": "India",
+        "lat": 11.92,
+        "lon": 75.55,
+        "name": "Kannur, India",
+        "region": "Asia Pacific"
+    },
+    "CNX": {
+        "cca2": "TH",
+        "city": "Chiang Mai",
+        "country": "Thailand",
+        "lat": 18.7668,
+        "lon": 98.962601,
+        "name": "Chiang Mai, Thailand",
+        "region": "Asia Pacific"
+    },
+    "COK": {
+        "cca2": "IN",
+        "city": "Cochin",
+        "country": "India",
+        "lat": 10.152,
+        "lon": 76.401901,
+        "name": "Kochi, India",
+        "region": "Asia Pacific"
+    },
+    "COR": {
+        "cca2": "AR",
+        "city": "Cordoba",
+        "country": "Argentina",
+        "lat": -31.323601,
+        "lon": -64.208,
+        "name": "Córdoba, Argentina",
+        "region": "South America"
+    },
+    "CPH": {
+        "cca2": "DK",
+        "city": "Copenhagen",
+        "country": "Denmark",
+        "lat": 55.617901,
+        "lon": 12.656,
+        "name": "Copenhagen, Denmark",
+        "region": "Europe"
+    },
+    "CPT": {
+        "cca2": "ZA",
+        "city": "Cape Town",
+        "country": "South Africa",
+        "lat": -33.964802,
+        "lon": 18.6017,
+        "name": "Cape Town, South Africa",
+        "region": "Africa"
+    },
+    "CRK": {
+        "cca2": "PH",
+        "city": "Angeles City",
+        "country": "Philippines",
+        "lat": 15.186,
+        "lon": 120.559998,
+        "name": "Tarlac City, Philippines",
+        "region": "Asia Pacific"
+    },
+    "CSX": {
+        "cca2": "CN",
+        "city": "Changsha",
+        "country": "China",
+        "name": "Changsha, China",
+        "region": "Asia"
+    },
+    "CTU": {
+        "cca2": "CN",
+        "city": "Chengdu",
+        "country": "China",
+        "name": "Chengdu, China",
+        "region": "Asia"
+    },
+    "CWB": {
+        "cca2": "BR",
+        "city": "Curitiba",
+        "country": "Brazil",
+        "lat": -25.5285,
+        "lon": -49.1758,
+        "name": "Curitiba, Brazil",
+        "region": "South America"
+    },
+    "CZL": {
+        "cca2": "DZ",
+        "city": "Constantine",
+        "country": "Algeria",
+        "lat": 36.276001,
+        "lon": 6.62039,
+        "name": "Constantine, Algeria",
+        "region": "Africa"
+    },
+    "CZX": {
+        "cca2": "CN",
+        "city": "Changzhou",
+        "country": "China",
+        "name": "Changzhou, China",
+        "region": "Asia"
+    },
+    "DAC": {
+        "cca2": "BD",
+        "city": "Dhaka",
+        "country": "Bangladesh",
+        "lat": 23.843347,
+        "lon": 90.397783,
+        "name": "Dhaka, Bangladesh",
+        "region": "Asia Pacific"
+    },
+    "DAD": {
+        "cca2": "VN",
+        "city": "Da Nang",
+        "country": "Vietnam",
+        "lat": 16.0439,
+        "lon": 108.198997,
+        "name": "Da Nang, Vietnam",
+        "region": "Asia Pacific"
+    },
+    "DAR": {
+        "cca2": "TZ",
+        "city": "Dar es Salaam",
+        "country": "Tanzania",
+        "lat": -6.87811,
+        "lon": 39.202599,
+        "name": "Dar es Salaam, Tanzania",
+        "region": "Africa"
+    },
+    "DEL": {
+        "cca2": "IN",
+        "city": "New Delhi",
+        "country": "India",
+        "lat": 28.5665,
+        "lon": 77.103104,
+        "name": "New Delhi, India",
+        "region": "Asia Pacific"
+    },
+    "DEN": {
+        "cca2": "US",
+        "city": "Denver",
+        "country": "United States",
+        "lat": 39.861698,
+        "lon": -104.672997,
+        "name": "Denver, CO, United States",
+        "region": "North America"
+    },
+    "DFW": {
+        "cca2": "US",
+        "city": "Dallas-Fort Worth",
+        "country": "United States",
+        "lat": 32.896801,
+        "lon": -97.038002,
+        "name": "Dallas, TX, United States",
+        "region": "North America"
+    },
+    "DKR": {
+        "cca2": "SN",
+        "city": "Dakar",
+        "country": "Senegal",
+        "lat": 14.7397,
+        "lon": -17.4902,
+        "name": "Dakar, Senegal",
+        "region": "Africa"
+    },
+    "DLC": {
+        "cca2": "CN",
+        "city": "Dalian",
+        "country": "China",
+        "name": "Dalian, China",
+        "region": "Asia"
+    },
+    "DME": {
+        "cca2": "RU",
+        "city": "Moscow",
+        "country": "Russia",
+        "lat": 55.408798,
+        "lon": 37.9063,
+        "name": "Moscow, Russia",
+        "region": "Europe"
+    },
+    "DMM": {
+        "cca2": "SA",
+        "city": "Ad Dammam",
+        "country": "Saudi Arabia",
+        "lat": 26.471201,
+        "lon": 49.797901,
+        "name": "Dammam, Saudi Arabia",
+        "region": "Middle East"
+    },
+    "DOH": {
+        "cca2": "QA",
+        "city": "Doha",
+        "country": "Qatar",
+        "lat": 25.260595,
+        "lon": 51.613767,
+        "name": "Doha, Qatar",
+        "region": "Middle East"
+    },
+    "DPS": {
+        "cca2": "ID",
+        "city": "Denpasar-Bali Island",
+        "country": "Indonesia",
+        "lat": -8.74817,
+        "lon": 115.167,
+        "name": "Denpasar, Indonesia",
+        "region": "Asia Pacific"
+    },
+    "DTW": {
+        "cca2": "US",
+        "city": "Detroit",
+        "country": "United States",
+        "lat": 42.212399,
+        "lon": -83.353401,
+        "name": "Detroit, MI, United States",
+        "region": "North America"
+    },
+    "DUB": {
+        "cca2": "IE",
+        "city": "Dublin",
+        "country": "Ireland",
+        "lat": 53.421299,
+        "lon": -6.27007,
+        "name": "Dublin, Ireland",
+        "region": "Europe"
+    },
+    "DUR": {
+        "cca2": "ZA",
+        "city": "Durban",
+        "country": "South Africa",
+        "lat": -29.614444,
+        "lon": 31.119722,
+        "name": "Durban, South Africa",
+        "region": "Africa"
+    },
+    "DUS": {
+        "cca2": "DE",
+        "city": "Dusseldorf",
+        "country": "Germany",
+        "lat": 51.289501,
+        "lon": 6.76678,
+        "name": "Düsseldorf, Germany",
+        "region": "Europe"
+    },
+    "DXB": {
+        "cca2": "AE",
+        "city": "Dubai",
+        "country": "United Arab Emirates",
+        "lat": 25.2528,
+        "lon": 55.364399,
+        "name": "Dubai, United Arab Emirates",
+        "region": "Middle East"
+    },
+    "EBB": {
+        "cca2": "UG",
+        "city": "Kampala",
+        "country": "Uganda",
+        "lat": 0.042386,
+        "lon": 32.443501,
+        "name": "Kampala, Uganda",
+        "region": "Africa"
+    },
+    "EBL": {
+        "cca2": "IQ",
+        "city": "Arbil",
+        "country": "Iraq",
+        "lat": 36.237598,
+        "lon": 43.9632,
+        "name": "Erbil, Iraq",
+        "region": "Middle East"
+    },
+    "EVN": {
+        "cca2": "AM",
+        "city": "Yerevan",
+        "country": "Armenia",
+        "lat": 40.147301,
+        "lon": 44.395901,
+        "name": "Yerevan, Armenia",
+        "region": "Middle East"
+    },
+    "EWR": {
+        "cca2": "US",
+        "city": "Newark",
+        "country": "United States",
+        "lat": 40.692501,
+        "lon": -74.168701,
+        "name": "Newark, NJ, United States",
+        "region": "North America"
+    },
+    "EZE": {
+        "cca2": "AR",
+        "city": "Ezeiza",
+        "country": "Argentina",
+        "lat": -34.8222,
+        "lon": -58.5358,
+        "name": "Buenos Aires, Argentina",
+        "region": "South America"
+    },
+    "FCO": {
+        "cca2": "IT",
+        "city": "Rome",
+        "country": "Italy",
+        "lat": 41.804501,
+        "lon": 12.2508,
+        "name": "Rome, Italy",
+        "region": "Europe"
+    },
+    "FIH": {
+        "cca2": "CD",
+        "city": "Kinshasa",
+        "country": "DR Congo",
+        "lat": -4.38575,
+        "lon": 15.4446,
+        "name": "Kinshasa, DR Congo",
+        "region": "Africa"
+    },
+    "FLN": {
+        "cca2": "BR",
+        "city": "Florianopolis",
+        "country": "Brazil",
+        "lat": -27.670279,
+        "lon": -48.552502,
+        "name": "Florianopolis, Brazil",
+        "region": "South America"
+    },
+    "FOC": {
+        "cca2": "CN",
+        "city": "Fuzhou",
+        "country": "China",
+        "name": "Fuzhou, China",
+        "region": "Asia"
+    },
+    "FOR": {
+        "cca2": "BR",
+        "city": "Fortaleza",
+        "country": "Brazil",
+        "lat": -3.77628,
+        "lon": -38.5326,
+        "name": "Fortaleza, Brazil",
+        "region": "South America"
+    },
+    "FRA": {
+        "cca2": "DE",
+        "city": "Frankfurt-am-Main",
+        "country": "Germany",
+        "lat": 50.026402,
+        "lon": 8.54313,
+        "name": "Frankfurt, Germany",
+        "region": "Europe"
+    },
+    "FRU": {
+        "cca2": "KG",
+        "city": "Bishkek",
+        "country": "Kyrgyzstan",
+        "lat": 43.061272,
+        "lon": 74.477508,
+        "name": "Bishkek, Kyrgyzstan",
+        "region": "Asia Pacific"
+    },
+    "FSD": {
+        "cca2": "US",
+        "city": "Sioux Falls",
+        "country": "United States",
+        "lat": 43.582001,
+        "lon": -96.741898,
+        "name": "Sioux Falls, SD, United States",
+        "region": "North America"
+    },
+    "FUK": {
+        "cca2": "JP",
+        "city": "Fukuoka",
+        "country": "Japan",
+        "lat": 33.585899,
+        "lon": 130.451004,
+        "name": "Fukuoka, Japan",
+        "region": "Asia Pacific"
+    },
+    "FUO": {
+        "cca2": "CN",
+        "city": "Foshan",
+        "country": "China",
+        "name": "Foshan, China",
+        "region": "Asia"
+    },
+    "GBE": {
+        "cca2": "BW",
+        "city": "Gaborone",
+        "country": "Botswana",
+        "lat": -24.555201,
+        "lon": 25.9182,
+        "name": "Gaborone, Botswana",
+        "region": "Africa"
+    },
+    "GDL": {
+        "cca2": "MX",
+        "city": "Guadalajara",
+        "country": "Mexico",
+        "lat": 20.521799,
+        "lon": -103.310997,
+        "name": "Guadalajara, Mexico",
+        "region": "North America"
+    },
+    "GEO": {
+        "cca2": "GY",
+        "city": "Georgetown",
+        "country": "Guyana",
+        "lat": 6.49855,
+        "lon": -58.254101,
+        "name": "Georgetown, Guyana",
+        "region": "South America"
+    },
+    "GIG": {
+        "cca2": "BR",
+        "city": "Rio De Janeiro",
+        "country": "Brazil",
+        "lat": -22.809999,
+        "lon": -43.250557,
+        "name": "Rio de Janeiro, Brazil",
+        "region": "South America"
+    },
+    "GND": {
+        "cca2": "GD",
+        "city": "Saint George's",
+        "country": "Grenada",
+        "lat": 12.0042,
+        "lon": -61.786201,
+        "name": "St. George's, Grenada",
+        "region": "South America"
+    },
+    "GOT": {
+        "cca2": "SE",
+        "city": "Gothenburg",
+        "country": "Sweden",
+        "lat": 57.6628,
+        "lon": 12.2798,
+        "name": "Gothenburg, Sweden",
+        "region": "Europe"
+    },
+    "GRU": {
+        "cca2": "BR",
+        "city": "Sao Paulo",
+        "country": "Brazil",
+        "lat": -23.435556,
+        "lon": -46.473057,
+        "name": "São Paulo, Brazil",
+        "region": "South America"
+    },
+    "GUA": {
+        "cca2": "GT",
+        "city": "Guatemala City",
+        "country": "Guatemala",
+        "lat": 14.5833,
+        "lon": -90.527496,
+        "name": "Guatemala City, Guatemala",
+        "region": "North America"
+    },
+    "GUM": {
+        "cca2": "GU",
+        "city": "Hagatna",
+        "country": "Guam",
+        "lat": 13.4834,
+        "lon": 144.796005,
+        "name": "Hagatna, Guam",
+        "region": "Asia Pacific"
+    },
+    "GVA": {
+        "cca2": "CH",
+        "city": "Geneva",
+        "country": "Switzerland",
+        "lat": 46.238098,
+        "lon": 6.10895,
+        "name": "Geneva, Switzerland",
+        "region": "Europe"
+    },
+    "GYD": {
+        "cca2": "AZ",
+        "city": "Baku",
+        "country": "Azerbaijan",
+        "lat": 40.467499,
+        "lon": 50.0467,
+        "name": "Baku, Azerbaijan",
+        "region": "Middle East"
+    },
+    "GYE": {
+        "cca2": "EC",
+        "city": "Guayaquil",
+        "country": "Ecuador",
+        "lat": -2.15742,
+        "lon": -79.883598,
+        "name": "Guayaquil, Ecuador",
+        "region": "South America"
+    },
+    "GYN": {
+        "cca2": "BR",
+        "city": "Goiania",
+        "country": "Brazil",
+        "lat": -16.632,
+        "lon": -49.220699,
+        "name": "Goiania, Brazil",
+        "region": "South America"
+    },
+    "HAK": {
+        "cca2": "CN",
+        "city": "Chengmai",
+        "country": "China",
+        "name": "Chengmai, China",
+        "region": "Asia"
+    },
+    "HAM": {
+        "cca2": "DE",
+        "city": "Hamburg",
+        "country": "Germany",
+        "lat": 53.630402,
+        "lon": 9.98823,
+        "name": "Hamburg, Germany",
+        "region": "Europe"
+    },
+    "HAN": {
+        "cca2": "VN",
+        "city": "Hanoi",
+        "country": "Vietnam",
+        "lat": 21.221201,
+        "lon": 105.806999,
+        "name": "Hanoi, Vietnam",
+        "region": "Asia Pacific"
+    },
+    "HBA": {
+        "cca2": "AU",
+        "city": "Hobart",
+        "country": "Australia",
+        "lat": -42.836102,
+        "lon": 147.509995,
+        "name": "Hobart, Australia",
+        "region": "Oceania"
+    },
+    "HEL": {
+        "cca2": "FI",
+        "city": "Helsinki",
+        "country": "Finland",
+        "lat": 60.3172,
+        "lon": 24.963301,
+        "name": "Helsinki, Finland",
+        "region": "Europe"
+    },
+    "HFA": {
+        "cca2": "IL",
+        "city": "Haifa",
+        "country": "Israel",
+        "lat": 32.809399,
+        "lon": 35.043098,
+        "name": "Haifa, Israel",
+        "region": "Middle East"
+    },
+    "HGH": {
+        "cca2": "CN",
+        "city": "Shaoxing",
+        "country": "China",
+        "name": "Shaoxing, China",
+        "region": "Asia"
+    },
+    "HKG": {
+        "cca2": "HK",
+        "city": "Hong Kong",
+        "lat": 22.308901,
+        "lon": 113.915001,
+        "name": "Hong Kong",
+        "region": "Asia Pacific"
+    },
+    "HNL": {
+        "cca2": "US",
+        "city": "Honolulu",
+        "country": "United States",
+        "lat": 21.318701,
+        "lon": -157.921997,
+        "name": "Honolulu, HI, United States",
+        "region": "North America"
+    },
+    "HRE": {
+        "cca2": "ZW",
+        "city": "Harare",
+        "country": "Zimbabwe",
+        "lat": -17.931801,
+        "lon": 31.0928,
+        "name": "Harare, Zimbabwe",
+        "region": "Africa"
+    },
+    "HYD": {
+        "cca2": "IN",
+        "city": "Hyderabad",
+        "country": "India",
+        "lat": 17.231318,
+        "lon": 78.429855,
+        "name": "Hyderabad, India",
+        "region": "Asia Pacific"
+    },
+    "HYN": {
+        "cca2": "CN",
+        "city": "Taizhou",
+        "country": "China",
+        "name": "Taizhou, China",
+        "region": "Asia"
+    },
+    "IAD": {
+        "cca2": "US",
+        "city": "Dulles",
+        "country": "United States",
+        "lat": 38.9445,
+        "lon": -77.455803,
+        "name": "Ashburn, VA, United States",
+        "region": "North America"
+    },
+    "IAH": {
+        "cca2": "US",
+        "city": "Houston",
+        "country": "United States",
+        "lat": 29.9844,
+        "lon": -95.3414,
+        "name": "Houston, TX, United States",
+        "region": "North America"
+    },
+    "ICN": {
+        "cca2": "KR",
+        "city": "Seoul",
+        "country": "South Korea",
+        "lat": 37.469101,
+        "lon": 126.450996,
+        "name": "Seoul, South Korea",
+        "region": "Asia Pacific"
+    },
+    "IND": {
+        "cca2": "US",
+        "city": "Indianapolis",
+        "country": "United States",
+        "lat": 39.7173,
+        "lon": -86.294403,
+        "name": "Indianapolis, IN, United States",
+        "region": "North America"
+    },
+    "ISB": {
+        "cca2": "PK",
+        "city": "Islamabad",
+        "country": "Pakistan",
+        "lat": 33.616699,
+        "lon": 73.099197,
+        "name": "Islamabad, Pakistan",
+        "region": "Asia Pacific"
+    },
+    "IST": {
+        "cca2": "TR",
+        "city": "Arnavutkoy",
+        "country": "Turkey",
+        "lat": 41.262222,
+        "lon": 28.727778,
+        "name": "Istanbul, Turkey",
+        "region": "Europe"
+    },
+    "ISU": {
+        "cca2": "IQ",
+        "city": "Sulaymaniyah",
+        "country": "Iraq",
+        "lat": 35.561749,
+        "lon": 45.316738,
+        "name": "Sulaymaniyah, Iraq",
+        "region": "Middle East"
+    },
+    "IXC": {
+        "cca2": "IN",
+        "city": "Chandigarh",
+        "country": "India",
+        "lat": 30.6735,
+        "lon": 76.788498,
+        "name": "Chandigarh, India",
+        "region": "Asia Pacific"
+    },
+    "JAX": {
+        "cca2": "US",
+        "city": "Jacksonville",
+        "country": "United States",
+        "lat": 30.494101,
+        "lon": -81.687897,
+        "name": "Jacksonville, FL, United States",
+        "region": "North America"
+    },
+    "JDO": {
+        "cca2": "BR",
+        "city": "Juazeiro Do Norte",
+        "country": "Brazil",
+        "lat": -7.21896,
+        "lon": -39.2701,
+        "name": "Juazeiro do Norte, Brazil",
+        "region": "South America"
+    },
+    "JED": {
+        "cca2": "SA",
+        "city": "Jeddah",
+        "country": "Saudi Arabia",
+        "lat": 21.6796,
+        "lon": 39.156502,
+        "name": "Jeddah, Saudi Arabia",
+        "region": "Middle East"
+    },
+    "JHB": {
+        "cca2": "MY",
+        "city": "Senai",
+        "country": "Malaysia",
+        "lat": 1.64131,
+        "lon": 103.669998,
+        "name": "Johor Bahru, Malaysia",
+        "region": "Asia Pacific"
+    },
+    "JIB": {
+        "cca2": "DJ",
+        "city": "Djibouti City",
+        "country": "Djibouti",
+        "lat": 11.5473,
+        "lon": 43.1595,
+        "name": "Djibouti, Djibouti",
+        "region": "Africa"
+    },
+    "JNB": {
+        "cca2": "ZA",
+        "city": "Johannesburg",
+        "country": "South Africa",
+        "lat": -26.133333,
+        "lon": 28.25,
+        "name": "Johannesburg, South Africa",
+        "region": "Africa"
+    },
+    "JOG": {
+        "cca2": "ID",
+        "city": "Yogyakarta-Java Island",
+        "country": "Indonesia",
+        "lat": -7.78818,
+        "lon": 110.431999,
+        "name": "Yogyakarta, Indonesia",
+        "region": "Asia Pacific"
+    },
+    "JOI": {
+        "cca2": "BR",
+        "city": "Joinville",
+        "country": "Brazil",
+        "lat": -26.224501,
+        "lon": -48.797401,
+        "name": "Joinville, Brazil",
+        "region": "South America"
+    },
+    "JXG": {
+        "cca2": "CN",
+        "city": "Jiaxing",
+        "country": "China",
+        "name": "Jiaxing, China",
+        "region": "Asia"
+    },
+    "KBP": {
+        "cca2": "UA",
+        "city": "Kiev",
+        "country": "Ukraine",
+        "lat": 50.345001,
+        "lon": 30.894699,
+        "name": "Kyiv, Ukraine",
+        "region": "Europe"
+    },
+    "KCH": {
+        "cca2": "MY",
+        "city": "Kuching",
+        "country": "Malaysia",
+        "lat": 1.4847,
+        "lon": 110.347,
+        "name": "Kuching, Malaysia",
+        "region": "Asia Pacific"
+    },
+    "KEF": {
+        "cca2": "IS",
+        "city": "Reykjavik",
+        "country": "Iceland",
+        "lat": 63.985001,
+        "lon": -22.6056,
+        "name": "Reykjavík, Iceland",
+        "region": "Europe"
+    },
+    "KGL": {
+        "cca2": "RW",
+        "city": "Kigali",
+        "country": "Rwanda",
+        "lat": -1.96863,
+        "lon": 30.1395,
+        "name": "Kigali, Rwanda",
+        "region": "Africa"
+    },
+    "KHH": {
+        "cca2": "TW",
+        "city": "Kaohsiung City",
+        "country": "Taiwan",
+        "lat": 22.577101,
+        "lon": 120.349998,
+        "name": "Kaohsiung City, Taiwan",
+        "region": "Asia Pacific"
+    },
+    "KHI": {
+        "cca2": "PK",
+        "city": "Karachi",
+        "country": "Pakistan",
+        "lat": 24.9065,
+        "lon": 67.160797,
+        "name": "Karachi, Pakistan",
+        "region": "Asia Pacific"
+    },
+    "KHN": {
+        "cca2": "CN",
+        "city": "Nanchang",
+        "country": "China",
+        "name": "Nanchang, China",
+        "region": "Asia"
+    },
+    "KIN": {
+        "cca2": "JM",
+        "city": "Kingston",
+        "country": "Jamaica",
+        "lat": 17.935699,
+        "lon": -76.787498,
+        "name": "Kingston, Jamaica",
+        "region": "North America"
+    },
+    "KIV": {
+        "cca2": "MD",
+        "city": "Chișinău",
+        "country": "Moldova",
+        "name": "Chișinău, Moldova",
+        "region": "Europe"
+    },
+    "KIX": {
+        "cca2": "JP",
+        "city": "Osaka",
+        "country": "Japan",
+        "lat": 34.427299,
+        "lon": 135.244003,
+        "name": "Osaka, Japan",
+        "region": "Asia Pacific"
+    },
+    "KJA": {
+        "cca2": "RU",
+        "city": "Krasnoyarsk",
+        "country": "Russia",
+        "lat": 56.172901,
+        "lon": 92.493301,
+        "name": "Krasnoyarsk, Russia",
+        "region": "Asia Pacific"
+    },
+    "KMG": {
+        "cca2": "CN",
+        "city": "Kunming",
+        "country": "China",
+        "name": "Kunming, China",
+        "region": "Asia"
+    },
+    "KNU": {
+        "cca2": "IN",
+        "city": "Kanpur",
+        "country": "India",
+        "lat": 26.399462,
+        "lon": 80.42695,
+        "name": "Kanpur, India",
+        "region": "Asia Pacific"
+    },
+    "KTM": {
+        "cca2": "NP",
+        "city": "Kathmandu",
+        "country": "Nepal",
+        "lat": 27.6966,
+        "lon": 85.3591,
+        "name": "Kathmandu, Nepal",
+        "region": "Asia Pacific"
+    },
+    "KUL": {
+        "cca2": "MY",
+        "city": "Kuala Lumpur",
+        "country": "Malaysia",
+        "lat": 2.74558,
+        "lon": 101.709999,
+        "name": "Kuala Lumpur, Malaysia",
+        "region": "Asia Pacific"
+    },
+    "KWE": {
+        "cca2": "CN",
+        "city": "Guiyang",
+        "country": "China",
+        "name": "Guiyang, China",
+        "region": "Asia"
+    },
+    "KWI": {
+        "cca2": "KW",
+        "city": "Kuwait City",
+        "country": "Kuwait",
+        "lat": 29.226601,
+        "lon": 47.968899,
+        "name": "Kuwait City, Kuwait",
+        "region": "Middle East"
+    },
+    "LAD": {
+        "cca2": "AO",
+        "city": "Luanda",
+        "country": "Angola",
+        "lat": -8.85837,
+        "lon": 13.2312,
+        "name": "Luanda, Angola",
+        "region": "Africa"
+    },
+    "LAS": {
+        "cca2": "US",
+        "city": "Las Vegas",
+        "country": "United States",
+        "lat": 36.080101,
+        "lon": -115.152,
+        "name": "Las Vegas, NV, United States",
+        "region": "North America"
+    },
+    "LAX": {
+        "cca2": "US",
+        "city": "Los Angeles",
+        "country": "United States",
+        "lat": 33.942501,
+        "lon": -118.407997,
+        "name": "Los Angeles, CA, United States",
+        "region": "North America"
+    },
+    "LCA": {
+        "cca2": "CY",
+        "city": "Larnarca",
+        "country": "Cyprus",
+        "lat": 34.875099,
+        "lon": 33.624901,
+        "name": "Nicosia, Cyprus",
+        "region": "Europe"
+    },
+    "LED": {
+        "cca2": "RU",
+        "city": "St. Petersburg",
+        "country": "Russia",
+        "lat": 59.800301,
+        "lon": 30.262501,
+        "name": "Saint Petersburg, Russia",
+        "region": "Europe"
+    },
+    "LHE": {
+        "cca2": "PK",
+        "city": "Lahore",
+        "country": "Pakistan",
+        "lat": 31.521601,
+        "lon": 74.403603,
+        "name": "Lahore, Pakistan",
+        "region": "Asia Pacific"
+    },
+    "LHR": {
+        "cca2": "GB",
+        "city": "London",
+        "country": "United Kingdom",
+        "lat": 51.4706,
+        "lon": -0.461941,
+        "name": "London, United Kingdom",
+        "region": "Europe"
+    },
+    "LIM": {
+        "cca2": "PE",
+        "city": "Lima",
+        "country": "Peru",
+        "lat": -12.0219,
+        "lon": -77.114304,
+        "name": "Lima, Peru",
+        "region": "South America"
+    },
+    "LIS": {
+        "cca2": "PT",
+        "city": "Lisbon",
+        "country": "Portugal",
+        "lat": 38.7813,
+        "lon": -9.13592,
+        "name": "Lisbon, Portugal",
+        "region": "Europe"
+    },
+    "LLK": {
+        "cca2": "AZ",
+        "city": "Lankaran",
+        "country": "Azerbaijan",
+        "lat": 38.746399,
+        "lon": 48.818001,
+        "name": "Astara, Azerbaijan",
+        "region": "Middle East"
+    },
+    "LLW": {
+        "cca2": "MW",
+        "city": "Lilongwe",
+        "country": "Malawi",
+        "lat": -13.7894,
+        "lon": 33.780998,
+        "name": "Lilongwe, Malawi",
+        "region": "Africa"
+    },
+    "LOS": {
+        "cca2": "NG",
+        "city": "Lagos",
+        "country": "Nigeria",
+        "lat": 6.57737,
+        "lon": 3.32116,
+        "name": "Lagos, Nigeria",
+        "region": "Africa"
+    },
+    "LPB": {
+        "cca2": "BO",
+        "city": "La Paz / El Alto",
+        "country": "Bolivia",
+        "lat": -16.5133,
+        "lon": -68.192299,
+        "name": "La Paz, Bolivia",
+        "region": "South America"
+    },
+    "LUN": {
+        "cca2": "ZM",
+        "city": "Lusaka",
+        "country": "Zambia",
+        "lat": -15.3308,
+        "lon": 28.4526,
+        "name": "Lusaka, Zambia",
+        "region": "Africa"
+    },
+    "LUX": {
+        "cca2": "LU",
+        "city": "Luxembourg",
+        "country": "Luxembourg",
+        "lat": 49.626598,
+        "lon": 6.21152,
+        "name": "Luxembourg City, Luxembourg",
+        "region": "Europe"
+    },
+    "LYS": {
+        "cca2": "FR",
+        "city": "Lyon",
+        "country": "France",
+        "lat": 45.726398,
+        "lon": 5.09083,
+        "name": "Lyon, France",
+        "region": "Europe"
+    },
+    "MAA": {
+        "cca2": "IN",
+        "city": "Chennai",
+        "country": "India",
+        "lat": 12.990005,
+        "lon": 80.169296,
+        "name": "Chennai, India",
+        "region": "Asia Pacific"
+    },
+    "MAD": {
+        "cca2": "ES",
+        "city": "Madrid",
+        "country": "Spain",
+        "lat": 40.4936,
+        "lon": -3.56676,
+        "name": "Madrid, Spain",
+        "region": "Europe"
+    },
+    "MAN": {
+        "cca2": "GB",
+        "city": "Manchester",
+        "country": "United Kingdom",
+        "lat": 53.353699,
+        "lon": -2.27495,
+        "name": "Manchester, United Kingdom",
+        "region": "Europe"
+    },
+    "MAO": {
+        "cca2": "BR",
+        "city": "Manaus",
+        "country": "Brazil",
+        "lat": -3.03861,
+        "lon": -60.049702,
+        "name": "Manaus, Brazil",
+        "region": "South America"
+    },
+    "MBA": {
+        "cca2": "KE",
+        "city": "Mombasa",
+        "country": "Kenya",
+        "lat": -4.03483,
+        "lon": 39.5942,
+        "name": "Mombasa, Kenya",
+        "region": "Africa"
+    },
+    "MCI": {
+        "cca2": "US",
+        "city": "Kansas City",
+        "country": "United States",
+        "lat": 39.2976,
+        "lon": -94.713898,
+        "name": "Kansas City, MO, United States",
+        "region": "North America"
+    },
+    "MCT": {
+        "cca2": "OM",
+        "city": "Muscat",
+        "country": "Oman",
+        "lat": 23.5933,
+        "lon": 58.284401,
+        "name": "Muscat, Oman",
+        "region": "Middle East"
+    },
+    "MDE": {
+        "cca2": "CO",
+        "city": "Rionegro",
+        "country": "Colombia",
+        "lat": 6.16454,
+        "lon": -75.4231,
+        "name": "Medellín, Colombia",
+        "region": "South America"
+    },
+    "MEL": {
+        "cca2": "AU",
+        "city": "Melbourne",
+        "country": "Australia",
+        "lat": -37.673302,
+        "lon": 144.843002,
+        "name": "Melbourne, VIC, Australia",
+        "region": "Oceania"
+    },
+    "MEM": {
+        "cca2": "US",
+        "city": "Memphis",
+        "country": "United States",
+        "lat": 35.0424,
+        "lon": -89.9767,
+        "name": "Memphis, TN, United States",
+        "region": "North America"
+    },
+    "MEX": {
+        "cca2": "MX",
+        "city": "Mexico City",
+        "country": "Mexico",
+        "lat": 19.4363,
+        "lon": -99.072098,
+        "name": "Mexico City, Mexico",
+        "region": "North America"
+    },
+    "MFM": {
+        "cca2": "MO",
+        "city": "Taipa",
+        "lat": 22.149599,
+        "lon": 113.592003,
+        "name": "Macau",
+        "region": "Asia Pacific"
+    },
+    "MIA": {
+        "cca2": "US",
+        "city": "Miami",
+        "country": "United States",
+        "lat": 25.7932,
+        "lon": -80.290604,
+        "name": "Miami, FL, United States",
+        "region": "North America"
+    },
+    "MLA": {
+        "cca2": "MT",
+        "city": "Luqa",
+        "country": "Malta",
+        "lat": 35.857498,
+        "lon": 14.4775,
+        "name": "Valletta, Malta",
+        "region": "Europe"
+    },
+    "MLE": {
+        "cca2": "MV",
+        "city": "Male",
+        "country": "Maldives",
+        "lat": 4.19183,
+        "lon": 73.529099,
+        "name": "Male, Maldives",
+        "region": "Asia Pacific"
+    },
+    "MLG": {
+        "cca2": "ID",
+        "city": "Malang-Java Island",
+        "country": "Indonesia",
+        "lat": -7.92656,
+        "lon": 112.714996,
+        "name": "Malang, Indonesia",
+        "region": "Asia Pacific"
+    },
+    "MNL": {
+        "cca2": "PH",
+        "city": "Manila",
+        "country": "Philippines",
+        "lat": 14.5086,
+        "lon": 121.019997,
+        "name": "Manila, Philippines",
+        "region": "Asia Pacific"
+    },
+    "MPM": {
+        "cca2": "MZ",
+        "city": "Maputo",
+        "country": "Mozambique",
+        "lat": -25.920799,
+        "lon": 32.572601,
+        "name": "Maputo, Mozambique",
+        "region": "Africa"
+    },
+    "MRS": {
+        "cca2": "FR",
+        "city": "Marseille",
+        "country": "France",
+        "lat": 43.439272,
+        "lon": 5.221424,
+        "name": "Marseille, France",
+        "region": "Europe"
+    },
+    "MRU": {
+        "cca2": "MU",
+        "city": "Port Louis",
+        "country": "Mauritius",
+        "lat": -20.430201,
+        "lon": 57.683601,
+        "name": "Port Louis, Mauritius",
+        "region": "Africa"
+    },
+    "MSP": {
+        "cca2": "US",
+        "city": "Minneapolis",
+        "country": "United States",
+        "lat": 44.882,
+        "lon": -93.221802,
+        "name": "Minneapolis, MN, United States",
+        "region": "North America"
+    },
+    "MSQ": {
+        "cca2": "BY",
+        "city": "Minsk",
+        "country": "Belarus",
+        "lat": 53.8825,
+        "lon": 28.030701,
+        "name": "Minsk, Belarus",
+        "region": "Europe"
+    },
+    "MUC": {
+        "cca2": "DE",
+        "city": "Munich",
+        "country": "Germany",
+        "lat": 48.353802,
+        "lon": 11.7861,
+        "name": "Munich, Germany",
+        "region": "Europe"
+    },
+    "MXP": {
+        "cca2": "IT",
+        "city": "Milan",
+        "country": "Italy",
+        "lat": 45.6306,
+        "lon": 8.72811,
+        "name": "Milan, Italy",
+        "region": "Europe"
+    },
+    "NAG": {
+        "cca2": "IN",
+        "city": "Naqpur",
+        "country": "India",
+        "lat": 21.092199,
+        "lon": 79.047203,
+        "name": "Nagpur, India",
+        "region": "Asia Pacific"
+    },
+    "NBO": {
+        "cca2": "KE",
+        "city": "Nairobi",
+        "country": "Kenya",
+        "lat": -1.31924,
+        "lon": 36.927799,
+        "name": "Nairobi, Kenya",
+        "region": "Africa"
+    },
+    "NJF": {
+        "cca2": "IQ",
+        "city": "Najaf",
+        "country": "Iraq",
+        "lat": 31.989722,
+        "lon": 44.404167,
+        "name": "Najaf, Iraq",
+        "region": "Middle East"
+    },
+    "NOU": {
+        "cca2": "NC",
+        "city": "Noumea",
+        "country": "New Caledonia",
+        "lat": -22.014601,
+        "lon": 166.212997,
+        "name": "Noumea, New Caledonia",
+        "region": "Oceania"
+    },
+    "NQN": {
+        "cca2": "AR",
+        "city": "Neuquen",
+        "country": "Argentina",
+        "lat": -38.949001,
+        "lon": -68.155701,
+        "name": "Neuquen, Argentina",
+        "region": "South America"
+    },
+    "NQZ": {
+        "cca2": "KZ",
+        "city": "Astana",
+        "country": "Kazakhstan",
+        "lat": 51.022202,
+        "lon": 71.466904,
+        "name": "Astana, Kazakhstan",
+        "region": "Europe"
+    },
+    "NRT": {
+        "cca2": "JP",
+        "city": "Tokyo",
+        "country": "Japan",
+        "lat": 35.764702,
+        "lon": 140.386002,
+        "name": "Tokyo, Japan",
+        "region": "Asia Pacific"
+    },
+    "NVT": {
+        "cca2": "BR",
+        "city": "Navegantes",
+        "country": "Brazil",
+        "lat": -26.879999,
+        "lon": -48.651402,
+        "name": "Timbo, Brazil",
+        "region": "South America"
+    },
+    "OKA": {
+        "cca2": "JP",
+        "city": "Naha",
+        "country": "Japan",
+        "lat": 26.195801,
+        "lon": 127.646004,
+        "name": "Naha, Japan",
+        "region": "Asia Pacific"
+    },
+    "OKC": {
+        "cca2": "US",
+        "city": "Oklahoma City",
+        "country": "United States",
+        "lat": 35.393101,
+        "lon": -97.6007,
+        "name": "Oklahoma City, OK, United States",
+        "region": "North America"
+    },
+    "OMA": {
+        "cca2": "US",
+        "city": "Omaha",
+        "country": "United States",
+        "lat": 41.3032,
+        "lon": -95.894096,
+        "name": "Omaha, NE, United States",
+        "region": "North America"
+    },
+    "ORD": {
+        "cca2": "US",
+        "city": "Chicago",
+        "country": "United States",
+        "lat": 41.9786,
+        "lon": -87.9048,
+        "name": "Chicago, IL, United States",
+        "region": "North America"
+    },
+    "ORF": {
+        "cca2": "US",
+        "city": "Norfolk",
+        "country": "United States",
+        "lat": 36.8946,
+        "lon": -76.201202,
+        "name": "Norfolk, VA, United States",
+        "region": "North America"
+    },
+    "ORN": {
+        "cca2": "DZ",
+        "city": "Oran",
+        "country": "Algeria",
+        "lat": 35.623901,
+        "lon": -0.621183,
+        "name": "Oran, Algeria",
+        "region": "Africa"
+    },
+    "OSL": {
+        "cca2": "NO",
+        "city": "Oslo",
+        "country": "Norway",
+        "lat": 60.193901,
+        "lon": 11.1004,
+        "name": "Oslo, Norway",
+        "region": "Europe"
+    },
+    "OTP": {
+        "cca2": "RO",
+        "city": "Bucharest",
+        "country": "Romania",
+        "lat": 44.572201,
+        "lon": 26.1022,
+        "name": "Bucharest, Romania",
+        "region": "Europe"
+    },
+    "OUA": {
+        "cca2": "BF",
+        "city": "Ouagadougou",
+        "country": "Burkina Faso",
+        "lat": 12.3532,
+        "lon": -1.51242,
+        "name": "Ouagadougou, Burkina Faso",
+        "region": "Africa"
+    },
+    "PAT": {
+        "cca2": "IN",
+        "city": "Patna",
+        "country": "India",
+        "lat": 25.591299,
+        "lon": 85.087997,
+        "name": "Patna, India",
+        "region": "Asia Pacific"
+    },
+    "PBH": {
+        "cca2": "BT",
+        "city": "Paro",
+        "country": "Bhutan",
+        "lat": 27.4032,
+        "lon": 89.424599,
+        "name": "Thimphu, Bhutan",
+        "region": "Asia Pacific"
+    },
+    "PBM": {
+        "cca2": "SR",
+        "city": "Zandery",
+        "country": "Suriname",
+        "lat": 5.45283,
+        "lon": -55.187801,
+        "name": "Paramaribo, Suriname",
+        "region": "South America"
+    },
+    "PDX": {
+        "cca2": "US",
+        "city": "Portland",
+        "country": "United States",
+        "lat": 45.588699,
+        "lon": -122.598,
+        "name": "Portland, OR, United States",
+        "region": "North America"
+    },
+    "PER": {
+        "cca2": "AU",
+        "city": "Perth",
+        "country": "Australia",
+        "lat": -31.9403,
+        "lon": 115.967003,
+        "name": "Perth, WA, Australia",
+        "region": "Oceania"
+    },
+    "PHL": {
+        "cca2": "US",
+        "city": "Philadelphia",
+        "country": "United States",
+        "lat": 39.871899,
+        "lon": -75.241096,
+        "name": "Philadelphia, United States",
+        "region": "North America"
+    },
+    "PHX": {
+        "cca2": "US",
+        "city": "Phoenix",
+        "country": "United States",
+        "lat": 33.434299,
+        "lon": -112.012001,
+        "name": "Phoenix, AZ, United States",
+        "region": "North America"
+    },
+    "PIT": {
+        "cca2": "US",
+        "city": "Pittsburgh",
+        "country": "United States",
+        "lat": 40.491501,
+        "lon": -80.232903,
+        "name": "Pittsburgh, PA, United States",
+        "region": "North America"
+    },
+    "PKX": {
+        "cca2": "CN",
+        "city": "Langfang",
+        "country": "China",
+        "name": "Langfang, China",
+        "region": "Asia"
+    },
+    "PMO": {
+        "cca2": "IT",
+        "city": "Palermo",
+        "country": "Italy",
+        "lat": 38.175999,
+        "lon": 13.091,
+        "name": "Palermo, Italy",
+        "region": "Europe"
+    },
+    "PMW": {
+        "cca2": "BR",
+        "city": "Palmas",
+        "country": "Brazil",
+        "lat": -10.2915,
+        "lon": -48.356998,
+        "name": "Palmas, Brazil",
+        "region": "South America"
+    },
+    "PNH": {
+        "cca2": "KH",
+        "city": "Phnom Penh",
+        "country": "Cambodia",
+        "lat": 11.5466,
+        "lon": 104.844002,
+        "name": "Phnom Penh, Cambodia",
+        "region": "Asia Pacific"
+    },
+    "POA": {
+        "cca2": "BR",
+        "city": "Porto Alegre",
+        "country": "Brazil",
+        "lat": -29.9944,
+        "lon": -51.171398,
+        "name": "Porto Alegre, Brazil",
+        "region": "South America"
+    },
+    "POS": {
+        "cca2": "TT",
+        "city": "Port of Spain",
+        "country": "Trinidad and Tobago",
+        "lat": 10.5954,
+        "lon": -61.3372,
+        "name": "Port of Spain, Trinidad and Tobago",
+        "region": "South America"
+    },
+    "PPT": {
+        "cca2": "PF",
+        "city": "Papeete",
+        "country": "French Polynesia",
+        "lat": -17.553699,
+        "lon": -149.606995,
+        "name": "Tahiti, French Polynesia",
+        "region": "Oceania"
+    },
+    "PRG": {
+        "cca2": "CZ",
+        "city": "Prague",
+        "country": "Czech Republic",
+        "lat": 50.1008,
+        "lon": 14.26,
+        "name": "Prague, Czech Republic",
+        "region": "Europe"
+    },
+    "PTY": {
+        "cca2": "PA",
+        "city": "Tocumen",
+        "country": "Panama",
+        "lat": 9.07136,
+        "lon": -79.383499,
+        "name": "Panama City, Panama",
+        "region": "South America"
+    },
+    "QRO": {
+        "cca2": "MX",
+        "city": "Queretaro",
+        "country": "Mexico",
+        "lat": 20.6173,
+        "lon": -100.185997,
+        "name": "Queretaro, MX, Mexico",
+        "region": "North America"
+    },
+    "QWJ": {
+        "cca2": "BR",
+        "city": "Americana",
+        "country": "Brazil",
+        "lat": -22.738,
+        "lon": -47.334,
+        "name": "Americana, Brazil",
+        "region": "South America"
+    },
+    "RAO": {
+        "cca2": "BR",
+        "city": "Ribeirao Preto",
+        "country": "Brazil",
+        "lat": -21.136389,
+        "lon": -47.776669,
+        "name": "Ribeirao Preto, Brazil",
+        "region": "South America"
+    },
+    "RDU": {
+        "cca2": "US",
+        "city": "Raleigh/Durham",
+        "country": "United States",
+        "lat": 35.877602,
+        "lon": -78.787498,
+        "name": "Durham, NC, United States",
+        "region": "North America"
+    },
+    "REC": {
+        "cca2": "BR",
+        "city": "Recife",
+        "country": "Brazil",
+        "lat": -8.12649,
+        "lon": -34.923599,
+        "name": "Recife, Brazil",
+        "region": "South America"
+    },
+    "RIC": {
+        "cca2": "US",
+        "city": "Richmond",
+        "country": "United States",
+        "lat": 37.505199,
+        "lon": -77.319702,
+        "name": "Richmond, VA, United States",
+        "region": "North America"
+    },
+    "RIX": {
+        "cca2": "LV",
+        "city": "Riga",
+        "country": "Latvia",
+        "lat": 56.923599,
+        "lon": 23.9711,
+        "name": "Riga, Latvia",
+        "region": "Europe"
+    },
+    "RUH": {
+        "cca2": "SA",
+        "city": "Riyadh",
+        "country": "Saudi Arabia",
+        "lat": 24.9576,
+        "lon": 46.698799,
+        "name": "Riyadh, Saudi Arabia",
+        "region": "Middle East"
+    },
+    "RUN": {
+        "cca2": "RE",
+        "city": "St Denis",
+        "country": "Réunion",
+        "lat": -20.8871,
+        "lon": 55.5103,
+        "name": "Saint-Denis, Réunion",
+        "region": "Africa"
+    },
+    "SAN": {
+        "cca2": "US",
+        "city": "San Diego",
+        "country": "United States",
+        "lat": 32.733601,
+        "lon": -117.190002,
+        "name": "San Diego, CA, United States",
+        "region": "North America"
+    },
+    "SAP": {
+        "cca2": "HN",
+        "city": "La Mesa",
+        "country": "Honduras",
+        "lat": 15.4526,
+        "lon": -87.923599,
+        "name": "San Pedro Sula, Honduras",
+        "region": "South America"
+    },
+    "SAT": {
+        "cca2": "US",
+        "city": "San Antonio",
+        "country": "United States",
+        "lat": 29.533701,
+        "lon": -98.469803,
+        "name": "San Antonio, TX, United States",
+        "region": "North America"
+    },
+    "SCL": {
+        "cca2": "CL",
+        "city": "Santiago",
+        "country": "Chile",
+        "lat": -33.393002,
+        "lon": -70.785797,
+        "name": "Santiago, Chile",
+        "region": "South America"
+    },
+    "SDQ": {
+        "cca2": "DO",
+        "city": "Santo Domingo",
+        "country": "Dominican Republic",
+        "lat": 18.429701,
+        "lon": -69.6689,
+        "name": "Santo Domingo, Dominican Republic",
+        "region": "North America"
+    },
+    "SEA": {
+        "cca2": "US",
+        "city": "Seattle",
+        "country": "United States",
+        "lat": 47.449001,
+        "lon": -122.308998,
+        "name": "Seattle, WA, United States",
+        "region": "North America"
+    },
+    "SFO": {
+        "cca2": "US",
+        "city": "San Francisco",
+        "country": "United States",
+        "lat": 37.618999,
+        "lon": -122.375,
+        "name": "San Francisco, CA, United States",
+        "region": "North America"
+    },
+    "SGN": {
+        "cca2": "VN",
+        "city": "Ho Chi Minh City",
+        "country": "Vietnam",
+        "lat": 10.8188,
+        "lon": 106.652,
+        "name": "Ho Chi Minh City, Vietnam",
+        "region": "Asia Pacific"
+    },
+    "SHA": {
+        "cca2": "CN",
+        "city": "Shanghai",
+        "country": "China",
+        "name": "Shanghai, China",
+        "region": "Asia"
+    },
+    "SIN": {
+        "cca2": "SG",
+        "city": "Singapore",
+        "country": "Singapore",
+        "lat": 1.35019,
+        "lon": 103.994003,
+        "name": "Singapore, Singapore",
+        "region": "Asia Pacific"
+    },
+    "SJC": {
+        "cca2": "US",
+        "city": "San Jose",
+        "country": "United States",
+        "lat": 37.362598,
+        "lon": -121.929001,
+        "name": "San Jose, CA, United States",
+        "region": "North America"
+    },
+    "SJK": {
+        "cca2": "BR",
+        "city": "Sao Jose Dos Campos",
+        "country": "Brazil",
+        "lat": -23.2292,
+        "lon": -45.8615,
+        "name": "São José dos Campos, Brazil",
+        "region": "South America"
+    },
+    "SJO": {
+        "cca2": "CR",
+        "city": "San Jose",
+        "country": "Costa Rica",
+        "lat": 9.99386,
+        "lon": -84.208801,
+        "name": "San José, Costa Rica",
+        "region": "South America"
+    },
+    "SJP": {
+        "cca2": "BR",
+        "city": "Sao Jose Do Rio Preto",
+        "country": "Brazil",
+        "lat": -20.816601,
+        "lon": -49.406502,
+        "name": "São José do Rio Preto, Brazil",
+        "region": "South America"
+    },
+    "SJU": {
+        "cca2": "PR",
+        "city": "San Juan",
+        "country": "Puerto Rico",
+        "lat": 18.4394,
+        "lon": -66.001801,
+        "name": "San Juan, Puerto Rico",
+        "region": "North America"
+    },
+    "SJW": {
+        "cca2": "CN",
+        "city": "Shijiazhuang",
+        "country": "China",
+        "name": "Shijiazhuang, China",
+        "region": "Asia"
+    },
+    "SKG": {
+        "cca2": "GR",
+        "city": "Thessaloniki",
+        "country": "Greece",
+        "lat": 40.519699,
+        "lon": 22.9709,
+        "name": "Thessaloniki, Greece",
+        "region": "Europe"
+    },
+    "SKP": {
+        "cca2": "MK",
+        "city": "Skopje",
+        "country": "North Macedonia",
+        "lat": 41.961601,
+        "lon": 21.621401,
+        "name": "Skopje, North Macedonia",
+        "region": "Europe"
+    },
+    "SLC": {
+        "cca2": "US",
+        "city": "Salt Lake City",
+        "country": "United States",
+        "lat": 40.788399,
+        "lon": -111.977997,
+        "name": "Salt Lake City, UT, United States",
+        "region": "North America"
+    },
+    "SMF": {
+        "cca2": "US",
+        "city": "Sacramento",
+        "country": "United States",
+        "lat": 38.6954,
+        "lon": -121.591003,
+        "name": "Sacramento, CA, United States",
+        "region": "North America"
+    },
+    "SOD": {
+        "cca2": "BR",
+        "city": "Sorocaba",
+        "country": "Brazil",
+        "lat": -23.478001,
+        "lon": -47.490002,
+        "name": "Sorocaba, Brazil",
+        "region": "South America"
+    },
+    "SOF": {
+        "cca2": "BG",
+        "city": "Sofia",
+        "country": "Bulgaria",
+        "lat": 42.696693,
+        "lon": 23.411436,
+        "name": "Sofia, Bulgaria",
+        "region": "Europe"
+    },
+    "SSA": {
+        "cca2": "BR",
+        "city": "Salvador",
+        "country": "Brazil",
+        "lat": -12.068355,
+        "lon": -45.711454,
+        "name": "Salvador, Brazil",
+        "region": "South America"
+    },
+    "STI": {
+        "cca2": "DO",
+        "city": "Santiago",
+        "country": "Dominican Republic",
+        "lat": 19.406099,
+        "lon": -70.604698,
+        "name": "Santiago de los Caballeros, Dominican Republic",
+        "region": "North America"
+    },
+    "STL": {
+        "cca2": "US",
+        "city": "St Louis",
+        "country": "United States",
+        "lat": 38.748699,
+        "lon": -90.370003,
+        "name": "St. Louis, MO, United States",
+        "region": "North America"
+    },
+    "STR": {
+        "cca2": "DE",
+        "city": "Stuttgart",
+        "country": "Germany",
+        "lat": 48.689899,
+        "lon": 9.22196,
+        "name": "Stuttgart, Germany",
+        "region": "Europe"
+    },
+    "SUV": {
+        "cca2": "FJ",
+        "city": "Nausori",
+        "country": "Fiji",
+        "lat": -18.043301,
+        "lon": 178.559006,
+        "name": "Suva, Fiji",
+        "region": "Oceania"
+    },
+    "SYD": {
+        "cca2": "AU",
+        "city": "Sydney",
+        "country": "Australia",
+        "lat": -33.946098,
+        "lon": 151.177002,
+        "name": "Sydney, NSW, Australia",
+        "region": "Oceania"
+    },
+    "SZX": {
+        "cca2": "CN",
+        "city": "Shenzhen",
+        "country": "China",
+        "name": "Shenzhen, China",
+        "region": "Asia"
+    },
+    "TAO": {
+        "cca2": "CN",
+        "city": "Qingdao",
+        "country": "China",
+        "name": "Qingdao, China",
+        "region": "Asia"
+    },
+    "TBS": {
+        "cca2": "GE",
+        "city": "Tbilisi",
+        "country": "Georgia",
+        "lat": 41.669201,
+        "lon": 44.9547,
+        "name": "Tbilisi, Georgia",
+        "region": "Europe"
+    },
+    "TEN": {
+        "cca2": "CN",
+        "city": "Tongren",
+        "country": "China",
+        "name": "Tongren, China",
+        "region": "Asia"
+    },
+    "TGU": {
+        "cca2": "HN",
+        "city": "Tegucigalpa",
+        "country": "Honduras",
+        "lat": 14.0609,
+        "lon": -87.217201,
+        "name": "Tegucigalpa, Honduras",
+        "region": "South America"
+    },
+    "TIA": {
+        "cca2": "AL",
+        "city": "Tirana",
+        "country": "Albania",
+        "lat": 41.4147,
+        "lon": 19.7206,
+        "name": "Tirana, Albania",
+        "region": "Europe"
+    },
+    "TLH": {
+        "cca2": "US",
+        "city": "Tallahassee",
+        "country": "United States",
+        "lat": 30.3965,
+        "lon": -84.350304,
+        "name": "Tallahassee, FL, United States",
+        "region": "North America"
+    },
+    "TLL": {
+        "cca2": "EE",
+        "city": "Tallinn",
+        "country": "Estonia",
+        "lat": 59.4133,
+        "lon": 24.8328,
+        "name": "Tallinn, Estonia",
+        "region": "Europe"
+    },
+    "TLV": {
+        "cca2": "IL",
+        "city": "Tel Aviv",
+        "country": "Israel",
+        "lat": 32.011398,
+        "lon": 34.8867,
+        "name": "Tel Aviv, Israel",
+        "region": "Middle East"
+    },
+    "TNA": {
+        "cca2": "CN",
+        "city": "Zibo",
+        "country": "China",
+        "name": "Zibo, China",
+        "region": "Asia"
+    },
+    "TNR": {
+        "cca2": "MG",
+        "city": "Antananarivo",
+        "country": "Madagascar",
+        "lat": -18.7969,
+        "lon": 47.478802,
+        "name": "Antananarivo, Madagascar",
+        "region": "Africa"
+    },
+    "TPA": {
+        "cca2": "US",
+        "city": "Tampa",
+        "country": "United States",
+        "lat": 27.9755,
+        "lon": -82.533203,
+        "name": "Tampa, FL, United States",
+        "region": "North America"
+    },
+    "TPE": {
+        "cca2": "TW",
+        "city": "Taipei",
+        "lat": 25.0777,
+        "lon": 121.233002,
+        "name": "Taipei",
+        "region": "Asia Pacific"
+    },
+    "TUN": {
+        "cca2": "TN",
+        "city": "Tunis",
+        "country": "Tunisia",
+        "lat": 36.851002,
+        "lon": 10.2272,
+        "name": "Tunis, Tunisia",
+        "region": "Africa"
+    },
+    "TXL": {
+        "cca2": "DE",
+        "city": "Berlin",
+        "country": "Germany",
+        "lat": 52.5597,
+        "lon": 13.2877,
+        "name": "Berlin, Germany",
+        "region": "Europe"
+    },
+    "TYN": {
+        "cca2": "CN",
+        "city": "Yangquan",
+        "country": "China",
+        "name": "Yangquan, China",
+        "region": "Asia"
+    },
+    "UDI": {
+        "cca2": "BR",
+        "city": "Uberlandia",
+        "country": "Brazil",
+        "lat": -18.883612,
+        "lon": -48.225277,
+        "name": "Uberlandia, Brazil",
+        "region": "South America"
+    },
+    "UIO": {
+        "cca2": "EC",
+        "city": "Quito",
+        "country": "Ecuador",
+        "lat": -0.129167,
+        "lon": -78.3575,
+        "name": "Quito, Ecuador",
+        "region": "South America"
+    },
+    "ULN": {
+        "cca2": "MN",
+        "city": "Ulan Bator",
+        "country": "Mongolia",
+        "lat": 47.843102,
+        "lon": 106.766998,
+        "name": "Ulaanbaatar, Mongolia",
+        "region": "Asia Pacific"
+    },
+    "URT": {
+        "cca2": "TH",
+        "city": "Surat Thani",
+        "country": "Thailand",
+        "lat": 9.1326,
+        "lon": 99.135597,
+        "name": "Surat Thani, Thailand",
+        "region": "Asia Pacific"
+    },
+    "VCP": {
+        "cca2": "BR",
+        "city": "Campinas",
+        "country": "Brazil",
+        "lat": -23.007401,
+        "lon": -47.134499,
+        "name": "Campinas, Brazil",
+        "region": "South America"
+    },
+    "VIE": {
+        "cca2": "AT",
+        "city": "Vienna",
+        "country": "Austria",
+        "lat": 48.110298,
+        "lon": 16.5697,
+        "name": "Vienna, Austria",
+        "region": "Europe"
+    },
+    "VIX": {
+        "cca2": "BR",
+        "city": "Vitoria",
+        "country": "Brazil",
+        "lat": -20.258057,
+        "lon": -40.286388,
+        "name": "Vitoria, Brazil",
+        "region": "South America"
+    },
+    "VNO": {
+        "cca2": "LT",
+        "city": "Vilnius",
+        "country": "Lithuania",
+        "lat": 54.634102,
+        "lon": 25.285801,
+        "name": "Vilnius, Lithuania",
+        "region": "Europe"
+    },
+    "VTE": {
+        "cca2": "LA",
+        "city": "Vientiane",
+        "country": "Laos",
+        "lat": 17.9883,
+        "lon": 102.563004,
+        "name": "Vientiane, Laos",
+        "region": "Asia Pacific"
+    },
+    "WAW": {
+        "cca2": "PL",
+        "city": "Warsaw",
+        "country": "Poland",
+        "lat": 52.165699,
+        "lon": 20.9671,
+        "name": "Warsaw, Poland",
+        "region": "Europe"
+    },
+    "WDH": {
+        "cca2": "NA",
+        "city": "Windhoek",
+        "country": "Namibia",
+        "lat": -22.4799,
+        "lon": 17.4709,
+        "name": "Windhoek, Namibia",
+        "region": "Africa"
+    },
+    "WRO": {
+        "cca2": "PL",
+        "city": "Wroclaw",
+        "country": "Poland",
+        "lat": 51.102699,
+        "lon": 16.885799,
+        "name": "Wroclaw, Poland",
+        "region": "Europe"
+    },
+    "XAP": {
+        "cca2": "BR",
+        "city": "Chapeco",
+        "country": "Brazil",
+        "lat": -27.134199,
+        "lon": -52.656601,
+        "name": "Chapeco, Brazil",
+        "region": "South America"
+    },
+    "XFN": {
+        "cca2": "CN",
+        "city": "Xiangyang",
+        "country": "China",
+        "name": "Xiangyang, China",
+        "region": "Asia"
+    },
+    "XIY": {
+        "cca2": "CN",
+        "city": "Baoji",
+        "country": "China",
+        "name": "Baoji, China",
+        "region": "Asia"
+    },
+    "XNH": {
+        "cca2": "IQ",
+        "city": "Nasiriyah",
+        "country": "Iraq",
+        "lat": 30.935801,
+        "lon": 46.090099,
+        "name": "Nasiriyah, Iraq",
+        "region": "Middle East"
+    },
+    "XNN": {
+        "cca2": "CN",
+        "city": "Xining",
+        "country": "China",
+        "name": "Xining, China",
+        "region": "Asia"
+    },
+    "YHZ": {
+        "cca2": "CA",
+        "city": "Halifax",
+        "country": "Canada",
+        "lat": 44.880798,
+        "lon": -63.508598,
+        "name": "Halifax, Canada",
+        "region": "North America"
+    },
+    "YOW": {
+        "cca2": "CA",
+        "city": "Ottawa",
+        "country": "Canada",
+        "lat": 45.322498,
+        "lon": -75.669197,
+        "name": "Ottawa, Canada",
+        "region": "North America"
+    },
+    "YUL": {
+        "cca2": "CA",
+        "city": "Montreal",
+        "country": "Canada",
+        "lat": 45.4706,
+        "lon": -73.740799,
+        "name": "Montréal, QC, Canada",
+        "region": "North America"
+    },
+    "YVR": {
+        "cca2": "CA",
+        "city": "Vancouver",
+        "country": "Canada",
+        "lat": 49.193901,
+        "lon": -123.183998,
+        "name": "Vancouver, BC, Canada",
+        "region": "North America"
+    },
+    "YWG": {
+        "cca2": "CA",
+        "city": "Winnipeg",
+        "country": "Canada",
+        "lat": 49.91,
+        "lon": -97.239899,
+        "name": "Winnipeg, MB, Canada",
+        "region": "North America"
+    },
+    "YXE": {
+        "cca2": "CA",
+        "city": "Saskatoon",
+        "country": "Canada",
+        "lat": 52.170799,
+        "lon": -106.699997,
+        "name": "Saskatoon, SK, Canada",
+        "region": "North America"
+    },
+    "YYC": {
+        "cca2": "CA",
+        "city": "Calgary",
+        "country": "Canada",
+        "lat": 51.113899,
+        "lon": -114.019997,
+        "name": "Calgary, AB, Canada",
+        "region": "North America"
+    },
+    "YYZ": {
+        "cca2": "CA",
+        "city": "Toronto",
+        "country": "Canada",
+        "lat": 43.6772,
+        "lon": -79.6306,
+        "name": "Toronto, ON, Canada",
+        "region": "North America"
+    },
+    "ZAG": {
+        "cca2": "HR",
+        "city": "Zagreb",
+        "country": "Croatia",
+        "lat": 45.742901,
+        "lon": 16.0688,
+        "name": "Zagreb, Croatia",
+        "region": "Europe"
+    },
+    "ZDM": {
+        "cca2": "PS",
+        "city": "Ramallah",
+        "lat": 32.2719,
+        "lon": 35.0194,
+        "name": "Ramallah",
+        "region": "Middle East"
+    },
+    "ZRH": {
+        "cca2": "CH",
+        "city": "Zurich",
+        "country": "Switzerland",
+        "lat": 47.464699,
+        "lon": 8.54917,
+        "name": "Zurich, Switzerland",
+        "region": "Europe"
+    }
+}

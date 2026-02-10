@@ -1,0 +1,978 @@
+@page "/wan-speedtest"
+@rendermode InteractiveServer
+@implements IDisposable
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Helpers
+@using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.UniFi
+@inject CloudflareSpeedTestService WanSpeedTestService
+@inject INetworkPathAnalyzer PathAnalyzer
+@inject UniFiConnectionService ConnectionService
+@inject IJSRuntime JS
+
+<PageTitle>WAN Speed Test - Network Optimizer</PageTitle>
+
+<div class="speedtest-container wan-speedtest">
+    <div class="page-header">
+        <h1>WAN Speed Test</h1>
+    </div>
+
+    @* Run Test Card *@
+    <div class="card">
+        <div class="card-body">
+            <div class="wan-test-controls">
+                <button class="btn btn-primary test-button wan-test-button"
+                        @onclick="RunTest"
+                        disabled="@_isRunning">
+                    @if (_isRunning)
+                    {
+                        <div class="test-progress">
+                            <div class="progress-bar" style="width: @(_progressPercent)%"></div>
+                        </div>
+                        <span class="test-phase">@_progressPhase...</span>
+                    }
+                    else
+                    {
+                        <span>Run WAN Speed Test</span>
+                    }
+                </button>
+                @if (!string.IsNullOrEmpty(_progressStatus))
+                {
+                    <div class="wan-progress-status">@_progressStatus</div>
+                }
+
+                <div class="wan-test-hint">
+                    @if (_hasMultipleWans)
+                    {
+                        <strong>Multiple WAN connections?</strong>
+                        <text>This test uses whichever WAN your gateway routes to speed.cloudflare.com.
+                        To test a specific WAN, create a Policy-Based Route in UniFi targeting speed.cloudflare.com through your desired interface.</text>
+                    }
+                    else
+                    {
+                        <text>Measures your internet connection speed using Cloudflare's global edge network with 6 concurrent connections.</text>
+                    }
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger">@_errorMessage</div>
+            }
+
+            @if (_metadata != null)
+            {
+                <div class="wan-metadata">
+                    <div class="metadata-item">
+                        <span class="metadata-label">Edge</span>
+                        <span class="metadata-value">@_metadata.Colo</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">Location</span>
+                        <span class="metadata-value">@_metadata.City, @_metadata.Country</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">IP</span>
+                        <span class="metadata-value">@_metadata.Ip</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Latest Result *@
+    @if (_latestResult != null && _latestResult.Success)
+    {
+        <div class="card" id="latest-result">
+            <div class="card-header">
+                <h2 class="card-title">Latest Result</h2>
+            </div>
+            <div class="card-body">
+                <SpeedTestDetails Result="_latestResult"
+                                  UseWanLabels="true"
+                                  OnNotesChanged="HandleNotesChanged" />
+            </div>
+        </div>
+    }
+
+    @* Speed History (chart + filters + table) *@
+    <div class="card" id="speed-history-card">
+        <div class="card-header history-card-header">
+            <div class="header-title-row">
+                <h2 class="card-title">Speed History</h2>
+                <div class="header-actions">
+                    <button class="btn btn-sm btn-secondary" @onclick="() => LoadHistory(true)" disabled="@_loadingHistory">
+                        @if (_loadingHistory)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (_testHistory.Count > 0)
+            {
+                @* Chart *@
+                <div class="wan-chart-container">
+                    <ApexChart @ref="_chart" TItem="WanChartDataPoint"
+                               Options="_chartOptions"
+                               Height="@("250px")"
+                               OnDataPointSelection="OnChartDataPointSelected">
+
+                        @foreach (var wan in _wanSeries)
+                        {
+                            <ApexPointSeries TItem="WanChartDataPoint"
+                                             Items="@(wan.IsVisible ? wan.DownloadData : _emptyChartData)"
+                                             Name="@($"{wan.DisplayName} ↓")"
+                                             SeriesType="SeriesType.Line"
+                                             XValue="e => e.Timestamp"
+                                             YValue="e => e.Value"
+                                             OrderBy="e => e.X" />
+                            <ApexPointSeries TItem="WanChartDataPoint"
+                                             Items="@(wan.IsVisible ? wan.UploadData : _emptyChartData)"
+                                             Name="@($"{wan.DisplayName} ↑")"
+                                             SeriesType="SeriesType.Line"
+                                             XValue="e => e.Timestamp"
+                                             YValue="e => e.Value"
+                                             OrderBy="e => e.X" />
+                        }
+                    </ApexChart>
+                </div>
+
+                @* Time Slider *@
+                <div class="wan-time-slider">
+                    <input type="range" min="0" max="10" step="1" @bind="_sliderValue" @bind:after="OnSliderChanged" />
+                    <span class="time-label">@GetTimeLabel()</span>
+                </div>
+
+                @* WAN Filter Badges *@
+                @if (_wanSeries.Count > 1)
+                {
+                    <div class="wan-filter-badges">
+                        @foreach (var wan in _wanSeries)
+                        {
+                            <button class="wan-filter-badge @(wan.IsVisible ? "active" : "inactive")"
+                                    @onclick="@(() => ToggleWanFilter(wan.Key))">
+                                <span class="wan-badge-dot" style="background-color: @wan.Color"></span>
+                                @wan.DisplayName
+                            </button>
+                        }
+                    </div>
+                }
+
+                @* History Table *@
+                <div class="table-responsive" id="history-table">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                @if (_wanSeries.Count > 1)
+                                {
+                                    <th>WAN</th>
+                                }
+                                <th>Edge</th>
+                                <th class="hide-mobile">
+                                    <span class="tooltip-wrapper tooltip-bottom">
+                                        ↓ Mbps
+                                        <span class="tooltip-icon">?</span>
+                                        <span class="tooltip-content">
+                                            <strong>Download</strong><br />
+                                            Data received from the internet.
+                                        </span>
+                                    </span>
+                                </th>
+                                <th class="hide-mobile">
+                                    <span class="tooltip-wrapper tooltip-bottom">
+                                        ↑ Mbps
+                                        <span class="tooltip-icon">?</span>
+                                        <span class="tooltip-content">
+                                            <strong>Upload</strong><br />
+                                            Data sent to the internet.
+                                        </span>
+                                    </span>
+                                </th>
+                                <th class="show-mobile">Mbps</th>
+                                <th class="hide-mobile">Latency</th>
+                                <th class="hide-mobile">Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var result in _pagedHistory)
+                            {
+                                var isExpanded = _expandedHistoryId == result.Id || _collapsingHistoryId == result.Id;
+                                var colSpan = _wanSeries.Count > 1 ? 9 : 8;
+                                <tr id="result-@result.Id"
+                                    class="@(result.Success ? "history-row-clickable" : "error-row") @(isExpanded ? "history-row-expanded" : "")"
+                                    @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
+                                    <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                    @if (_wanSeries.Count > 1)
+                                    {
+                                        <td>
+                                            @{
+                                                var wanKey = GetWanKey(result);
+                                                var wanInfo = _wanSeries.FirstOrDefault(w => w.Key == wanKey);
+                                            }
+                                            @if (wanInfo != null)
+                                            {
+                                                <span class="wan-badge-dot-inline" style="background-color: @wanInfo.Color"></span>
+                                            }
+                                            @GetWanDisplayName(result)
+                                        </td>
+                                    }
+                                    <td>@(result.DeviceName ?? "Cloudflare")</td>
+                                    <td class="hide-mobile">@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
+                                    <td class="hide-mobile">@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
+                                    <td class="show-mobile">
+                                        @if (result.Success)
+                                        {
+                                            <span>↓@result.DownloadMbps.ToString("F0") ↑@result.UploadMbps.ToString("F0")</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                    <td class="hide-mobile">
+                                        @if (result.PingMs.HasValue)
+                                        {
+                                            <span>@(result.PingMs.Value.ToString("F1")) ms</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                    <td class="hide-mobile">
+                                        @if (result.Success)
+                                        {
+                                            <span class="status-badge status-connected">OK</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="status-badge status-disconnected">Failed</span>
+                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@result.ErrorMessage">?</span>
+                                        }
+                                    </td>
+                                    <td class="expand-chevron">
+                                        @if (result.Success)
+                                        {
+                                            <span>@(isExpanded ? "▲" : "▼")</span>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (result.Success)
+                                {
+                                    <tr class="history-details-row">
+                                        <td colspan="@colSpan">
+                                            <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                                                <div class="expand-content">
+                                                    <div class="history-details">
+                                                        @{
+                                                            var pathAnalysis = _historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
+                                                        }
+                                                        <SpeedTestDetails Result="result"
+                                                                          PathAnalysis="pathAnalysis"
+                                                                          UseWanLabels="true"
+                                                                          OnDelete="HandleDeleteResult"
+                                                                          OnNotesChanged="HandleNotesChanged"
+                                                                          IsInTableRow="true" />
+
+                                                        @if (pathAnalysis == null && ConnectionService.IsConnected)
+                                                        {
+                                                            <div class="analyze-path-action">
+                                                                <button class="btn btn-sm btn-secondary"
+                                                                        @onclick="() => AnalyzeHistoricalPath(result)"
+                                                                        @onclick:stopPropagation="true"
+                                                                        disabled="@(_analyzingResultId == result.Id)">
+                                                                    @if (_analyzingResultId == result.Id)
+                                                                    {
+                                                                        <span>Analyzing...</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span>Analyze Path</span>
+                                                                    }
+                                                                </button>
+                                                                <span class="analyze-hint">Calculate network path and grade performance</span>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (_historyTotalPages > 1)
+                {
+                    <div class="pagination" id="wan-history-pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangePage(-1)">← Prev</button>
+                        <span class="pagination-info">
+                            Page @_historyPage of @_historyTotalPages (@_filteredHistory.Count total)
+                        </span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= _historyTotalPages)" @onclick="() => ChangePage(1)">Next →</button>
+                    </div>
+                }
+            }
+            else if (!_loadingHistory)
+            {
+                <div class="empty-state">
+                    <p>No WAN speed tests recorded yet.</p>
+                    <p class="form-help">Click "Run WAN Speed Test" above to measure your internet connection speed via Cloudflare.</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    // Test state
+    private bool _isRunning;
+    private string _progressPhase = "";
+    private int _progressPercent;
+    private string? _progressStatus;
+    private string? _errorMessage;
+    private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
+    private Iperf3Result? _latestResult;
+    private bool _hasMultipleWans;
+
+    // History state
+    private List<Iperf3Result> _testHistory = new();
+    private bool _loadingHistory;
+
+    // Filtered history - governed by time slider + WAN badges
+    private List<Iperf3Result> _filteredHistory = new();
+
+    private int _historyPage = 1;
+    private const int HistoryPageSize = 10;
+    private int _historyTotalPages => (int)Math.Ceiling(_filteredHistory.Count / (double)HistoryPageSize);
+    private IEnumerable<Iperf3Result> _pagedHistory => _filteredHistory.Skip((_historyPage - 1) * HistoryPageSize).Take(HistoryPageSize);
+
+    // Expand state
+    private int? _expandedHistoryId;
+    private int? _collapsingHistoryId;
+
+    // Path analysis state
+    private Dictionary<int, PathAnalysisResult?> _historyPathAnalysis = new();
+    private int? _analyzingResultId;
+
+    // Poll timer for tracking in-progress test state
+    private System.Threading.Timer? _pollTimer;
+
+    // Chart state
+    private ApexChart<WanChartDataPoint>? _chart;
+    private ApexChartOptions<WanChartDataPoint> _chartOptions = new();
+    private List<WanSeriesInfo> _wanSeries = new();
+    private List<WanChartDataPoint> _emptyChartData = new();
+
+    // Time slider
+    private int _sliderValue = 6; // Default to 30 days
+    private static readonly (int hours, string label)[] TimeBreakpoints = new[]
+    {
+        (1, "1 hr"),         // 0
+        (4, "4 hrs"),        // 1
+        (24, "24 hrs"),      // 2
+        (72, "3 days"),      // 3
+        (168, "1 week"),     // 4
+        (336, "2 weeks"),    // 5
+        (720, "30 days"),    // 6
+        (2160, "90 days"),   // 7
+        (4320, "6 months"),  // 8
+        (8760, "1 year"),    // 9
+        (0, "All time")      // 10
+    };
+
+    // WAN color palette
+    private static readonly string[] WanColors = new[]
+    {
+        "#2ba89a", // teal
+        "#a78bfa", // purple
+        "#3b82f6", // blue
+        "#ef5858", // red
+        "#f59e0b", // amber
+        "#10b981"  // emerald
+    };
+
+    private class WanChartDataPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal Value { get; set; }
+        public int ResultId { get; set; }
+        public long X => new DateTimeOffset(Timestamp).ToUnixTimeMilliseconds();
+
+        public WanChartDataPoint(DateTime timestamp, double value, int resultId)
+        {
+            Timestamp = timestamp;
+            Value = (decimal)value;
+            ResultId = resultId;
+        }
+    }
+
+    private class WanSeriesInfo
+    {
+        public string Key { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string Color { get; set; } = "";
+        public List<WanChartDataPoint> DownloadData { get; set; } = new();
+        public List<WanChartDataPoint> UploadData { get; set; } = new();
+        public bool IsVisible { get; set; } = true;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeChartOptions();
+        await LoadHistory(resetPage: true);
+        if (_testHistory.Count > 0)
+        {
+            _latestResult = _testHistory.FirstOrDefault(r => r.Success);
+        }
+
+        // If a test is already running (user navigated away and back), start polling
+        if (WanSpeedTestService.IsRunning)
+        {
+            _isRunning = true;
+            SyncProgressFromService();
+            StartPolling();
+        }
+
+        // Check if user has multiple WAN connections
+        if (ConnectionService.IsConnected)
+        {
+            try
+            {
+                var networks = await ConnectionService.GetNetworksAsync();
+                _hasMultipleWans = networks.Count(n => n.IsWan && n.Enabled) > 1;
+            }
+            catch { /* Non-critical */ }
+        }
+
+        // Subscribe to path analysis completion to refresh UI
+        WanSpeedTestService.OnPathAnalysisComplete += OnPathAnalysisComplete;
+    }
+
+    private void InitializeChartOptions()
+    {
+        _chartOptions = new ApexChartOptions<WanChartDataPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false },
+                RedrawOnParentResize = true,
+                RedrawOnWindowResize = true,
+                Animations = new Animations
+                {
+                    Enabled = true,
+                    Speed = 300,
+                    AnimateGradually = new AnimateGradually { Enabled = false }
+                }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    DatetimeFormatter = new DatetimeFormatter
+                    {
+                        Hour = "HH:mm",
+                        Day = "MMM dd",
+                        Month = "MMM"
+                    }
+                },
+                AxisBorder = new AxisBorder { Show = false },
+                AxisTicks = new AxisTicks { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = 0,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                        Formatter = @"function(val) { return val != null ? val.toFixed(0) + ' Mbps' : ''; }"
+                    }
+                }
+            },
+            Grid = new Grid
+            {
+                BorderColor = "#374151",
+                StrokeDashArray = 3
+            },
+            Stroke = new Stroke
+            {
+                Curve = Curve.Smooth,
+                Width = 2
+            },
+            Legend = new Legend { Show = false },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
+            },
+            Markers = new Markers
+            {
+                Size = 3,
+                Hover = new MarkersHover { SizeOffset = 3 }
+            }
+        };
+    }
+
+    private void UpdateChartOptions()
+    {
+        // Rebuild Colors and DashArray to match current series order (2 series per WAN: download + upload)
+        var colors = new List<string>();
+        var dashArray = new List<int>();
+        foreach (var wan in _wanSeries)
+        {
+            colors.Add(wan.Color);   // download
+            colors.Add(wan.Color);   // upload
+            dashArray.Add(0);        // download = solid
+            dashArray.Add(5);        // upload = dashed
+        }
+        _chartOptions.Colors = colors;
+        if (_chartOptions.Stroke != null)
+            _chartOptions.Stroke.DashArray = dashArray;
+    }
+
+    private void TransformChartData()
+    {
+        // Discover distinct WANs from ALL history (not just time-filtered)
+        var allWanKeys = _testHistory
+            .Where(r => r.Success)
+            .Select(r => GetWanKey(r))
+            .Distinct()
+            .OrderBy(k => k)
+            .ToList();
+
+        // Preserve visibility state from previous series
+        var previousVisibility = _wanSeries.ToDictionary(w => w.Key, w => w.IsVisible);
+
+        _wanSeries = allWanKeys.Select((key, i) => new WanSeriesInfo
+        {
+            Key = key,
+            DisplayName = GetWanDisplayNameForKey(key),
+            Color = WanColors[i % WanColors.Length],
+            IsVisible = previousVisibility.TryGetValue(key, out var visible) ? visible : true,
+            DownloadData = new(),
+            UploadData = new()
+        }).ToList();
+
+        // Ensure at least one WAN series exists for single-WAN users
+        if (_wanSeries.Count == 0 && _testHistory.Any(r => r.Success))
+        {
+            _wanSeries.Add(new WanSeriesInfo
+            {
+                Key = "WAN",
+                DisplayName = "WAN1",
+                Color = WanColors[0],
+                IsVisible = true,
+                DownloadData = new(),
+                UploadData = new()
+            });
+        }
+
+        UpdateChartOptions();
+    }
+
+    private List<Iperf3Result> GetTimeFilteredResults()
+    {
+        var clampedIndex = Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1);
+        var hours = TimeBreakpoints[clampedIndex].hours;
+        if (hours <= 0)
+            return _testHistory;
+
+        var cutoff = DateTime.UtcNow.AddHours(-hours);
+        return _testHistory.Where(r => r.TestTime >= cutoff).ToList();
+    }
+
+    private void ApplyFilters()
+    {
+        var timeFiltered = GetTimeFilteredResults();
+
+        // Apply WAN badge filter
+        var activeWanKeys = _wanSeries.Where(w => w.IsVisible).Select(w => w.Key).ToHashSet();
+        _filteredHistory = timeFiltered
+            .Where(r => activeWanKeys.Contains(GetWanKey(r)))
+            .ToList();
+
+        // Update chart data for the active time window
+        foreach (var wan in _wanSeries)
+        {
+            wan.DownloadData = timeFiltered
+                .Where(r => r.Success && GetWanKey(r) == wan.Key)
+                .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
+                .ToList();
+            wan.UploadData = timeFiltered
+                .Where(r => r.Success && GetWanKey(r) == wan.Key)
+                .Select(r => new WanChartDataPoint(r.TestTime, r.UploadMbps, r.Id))
+                .ToList();
+        }
+    }
+
+    private static string GetWanKey(Iperf3Result result)
+    {
+        // Group by interface + provider name so provider changes show as separate series
+        var group = !string.IsNullOrEmpty(result.WanNetworkGroup) ? result.WanNetworkGroup : "WAN";
+        var name = !string.IsNullOrEmpty(result.WanName) ? result.WanName : null;
+        return name != null ? $"{group}|{name}" : group;
+    }
+
+    private static string NormalizeWanDisplay(string value)
+    {
+        // "WAN" -> "WAN1" for display consistency
+        return string.Equals(value, "WAN", StringComparison.OrdinalIgnoreCase) ? "WAN1" : value;
+    }
+
+    private static string GetWanDisplayName(Iperf3Result result)
+    {
+        if (!string.IsNullOrEmpty(result.WanName))
+            return result.WanName;
+        if (!string.IsNullOrEmpty(result.WanNetworkGroup))
+            return NormalizeWanDisplay(result.WanNetworkGroup);
+        return "WAN1";
+    }
+
+    private static string GetWanDisplayNameForKey(string key)
+    {
+        // Key format is "GROUP|Name" or just "GROUP"
+        if (key.Contains('|'))
+            return key.Split('|')[1];
+        return NormalizeWanDisplay(key);
+    }
+
+    private string GetTimeLabel() => TimeBreakpoints[_sliderValue].label;
+
+    private async Task OnSliderChanged()
+    {
+        await LockCardHeight();
+        _historyPage = 1;
+        _expandedHistoryId = null;
+        ApplyFilters();
+        await RenderChartAsync();
+        await ReleaseCardHeight();
+    }
+
+    private async Task ToggleWanFilter(string wanKey)
+    {
+        var wan = _wanSeries.FirstOrDefault(w => w.Key == wanKey);
+        if (wan == null) return;
+
+        wan.IsVisible = !wan.IsVisible;
+
+        // Don't allow all to be hidden
+        if (!_wanSeries.Any(w => w.IsVisible))
+        {
+            wan.IsVisible = true;
+            return;
+        }
+
+        await LockCardHeight();
+        _historyPage = 1;
+        _expandedHistoryId = null;
+        ApplyFilters();
+        await RenderChartAsync();
+        await ReleaseCardHeight();
+    }
+
+    private async Task LockCardHeight()
+    {
+        // Pin the card's current height so the content area can't shrink during filter transition
+        await JS.InvokeVoidAsync("eval",
+            "var el = document.getElementById('speed-history-card'); if(el) el.style.minHeight = el.offsetHeight + 'px'");
+    }
+
+    private async Task ReleaseCardHeight()
+    {
+        StateHasChanged();
+        await Task.Delay(150);
+        await JS.InvokeVoidAsync("eval",
+            "var el = document.getElementById('speed-history-card'); if(el) el.style.minHeight = ''");
+    }
+
+    private async Task RenderChartAsync()
+    {
+        StateHasChanged();
+        try
+        {
+            if (_chart != null)
+                await _chart.RenderAsync();
+        }
+        catch { /* Chart may not be mounted yet */ }
+    }
+
+    private async Task OnChartDataPointSelected(SelectedData<WanChartDataPoint> data)
+    {
+        if (data?.DataPoint?.Items?.FirstOrDefault() is WanChartDataPoint point)
+        {
+            await ScrollToResult(point.ResultId);
+        }
+    }
+
+    private async Task ScrollToResult(int resultId)
+    {
+        // Find which page the result is on
+        var index = _filteredHistory.FindIndex(r => r.Id == resultId);
+        if (index >= 0)
+        {
+            var targetPage = (index / HistoryPageSize) + 1;
+            if (_historyPage != targetPage)
+            {
+                _historyPage = targetPage;
+            }
+        }
+
+        // Expand the result
+        _expandedHistoryId = resultId;
+        StateHasChanged();
+
+        // Give time for the DOM to update, then scroll
+        await Task.Delay(100);
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var el = document.getElementById('result-{resultId}');
+                if (el) {{
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                    el.style.transition = 'background-color 0.3s';
+                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.3)';
+                    setTimeout(function() {{ el.style.backgroundColor = ''; }}, 1500);
+                }}
+            }})();
+        ");
+    }
+
+    private async Task RunTest()
+    {
+        if (_isRunning) return;
+
+        _isRunning = true;
+        _errorMessage = null;
+        _metadata = null;
+        _progressPhase = "Starting";
+        _progressPercent = 0;
+        _progressStatus = null;
+        StateHasChanged();
+
+        StartPolling();
+
+        var result = await WanSpeedTestService.RunTestAsync(
+            progress =>
+            {
+                _progressPhase = progress.Phase;
+                _progressPercent = progress.Percent;
+                if (progress.Status != null)
+                    _progressStatus = progress.Status;
+                _metadata = WanSpeedTestService.LastMetadata;
+                InvokeAsync(StateHasChanged);
+            });
+
+        StopPolling();
+        _isRunning = false;
+
+        if (result != null)
+        {
+            if (result.Success)
+            {
+                _latestResult = result;
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Test failed";
+            }
+        }
+        else
+        {
+            _errorMessage = "Test was cancelled or could not start";
+        }
+
+        await LoadHistory(resetPage: true);
+        StateHasChanged();
+    }
+
+    private void StartPolling()
+    {
+        StopPolling();
+        _pollTimer = new System.Threading.Timer(async _ =>
+        {
+            if (!WanSpeedTestService.IsRunning)
+            {
+                StopPolling();
+                _isRunning = false;
+
+                var lastResult = WanSpeedTestService.LastCompletedResult;
+                if (lastResult != null)
+                    _latestResult = lastResult;
+
+                await InvokeAsync(async () =>
+                {
+                    await LoadHistory(resetPage: true);
+                    StateHasChanged();
+                });
+                return;
+            }
+
+            SyncProgressFromService();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
+    }
+
+    private void StopPolling()
+    {
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+    }
+
+    private void SyncProgressFromService()
+    {
+        var (phase, percent, status) = WanSpeedTestService.CurrentProgress;
+        _progressPhase = phase;
+        _progressPercent = percent;
+        if (status != null)
+            _progressStatus = status;
+        _metadata = WanSpeedTestService.LastMetadata;
+    }
+
+    private async Task LoadHistory(bool resetPage = false)
+    {
+        _loadingHistory = true;
+        if (resetPage)
+        {
+            _historyPage = 1;
+            _expandedHistoryId = null;
+        }
+
+        try
+        {
+            _testHistory = await WanSpeedTestService.GetResultsAsync(count: 0);
+            TransformChartData();
+            ApplyFilters();
+            await RenderChartAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load history: {ex.Message}";
+        }
+        finally
+        {
+            _loadingHistory = false;
+        }
+    }
+
+    private async Task ToggleHistoryExpand(int resultId)
+    {
+        if (_expandedHistoryId == resultId)
+        {
+            _expandedHistoryId = null;
+        }
+        else if (_expandedHistoryId.HasValue)
+        {
+            _collapsingHistoryId = _expandedHistoryId;
+            _expandedHistoryId = resultId;
+            StateHasChanged();
+
+            await Task.Delay(50);
+            _collapsingHistoryId = null;
+        }
+        else
+        {
+            _expandedHistoryId = resultId;
+        }
+    }
+
+    private void ChangePage(int delta)
+    {
+        _historyPage += delta;
+        _expandedHistoryId = null;
+    }
+
+    private async Task HandleDeleteResult(int resultId)
+    {
+        var deleted = await WanSpeedTestService.DeleteResultAsync(resultId);
+        if (deleted)
+        {
+            _testHistory.RemoveAll(r => r.Id == resultId);
+            TransformChartData();
+            ApplyFilters();
+            if (_latestResult?.Id == resultId)
+            {
+                _latestResult = _testHistory.FirstOrDefault(r => r.Success);
+            }
+            if (_expandedHistoryId == resultId)
+                _expandedHistoryId = null;
+            _historyPathAnalysis.Remove(resultId);
+            await RenderChartAsync();
+        }
+    }
+
+    private async Task HandleNotesChanged((int Id, string? Notes) args)
+    {
+        await WanSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
+    }
+
+    private async Task AnalyzeHistoricalPath(Iperf3Result result)
+    {
+        if (_analyzingResultId != null)
+            return;
+
+        _analyzingResultId = result.Id;
+        StateHasChanged();
+
+        try
+        {
+            var path = await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
+            var analysis = PathAnalyzer.AnalyzeSpeedTest(
+                path,
+                result.DownloadMbps,
+                result.UploadMbps,
+                result.DownloadRetransmits,
+                result.UploadRetransmits,
+                result.DownloadBytes,
+                result.UploadBytes);
+            _historyPathAnalysis[result.Id] = analysis;
+        }
+        catch
+        {
+            _historyPathAnalysis[result.Id] = null;
+        }
+        finally
+        {
+            _analyzingResultId = null;
+            StateHasChanged();
+        }
+    }
+
+    private void OnPathAnalysisComplete(int resultId)
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadHistory(resetPage: false);
+
+            if (_latestResult?.Id == resultId)
+            {
+                _latestResult = _testHistory.FirstOrDefault(r => r.Id == resultId) ?? _latestResult;
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        StopPolling();
+        WanSpeedTestService.OnPathAnalysisComplete -= OnPathAnalysisComplete;
+    }
+}
