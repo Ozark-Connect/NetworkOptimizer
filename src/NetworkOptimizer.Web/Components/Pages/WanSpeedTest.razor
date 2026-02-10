@@ -38,7 +38,7 @@
                         <span>Run WAN Speed Test</span>
                     }
                 </button>
-                @if (!string.IsNullOrEmpty(_progressStatus) && _isRunning)
+                @if (!string.IsNullOrEmpty(_progressStatus))
                 {
                     <div class="wan-progress-status">@_progressStatus</div>
                 }
@@ -435,7 +435,9 @@
         var (phase, percent, status) = WanSpeedTestService.CurrentProgress;
         _progressPhase = phase;
         _progressPercent = percent;
-        _progressStatus = status;
+        // Keep last non-null status (same guard as progress callback)
+        if (status != null)
+            _progressStatus = status;
         _metadata = WanSpeedTestService.LastMetadata;
     }
 
