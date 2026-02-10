@@ -1207,8 +1207,9 @@
 
             if (mapInitialized)
             {
-                // Fit bounds when activating a filter so filtered dots are visible
-                await UpdateMarkers(fitBounds: newFilter != null);
+                // Same logic as time slider: auto-fit unless user has manually zoomed
+                // (JS fallback will still fit if all filtered dots are off-screen)
+                await UpdateMarkers(fitBounds: !userHasZoomed);
                 await UpdateApGlow();
             }
             StateHasChanged();
