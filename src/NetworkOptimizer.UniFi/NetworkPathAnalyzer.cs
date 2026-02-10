@@ -1695,8 +1695,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         foreach (var hop in path.Hops)
         {
-            // Check ingress
-            if (hop.IngressSpeedMbps > 0)
+            // Check ingress - skip for WAN/VPN hops where Ingress represents download speed,
+            // not a physical port. The UI bottleneck check uses EgressSpeedMbps consistently
+            // (matching "to device" direction), so we only feed Egress into the min calculation
+            // for these hops. Directional efficiency handles download/upload separately.
+            var isExternalHop = hop.Type == HopType.Wan || hop.Type == HopType.Vpn ||
+                hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport;
+            if (hop.IngressSpeedMbps > 0 && !isExternalHop)
             {
                 allSpeeds.Add(hop.IngressSpeedMbps);
                 if (hop.IngressSpeedMbps > maxSpeed) maxSpeed = hop.IngressSpeedMbps;
