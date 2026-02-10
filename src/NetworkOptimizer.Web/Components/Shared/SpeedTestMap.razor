@@ -1189,7 +1189,7 @@
             selectedApMacFilter.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase);
         if (isFiltered)
         {
-            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"\")' class='map-popup-link'>Show all tests</a>";
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"\")' class='map-popup-link'>Clear filter</a>";
         }
         else if (testCount > 0)
         {
@@ -1252,6 +1252,7 @@
                 // Auto-fit only if it narrows the view (zooms in to show fewer dots)
                 // JS fallback will still fit if all filtered dots are off-screen
                 await UpdateMarkers(fitBounds: false, fitIfNarrowing: true);
+                await UpdateApMarkers(); // Rebuild popups with updated filter text
                 await UpdateApGlow();
             }
             StateHasChanged();
@@ -1264,6 +1265,7 @@
         if (mapInitialized)
         {
             await UpdateMarkers(fitBounds: false);
+            await UpdateApMarkers(); // Rebuild popups with updated filter text
             await UpdateApGlow();
 
             // Restore the view from before the filter was applied
