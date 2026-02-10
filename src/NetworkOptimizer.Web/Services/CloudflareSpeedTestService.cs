@@ -141,30 +141,30 @@ public partial class CloudflareSpeedTestService
             Report("Latency", 15, $"{latencyMs:F1} ms / {jitterMs:F1} ms jitter");
 
             // Phase 3: Download (15-55%) - concurrent connections
-            Report("Download", 16, "Testing download...");
+            Report("Testing download", 16, null);
             var (downloadBps, downloadBytes) = await MeasureThroughputAsync(
                 isUpload: false,
                 DownloadDuration,
                 DownloadBytesPerRequest,
-                pct => Report("Download", 15 + (int)(pct * 40), null),
+                pct => Report("Testing download", 15 + (int)(pct * 40), null),
                 cancellationToken);
             var downloadMbps = downloadBps / 1_000_000.0;
             _logger.LogInformation("Download: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers)",
                 downloadMbps, downloadBytes, Concurrency);
-            Report("Download", 55, $"{downloadMbps:F1} Mbps");
+            Report("Download complete", 55, $"{downloadMbps:F1} Mbps");
 
             // Phase 4: Upload (55-95%) - concurrent connections
-            Report("Upload", 56, "Testing upload...");
+            Report("Testing upload", 56, null);
             var (uploadBps, uploadBytes) = await MeasureThroughputAsync(
                 isUpload: true,
                 UploadDuration,
                 UploadBytesPerRequest,
-                pct => Report("Upload", 55 + (int)(pct * 40), null),
+                pct => Report("Testing upload", 55 + (int)(pct * 40), null),
                 cancellationToken);
             var uploadMbps = uploadBps / 1_000_000.0;
             _logger.LogInformation("Upload: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers)",
                 uploadMbps, uploadBytes, Concurrency);
-            Report("Upload", 95, $"{uploadMbps:F1} Mbps");
+            Report("Upload complete", 95, $"{uploadMbps:F1} Mbps");
 
             // Phase 5: Save result (95-100%)
             Report("Saving", 96, "Saving results...");
