@@ -7315,15 +7315,14 @@ a.path-hop.hop-clickable:hover {
     display: flex;
 }
 
-/* Hide left button when scrolled to start */
-.wifi-view-tabs-wrapper.at-start .wifi-tabs-scroll-left {
-    opacity: 0.3;
-    pointer-events: none;
+.wifi-view-tabs-wrapper.has-overflow .wifi-view-tabs {
+    padding-top: 0.5rem;
 }
 
-/* Hide right button when scrolled to end */
+/* Dim arrow when scrolled to start/end (border stays full opacity) */
+.wifi-view-tabs-wrapper.at-start .wifi-tabs-scroll-left,
 .wifi-view-tabs-wrapper.at-end .wifi-tabs-scroll-right {
-    opacity: 0.3;
+    color: transparent;
     pointer-events: none;
 }
 
