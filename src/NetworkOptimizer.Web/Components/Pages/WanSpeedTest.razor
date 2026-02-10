@@ -45,8 +45,12 @@
             </div>
 
             <div class="wan-test-hint">
-                <strong>Multiple WAN connections?</strong> This test uses whichever WAN your gateway routes to speed.cloudflare.com.
-                To test a specific WAN, create a Policy-Based Route in UniFi targeting speed.cloudflare.com through your desired interface.
+                @if (_hasMultipleWans)
+                {
+                    <strong>Multiple WAN connections?</strong>
+                    <text>This test uses whichever WAN your gateway routes to speed.cloudflare.com.
+                    To test a specific WAN, create a Policy-Based Route in UniFi targeting speed.cloudflare.com through your desired interface.</text>
+                }
             </div>
 
             @if (!string.IsNullOrEmpty(_errorMessage))
@@ -279,6 +283,7 @@
     private string? _errorMessage;
     private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
     private Iperf3Result? _latestResult;
+    private bool _hasMultipleWans;
 
     // History state
     private List<Iperf3Result> _testHistory = new();
@@ -319,6 +324,17 @@
             _isRunning = true;
             SyncProgressFromService();
             StartPolling();
+        }
+
+        // Check if user has multiple WAN connections
+        if (ConnectionService.IsConnected)
+        {
+            try
+            {
+                var networks = await ConnectionService.GetNetworksAsync();
+                _hasMultipleWans = networks.Count(n => n.IsWan) > 1;
+            }
+            catch { /* Non-critical */ }
         }
 
         // Subscribe to path analysis completion to refresh UI
