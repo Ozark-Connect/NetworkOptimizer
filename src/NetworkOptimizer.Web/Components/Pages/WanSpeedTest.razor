@@ -634,7 +634,10 @@
 
     private static string GetWanKey(Iperf3Result result)
     {
-        return !string.IsNullOrEmpty(result.WanNetworkGroup) ? result.WanNetworkGroup : "WAN";
+        // Group by interface + provider name so provider changes show as separate series
+        var group = !string.IsNullOrEmpty(result.WanNetworkGroup) ? result.WanNetworkGroup : "WAN";
+        var name = !string.IsNullOrEmpty(result.WanName) ? result.WanName : null;
+        return name != null ? $"{group}|{name}" : group;
     }
 
     private static string NormalizeWanDisplay(string value)
@@ -652,13 +655,12 @@
         return "WAN1";
     }
 
-    private string GetWanDisplayNameForKey(string key)
+    private static string GetWanDisplayNameForKey(string key)
     {
-        // Use the friendly name from the most recent result with this WAN key
-        var recentResult = _testHistory
-            .Where(r => r.Success && GetWanKey(r) == key && !string.IsNullOrEmpty(r.WanName))
-            .FirstOrDefault();
-        return recentResult?.WanName ?? NormalizeWanDisplay(key);
+        // Key format is "GROUP|Name" or just "GROUP"
+        if (key.Contains('|'))
+            return key.Split('|')[1];
+        return NormalizeWanDisplay(key);
     }
 
     private string GetTimeLabel() => TimeBreakpoints[_sliderValue].label;

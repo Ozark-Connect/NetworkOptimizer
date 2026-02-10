@@ -11594,7 +11594,7 @@ a.affected-client:hover {
 
 /* WAN Speed Chart */
 .wan-chart-container {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0;
 }
 
 .wan-time-slider {
@@ -11602,7 +11602,7 @@ a.affected-client:hover {
     align-items: center;
     justify-content: center;
     gap: 0.75rem;
-    padding: 0.5rem 0 1rem;
+    padding: 0 0 1rem;
 }
 
 .wan-time-slider input[type="range"] {
