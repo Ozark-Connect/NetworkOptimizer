@@ -234,7 +234,7 @@
         <!-- Channel Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -243,7 +243,7 @@
         <!-- Spectrum Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.SpectrumAnalysis />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.SpectrumAnalysis OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -252,7 +252,7 @@
         <!-- AP Load Balance -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -261,7 +261,7 @@
         <!-- Power & Coverage Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -288,7 +288,7 @@
         <!-- Environmental Correlation -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.EnvironmentalCorrelation />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.EnvironmentalCorrelation OnClientClick="HandleMapClientClick" />
             </div>
         </div>
     }
@@ -460,7 +460,7 @@
                 }
                 else
                 {
-                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" />
+                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" OnClientClick="HandleMapClientClick" />
                 }
             </div>
         </div>

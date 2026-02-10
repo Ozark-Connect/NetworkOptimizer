@@ -24,7 +24,14 @@
                         <div class="issue-entity">Affected:
                             @if (!string.IsNullOrEmpty(issue.AffectedClientMac))
                             {
-                                <a href="./wifi-optimizer?client=@issue.AffectedClientMac" class="issue-client-link">@issue.AffectedEntity</a>
+                                @if (OnClientClick.HasDelegate)
+                                {
+                                    <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(issue.AffectedClientMac)" class="issue-client-link">@issue.AffectedEntity</a>
+                                }
+                                else
+                                {
+                                    <a href="./wifi-optimizer?client=@issue.AffectedClientMac" class="issue-client-link">@issue.AffectedEntity</a>
+                                }
                             }
                             else
                             {
@@ -48,6 +55,9 @@
 
     [Parameter]
     public bool ShowDetails { get; set; } = false;
+
+    [Parameter]
+    public EventCallback<string> OnClientClick { get; set; }
 
     private static string GetSeverityClass(HealthIssueSeverity severity) => severity switch
     {

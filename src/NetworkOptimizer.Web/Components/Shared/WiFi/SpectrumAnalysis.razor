@@ -333,7 +333,7 @@
                     <h2 class="card-title">Recommendations</h2>
                 </div>
                 <div class="card-body">
-                    <IssuesList Issues="recommendations" />
+                    <IssuesList Issues="recommendations" OnClientClick="OnClientClick" />
                 </div>
             </div>
         }
@@ -871,6 +871,8 @@
 </style>
 
 @code {
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
     private List<ChannelScanResult> scanResults = new();
     private List<AccessPointSnapshot> accessPoints = new();
     private RegulatoryChannelData? regulatoryChannels;
