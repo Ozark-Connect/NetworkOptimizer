@@ -129,14 +129,14 @@
                         @foreach (var wan in _wanSeries)
                         {
                             <ApexPointSeries TItem="WanChartDataPoint"
-                                             Items="@(wan.IsVisible ? wan.DownloadData : _emptyChartData)"
+                                             Items="@(IsWanVisible(wan) ? wan.DownloadData : _emptyChartData)"
                                              Name="@($"{wan.DisplayName} ↓")"
                                              SeriesType="SeriesType.Line"
                                              XValue="e => e.Timestamp"
                                              YValue="e => e.Value"
                                              OrderBy="e => e.X" />
                             <ApexPointSeries TItem="WanChartDataPoint"
-                                             Items="@(wan.IsVisible ? wan.UploadData : _emptyChartData)"
+                                             Items="@(IsWanVisible(wan) ? wan.UploadData : _emptyChartData)"
                                              Name="@($"{wan.DisplayName} ↑")"
                                              SeriesType="SeriesType.Line"
                                              XValue="e => e.Timestamp"
@@ -158,7 +158,7 @@
                     <div class="wan-filter-badges">
                         @foreach (var wan in _wanSeries)
                         {
-                            <button class="wan-filter-badge @(wan.IsVisible ? "active" : "inactive")"
+                            <button class="wan-filter-badge @(IsWanVisible(wan) ? "active" : "inactive")"
                                     @onclick="@(() => ToggleWanFilter(wan.Key))">
                                 <span class="wan-badge-dot" style="background-color: @wan.Color"></span>
                                 @wan.DisplayName
@@ -427,8 +427,14 @@
         public string Color { get; set; } = "";
         public List<WanChartDataPoint> DownloadData { get; set; } = new();
         public List<WanChartDataPoint> UploadData { get; set; } = new();
-        public bool IsVisible { get; set; } = true;
+        public bool IsSelected { get; set; }
     }
+
+    // Show all when none selected (or all selected) - same pattern as WiFi Optimizer Metrics
+    private bool _wanNoneSelected => !_wanSeries.Any(w => w.IsSelected);
+    private bool _wanAllSelected => _wanSeries.All(w => w.IsSelected);
+    private bool _wanShowAll => _wanNoneSelected || _wanAllSelected;
+    private bool IsWanVisible(WanSeriesInfo wan) => _wanShowAll || wan.IsSelected;
 
     protected override async Task OnInitializedAsync()
     {
@@ -559,15 +565,15 @@
             .OrderBy(k => k)
             .ToList();
 
-        // Preserve visibility state from previous series
-        var previousVisibility = _wanSeries.ToDictionary(w => w.Key, w => w.IsVisible);
+        // Preserve selection state from previous series
+        var previousSelection = _wanSeries.ToDictionary(w => w.Key, w => w.IsSelected);
 
         _wanSeries = allWanKeys.Select((key, i) => new WanSeriesInfo
         {
             Key = key,
             DisplayName = GetWanDisplayNameForKey(key),
             Color = WanColors[i % WanColors.Length],
-            IsVisible = previousVisibility.TryGetValue(key, out var visible) ? visible : true,
+            IsSelected = previousSelection.TryGetValue(key, out var selected) && selected,
             DownloadData = new(),
             UploadData = new()
         }).ToList();
@@ -580,7 +586,6 @@
                 Key = "WAN",
                 DisplayName = "WAN1",
                 Color = WanColors[0],
-                IsVisible = true,
                 DownloadData = new(),
                 UploadData = new()
             });
@@ -604,10 +609,10 @@
     {
         var timeFiltered = GetTimeFilteredResults();
 
-        // Apply WAN badge filter
-        var activeWanKeys = _wanSeries.Where(w => w.IsVisible).Select(w => w.Key).ToHashSet();
+        // Apply WAN badge filter (none selected = show all)
+        var visibleWanKeys = _wanSeries.Where(w => IsWanVisible(w)).Select(w => w.Key).ToHashSet();
         _filteredHistory = timeFiltered
-            .Where(r => activeWanKeys.Contains(GetWanKey(r)))
+            .Where(r => visibleWanKeys.Contains(GetWanKey(r)))
             .ToList();
 
         // Update chart data for the active time window
@@ -672,14 +677,7 @@
         var wan = _wanSeries.FirstOrDefault(w => w.Key == wanKey);
         if (wan == null) return;
 
-        wan.IsVisible = !wan.IsVisible;
-
-        // Don't allow all to be hidden
-        if (!_wanSeries.Any(w => w.IsVisible))
-        {
-            wan.IsVisible = true;
-            return;
-        }
+        wan.IsSelected = !wan.IsSelected;
 
         await LockCardHeight();
         _historyPage = 1;
