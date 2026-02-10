@@ -222,6 +222,9 @@
                         });
                     };
                 }
+                if (el.hasAttribute('data-tooltip-follow')) {
+                    opts.followCursor = true;
+                }
                 tippy(el, opts);
             });
         }
@@ -268,6 +271,9 @@
                             link.addEventListener('click', function() { instance.unmount(); });
                         });
                     };
+                }
+                if (el.hasAttribute('data-tooltip-follow')) {
+                    opts.followCursor = true;
                 }
                 if (el._tippy) {
                     // Update existing tooltip if content changed

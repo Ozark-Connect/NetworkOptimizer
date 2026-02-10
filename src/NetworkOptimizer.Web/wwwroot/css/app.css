@@ -7527,6 +7527,14 @@ a.path-hop.hop-clickable:hover {
     stroke-linecap: round;
 }
 
+.topology-edge-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 12px;
+    stroke-linecap: round;
+    cursor: pointer;
+}
+
 .topology-edge.edge-excellent { stroke: var(--success-color); }
 .topology-edge.edge-good { stroke: #3b82f6; }
 .topology-edge.edge-fair { stroke: var(--warning-color); }

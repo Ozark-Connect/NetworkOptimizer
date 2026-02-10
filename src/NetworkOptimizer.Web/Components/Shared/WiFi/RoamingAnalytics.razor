@@ -89,12 +89,20 @@
                             var pos2 = GetNodePosition(edge.Endpoint2Mac);
                             var strokeClass = GetEdgeClass(edge.SuccessRate);
                             var strokeWidth = GetEdgeWidth(edge.TotalRoamAttempts);
+                            <!-- Visible line -->
                             <line x1="@pos1.Left" y1="@pos1.Top"
                                   x2="@pos2.Left" y2="@pos2.Top"
                                   class="topology-edge @strokeClass"
                                   stroke-width="@strokeWidth"
                                   vector-effect="non-scaling-stroke"
-                                  data-tooltip="@GetEdgeTooltip(edge)" />
+                                  pointer-events="none" />
+                            <!-- Wider invisible hit area for tooltip/click -->
+                            <line x1="@pos1.Left" y1="@pos1.Top"
+                                  x2="@pos2.Left" y2="@pos2.Top"
+                                  class="topology-edge-hit"
+                                  vector-effect="non-scaling-stroke"
+                                  data-tooltip="@GetEdgeTooltip(edge)"
+                                  data-tooltip-follow="true" />
                         }
                     </svg>
                 </div>
