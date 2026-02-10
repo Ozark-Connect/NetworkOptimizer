@@ -1188,18 +1188,28 @@
             if (string.Equals(selectedApMacFilter, newFilter, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            // Save current view before filtering so we can restore on clear
-            if (newFilter != null && selectedApMacFilter == null && mapInitialized)
+            if (newFilter != null && mapInitialized)
             {
-                await JS.InvokeVoidAsync("eval", $@"
-                    (function() {{
-                        var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
-                        if (md && md.map) {{
-                            md._preFilterBounds = md.map.getBounds();
-                            md._preFilterZoom = md.map.getZoom();
-                        }}
-                    }})();
-                ");
+                if (selectedApMacFilter == null)
+                {
+                    // No filter → filter: save current view for later restore
+                    await JS.InvokeVoidAsync("eval", $@"
+                        (function() {{
+                            var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                            if (md && md.map) md._preFilterBounds = md.map.getBounds();
+                        }})();
+                    ");
+                }
+                else
+                {
+                    // Switching APs: clear saved view (old context is stale)
+                    await JS.InvokeVoidAsync("eval", $@"
+                        (function() {{
+                            var md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                            if (md) md._preFilterBounds = null;
+                        }})();
+                    ");
+                }
             }
 
             selectedApMacFilter = newFilter;
