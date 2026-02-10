@@ -86,11 +86,11 @@ a:hover {
     color: var(--primary-hover);
 }
 
-.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out) {
+.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out):not(.leaflet-popup-close-button) {
     color: var(--primary-hover) !important;
 }
 
-.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out):hover {
+.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out):not(.leaflet-popup-close-button):hover {
     color: var(--accent-color) !important;
     text-decoration: underline;
 }
