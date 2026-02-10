@@ -87,11 +87,11 @@ a:hover {
 }
 
 .leaflet-container a {
-    color: var(--primary-hover);
+    color: var(--primary-hover) !important;
 }
 
 .leaflet-container a:hover {
-    color: var(--accent-color);
+    color: var(--accent-color) !important;
 }
 
 /* App Container Layout */
