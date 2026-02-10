@@ -11694,7 +11694,7 @@ a.affected-client:hover {
     vertical-align: middle;
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .wan-time-slider input[type="range"] {
         width: 200px;
         height: 8px;
