@@ -10420,6 +10420,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    gap: 0.5rem;
     margin-bottom: 0.5rem;
 }
 
