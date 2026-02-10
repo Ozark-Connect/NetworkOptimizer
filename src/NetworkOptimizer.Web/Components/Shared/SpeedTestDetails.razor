@@ -59,7 +59,7 @@
     {
         <span>Ping: @(PingMs.Value % 1 == 0 && PingMs.Value >= 10 ? PingMs.Value.ToString("F0") : PingMs.Value.ToString("F1")) ms</span>
     }
-    @if (JitterMs.HasValue && JitterMs.Value > 0)
+    @if (JitterMs.HasValue)
     {
         <span>Jitter: @(JitterMs.Value.ToString("F1")) ms</span>
     }
