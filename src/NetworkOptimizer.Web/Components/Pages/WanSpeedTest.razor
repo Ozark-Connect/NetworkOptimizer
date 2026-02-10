@@ -551,9 +551,6 @@
 
     private void TransformChartData()
     {
-        // Get time-filtered results for chart data
-        var timeFiltered = GetTimeFilteredResults();
-
         // Discover distinct WANs from ALL history (not just time-filtered)
         var allWanKeys = _testHistory
             .Where(r => r.Success)
@@ -571,14 +568,8 @@
             DisplayName = GetWanDisplayNameForKey(key),
             Color = WanColors[i % WanColors.Length],
             IsVisible = previousVisibility.TryGetValue(key, out var visible) ? visible : true,
-            DownloadData = timeFiltered
-                .Where(r => r.Success && GetWanKey(r) == key)
-                .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
-                .ToList(),
-            UploadData = timeFiltered
-                .Where(r => r.Success && GetWanKey(r) == key)
-                .Select(r => new WanChartDataPoint(r.TestTime, r.UploadMbps, r.Id))
-                .ToList()
+            DownloadData = new(),
+            UploadData = new()
         }).ToList();
 
         // Ensure at least one WAN series exists for single-WAN users
@@ -600,7 +591,8 @@
 
     private List<Iperf3Result> GetTimeFilteredResults()
     {
-        var hours = TimeBreakpoints[_sliderValue].hours;
+        var clampedIndex = Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1);
+        var hours = TimeBreakpoints[clampedIndex].hours;
         if (hours <= 0)
             return _testHistory;
 
