@@ -4,12 +4,11 @@
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
 @using NetworkOptimizer.Storage.Models
-@using Microsoft.EntityFrameworkCore
 @inject WiFiOptimizerService WiFiService
 @inject ClientSpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject ApMapService ApMapService
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -664,38 +663,7 @@
     {
         try
         {
-            using var db = await DbFactory.CreateDbContextAsync();
-            var savedLocations = await db.ApLocations.ToListAsync();
-            var locationsByMac = savedLocations.ToDictionary(l => l.ApMac.ToLowerInvariant(), l => l);
-
-            _apMapMarkers = _accessPoints.Select(ap =>
-            {
-                var mac = ap.Mac.ToLowerInvariant();
-                locationsByMac.TryGetValue(mac, out var savedLocation);
-
-                return new ApMapMarker
-                {
-                    Mac = ap.Mac,
-                    Name = ap.Name,
-                    Model = ap.Model,
-                    Latitude = savedLocation?.Latitude,
-                    Longitude = savedLocation?.Longitude,
-                    Floor = savedLocation?.Floor,
-                    IsOnline = ap.IsOnline,
-                    TotalClients = ap.TotalClients,
-                    Radios = ap.Radios.Select(r => new ApRadioSummary
-                    {
-                        Band = r.Band.ToDisplayString(),
-                        RadioCode = r.Band.ToUniFiCode(),
-                        Channel = r.Channel,
-                        ChannelWidth = r.ChannelWidth,
-                        TxPowerDbm = r.TxPower,
-                        Eirp = r.Eirp,
-                        Clients = r.ClientCount,
-                        Utilization = r.ChannelUtilization
-                    }).ToList()
-                };
-            }).ToList();
+            _apMapMarkers = await ApMapService.GetApMapMarkersAsync();
         }
         catch (Exception ex)
         {
@@ -707,30 +675,8 @@
     {
         try
         {
-            var normalizedMac = args.Mac.ToLowerInvariant();
+            await ApMapService.SaveApLocationAsync(args.Mac, args.Lat, args.Lng);
 
-            using var db = await DbFactory.CreateDbContextAsync();
-            var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
-            if (existing != null)
-            {
-                existing.Latitude = args.Lat;
-                existing.Longitude = args.Lng;
-                existing.UpdatedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                db.ApLocations.Add(new ApLocation
-                {
-                    ApMac = normalizedMac,
-                    Latitude = args.Lat,
-                    Longitude = args.Lng,
-                    Floor = 1,
-                    UpdatedAt = DateTime.UtcNow
-                });
-            }
-            await db.SaveChangesAsync();
-
-            // Update local state
             var marker = _apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
             if (marker != null)
             {
