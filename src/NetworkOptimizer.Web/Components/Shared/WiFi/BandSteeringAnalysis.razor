@@ -108,7 +108,7 @@
                             {
                                 <div class="steerable-client-row">
                                     <div class="client-info">
-                                        <span class="client-name">@client.Name</span>
+                                        <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@client.Name</a>
                                         <span class="client-meta">@client.Manufacturer - @client.WifiProtocol</span>
                                     </div>
                                     <div class="client-current-band">
@@ -138,7 +138,7 @@
                             {
                                 <div class="steerable-client-row">
                                     <div class="client-info">
-                                        <span class="client-name">@client.Name</span>
+                                        <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@client.Name</a>
                                         <span class="client-meta">@client.Manufacturer - @(client.WifiProtocol ?? "Unknown")</span>
                                     </div>
                                     <div class="client-current-band">
@@ -217,7 +217,7 @@
                     {
                         <div class="legacy-client-card">
                             <div class="legacy-client-info">
-                                <span class="client-name">@client.Name</span>
+                                <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@client.Name</a>
                                 <span class="client-manufacturer">@(client.Manufacturer ?? "Unknown")</span>
                             </div>
                             <div class="legacy-client-stats">

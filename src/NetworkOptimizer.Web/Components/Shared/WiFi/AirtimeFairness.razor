@@ -198,7 +198,7 @@
                     {
                         <div class="airtime-client-card @GetClientAirtimeClass(client)">
                             <div class="client-header">
-                                <span class="client-name">@client.Name</span>
+                                <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@client.Name</a>
                                 <span class="airtime-indicator">@GetAirtimeIndicator(client)</span>
                             </div>
                             <div class="client-details">
