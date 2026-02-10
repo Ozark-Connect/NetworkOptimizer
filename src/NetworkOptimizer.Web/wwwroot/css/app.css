@@ -3230,7 +3230,7 @@ select.form-control {
     color: var(--text-secondary);
     font-size: 0.875rem;
     padding-top: 1rem;
-    padding-right: 2rem;
+    padding-right: 1.5rem;
     border-top: 1px solid var(--border-color);
 }
 
