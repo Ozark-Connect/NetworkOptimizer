@@ -1193,7 +1193,8 @@
 
             if (mapInitialized)
             {
-                await UpdateMarkers(fitBounds: false);
+                // Fit bounds when activating a filter so filtered dots are visible
+                await UpdateMarkers(fitBounds: newFilter != null);
                 await UpdateApGlow();
             }
             StateHasChanged();
