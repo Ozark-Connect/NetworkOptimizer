@@ -11524,7 +11524,16 @@ a.affected-client:hover {
     align-items: center;
     gap: 1rem;
     flex-wrap: wrap;
-    padding: 1rem 0;
+    padding-top: 1rem;
+}
+
+.wan-speedtest .wan-test-hint {
+    margin-top: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.5;
 }
 
 .wan-speedtest .wan-test-button {
