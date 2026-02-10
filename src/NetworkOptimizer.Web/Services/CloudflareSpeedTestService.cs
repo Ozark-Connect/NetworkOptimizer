@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Runtime;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -526,7 +527,8 @@ public partial class CloudflareSpeedTestService
                         if (isUpload)
                         {
                             var url = $"{BaseUrl}/{UploadPath}";
-                            using var content = new ByteArrayContent(uploadPayload!);
+                            using var content = new ProgressContent(uploadPayload!, bytesWritten =>
+                                Interlocked.Add(ref totalBytes, bytesWritten));
                             using var uploadResponse = await workerClient.PostAsync(url, content, linked.Token);
                             Interlocked.Increment(ref requestCount);
                             if (!uploadResponse.IsSuccessStatusCode)
@@ -537,7 +539,6 @@ public partial class CloudflareSpeedTestService
                                 await Task.Delay(100, linked.Token); // Backoff on error
                                 continue;
                             }
-                            Interlocked.Add(ref totalBytes, bytesPerRequest);
                         }
                         else
                         {
@@ -721,6 +722,34 @@ public partial class CloudflareSpeedTestService
     /// <summary>
     /// Background path analysis after test completes.
     /// </summary>
+    /// <summary>
+    /// HttpContent that writes data in chunks and reports bytes as they're written to the stream,
+    /// matching the incremental counting used for downloads. Without this, upload bytes get credited
+    /// all at once when the POST response returns, creating spiky throughput samples.
+    /// </summary>
+    private sealed class ProgressContent(byte[] data, Action<int> onBytesWritten) : HttpContent
+    {
+        private const int ChunkSize = 65536; // 64 KB chunks
+
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            var offset = 0;
+            while (offset < data.Length)
+            {
+                var count = Math.Min(ChunkSize, data.Length - offset);
+                await stream.WriteAsync(data.AsMemory(offset, count));
+                onBytesWritten(count);
+                offset += count;
+            }
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = data.Length;
+            return true;
+        }
+    }
+
     private async Task AnalyzePathInBackgroundAsync(int resultId, string? wanIp = null)
     {
         try
