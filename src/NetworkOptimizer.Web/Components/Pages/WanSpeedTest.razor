@@ -158,7 +158,7 @@
                     <div class="wan-filter-badges">
                         @foreach (var wan in _wanSeries)
                         {
-                            <button class="wan-filter-badge @(IsWanVisible(wan) ? "active" : "inactive")"
+                            <button class="wan-filter-badge @(wan.IsSelected ? "active" : "inactive")"
                                     @onclick="@(() => ToggleWanFilter(wan.Key))">
                                 <span class="wan-badge-dot" style="background-color: @wan.Color"></span>
                                 @wan.DisplayName
