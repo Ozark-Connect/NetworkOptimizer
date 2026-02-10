@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage;
@@ -24,7 +25,7 @@ public partial class CloudflareSpeedTestService
     private static readonly TimeSpan DownloadDuration = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan UploadDuration = TimeSpan.FromSeconds(10);
     private const int DownloadBytesPerRequest = 25_000_000; // 25 MB per request
-    private const int UploadBytesPerRequest = 10_000_000;   // 10 MB per request
+    private const int UploadBytesPerRequest = 1_000_000;    // 1 MB per request (small so many complete per duration)
 
     private readonly ILogger<CloudflareSpeedTestService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -308,21 +309,68 @@ public partial class CloudflareSpeedTestService
 
     private static async Task<CloudflareMetadata> FetchMetadataAsync(HttpClient client, CancellationToken ct)
     {
-        var url = $"{BaseUrl}/{DownloadPath}0";
+        // Use /cdn-cgi/trace which reliably returns key=value metadata
+        // (cf-meta-* headers are no longer consistently populated)
+        var url = $"{BaseUrl}/cdn-cgi/trace";
         var response = await client.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eqIdx = line.IndexOf('=');
+            if (eqIdx > 0)
+                data[line[..eqIdx].Trim()] = line[(eqIdx + 1)..].Trim();
+        }
+
+        var colo = data.GetValueOrDefault("colo") ?? "";
+        var city = ColoToCityName(colo);
+        var country = data.GetValueOrDefault("loc") ?? "";
 
         return new CloudflareMetadata(
-            Ip: GetHeader(response, "cf-meta-ip"),
-            City: GetHeader(response, "cf-meta-city"),
-            Country: GetHeader(response, "cf-meta-country"),
-            Asn: GetHeader(response, "cf-meta-asn"),
-            Colo: GetHeader(response, "cf-meta-colo"));
+            Ip: data.GetValueOrDefault("ip") ?? "",
+            City: city,
+            Country: country,
+            Asn: "", // Not available from trace endpoint
+            Colo: colo);
+    }
 
-        static string GetHeader(HttpResponseMessage resp, string name) =>
-            resp.Headers.TryGetValues(name, out var values)
-                ? values.FirstOrDefault() ?? ""
-                : "";
+    // Lazy-loaded IATA colo code → city name lookup from bundled JSON
+    private static Dictionary<string, string>? _coloLookup;
+    private static readonly object _coloLock = new();
+
+    private static string ColoToCityName(string colo)
+    {
+        if (string.IsNullOrEmpty(colo)) return "";
+
+        lock (_coloLock)
+        {
+            if (_coloLookup == null)
+            {
+                _coloLookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    // Load from bundled wwwroot file (deployed as embedded content)
+                    var path = Path.Combine(AppContext.BaseDirectory, "wwwroot", "data", "cloudflare-colos.json");
+                    if (File.Exists(path))
+                    {
+                        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+                        foreach (var prop in doc.RootElement.EnumerateObject())
+                        {
+                            if (prop.Value.TryGetProperty("city", out var city))
+                                _coloLookup[prop.Name] = city.GetString() ?? prop.Name;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Graceful fallback - just show the colo code
+                }
+            }
+        }
+
+        return _coloLookup.TryGetValue(colo, out var cityName) ? cityName : colo;
     }
 
     /// <summary>
@@ -409,10 +457,18 @@ public partial class CloudflareSpeedTestService
                         }
                         else
                         {
+                            // Stream download to count bytes incrementally as they arrive,
+                            // not after the full response completes (which may exceed duration)
                             var url = $"{BaseUrl}/{DownloadPath}{bytesPerRequest}";
-                            var response = await workerClient.GetAsync(url, linked.Token);
-                            var body = await response.Content.ReadAsByteArrayAsync(linked.Token);
-                            Interlocked.Add(ref totalBytes, body.Length);
+                            using var response = await workerClient.GetAsync(url,
+                                HttpCompletionOption.ResponseHeadersRead, linked.Token);
+                            await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
+                            var buffer = new byte[81920]; // 80 KB read buffer
+                            int bytesRead;
+                            while ((bytesRead = await stream.ReadAsync(buffer, linked.Token)) > 0)
+                            {
+                                Interlocked.Add(ref totalBytes, bytesRead);
+                            }
                         }
                     }
                     catch (OperationCanceledException)
