@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -160,6 +161,10 @@ public partial class CloudflareSpeedTestService
                 downloadMbps, downloadBytes, Concurrency, dlLatencyMs);
             Report("Download complete", 55, $"{downloadMbps:F1} Mbps");
 
+            // Reclaim download phase memory before starting upload
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+
             // Phase 4: Upload (55-95%) - concurrent connections + latency probes
             Report("Testing upload", 56, null);
             var (uploadBps, uploadBytes, ulLatencyMs, ulJitterMs) = await MeasureThroughputAsync(
@@ -215,6 +220,11 @@ public partial class CloudflareSpeedTestService
 
             Report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
             lock (_lock) _lastCompletedResult = result;
+
+            // Reclaim upload phase memory and return to OS
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 
             // Trigger background path analysis
             _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId), CancellationToken.None);
@@ -495,15 +505,18 @@ public partial class CloudflareSpeedTestService
 
         var direction = isUpload ? "upload" : "download";
 
+        // Single HttpClient shared across all workers (HttpClient is thread-safe)
+        // Reduces connection pool overhead and internal buffer duplication vs one-per-worker
+        using var sharedClient = _httpClientFactory.CreateClient();
+        sharedClient.Timeout = TimeSpan.FromSeconds(60);
+        sharedClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+
         // Launch concurrent workers
         var tasks = new Task[Concurrency];
         for (int w = 0; w < Concurrency; w++)
         {
             tasks[w] = Task.Run(async () =>
             {
-                using var workerClient = _httpClientFactory.CreateClient();
-                workerClient.Timeout = TimeSpan.FromSeconds(60);
-                workerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
                 var readBuffer = isUpload ? null : new byte[81920]; // One 80KB buffer per worker
                 var workerChunkSize = bytesPerRequest; // Per-worker adaptive chunk size (halved on 429)
 
@@ -515,7 +528,7 @@ public partial class CloudflareSpeedTestService
                         {
                             var url = $"{BaseUrl}/{UploadPath}";
                             using var content = new ByteArrayContent(uploadPayload!);
-                            using var uploadResponse = await workerClient.PostAsync(url, content, linked.Token);
+                            using var uploadResponse = await sharedClient.PostAsync(url, content, linked.Token);
                             Interlocked.Increment(ref requestCount);
                             if (!uploadResponse.IsSuccessStatusCode)
                             {
@@ -532,7 +545,7 @@ public partial class CloudflareSpeedTestService
                             // Stream download to count bytes incrementally as they arrive,
                             // not after the full response completes (which may exceed duration)
                             var url = $"{BaseUrl}/{DownloadPath}{workerChunkSize}";
-                            using var response = await workerClient.GetAsync(url,
+                            using var response = await sharedClient.GetAsync(url,
                                 HttpCompletionOption.ResponseHeadersRead, linked.Token);
                             Interlocked.Increment(ref requestCount);
                             if (!response.IsSuccessStatusCode)
