@@ -86,11 +86,11 @@ a:hover {
     color: var(--primary-hover);
 }
 
-.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out):not(.leaflet-popup-close-button) {
+a.map-popup-link {
     color: var(--primary-hover) !important;
 }
 
-.leaflet-container a:not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out):not(.leaflet-popup-close-button):hover {
+a.map-popup-link:hover {
     color: var(--accent-color) !important;
     text-decoration: underline;
 }
