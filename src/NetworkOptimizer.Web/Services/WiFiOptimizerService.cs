@@ -282,45 +282,90 @@ public class WiFiOptimizerService
         {
             var provider = CreateProvider();
 
-            // Fetch data in parallel
+            // Fetch data in parallel - use Task.WhenAll to start all tasks,
+            // but handle individual failures so one bad task doesn't block everything
             var apsTask = provider.GetAccessPointsAsync();
             var clientsTask = provider.GetWirelessClientsAsync();
             var roamingTask = provider.GetRoamingTopologyAsync();
             var wlanTask = provider.GetWlanConfigurationsAsync();
             var networkTask = _connectionService.Client.GetNetworkConfigsAsync();
 
-            await Task.WhenAll(apsTask, clientsTask, roamingTask, wlanTask, networkTask);
+            // Wait for all tasks, even if some fail
+            await Task.WhenAll(
+                apsTask.ContinueWith(_ => { }, TaskContinuationOptions.ExecuteSynchronously),
+                clientsTask.ContinueWith(_ => { }, TaskContinuationOptions.ExecuteSynchronously),
+                roamingTask.ContinueWith(_ => { }, TaskContinuationOptions.ExecuteSynchronously),
+                wlanTask.ContinueWith(_ => { }, TaskContinuationOptions.ExecuteSynchronously),
+                networkTask.ContinueWith(_ => { }, TaskContinuationOptions.ExecuteSynchronously));
 
-            // Sort APs by IP address for consistent display across all components
-            _cachedAps = WiFiAnalysisHelpers.SortByIp(await apsTask);
-            _cachedClients = await clientsTask;
-            _cachedRoamingData = await roamingTask;
-            _cachedWlanConfigs = await wlanTask;
+            // Extract results, logging failures individually
+            if (apsTask.IsCompletedSuccessfully)
+            {
+                _cachedAps = WiFiAnalysisHelpers.SortByIp(apsTask.Result);
+            }
+            else if (apsTask.IsFaulted)
+            {
+                _logger.LogError(apsTask.Exception?.InnerException, "Failed to fetch access points");
+            }
+
+            if (clientsTask.IsCompletedSuccessfully)
+            {
+                _cachedClients = clientsTask.Result;
+            }
+            else if (clientsTask.IsFaulted)
+            {
+                _logger.LogError(clientsTask.Exception?.InnerException, "Failed to fetch wireless clients");
+            }
+
+            if (roamingTask.IsCompletedSuccessfully)
+            {
+                _cachedRoamingData = roamingTask.Result;
+            }
+            else if (roamingTask.IsFaulted)
+            {
+                _logger.LogWarning(roamingTask.Exception?.InnerException, "Failed to fetch roaming topology");
+            }
+
+            if (wlanTask.IsCompletedSuccessfully)
+            {
+                _cachedWlanConfigs = wlanTask.Result;
+            }
+            else if (wlanTask.IsFaulted)
+            {
+                _logger.LogWarning(wlanTask.Exception?.InnerException, "Failed to fetch WLAN configurations");
+            }
 
             // Convert UniFi network configs to classified NetworkInfo using VlanAnalyzer
-            var networkConfigs = await networkTask;
-            _cachedNetworks = networkConfigs
-                .Where(n => !n.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase)) // Exclude WAN networks
-                .Select(n => new AuditNetworkInfo
-                {
-                    Id = n.Id,
-                    Name = n.Name,
-                    VlanId = n.Vlan ?? 1,
-                    Purpose = _vlanAnalyzer.ClassifyNetwork(n.Name, n.Purpose, n.Vlan ?? 1,
-                        n.DhcpdEnabled, null, n.InternetAccessEnabled, n.FirewallZoneId, null),
-                    Subnet = n.IpSubnet,
-                    DhcpEnabled = n.DhcpdEnabled,
-                    InternetAccessEnabled = n.InternetAccessEnabled,
-                    Enabled = n.Enabled,
-                    FirewallZoneId = n.FirewallZoneId,
-                    NetworkGroup = n.Networkgroup
-                })
-                .ToList();
+            if (networkTask.IsCompletedSuccessfully)
+            {
+                var networkConfigs = networkTask.Result;
+                _cachedNetworks = networkConfigs
+                    .Where(n => !n.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase))
+                    .Select(n => new AuditNetworkInfo
+                    {
+                        Id = n.Id,
+                        Name = n.Name,
+                        VlanId = n.Vlan ?? 1,
+                        Purpose = _vlanAnalyzer.ClassifyNetwork(n.Name, n.Purpose, n.Vlan ?? 1,
+                            n.DhcpdEnabled, null, n.InternetAccessEnabled, n.FirewallZoneId, null),
+                        Subnet = n.IpSubnet,
+                        DhcpEnabled = n.DhcpdEnabled,
+                        InternetAccessEnabled = n.InternetAccessEnabled,
+                        Enabled = n.Enabled,
+                        FirewallZoneId = n.FirewallZoneId,
+                        NetworkGroup = n.Networkgroup
+                    })
+                    .ToList();
+            }
+            else if (networkTask.IsFaulted)
+            {
+                _logger.LogWarning(networkTask.Exception?.InnerException, "Failed to fetch network configs");
+            }
 
             _lastRefresh = DateTimeOffset.UtcNow;
 
             // Enrich roaming topology with proper model names from AP data
-            if (_cachedRoamingData != null && _cachedAps.Count > 0)
+            if (_cachedRoamingData != null && _cachedAps is { Count: > 0 })
             {
                 foreach (var vertex in _cachedRoamingData.Vertices)
                 {
@@ -334,7 +379,7 @@ public class WiFiOptimizerService
             }
 
             _logger.LogDebug("Refreshed Wi-Fi data: {ApCount} APs, {ClientCount} clients",
-                _cachedAps.Count, _cachedClients.Count);
+                _cachedAps?.Count ?? 0, _cachedClients?.Count ?? 0);
         }
         catch (Exception ex)
         {

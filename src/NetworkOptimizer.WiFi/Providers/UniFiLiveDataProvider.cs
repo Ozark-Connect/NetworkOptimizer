@@ -45,7 +45,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         // Get AP names for lookup using centralized classification
         var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken);
-        var apNames = aps.ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
+        var apNames = aps
+            .GroupBy(d => d.Mac.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First().Name);
 
         // Get active clients from both v1 (wireless stats) and v2 (display names) in parallel
         var v1ClientsTask = _client.GetClientsAsync(cancellationToken);
@@ -57,10 +59,12 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var onlineMacs = new HashSet<string>(activeWireless.Select(c => c.Mac.ToLowerInvariant()));
 
         // Build display name lookup from v2 API (has system-selected friendly names)
+        // Use GroupBy to handle potential duplicate MACs from the v2 endpoint
         var v2Clients = await v2ClientsTask;
         var displayNames = v2Clients
             .Where(c => !string.IsNullOrEmpty(c.DisplayName))
-            .ToDictionary(c => c.Mac.ToLowerInvariant(), c => c.DisplayName!);
+            .GroupBy(c => c.Mac.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First().DisplayName!);
 
         var result = activeWireless
             .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp, isOnline: true))
