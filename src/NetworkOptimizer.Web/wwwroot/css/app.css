@@ -7357,7 +7357,7 @@ a.path-hop.hop-clickable:hover {
         margin-bottom: 0.75rem;
     }
 
-    .stats-row:has(~ .wifi-view-tabs-wrapper) {
+    .wifi-stats-row {
         margin-bottom: 16px;
     }
 }
