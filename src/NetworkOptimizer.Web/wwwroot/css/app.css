@@ -3925,12 +3925,16 @@ select.form-control {
 
 /* Client name links to Wi-Fi Optimizer */
 a.client-link {
-    color: #60a5fa;
+    color: var(--primary-hover);
     text-decoration: none;
 }
 
+a.client-link:visited {
+    color: var(--primary-hover);
+}
+
 a.client-link:hover {
-    color: #93c5fd;
+    color: var(--accent-color);
     text-decoration: underline;
 }
 

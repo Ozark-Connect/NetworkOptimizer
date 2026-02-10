@@ -226,10 +226,10 @@
         </div>
 
         <!-- LAN Speed Test Stats -->
-        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest"))">
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest#test-history"))">
             <div class="card-header">
                 <a href="/speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">LAN Speed Test</h2></a>
-                <a href="/speedtest" class="card-action" @onclick:stopPropagation>View All →</a>
+                <a href="/speedtest#test-history" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
                 @if (_speedTestLoading)
