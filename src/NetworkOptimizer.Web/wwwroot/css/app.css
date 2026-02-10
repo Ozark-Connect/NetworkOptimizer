@@ -3224,7 +3224,7 @@ select.form-control {
 
 .test-details {
     display: flex;
-    gap: 2rem;
+    gap: 1rem 2rem;
     justify-content: center;
     flex-wrap: wrap;
     color: var(--text-secondary);
@@ -11566,7 +11566,7 @@ a.affected-client:hover {
 }
 
 .wan-speedtest .test-details {
-    gap: 1.25rem;
+    gap: 1rem 1.4rem;
 }
 
 @@media (max-width: 768px) {
