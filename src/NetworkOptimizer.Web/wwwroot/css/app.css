@@ -7078,12 +7078,16 @@ a.path-hop.hop-clickable:hover {
 
 .client-info-main {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 1rem;
 }
 
+.client-info-main .client-name {
+    font-size: 1.1rem;
+}
+
 .client-name {
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -10415,7 +10419,7 @@ a.path-hop.hop-clickable:hover {
 .airtime-client-card .client-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 0.5rem;
 }
 
