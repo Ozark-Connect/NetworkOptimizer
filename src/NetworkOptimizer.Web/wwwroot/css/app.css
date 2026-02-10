@@ -3222,6 +3222,14 @@ select.form-control {
     margin-top: 0.5rem;
 }
 
+.test-details-wrapper {
+    display: flex;
+    align-items: flex-start;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    position: relative;
+}
+
 .test-details {
     display: flex;
     gap: 1rem 2rem;
@@ -3229,15 +3237,13 @@ select.form-control {
     flex-wrap: wrap;
     color: var(--text-secondary);
     font-size: 0.875rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border-color);
+    max-width: 95%;
 }
 
-.test-details .delete-action {
+.test-details-wrapper > .delete-action {
     position: absolute;
     right: 0;
-    padding-top: 1rem;
-    transform: translateY(-50%);
+    top: 1rem;
 }
 
 .test-details .btn-link-danger {
@@ -3349,9 +3355,9 @@ select.form-control {
         text-align: center;
     }
 
-    .test-details .delete-action {
+    .test-details-wrapper > .delete-action {
         min-width: 0;
-        padding-top: 1.25rem;
+        top: 1.25rem;
     }
 
     .hide-mobile {
