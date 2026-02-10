@@ -2,6 +2,10 @@
 
 > **Notice:** This project is under rapid development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Releases and main are stable, but be careful testing any new feature branches you might find.
 
+## New: WAN Speed Test
+
+Test your internet connection speed directly from the server using Cloudflare's speed infrastructure. Measures download, upload, and loaded latency (bufferbloat detection) with per-WAN connection tracking. Results are displayed in a time-series chart with filter badges for multi-WAN setups, so you can compare providers over time.
+
 ## New: Wi-Fi Optimizer
 
 Site health scoring, RF environment analysis, channel optimization, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. All recommendations include specific UniFi UI paths for applying changes.​​​​​​​​​​​​​​​​
