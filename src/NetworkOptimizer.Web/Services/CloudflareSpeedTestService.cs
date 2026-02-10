@@ -25,6 +25,7 @@ public partial class CloudflareSpeedTestService
     private static readonly TimeSpan DownloadDuration = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan UploadDuration = TimeSpan.FromSeconds(10);
     private const int DownloadBytesPerRequest = 10_000_000; // 10 MB per request (matches cloudflare-speed-cli)
+    private const int MinDownloadBytesPerRequest = 100_000; // Floor for adaptive chunk reduction on 429
     private const int UploadBytesPerRequest = 1_000_000;    // 1 MB per request (small so many complete per duration)
 
     private readonly ILogger<CloudflareSpeedTestService> _logger;
@@ -504,6 +505,7 @@ public partial class CloudflareSpeedTestService
                 workerClient.Timeout = TimeSpan.FromSeconds(60);
                 workerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
                 var readBuffer = isUpload ? null : new byte[81920]; // One 80KB buffer per worker
+                var workerChunkSize = bytesPerRequest; // Per-worker adaptive chunk size (halved on 429)
 
                 while (!linked.Token.IsCancellationRequested)
                 {
@@ -520,6 +522,7 @@ public partial class CloudflareSpeedTestService
                                 Interlocked.Increment(ref errorCount);
                                 _logger.LogDebug("WAN {Direction} worker got HTTP {Status}",
                                     direction, (int)uploadResponse.StatusCode);
+                                await Task.Delay(100, linked.Token); // Backoff on error
                                 continue;
                             }
                             Interlocked.Add(ref totalBytes, bytesPerRequest);
@@ -528,15 +531,25 @@ public partial class CloudflareSpeedTestService
                         {
                             // Stream download to count bytes incrementally as they arrive,
                             // not after the full response completes (which may exceed duration)
-                            var url = $"{BaseUrl}/{DownloadPath}{bytesPerRequest}";
+                            var url = $"{BaseUrl}/{DownloadPath}{workerChunkSize}";
                             using var response = await workerClient.GetAsync(url,
                                 HttpCompletionOption.ResponseHeadersRead, linked.Token);
                             Interlocked.Increment(ref requestCount);
                             if (!response.IsSuccessStatusCode)
                             {
                                 Interlocked.Increment(ref errorCount);
-                                _logger.LogDebug("WAN {Direction} worker got HTTP {Status}",
-                                    direction, (int)response.StatusCode);
+                                // On 429: halve chunk size (matching cloudflare-speed-cli behavior)
+                                if ((int)response.StatusCode == 429)
+                                {
+                                    var next = Math.Max(workerChunkSize / 2, MinDownloadBytesPerRequest);
+                                    if (next < workerChunkSize)
+                                    {
+                                        _logger.LogDebug("WAN download worker got 429, reducing chunk from {Old} to {New} bytes",
+                                            workerChunkSize, next);
+                                        workerChunkSize = next;
+                                    }
+                                }
+                                await Task.Delay(100, linked.Token); // Backoff on error
                                 continue;
                             }
                             await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
@@ -556,6 +569,7 @@ public partial class CloudflareSpeedTestService
                         Interlocked.Increment(ref errorCount);
                         Interlocked.Increment(ref requestCount);
                         _logger.LogDebug(ex, "WAN {Direction} worker request failed", direction);
+                        try { await Task.Delay(100, linked.Token); } catch { break; }
                     }
                 }
             }, linked.Token);
