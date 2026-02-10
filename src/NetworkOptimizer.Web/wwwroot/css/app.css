@@ -7078,7 +7078,7 @@ a.path-hop.hop-clickable:hover {
 
 .client-info-main {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 1rem;
 }
 

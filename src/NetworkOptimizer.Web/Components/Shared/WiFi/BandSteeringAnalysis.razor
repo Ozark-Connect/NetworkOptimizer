@@ -108,7 +108,7 @@
                             {
                                 <div class="steerable-client-row">
                                     <div class="client-info">
-                                        <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@client.Name</a>
+                                        <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="client-name client-link">@client.Name</a>
                                         <span class="client-meta">@client.Manufacturer - @client.WifiProtocol</span>
                                     </div>
                                     <div class="client-current-band">
@@ -138,7 +138,7 @@
                             {
                                 <div class="steerable-client-row">
                                     <div class="client-info">
-                                        <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@client.Name</a>
+                                        <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="client-name client-link">@client.Name</a>
                                         <span class="client-meta">@client.Manufacturer - @(client.WifiProtocol ?? "Unknown")</span>
                                     </div>
                                     <div class="client-current-band">
@@ -217,7 +217,7 @@
                     {
                         <div class="legacy-client-card">
                             <div class="legacy-client-info">
-                                <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@client.Name</a>
+                                <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="client-name client-link">@client.Name</a>
                                 <span class="client-manufacturer">@(client.Manufacturer ?? "Unknown")</span>
                             </div>
                             <div class="legacy-client-stats">
@@ -260,6 +260,8 @@
 </div>
 
 @code {
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<WirelessClientSnapshot> _clients = new();

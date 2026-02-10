@@ -182,7 +182,7 @@
                                 <div class="affected-clients">
                                     @foreach (var client in issue.AffectedClients.Take(5))
                                     {
-                                        <a href="./wifi-optimizer?client=@client.Mac" class="affected-client client-link">@client.Name</a>
+                                        <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="affected-client client-link">@client.Name</a>
                                     }
                                     @if (issue.AffectedClients.Count > 5)
                                     {
@@ -269,6 +269,8 @@
 </div>
 
 @code {
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<WirelessClientSnapshot> _clients = new();
