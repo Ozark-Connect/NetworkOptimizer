@@ -5,7 +5,7 @@ using NetworkOptimizer.WiFi.Models;
 namespace NetworkOptimizer.WiFi.Services;
 
 /// <summary>
-/// Computes RF signal propagation heatmaps using free-space path loss,
+/// Computes RF signal propagation heatmaps using ITU-R P.1238 indoor path loss,
 /// wall attenuation, antenna patterns, and multi-floor support.
 /// </summary>
 public class PropagationService
@@ -15,6 +15,9 @@ public class PropagationService
 
     private const double EarthRadiusMeters = 6371000.0;
     private const double DefaultFloorHeightMeters = 3.0;
+
+    // ITU-R P.1238 indoor path loss exponent (2.8 for residential/office at 5 GHz)
+    private const double IndoorPathLossExponent = 2.8;
 
     private bool _loggedPatternInfo;
 
@@ -127,8 +130,8 @@ public class PropagationService
         var distance3d = Math.Sqrt(distance2d * distance2d + verticalDistance * verticalDistance);
         if (distance3d < 0.1) distance3d = 0.1;
 
-        // Free-space path loss
-        var fspl = 20 * Math.Log10(distance3d) + 20 * Math.Log10(freqMhz) - 27.55;
+        // Indoor path loss (ITU-R P.1238): uses higher exponent than free-space for realistic indoor falloff
+        var fspl = 10 * IndoorPathLossExponent * Math.Log10(distance3d) + 20 * Math.Log10(freqMhz) - 27.55;
 
         // Azimuth angle from AP to point
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
@@ -195,13 +198,17 @@ public class PropagationService
         {
             for (int i = 0; i < wall.Points.Count - 1; i++)
             {
+                var material = wall.Materials != null && i < wall.Materials.Count
+                    ? wall.Materials[i]
+                    : wall.Material;
+
                 segments.Add(new WallSegment
                 {
                     Lat1 = wall.Points[i].Lat,
                     Lng1 = wall.Points[i].Lng,
                     Lat2 = wall.Points[i + 1].Lat,
                     Lng2 = wall.Points[i + 1].Lng,
-                    Material = wall.Material
+                    Material = material
                 });
             }
         }

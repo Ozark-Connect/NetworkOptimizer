@@ -63,6 +63,12 @@ public class PropagationWall
 {
     public List<LatLng> Points { get; set; } = new();
     public string Material { get; set; } = "drywall";
+
+    /// <summary>
+    /// Per-segment materials. Materials[i] is the material for the segment between
+    /// Points[i] and Points[i+1]. If null, all segments use <see cref="Material"/>.
+    /// </summary>
+    public List<string>? Materials { get; set; }
 }
 
 /// <summary>
