@@ -3124,6 +3124,17 @@ select.form-control {
     gap: 1.5rem;
     justify-content: center;
     margin: 1rem 0;
+    position: relative;
+}
+
+.speed-results > .detail-actions {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .speed-result {
@@ -3242,14 +3253,7 @@ select.form-control {
     font-size: 0.8125rem;
 }
 
-.test-details .detail-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin-left: auto;
-}
-
-.test-details .btn-action-icon {
+.btn-action-icon {
     background: none;
     border: none;
     padding: 0.25rem;
@@ -3261,27 +3265,27 @@ select.form-control {
     align-items: center;
 }
 
-.test-details .btn-action-icon:hover {
+.btn-action-icon:hover {
     opacity: 1;
     color: var(--primary-color);
 }
 
-.test-details .btn-action-danger:hover {
+.btn-action-danger:hover {
     color: var(--danger-color);
 }
 
-.test-details .btn-action-icon:disabled {
+.btn-action-icon:disabled {
     cursor: wait;
     opacity: 0.4;
 }
 
-.test-details .wan-reassign-overlay {
+.detail-actions .wan-reassign-overlay {
     position: fixed;
     inset: 0;
     z-index: 99;
 }
 
-.test-details .wan-reassign-select {
+.detail-actions .wan-reassign-select {
     position: relative;
     z-index: 100;
     background: var(--bg-secondary);
@@ -3293,23 +3297,23 @@ select.form-control {
     cursor: pointer;
 }
 
-.test-details .wan-reassign-select:focus {
+.detail-actions .wan-reassign-select:focus {
     outline: none;
     border-color: var(--primary-color);
 }
 
-.test-details .wan-reassign-select option {
+.detail-actions .wan-reassign-select option {
     background: var(--bg-secondary);
     color: var(--text-primary);
 }
 
-.test-details .wan-saved-indicator {
+.detail-actions .wan-saved-indicator {
     font-size: 0.7rem;
     color: var(--success-color);
     opacity: 0.8;
 }
 
-.test-details .spinner-sm {
+.detail-actions .spinner-sm {
     width: 14px;
     height: 14px;
     border: 2px solid var(--border-color);
@@ -3396,8 +3400,9 @@ select.form-control {
         text-align: center;
     }
 
-    .test-details .detail-actions {
-        min-width: 0;
+    .speed-results > .detail-actions {
+        position: static;
+        transform: none;
         width: 100%;
         justify-content: center;
     }
