@@ -86,7 +86,7 @@ fi
 eval "$($BREW_PREFIX/bin/brew shellenv)"
 
 echo "Installing required packages..."
-brew install sshpass iperf3 nginx 2>/dev/null || true
+brew install sshpass iperf3 nginx go 2>/dev/null || true
 
 # Check for .NET SDK
 if ! command -v dotnet &> /dev/null; then
