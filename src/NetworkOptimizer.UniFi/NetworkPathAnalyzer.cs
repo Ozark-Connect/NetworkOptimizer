@@ -1700,6 +1700,23 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         if (gateway != null && !string.IsNullOrEmpty(gateway.Mac))
             rawDevices.TryGetValue(gateway.Mac, out gatewayDevice);
 
+        // When resolvedWanGroup is provided (e.g. from WAN reassignment), match directly by network group name
+        if (!string.IsNullOrEmpty(resolvedWanGroup))
+        {
+            var matchingNetwork = topology.Networks.FirstOrDefault(n =>
+                n.IsWan && n.WanNetworkgroup != null &&
+                n.WanNetworkgroup.Equals(resolvedWanGroup, StringComparison.OrdinalIgnoreCase));
+
+            if (matchingNetwork?.WanDownloadMbps > 0 && matchingNetwork?.WanUploadMbps > 0)
+            {
+                _logger.LogDebug("Matched resolved WAN group {Group} ({Down}/{Up} Mbps)",
+                    resolvedWanGroup, matchingNetwork.WanDownloadMbps, matchingNetwork.WanUploadMbps);
+                return (matchingNetwork.WanDownloadMbps.Value, matchingNetwork.WanUploadMbps.Value);
+            }
+
+            _logger.LogDebug("Resolved WAN group {Group} has no ISP speed config, falling through", resolvedWanGroup);
+        }
+
         // When wanIp is provided, try to match it to a specific WAN port on the gateway
         if (!string.IsNullOrEmpty(wanIp) && gatewayDevice?.PortTable != null)
         {

@@ -97,6 +97,37 @@
             </button>
         </span>
     }
+    @if (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate && Result != null)
+    {
+        <span class="wan-reassign-action" @onclick:stopPropagation="true">
+            @if (_wanEditing)
+            {
+                <select class="wan-reassign-select" @onchange="HandleWanSelected" @onblur="CancelWanEdit">
+                    <option value="">Select WAN...</option>
+                    @foreach (var wan in AvailableWans)
+                    {
+                        <option value="@wan.NetworkGroup" selected="@(wan.NetworkGroup == Result.WanNetworkGroup)">@wan.DisplayName</option>
+                    }
+                </select>
+            }
+            else if (_wanSaving)
+            {
+                <span class="spinner-sm"></span>
+            }
+            else if (_wanSaved)
+            {
+                <span class="wan-saved-indicator">Saved</span>
+            }
+            else
+            {
+                <button class="btn-link-muted" @onclick="StartWanEdit" data-tooltip="Change WAN assignment">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                    </svg>
+                </button>
+            }
+        </span>
+    }
 </div>
 
 @if (PathAnalysis != null)
@@ -394,6 +425,17 @@
     [Parameter] public EventCallback<int> OnDelete { get; set; }
 
     /// <summary>
+    /// Available WAN interfaces for reassignment. Only shown when 2+ entries.
+    /// </summary>
+    [Parameter] public List<WanOption> AvailableWans { get; set; } = new();
+
+    /// <summary>
+    /// Callback invoked when the user reassigns the WAN interface.
+    /// Parameters: (resultId, wanNetworkGroup, wanName)
+    /// </summary>
+    [Parameter] public EventCallback<(int Id, string NetworkGroup, string? Name)> OnWanReassigned { get; set; }
+
+    /// <summary>
     /// Callback invoked when notes are changed (after debounce).
     /// Parameters: (resultId, notes)
     /// </summary>
@@ -412,6 +454,12 @@
     private bool _notesSaved;
     private System.Timers.Timer? _notesDebounceTimer;
     private System.Timers.Timer? _notesSavedTimer;
+
+    // WAN reassignment state
+    private bool _wanEditing;
+    private bool _wanSaving;
+    private bool _wanSaved;
+    private System.Timers.Timer? _wanSavedTimer;
 
     protected override void OnParametersSet()
     {
@@ -1059,6 +1107,83 @@
         }
     }
 
+    private void StartWanEdit()
+    {
+        _wanEditing = true;
+        _wanSaved = false;
+    }
+
+    private void CancelWanEdit()
+    {
+        // Small delay to allow onchange to fire before blur closes the dropdown
+        _ = Task.Delay(150).ContinueWith(_ =>
+        {
+            if (!_disposed && !_wanSaving)
+            {
+                InvokeAsync(() =>
+                {
+                    _wanEditing = false;
+                    StateHasChanged();
+                });
+            }
+        });
+    }
+
+    private async Task HandleWanSelected(ChangeEventArgs e)
+    {
+        if (Result == null || !OnWanReassigned.HasDelegate) return;
+
+        var selectedGroup = e.Value?.ToString();
+        if (string.IsNullOrEmpty(selectedGroup)) return;
+
+        var wan = AvailableWans.FirstOrDefault(w => w.NetworkGroup == selectedGroup);
+        if (wan == null) return;
+
+        // Skip if same WAN already assigned
+        if (Result.WanNetworkGroup == wan.NetworkGroup)
+        {
+            _wanEditing = false;
+            return;
+        }
+
+        _wanEditing = false;
+        _wanSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            await OnWanReassigned.InvokeAsync((Result.Id, wan.NetworkGroup, wan.DisplayName));
+            Result.WanNetworkGroup = wan.NetworkGroup;
+            Result.WanName = wan.DisplayName;
+            _wanSaved = true;
+
+            // Hide "Saved" after 2 seconds
+            _wanSavedTimer?.Dispose();
+            _wanSavedTimer = new System.Timers.Timer(2000);
+            _wanSavedTimer.AutoReset = false;
+            _wanSavedTimer.Elapsed += async (s, e) =>
+            {
+                if (!_disposed)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        _wanSaved = false;
+                        StateHasChanged();
+                    });
+                }
+            };
+            _wanSavedTimer.Start();
+        }
+        finally
+        {
+            if (!_disposed)
+            {
+                _wanSaving = false;
+                StateHasChanged();
+            }
+        }
+    }
+
     #region Directional Efficiency Helpers
 
     /// <summary>
@@ -1346,5 +1471,6 @@
         _disposed = true;
         _notesDebounceTimer?.Dispose();
         _notesSavedTimer?.Dispose();
+        _wanSavedTimer?.Dispose();
     }
 }
