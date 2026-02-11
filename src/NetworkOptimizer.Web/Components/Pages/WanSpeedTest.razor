@@ -444,7 +444,32 @@
     protected override async Task OnInitializedAsync()
     {
         InitializeChartOptions();
-        await LoadHistory(resetPage: true);
+
+        // Load WAN list and history in parallel so both are ready before first render
+        var historyTask = LoadHistory(resetPage: true);
+        Task? wanTask = null;
+        if (ConnectionService.IsConnected)
+        {
+            wanTask = Task.Run(async () =>
+            {
+                try
+                {
+                    var networks = await ConnectionService.GetNetworksAsync();
+                    var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
+                    _hasMultipleWans = wanNetworks.Count > 1;
+                    _availableWans = wanNetworks
+                        .Select(n => new WanOption(
+                            n.WanNetworkgroup ?? "WAN",
+                            !string.IsNullOrEmpty(n.Name) ? n.Name : NormalizeWanDisplay(n.WanNetworkgroup ?? "WAN")))
+                        .ToList();
+                }
+                catch { /* Non-critical */ }
+            });
+        }
+
+        await historyTask;
+        if (wanTask != null) await wanTask;
+
         if (_testHistory.Count > 0)
         {
             _latestResult = _testHistory.FirstOrDefault(r => r.Success);
@@ -456,23 +481,6 @@
             _isRunning = true;
             SyncProgressFromService();
             StartPolling();
-        }
-
-        // Check if user has multiple WAN connections and build WAN option list
-        if (ConnectionService.IsConnected)
-        {
-            try
-            {
-                var networks = await ConnectionService.GetNetworksAsync();
-                var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-                _hasMultipleWans = wanNetworks.Count > 1;
-                _availableWans = wanNetworks
-                    .Select(n => new WanOption(
-                        n.WanNetworkgroup ?? "WAN",
-                        !string.IsNullOrEmpty(n.Name) ? n.Name : NormalizeWanDisplay(n.WanNetworkgroup ?? "WAN")))
-                    .ToList();
-            }
-            catch { /* Non-critical */ }
         }
 
         // Subscribe to path analysis completion to refresh UI
