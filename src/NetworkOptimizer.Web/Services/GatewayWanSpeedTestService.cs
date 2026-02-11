@@ -215,26 +215,26 @@ public class GatewayWanSpeedTestService
             Report("Preparing", 10, "Binary ready");
 
             // Phase 2: Run test via SSH (10-95%)
-            // Simulate progress based on known timing (~30s total: 3s latency, 12s download, 12s upload, 3s finalize)
-            Report("Testing", 12, "Measuring latency...");
+            // Simulate progress based on known timing (~28s total: 3s latency, 10s download, 10s upload, 5s finalize)
+            Report("Latency", 12, "Measuring latency...");
 
             var command = $"{RemoteBinaryPath} --interface {interfaceName} 2>/dev/null";
             var sshTask = _gatewaySsh.RunCommandAsync(
                 command, TimeSpan.FromSeconds(120), cancellationToken);
 
-            var progressSteps = new (int Percent, string Status, int DelayMs)[]
+            var progressSteps = new (string Phase, int Percent, int DelayMs)[]
             {
-                (15, "Measuring latency...", 2500),
-                (22, "Testing download...", 1800),
-                (32, "Testing download...", 1800),
-                (42, "Testing download...", 1800),
-                (52, "Testing download...", 1800),
-                (58, "Testing download...", 1800),
-                (65, "Testing upload...", 1800),
-                (72, "Testing upload...", 1800),
-                (78, "Testing upload...", 1800),
-                (84, "Testing upload...", 1800),
-                (90, "Testing upload...", 1800),
+                ("Latency", 15, 2500),
+                ("Testing download", 22, 1800),
+                ("Testing download", 32, 1800),
+                ("Testing download", 42, 1800),
+                ("Testing download", 52, 1800),
+                ("Testing download", 58, 1800),
+                ("Testing upload", 65, 1800),
+                ("Testing upload", 72, 1800),
+                ("Testing upload", 78, 1800),
+                ("Testing upload", 84, 1800),
+                ("Testing upload", 90, 1800),
             };
 
             foreach (var step in progressSteps)
@@ -243,7 +243,7 @@ public class GatewayWanSpeedTestService
                 try { await Task.WhenAny(sshTask, Task.Delay(step.DelayMs, cancellationToken)); }
                 catch (OperationCanceledException) { break; }
                 if (!sshTask.IsCompleted)
-                    Report("Testing", step.Percent, step.Status);
+                    Report(step.Phase, step.Percent, null);
             }
 
             var result = await sshTask;
