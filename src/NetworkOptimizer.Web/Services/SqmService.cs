@@ -389,6 +389,11 @@ public class SqmService : ISqmService
                         if (ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
                             networkGroup = ng;
 
+                        // Virtual interfaces (GRE tunnels from U5G-Max, etc.) aren't in
+                        // ethernet_overrides - derive from wan key using UniFi convention
+                        if (string.IsNullOrEmpty(networkGroup))
+                            networkGroup = i == 1 ? "WAN" : $"WAN{i}";
+
                         // Skip disabled WAN interfaces
                         if (!string.IsNullOrEmpty(networkGroup) && !enabledNetworkGroups.Contains(networkGroup))
                         {
