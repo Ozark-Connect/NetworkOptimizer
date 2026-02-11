@@ -62,7 +62,7 @@
                 }
                 else
                 {
-                    <button class="btn-action-icon" @onclick="StartWanEdit" data-tooltip="Change WAN assignment">
+                    <button class="btn-action-icon" @onclick="StartWanEdit" data-tooltip="Change WAN assignment" data-tooltip-hover-only>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/>
                         </svg>
@@ -71,7 +71,7 @@
             }
             @if (OnDelete.HasDelegate)
             {
-                <button class="btn-action-icon btn-action-danger" @onclick="HandleDelete" disabled="@_deleting" data-tooltip="Delete this result">
+                <button class="btn-action-icon btn-action-danger" @onclick="HandleDelete" disabled="@_deleting" data-tooltip="Delete this result" data-tooltip-hover-only>
                     @if (_deleting)
                     {
                         <span class="spinner-sm"></span>
