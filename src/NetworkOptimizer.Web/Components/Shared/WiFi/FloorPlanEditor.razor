@@ -495,9 +495,9 @@
     }
 
     :global(.fp-ap-marker-icon) {
-        width: 32px;
-        height: 32px;
-        transform: scale(var(--ap-scale, 1));
+        width: 22px;
+        height: 22px;
+        transform: scale(var(--fp-ap-scale, 1));
     }
 
     :global(.fp-ap-glow-container) {
@@ -506,12 +506,12 @@
     }
 
     :global(.fp-ap-glow-dot) {
-        width: 48px;
-        height: 48px;
+        width: 30px;
+        height: 30px;
         border-radius: 50%;
         background: radial-gradient(circle, rgba(59, 130, 246, 0.55) 0%, rgba(59, 130, 246, 0.12) 55%, transparent 100%);
         filter: blur(3px);
-        transform: scale(var(--ap-scale, 1));
+        transform: scale(var(--fp-ap-scale, 1));
     }
 
     :global(.fp-ap-glow-dot.other-floor) {
@@ -722,13 +722,13 @@
             // Glow layer (behind icons)
             "var glowIcon=L.divIcon({className:'fp-ap-glow-container'," +
             "html:'<div class=\"fp-ap-glow-dot'+(ap.sameFloor?'':' other-floor')+'\"></div>'," +
-            "iconSize:[48,48],iconAnchor:[24,24]});" +
+            "iconSize:[30,30],iconAnchor:[15,15]});" +
             "L.marker([ap.lat,ap.lng],{icon:glowIcon,interactive:false,pane:'apGlowPane'}).addTo(window._fpApGlowLayer);" +
             // Icon layer
             "var opacity=ap.online?(ap.sameFloor?1.0:0.35):(ap.sameFloor?0.4:0.2);" +
             "var icon=L.divIcon({className:'fp-ap-marker-container'," +
             "html:'<img src=\"'+ap.iconUrl+'\" class=\"fp-ap-marker-icon\" style=\"opacity:'+opacity+'\" />'," +
-            "iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-16]});" +
+            "iconSize:[22,22],iconAnchor:[11,11],popupAnchor:[0,-11]});" +
             "var marker=L.marker([ap.lat,ap.lng],{icon:icon,draggable:" + draggable + "&&ap.sameFloor,pane:'apIconPane'}).addTo(window._fpApLayer);" +
             "marker.bindPopup('<b>'+(ap.name||ap.mac)+'</b><br/>Model: '+ap.model+'<br/>Clients: '+ap.clients);" +
             "if(" + draggable + "&&ap.sameFloor){marker.on('dragend',function(e){" +
@@ -854,10 +854,9 @@
             "var dx=(lng-prev.lng)*cosLat;var dy=lat-prev.lat;" +
             "var dist=Math.sqrt(dx*dx+dy*dy);" +
             "if(dist<1e-10)return{lat:lat,lng:lng};" +
-            // If no reference angle yet, snap to nearest cardinal or 45-degree
-            "if(window._fpRefAngle===null){" +
-            "if(Math.abs(dx)>Math.abs(dy)){return{lat:prev.lat,lng:lng};}" +
-            "else{return{lat:lat,lng:prev.lng};}}" +
+            // No reference angle yet: first segment is FREE-FORM (no snap)
+            // This lets the user establish the building's angle naturally
+            "if(window._fpRefAngle===null){return{lat:lat,lng:lng};}" +
             // Snap to reference angle or perpendicular
             "var angle=window._fpRefAngle;var perpAngle=angle+Math.PI/2;" +
             "var ca=Math.cos(angle);var sa=Math.sin(angle);" +
@@ -1263,10 +1262,10 @@
             "window._fpAllWalls.splice(idx,1);" +
             "window._fpMap.closePopup();" +
             "window._fpDotNetRef.invokeMethodAsync('SaveWallsFromJs',JSON.stringify(window._fpAllWalls));}};" +
-            // Scale AP icons with zoom level (match Coverage Map behavior)
+            // Scale AP icons with zoom level (smaller base for floor plan context)
             "function updateApScale(){var zoom=m.getZoom();" +
-            "var scale=Math.min(1.25,Math.max(1.0,1.0+(zoom-20)*0.125));" +
-            "container.style.setProperty('--ap-scale',scale.toFixed(3));}" +
+            "var scale=Math.min(1.4,Math.max(0.7,1.0+(zoom-20)*0.15));" +
+            "container.style.setProperty('--fp-ap-scale',scale.toFixed(3));}" +
             "m.on('zoomend',updateApScale);updateApScale();" +
             "L.control.scale({imperial:true,metric:false,position:'bottomleft'}).addTo(m);}" +
             "init();})();";
