@@ -93,7 +93,14 @@
                         </button>
                     </div>
                     <div class="wan-test-option-hint">
-                        Tests from this server through the LAN. Uses whichever WAN routes to speed.cloudflare.com.
+                        @if (_hasMultipleWans)
+                        {
+                            <text>Tests from this server through the LAN. Uses whichever WAN routes to speed.cloudflare.com.</text>
+                        }
+                        else
+                        {
+                            <text>Tests from this server through the LAN. Includes LAN traversal overhead.</text>
+                        }
                     </div>
                 </div>
             </div>
@@ -397,6 +404,7 @@
     private string? _errorMessage;
     private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
     private Iperf3Result? _latestResult;
+    private bool _hasMultipleWans;
     private List<WanOption> _availableWans = new();
 
     // Gateway test state
@@ -510,6 +518,7 @@
                 {
                     var networks = await ConnectionService.GetNetworksAsync();
                     var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
+                    _hasMultipleWans = wanNetworks.Count > 1;
                     _availableWans = wanNetworks
                         .Select(n => new WanOption(
                             n.WanNetworkgroup ?? "WAN",
