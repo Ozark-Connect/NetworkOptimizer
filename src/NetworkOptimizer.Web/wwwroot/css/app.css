@@ -3230,18 +3230,25 @@ select.form-control {
     color: var(--text-secondary);
     font-size: 0.875rem;
     padding-top: 1rem;
-    padding-right: 1.5rem;
     border-top: 1px solid var(--border-color);
 }
 
-.test-details .delete-action {
-    position: absolute;
-    right: 0;
-    padding-top: 1rem;
-    transform: translateY(-50%);
+.test-details code {
+    color: var(--text-color);
+    font-family: inherit;
+    font-size: inherit;
+    background: none;
+    padding: 0;
 }
 
-.test-details .btn-link-danger {
+.test-details .detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.test-details .btn-action-icon {
     background: none;
     border: none;
     padding: 0.25rem;
@@ -3253,43 +3260,24 @@ select.form-control {
     align-items: center;
 }
 
-.test-details .btn-link-danger:hover {
+.test-details .btn-action-icon:hover {
     opacity: 1;
+    color: var(--primary-color);
+}
+
+.test-details .btn-action-danger:hover {
     color: var(--danger-color);
 }
 
-.test-details .btn-link-danger:disabled {
+.test-details .btn-action-icon:disabled {
     cursor: wait;
     opacity: 0.4;
-}
-
-.test-details .wan-reassign-action {
-    position: absolute;
-    right: 0;
-    padding-top: 2.5rem;
-    transform: translateY(-50%);
-}
-
-.test-details .btn-link-muted {
-    background: none;
-    border: none;
-    padding: 0.25rem;
-    cursor: pointer;
-    color: var(--text-muted);
-    opacity: 0.6;
-    transition: opacity 0.15s, color 0.15s;
-    display: flex;
-    align-items: center;
-}
-
-.test-details .btn-link-muted:hover {
-    opacity: 1;
-    color: var(--primary-color);
 }
 
 .test-details .wan-reassign-select {
     background: var(--card-bg);
     color: var(--text-color);
+    color-scheme: dark;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 0.15rem 0.25rem;
@@ -3396,14 +3384,10 @@ select.form-control {
         text-align: center;
     }
 
-    .test-details .delete-action {
+    .test-details .detail-actions {
         min-width: 0;
-        padding-top: 1.25rem;
-    }
-
-    .test-details .wan-reassign-action {
-        min-width: 0;
-        padding-top: 2.75rem;
+        width: 100%;
+        justify-content: center;
     }
 
     .hide-mobile {
