@@ -864,6 +864,19 @@ public class VlanAnalyzer
                 return true;
         }
 
+        // IP destination with CIDRs that cover all other networks' subnets
+        // This handles RFC1918-to-RFC1918 block rules (e.g., 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+        if (destTarget == "IP" && rule.DestinationIps?.Count > 0)
+        {
+            var otherNetworks = allNetworks.Where(n => n.Id != network.Id).ToList();
+            if (otherNetworks.Count > 0 && otherNetworks.All(n =>
+                !string.IsNullOrEmpty(n.Subnet) &&
+                NetworkUtilities.AnyCidrCoversSubnet(rule.DestinationIps, n.Subnet)))
+            {
+                return true;
+            }
+        }
+
         return false;
     }
 

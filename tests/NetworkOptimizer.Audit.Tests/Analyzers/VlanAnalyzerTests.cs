@@ -290,6 +290,45 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeNetworkIsolation_Rfc1918BlockRule_NoIssue()
+    {
+        // RFC1918-to-RFC1918 block rule with IP-based source and destination should
+        // count as isolation, since it blocks all private-to-private traffic
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security", NetworkPurpose.Security, vlanId: 30, networkIsolationEnabled: false, id: "sec-net"),
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, networkIsolationEnabled: false, id: "mgmt-net"),
+            CreateNetwork("IoT", NetworkPurpose.IoT, vlanId: 20, networkIsolationEnabled: false, id: "iot-net"),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1, id: "home-net"),
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "rfc1918-block",
+                Name = "Block RFC1918 to RFC1918",
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        // None of the networks should be flagged as not isolated
+        issues.Should().NotContain(i => i.Type == "SECURITY_NETWORK_NOT_ISOLATED",
+            "RFC1918 block rule isolates Security network");
+        issues.Should().NotContain(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "RFC1918 block rule isolates Management network");
+        issues.Should().NotContain(i => i.Type == "IOT_NETWORK_NOT_ISOLATED",
+            "RFC1918 block rule isolates IoT network");
+    }
+
+    [Fact]
     public void AnalyzeNetworkIsolation_FirewallRuleSpecificPort_StillFlagsIssue()
     {
         // Rule blocking only specific port should not count as full isolation

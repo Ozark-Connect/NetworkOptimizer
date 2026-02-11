@@ -4714,6 +4714,44 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void CheckInterVlanIsolation_Rfc1918BlockRule_NoIssue()
+    {
+        // RFC1918-to-RFC1918 block rule should satisfy inter-VLAN isolation for all network pairs
+        // This is a common pattern: a single rule at the bottom of the firewall that blocks
+        // all private-to-private traffic, effectively isolating all VLANs from each other
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", vlanId: 20, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net", vlanId: 10),
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", vlanId: 30),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", vlanId: 99),
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net", vlanId: 40),
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rfc1918-block",
+                Name = "Block RFC1918 to RFC1918",
+                Action = "DROP",
+                Enabled = true,
+                Index = 20000,
+                Protocol = "all",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // The RFC1918 block rule covers all network pairs - no isolation issues
+        issues.Where(i => i.Type == "MISSING_ISOLATION").Should().BeEmpty(
+            "RFC1918-to-RFC1918 block rule should satisfy inter-VLAN isolation for all network pairs");
+    }
+
+    [Fact]
     public void CheckInterVlanIsolation_NonIsolatedGuest_MissingRule_ReturnsIssue()
     {
         var rules = new List<FirewallRule>();
