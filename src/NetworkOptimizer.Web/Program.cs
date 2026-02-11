@@ -291,6 +291,9 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddScoped<WiFiOptimizerService>();
 builder.Services.AddScoped<ApMapService>();
+builder.Services.AddSingleton<FloorPlanService>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.PropagationService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();
@@ -923,6 +926,152 @@ app.MapDelete("/api/ap-locations/{mac}", async (string mac, NetworkOptimizerDbCo
     return Results.NoContent();
 });
 
+// --- Building & Floor Plan API ---
+
+app.MapGet("/api/buildings", async (FloorPlanService svc) =>
+{
+    var buildings = await svc.GetBuildingsAsync();
+    return Results.Ok(buildings.Select(b => new
+    {
+        b.Id, b.Name, b.CenterLatitude, b.CenterLongitude, b.CreatedAt,
+        Floors = b.Floors.Select(f => new
+        {
+            f.Id, f.BuildingId, f.FloorNumber, f.Label, f.SwLatitude, f.SwLongitude,
+            f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson,
+            HasImage = !string.IsNullOrEmpty(f.ImagePath), f.CreatedAt, f.UpdatedAt
+        })
+    }));
+});
+
+app.MapPost("/api/buildings", async (HttpContext context, FloorPlanService svc) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
+    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
+    var building = await svc.CreateBuildingAsync(request.Name, request.CenterLatitude, request.CenterLongitude);
+    return Results.Ok(new { building.Id, building.Name, building.CenterLatitude, building.CenterLongitude });
+});
+
+app.MapPut("/api/buildings/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
+    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
+    var building = await svc.UpdateBuildingAsync(id, request.Name, request.CenterLatitude, request.CenterLongitude);
+    return building != null ? Results.Ok(new { success = true }) : Results.NotFound();
+});
+
+app.MapDelete("/api/buildings/{id:int}", async (int id, FloorPlanService svc) =>
+{
+    return await svc.DeleteBuildingAsync(id) ? Results.NoContent() : Results.NotFound();
+});
+
+app.MapGet("/api/buildings/{id:int}/floors", async (int id, FloorPlanService svc) =>
+{
+    var floors = await svc.GetFloorsAsync(id);
+    return Results.Ok(floors.Select(f => new
+    {
+        f.Id, f.BuildingId, f.FloorNumber, f.Label, f.SwLatitude, f.SwLongitude,
+        f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson,
+        HasImage = !string.IsNullOrEmpty(f.ImagePath), f.CreatedAt, f.UpdatedAt
+    }));
+});
+
+app.MapPost("/api/buildings/{id:int}/floors", async (int id, HttpContext context, FloorPlanService svc) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<FloorRequest>();
+    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
+    var floor = await svc.CreateFloorAsync(id, request.FloorNumber, request.Label,
+        request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude);
+    return Results.Ok(new { floor.Id, floor.BuildingId, floor.FloorNumber, floor.Label });
+});
+
+app.MapPut("/api/floors/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<FloorUpdateRequest>();
+    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
+    var floor = await svc.UpdateFloorAsync(id,
+        request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude,
+        request.Opacity, request.WallsJson, request.Label);
+    return floor != null ? Results.Ok(new { success = true }) : Results.NotFound();
+});
+
+app.MapDelete("/api/floors/{id:int}", async (int id, FloorPlanService svc) =>
+{
+    return await svc.DeleteFloorAsync(id) ? Results.NoContent() : Results.NotFound();
+});
+
+app.MapGet("/api/floors/{id:int}/image", async (int id, FloorPlanService svc) =>
+{
+    var floor = await svc.GetFloorAsync(id);
+    if (floor == null) return Results.NotFound();
+    var imagePath = svc.GetFloorImagePath(floor);
+    if (imagePath == null) return Results.NotFound();
+    return Results.File(imagePath, "image/png");
+});
+
+app.MapPost("/api/floors/{id:int}/image", async (int id, HttpContext context, FloorPlanService svc) =>
+{
+    var form = await context.Request.ReadFormAsync();
+    var file = form.Files.GetFile("image");
+    if (file == null || file.Length == 0)
+        return Results.BadRequest(new { error = "No image file provided" });
+
+    using var stream = file.OpenReadStream();
+    await svc.SaveFloorImageAsync(id, stream);
+    return Results.Ok(new { success = true });
+});
+
+app.MapPost("/api/heatmap/compute", async (HttpContext context,
+    FloorPlanService floorSvc, ApMapService apMapSvc,
+    NetworkOptimizer.WiFi.Services.PropagationService propagationSvc) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
+    if (request == null) return Results.BadRequest(new { error = "Request body is required" });
+
+    var floor = await floorSvc.GetFloorAsync(request.FloorId);
+    if (floor == null) return Results.NotFound(new { error = "Floor not found" });
+
+    // Get placed APs
+    var apMarkers = await apMapSvc.GetApMapMarkersAsync();
+    var placedAps = apMarkers
+        .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+        .Select(a => new NetworkOptimizer.WiFi.Models.PropagationAp
+        {
+            Mac = a.Mac,
+            Model = a.Model,
+            Latitude = a.Latitude!.Value,
+            Longitude = a.Longitude!.Value,
+            Floor = a.Floor ?? 1,
+            TxPowerDbm = a.Radios
+                .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
+                .Select(r => r.TxPowerDbm ?? 20)
+                .FirstOrDefault(20),
+            AntennaGainDbi = a.Radios
+                .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
+                .Select(r => (r.Eirp ?? 23) - (r.TxPowerDbm ?? 20))
+                .FirstOrDefault(3)
+        }).ToList();
+
+    // Parse walls from floor's WallsJson
+    var walls = new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
+    if (!string.IsNullOrEmpty(floor.WallsJson))
+    {
+        try
+        {
+            walls = System.Text.Json.JsonSerializer.Deserialize<List<NetworkOptimizer.WiFi.Models.PropagationWall>>(
+                floor.WallsJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                ?? new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
+        }
+        catch { /* ignore bad JSON */ }
+    }
+
+    var result = propagationSvc.ComputeHeatmap(
+        floor.SwLatitude, floor.SwLongitude, floor.NeLatitude, floor.NeLongitude,
+        request.Band, placedAps, walls, floor.FloorNumber, request.GridResolutionMeters);
+
+    return Results.Ok(result);
+});
+
 // Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
 app.MapGet("/api/demo-mappings", () =>
 {
@@ -1002,3 +1151,9 @@ record UpnpNoteRequest(string HostIp, string Port, string Protocol, string? Note
 
 // Request DTO for AP location upsert
 record ApLocationRequest(double Latitude, double Longitude, int? Floor = 1);
+
+// Request DTOs for building/floor plan API
+record BuildingRequest(string Name, double CenterLatitude, double CenterLongitude);
+record FloorRequest(int FloorNumber, string Label, double SwLatitude, double SwLongitude, double NeLatitude, double NeLongitude);
+record FloorUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
+    double? NeLongitude = null, double? Opacity = null, string? WallsJson = null, string? Label = null);

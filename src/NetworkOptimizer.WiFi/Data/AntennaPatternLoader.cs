@@ -1,0 +1,182 @@
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using NetworkOptimizer.WiFi.Models;
+
+namespace NetworkOptimizer.WiFi.Data;
+
+/// <summary>
+/// Loads and caches antenna pattern data from pre-parsed JSON file.
+/// </summary>
+public class AntennaPatternLoader
+{
+    private readonly ILogger<AntennaPatternLoader> _logger;
+    private Dictionary<string, Dictionary<string, AntennaPattern>>? _patterns;
+    private readonly object _loadLock = new();
+
+    /// <summary>
+    /// Maps UniFi API model strings to antenna pattern file names.
+    /// </summary>
+    private static readonly Dictionary<string, string> ModelNameMapping = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Wi-Fi 7
+        ["U7Pro"] = "U7-Pro",
+        ["U7ProMax"] = "U7-Pro-Max",
+        ["U7ProWall"] = "U7-Pro-Wall",
+        ["U7ProXG"] = "U7-Pro-XG",
+        ["U7ProXGS"] = "U7-Pro-XGS",
+        ["U7LR"] = "U7-LR",
+        ["U7Lite"] = "U7-Lite",
+        ["U7IW"] = "U7-IW",
+        ["U7Outdoor"] = "U7-Outdoor",
+        ["U7ProOutdoor"] = "U7-Pro-Outdoor",
+        ["UX7"] = "UX7",
+        ["UDR7"] = "UDR7",
+        // Wi-Fi 6/6E
+        ["U6Pro"] = "U6-Pro",
+        ["U6LR"] = "U6-LR",
+        ["U6Lite"] = "U6-Lite",
+        ["U6Mesh"] = "U6-Mesh",
+        ["U6Plus"] = "U6-Plus",
+        ["U6IW"] = "U6-IW",
+        ["U6Enterprise"] = "U6-Enterprise",
+        ["U6EnterpriseIW"] = "U6-Enterprise-IW",
+        ["U6Extender"] = "U6-Extender",
+        ["U6MeshPro"] = "U6-Mesh-Pro",
+        // Enterprise
+        ["E7"] = "E7",
+        ["E7Campus"] = "E7-Campus",
+        ["E7Audience"] = "E7-Audience",
+        ["UDBPro"] = "UDB-Pro",
+        ["UDBProSector"] = "UDB-Pro-Sector",
+        // Legacy
+        ["UAPACPro"] = "UAP-AC-Pro",
+        ["UAPACHD"] = "UAP-HD",
+        ["UAPACLite"] = "UAP-AC-Lite",
+        ["UAPACLR"] = "UAP-AC-LR",
+        ["UAPACMesh"] = "UAP-AC-Mesh",
+        ["UAPACMeshPro"] = "UAP-AC-Mesh-Pro",
+        ["UAPnanoHD"] = "UAP-nanoHD",
+        ["UAPFlexHD"] = "UAP-FlexHD",
+        ["UAPSHD"] = "UAP-SHD",
+        ["UAPXG"] = "UAP-XG",
+        ["UAPIWHD"] = "UAP-IW-HD",
+        ["UAPBeaconHD"] = "UAP-BeaconHD",
+        // Gateways with AP
+        ["UDM"] = "UDM",
+        ["UDR"] = "UDR",
+        ["UDW"] = "UDW",
+        // Accessories
+        ["UKUltra"] = "UK-Ultra",
+        ["UMAD"] = "UMA-D",
+    };
+
+    public AntennaPatternLoader(ILogger<AntennaPatternLoader> logger)
+    {
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Get the antenna pattern for a given model and band.
+    /// Returns null if the pattern is not found.
+    /// </summary>
+    public AntennaPattern? GetPattern(string model, string band)
+    {
+        EnsureLoaded();
+
+        if (_patterns == null) return null;
+
+        // Try direct model name first, then mapped name
+        var patternName = model;
+        if (!_patterns.ContainsKey(patternName))
+        {
+            if (ModelNameMapping.TryGetValue(model, out var mapped))
+                patternName = mapped;
+        }
+
+        if (!_patterns.TryGetValue(patternName, out var bands))
+            return null;
+
+        // Normalize band key
+        var bandKey = band switch
+        {
+            "2.4" or "2.4GHz" or "2.4 GHz" => "2.4",
+            "5" or "5GHz" or "5 GHz" => "5",
+            "6" or "6GHz" or "6 GHz" => "6",
+            _ => "5"
+        };
+
+        return bands.GetValueOrDefault(bandKey);
+    }
+
+    /// <summary>
+    /// Get antenna gain at a specific azimuth angle for a model/band.
+    /// Returns 0 dBi if pattern not found.
+    /// </summary>
+    public float GetAzimuthGain(string model, string band, int azimuthDegrees)
+    {
+        var pattern = GetPattern(model, band);
+        if (pattern?.Azimuth == null || pattern.Azimuth.Length == 0) return 0;
+
+        var index = ((azimuthDegrees % 360) + 360) % 360;
+        return index < pattern.Azimuth.Length ? pattern.Azimuth[index] : 0;
+    }
+
+    /// <summary>
+    /// Get antenna gain at a specific elevation angle for a model/band.
+    /// Returns 0 dBi if pattern not found.
+    /// </summary>
+    public float GetElevationGain(string model, string band, int elevationDegrees)
+    {
+        var pattern = GetPattern(model, band);
+        if (pattern?.Elevation == null || pattern.Elevation.Length == 0) return 0;
+
+        var index = Math.Clamp(elevationDegrees, 0, pattern.Elevation.Length - 1);
+        return pattern.Elevation[index];
+    }
+
+    private void EnsureLoaded()
+    {
+        if (_patterns != null) return;
+
+        lock (_loadLock)
+        {
+            if (_patterns != null) return;
+
+            try
+            {
+                var jsonPath = FindPatternFile();
+                if (jsonPath == null)
+                {
+                    _logger.LogWarning("Antenna pattern file not found, heatmaps will use 0 dBi gain");
+                    _patterns = new Dictionary<string, Dictionary<string, AntennaPattern>>();
+                    return;
+                }
+
+                var json = File.ReadAllText(jsonPath);
+                _patterns = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, AntennaPattern>>>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? new Dictionary<string, Dictionary<string, AntennaPattern>>();
+
+                _logger.LogInformation("Loaded antenna patterns for {Count} models from {Path}",
+                    _patterns.Count, jsonPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load antenna patterns");
+                _patterns = new Dictionary<string, Dictionary<string, AntennaPattern>>();
+            }
+        }
+    }
+
+    private static string? FindPatternFile()
+    {
+        // Look in wwwroot/data first (deployed), then relative paths for development
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "wwwroot", "data", "antenna-patterns.json"),
+            Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "data", "antenna-patterns.json"),
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
+    }
+}

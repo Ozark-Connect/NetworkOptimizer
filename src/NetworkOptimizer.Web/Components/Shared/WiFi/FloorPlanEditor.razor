@@ -1,0 +1,865 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Models
+@using NetworkOptimizer.WiFi.Data
+@inject FloorPlanService FloorPlanSvc
+@inject ApMapService ApMapSvc
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<div class="floor-plan-editor">
+    <!-- Toolbar -->
+    <div class="fp-toolbar">
+        <div class="fp-toolbar-left">
+            <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged">
+                <option value="0">Select Building...</option>
+                @foreach (var b in _buildings)
+                {
+                    <option value="@b.Id">@b.Name</option>
+                }
+            </select>
+            <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building">+</button>
+
+            @if (_selectedBuilding != null)
+            {
+                <div class="fp-floor-picker">
+                    @foreach (var f in _floors.OrderByDescending(f => f.FloorNumber))
+                    {
+                        <button class="fp-floor-btn @(f.Id == _selectedFloorId ? "active" : "")"
+                                @onclick="() => SelectFloor(f.Id)"
+                                data-tooltip="@f.Label">
+                            @GetFloorLabel(f.FloorNumber)
+                        </button>
+                    }
+                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor">+</button>
+                </div>
+            }
+        </div>
+        <div class="fp-toolbar-right">
+            @if (_selectedFloor != null)
+            {
+                <button class="fp-btn @(_mode == "aps" ? "active" : "")" @onclick="ToggleApEditMode">
+                    Edit APs
+                </button>
+                <div class="fp-wall-group">
+                    <button class="fp-btn @(_mode == "walls" ? "active" : "")" @onclick="ToggleWallDrawMode">
+                        Draw Walls
+                    </button>
+                    @if (_mode == "walls")
+                    {
+                        <select class="fp-select fp-select-sm" @bind="_wallMaterial">
+                            <option value="drywall">Drywall</option>
+                            <option value="wood">Wood</option>
+                            <option value="glass">Glass</option>
+                            <option value="brick">Brick</option>
+                            <option value="concrete">Concrete</option>
+                            <option value="exterior">Exterior</option>
+                            <option value="metal">Metal</option>
+                        </select>
+                    }
+                </div>
+                <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
+                    Heatmap
+                </button>
+                @if (_showHeatmap)
+                {
+                    <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged">
+                        <option value="2.4">2.4 GHz</option>
+                        <option value="5">5 GHz</option>
+                        <option value="6">6 GHz</option>
+                    </select>
+                }
+                <button class="fp-btn @(_mode == "position" ? "active" : "")" @onclick="TogglePositionMode">
+                    Position
+                </button>
+            }
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div id="@_mapId" class="fp-map" style="height: @MapHeight;"></div>
+
+    <!-- Bottom bar -->
+    @if (_selectedFloor != null)
+    {
+        <div class="fp-bottom-bar">
+            <label class="fp-upload-btn">
+                Upload Floor Plan
+                <InputFile OnChange="OnFloorPlanUpload" accept="image/*" style="display:none" />
+            </label>
+            <div class="fp-opacity-control">
+                <span>Opacity:</span>
+                <input type="range" min="0" max="100" value="@((int)(_floorOpacity * 100))"
+                       @oninput="OnOpacityChange" class="fp-opacity-slider" />
+            </div>
+            <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete Floor</button>
+        </div>
+    }
+</div>
+
+<!-- Add Building Dialog -->
+@if (_showAddBuilding)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showAddBuilding = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Add Building</h3>
+            <div class="fp-form-group">
+                <label>Name</label>
+                <input type="text" @bind="_newBuildingName" class="fp-input" placeholder="e.g. Main House" />
+            </div>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showAddBuilding = false">Cancel</button>
+                <button class="fp-btn fp-btn-primary" @onclick="CreateBuilding">Create</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Add Floor Dialog -->
+@if (_showAddFloor)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showAddFloor = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Add Floor</h3>
+            <div class="fp-form-group">
+                <label>Floor Number</label>
+                <input type="number" @bind="_newFloorNumber" class="fp-input" />
+            </div>
+            <div class="fp-form-group">
+                <label>Label</label>
+                <input type="text" @bind="_newFloorLabel" class="fp-input" placeholder="e.g. Ground Floor" />
+            </div>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showAddFloor = false">Cancel</button>
+                <button class="fp-btn fp-btn-primary" @onclick="CreateFloor">Create</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .floor-plan-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        background: var(--card-bg, #1a1a2e);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .fp-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: var(--card-header-bg, #16162a);
+        border-bottom: 1px solid var(--border-color, #2d2d4a);
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .fp-toolbar-left, .fp-toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .fp-select {
+        background: var(--input-bg, #0d0d1a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 13px;
+    }
+
+    .fp-select-sm { max-width: 100px; }
+
+    .fp-btn {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .fp-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
+    .fp-btn.active { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-btn-sm { padding: 2px 8px; }
+    .fp-btn-primary { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-btn-danger { background: #dc2626; border-color: #dc2626; }
+    .fp-btn-danger:hover { background: #ef4444; }
+
+    .fp-floor-picker { display: flex; gap: 2px; }
+
+    .fp-floor-btn {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        min-width: 28px;
+        text-align: center;
+    }
+
+    .fp-floor-btn.active { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-floor-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
+    .fp-floor-add { font-weight: bold; }
+
+    .fp-wall-group { display: flex; align-items: center; gap: 4px; }
+
+    .fp-map {
+        width: 100%;
+        min-height: 400px;
+        background: #0d0d1a;
+    }
+
+    .fp-bottom-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        background: var(--card-header-bg, #16162a);
+        border-top: 1px solid var(--border-color, #2d2d4a);
+    }
+
+    .fp-upload-btn {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    .fp-upload-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
+
+    .fp-opacity-control {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--text-muted, #8888aa);
+    }
+
+    .fp-opacity-slider { width: 100px; accent-color: var(--accent-color, #4f46e5); }
+
+    .fp-dialog-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    }
+
+    .fp-dialog {
+        background: var(--card-bg, #1a1a2e);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 8px;
+        padding: 20px;
+        min-width: 300px;
+    }
+
+    .fp-dialog h3 { margin: 0 0 16px; color: var(--text-color, #e0e0e0); font-size: 16px; }
+
+    .fp-form-group { margin-bottom: 12px; }
+
+    .fp-form-group label {
+        display: block;
+        font-size: 13px;
+        color: var(--text-muted, #8888aa);
+        margin-bottom: 4px;
+    }
+
+    .fp-input {
+        width: 100%;
+        background: var(--input-bg, #0d0d1a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 4px;
+        padding: 6px 10px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .fp-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+    }
+
+    :global(.fp-ap-marker) {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        pointer-events: auto !important;
+    }
+
+    :global(.fp-ap-dot) {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #22c55e;
+        border: 2px solid #fff;
+        box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+    }
+
+    :global(.fp-ap-marker.offline .fp-ap-dot) {
+        background: #6b7280;
+        box-shadow: none;
+    }
+
+    :global(.fp-ap-label) {
+        font-size: 10px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 1px 4px;
+        border-radius: 3px;
+        white-space: nowrap;
+        margin-top: 2px;
+    }
+
+    :global(.fp-corner-handle) {
+        width: 14px;
+        height: 14px;
+        background: #4f46e5;
+        border: 2px solid #fff;
+        border-radius: 3px;
+        cursor: move;
+    }
+
+    @@media (max-width: 768px) {
+        .fp-toolbar { flex-direction: column; align-items: flex-start; }
+        .fp-toolbar-left, .fp-toolbar-right { width: 100%; }
+    }
+</style>
+
+@code {
+    [Parameter] public string MapHeight { get; set; } = "600px";
+
+    private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
+    private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
+    private bool _mapInitialized;
+
+    private List<BuildingDto> _buildings = new();
+    private List<FloorDto> _floors = new();
+    private List<ApMapMarker> _apMarkers = new();
+    private int _selectedBuildingId;
+    private int _selectedFloorId;
+    private BuildingDto? _selectedBuilding;
+    private FloorDto? _selectedFloor;
+
+    private string _mode = "view";
+    private bool _showHeatmap;
+    private string _heatmapBand = "5";
+    private string _wallMaterial = "drywall";
+    private double _floorOpacity = 0.7;
+    private bool _showAddBuilding;
+    private bool _showAddFloor;
+    private string _newBuildingName = "";
+    private int _newFloorNumber;
+    private string _newFloorLabel = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await LoadBuildings();
+            await LoadApMarkers();
+            await InitializeMap();
+            StateHasChanged();
+        }
+    }
+
+    private async Task InitializeMap()
+    {
+        await JS.InvokeVoidAsync("eval", BuildMapInitScript());
+        // Pass DotNetObjectReference properly via InvokeVoidAsync (not inline JS)
+        await JS.InvokeVoidAsync("eval", "window._fpSetDotNetRef=function(ref){window._fpDotNetRef=ref;};");
+        await JS.InvokeVoidAsync("_fpSetDotNetRef", _dotNetRef);
+        _mapInitialized = true;
+    }
+
+    private async Task LoadBuildings()
+    {
+        try
+        {
+            var buildings = await FloorPlanSvc.GetBuildingsAsync();
+            _buildings = buildings.Select(b => new BuildingDto
+            {
+                Id = b.Id, Name = b.Name,
+                CenterLatitude = b.CenterLatitude, CenterLongitude = b.CenterLongitude,
+                Floors = b.Floors.Select(f => new FloorDto
+                {
+                    Id = f.Id, BuildingId = f.BuildingId, FloorNumber = f.FloorNumber, Label = f.Label,
+                    SwLatitude = f.SwLatitude, SwLongitude = f.SwLongitude,
+                    NeLatitude = f.NeLatitude, NeLongitude = f.NeLongitude,
+                    Opacity = f.Opacity, WallsJson = f.WallsJson,
+                    HasImage = !string.IsNullOrEmpty(f.ImagePath)
+                }).ToList()
+            }).ToList();
+        }
+        catch { }
+    }
+
+    private async Task LoadApMarkers()
+    {
+        try { _apMarkers = await ApMapSvc.GetApMapMarkersAsync(); }
+        catch { }
+    }
+
+    private async Task OnBuildingChanged(ChangeEventArgs e)
+    {
+        _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+        _selectedFloorId = 0;
+        _selectedFloor = null;
+
+        if (_selectedBuilding != null && _floors.Count > 0)
+            await SelectFloor(_floors.First().Id);
+        else if (_selectedBuilding != null)
+            await JS.InvokeVoidAsync("eval",
+                $"window._fpMap && window._fpMap.setView([{_selectedBuilding.CenterLatitude},{_selectedBuilding.CenterLongitude}], 19);");
+
+        StateHasChanged();
+    }
+
+    private async Task SelectFloor(int floorId)
+    {
+        _selectedFloorId = floorId;
+        _selectedFloor = _floors.FirstOrDefault(f => f.Id == floorId);
+        if (_selectedFloor != null)
+        {
+            _floorOpacity = _selectedFloor.Opacity;
+            await UpdateFloorOverlay();
+            await UpdateApMarkers();
+            await UpdateWalls();
+            if (_showHeatmap) await ComputeHeatmap();
+        }
+        StateHasChanged();
+    }
+
+    private async Task UpdateFloorOverlay()
+    {
+        if (_selectedFloor == null || !_mapInitialized) return;
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        var imageUrl = _selectedFloor.HasImage ? baseUrl + "/api/floors/" + _selectedFloor.Id + "/image" : "";
+
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "if(window._fpOverlay){m.removeLayer(window._fpOverlay);window._fpOverlay=null;}" +
+            "var imgUrl='" + imageUrl + "';if(!imgUrl)return;" +
+            "var bounds=[[" + _selectedFloor.SwLatitude + "," + _selectedFloor.SwLongitude + "],[" +
+            _selectedFloor.NeLatitude + "," + _selectedFloor.NeLongitude + "]];" +
+            "window._fpOverlay=L.imageOverlay(imgUrl,bounds,{opacity:" + _floorOpacity + ",interactive:false}).addTo(m);" +
+            "window._fpOverlay.bringToBack();m.fitBounds(bounds,{padding:[20,20]});})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    private async Task UpdateApMarkers()
+    {
+        if (!_mapInitialized) return;
+
+        var floorNum = _selectedFloor?.FloorNumber ?? 1;
+        var placedAps = _apMarkers
+            .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+            .Where(a => _selectedFloor == null || (a.Floor ?? 1) == floorNum);
+
+        var markersJson = System.Text.Json.JsonSerializer.Serialize(placedAps.Select(a => new
+        {
+            mac = a.Mac, name = a.Name, model = a.Model,
+            lat = a.Latitude, lng = a.Longitude,
+            online = a.IsOnline, clients = a.TotalClients
+        }));
+
+        var draggable = _mode == "aps" ? "true" : "false";
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "if(!window._fpApLayer)window._fpApLayer=L.layerGroup().addTo(m);" +
+            "window._fpApLayer.clearLayers();" +
+            "var aps=" + markersJson + ";" +
+            "var ref=window._fpDotNetRef;" +
+            "aps.forEach(function(ap){" +
+            "var icon=L.divIcon({className:'fp-ap-marker '+(ap.online?'online':'offline')," +
+            "html:'<div class=\"fp-ap-dot\"></div><div class=\"fp-ap-label\">'+(ap.name||ap.model)+'</div>'," +
+            "iconSize:[80,30],iconAnchor:[40,15]});" +
+            "var marker=L.marker([ap.lat,ap.lng],{icon:icon,draggable:" + draggable + "}).addTo(window._fpApLayer);" +
+            "marker.bindPopup('<b>'+(ap.name||ap.mac)+'</b><br/>Model: '+ap.model+'<br/>Clients: '+ap.clients);" +
+            "if(" + draggable + "){marker.on('dragend',function(e){" +
+            "var pos=e.target.getLatLng();" +
+            "ref.invokeMethodAsync('OnApDragEndFromJs',ap.mac,pos.lat,pos.lng);" +
+            "});}});})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    private async Task UpdateWalls()
+    {
+        if (!_mapInitialized || _selectedFloor == null) return;
+        var wallsJson = _selectedFloor.WallsJson ?? "[]";
+        var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
+
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "if(!window._fpWallLayer)window._fpWallLayer=L.layerGroup().addTo(m);" +
+            "window._fpWallLayer.clearLayers();" +
+            "var walls=" + wallsJson + ";var colors=" + colorsJson + ";" +
+            "walls.forEach(function(wall){" +
+            "var latlngs=wall.points.map(function(p){return[p.lat,p.lng];});" +
+            "var color=colors[wall.material]||'#94a3b8';" +
+            "L.polyline(latlngs,{color:color,weight:3,opacity:0.8}).addTo(window._fpWallLayer);" +
+            "});})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    [JSInvokable]
+    public async Task OnApDragEndFromJs(string mac, double lat, double lng)
+    {
+        await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        await LoadApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    [JSInvokable]
+    public async Task OnMapClickForWall(double lat, double lng)
+    {
+        if (_mode != "walls") return;
+        var color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8");
+        var script = "(function(){" +
+            "if(!window._fpCurrentWall){window._fpCurrentWall={points:[],material:'" + _wallMaterial + "'};" +
+            "window._fpCurrentWallLine=L.polyline([],{color:'" + color + "',weight:3}).addTo(window._fpWallLayer||window._fpMap);}" +
+            "window._fpCurrentWall.points.push({lat:" + lat + ",lng:" + lng + "});" +
+            "window._fpCurrentWallLine.addLatLng([" + lat + "," + lng + "]);})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    [JSInvokable]
+    public async Task OnMapDblClickFinishWall()
+    {
+        if (_mode != "walls" || _selectedFloor == null) return;
+        var script = "(function(){" +
+            "if(!window._fpCurrentWall||window._fpCurrentWall.points.length<2){" +
+            "window._fpCurrentWall=null;if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}return;}" +
+            "if(!window._fpAllWalls)window._fpAllWalls=[];" +
+            "window._fpAllWalls.push(window._fpCurrentWall);" +
+            "window._fpCurrentWall=null;window._fpCurrentWallLine=null;" +
+            "window._fpDotNetRef.invokeMethodAsync('SaveWallsFromJs',JSON.stringify(window._fpAllWalls));})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    [JSInvokable]
+    public async Task SaveWallsFromJs(string wallsJson)
+    {
+        if (_selectedFloor == null) return;
+        _selectedFloor.WallsJson = wallsJson;
+        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task ToggleApEditMode()
+    {
+        _mode = _mode == "aps" ? "view" : "aps";
+        await UpdateApMarkers();
+    }
+
+    private async Task ToggleWallDrawMode()
+    {
+        _mode = _mode == "walls" ? "view" : "walls";
+        if (_mode == "walls")
+        {
+            var initWalls = _selectedFloor?.WallsJson ?? "[]";
+            var script = "(function(){var m=window._fpMap;if(!m)return;" +
+                "window._fpAllWalls=" + initWalls + ";" +
+                "m.on('click',function(e){window._fpDotNetRef.invokeMethodAsync('OnMapClickForWall',e.latlng.lat,e.latlng.lng);});" +
+                "m.on('dblclick',function(e){L.DomEvent.stopPropagation(e);window._fpDotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');});" +
+                "m.doubleClickZoom.disable();})();";
+            await JS.InvokeVoidAsync("eval", script);
+        }
+        else
+        {
+            var script = "(function(){var m=window._fpMap;if(!m)return;" +
+                "m.off('click');m.off('dblclick');m.doubleClickZoom.enable();" +
+                "window._fpCurrentWall=null;" +
+                "if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}})();";
+            await JS.InvokeVoidAsync("eval", script);
+        }
+    }
+
+    private async Task TogglePositionMode()
+    {
+        _mode = _mode == "position" ? "view" : "position";
+        if (_mode == "position" && _selectedFloor != null)
+        {
+            var script = "(function(){var m=window._fpMap;if(!m||!window._fpOverlay)return;" +
+                "if(window._fpCorners){window._fpCorners.forEach(function(c){m.removeLayer(c);});}" +
+                "var bounds=window._fpOverlay.getBounds();var sw=bounds.getSouthWest();var ne=bounds.getNorthEast();" +
+                "var ci=L.divIcon({className:'fp-corner-handle',iconSize:[14,14],iconAnchor:[7,7]});" +
+                "var swM=L.marker(sw,{icon:ci,draggable:true}).addTo(m);" +
+                "var neM=L.marker(ne,{icon:ci,draggable:true}).addTo(m);" +
+                "window._fpCorners=[swM,neM];" +
+                "function upd(){window._fpOverlay.setBounds([swM.getLatLng(),neM.getLatLng()]);}" +
+                "swM.on('drag',upd);neM.on('drag',upd);" +
+                "function save(){var s=swM.getLatLng();var n=neM.getLatLng();" +
+                "window._fpDotNetRef.invokeMethodAsync('OnBoundsChangedFromJs',s.lat,s.lng,n.lat,n.lng);}" +
+                "swM.on('dragend',save);neM.on('dragend',save);})();";
+            await JS.InvokeVoidAsync("eval", script);
+        }
+        else
+        {
+            var script = "(function(){var m=window._fpMap;if(!m)return;" +
+                "if(window._fpCorners){window._fpCorners.forEach(function(c){m.removeLayer(c);});window._fpCorners=null;}})();";
+            await JS.InvokeVoidAsync("eval", script);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnBoundsChangedFromJs(double swLat, double swLng, double neLat, double neLng)
+    {
+        if (_selectedFloor == null) return;
+        _selectedFloor.SwLatitude = swLat;
+        _selectedFloor.SwLongitude = swLng;
+        _selectedFloor.NeLatitude = neLat;
+        _selectedFloor.NeLongitude = neLng;
+        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, swLat, swLng, neLat, neLng);
+    }
+
+    private async Task ToggleHeatmap()
+    {
+        _showHeatmap = !_showHeatmap;
+        if (_showHeatmap)
+            await ComputeHeatmap();
+        else
+        {
+            var script = "(function(){if(window._fpHeatmapOverlay){window._fpMap.removeLayer(window._fpHeatmapOverlay);window._fpHeatmapOverlay=null;}})();";
+            await JS.InvokeVoidAsync("eval", script);
+        }
+    }
+
+    private async Task OnBandChanged(ChangeEventArgs e)
+    {
+        _heatmapBand = e.Value?.ToString() ?? "5";
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task ComputeHeatmap()
+    {
+        if (_selectedFloor == null || !_mapInitialized) return;
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "fetch('" + baseUrl + "/api/heatmap/compute',{method:'POST',headers:{'Content-Type':'application/json'}," +
+            "body:JSON.stringify({floorId:" + _selectedFloor.Id + ",band:'" + _heatmapBand + "',gridResolutionMeters:1.0})})" +
+            ".then(function(r){return r.json();})" +
+            ".then(function(data){if(!data||!data.data)return;" +
+            "if(window._fpHeatmapOverlay){m.removeLayer(window._fpHeatmapOverlay);}" +
+            "var canvas=document.createElement('canvas');canvas.width=data.width;canvas.height=data.height;" +
+            "var ctx=canvas.getContext('2d');var imgData=ctx.createImageData(data.width,data.height);" +
+            "for(var i=0;i<data.data.length;i++){var sig=data.data[i];var r,g,b;" +
+            "if(sig>-50){r=34;g=197;b=94;}else if(sig>-60){r=250;g=204;b=21;}" +
+            "else if(sig>-70){r=251;g=146;b=60;}else if(sig>-80){r=239;g=68;b=68;}" +
+            "else{r=107;g=114;b=128;}" +
+            "var row=data.height-1-Math.floor(i/data.width);var col=i%data.width;var idx=(row*data.width+col)*4;" +
+            "imgData.data[idx]=r;imgData.data[idx+1]=g;imgData.data[idx+2]=b;imgData.data[idx+3]=140;}" +
+            "ctx.putImageData(imgData,0,0);var dataUrl=canvas.toDataURL();" +
+            "var bounds=[[data.swLat,data.swLng],[data.neLat,data.neLng]];" +
+            "window._fpHeatmapOverlay=L.imageOverlay(dataUrl,bounds,{opacity:0.6}).addTo(m);})" +
+            ".catch(function(err){console.error('Heatmap error:',err);});})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    private async Task OnOpacityChange(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var pct))
+        {
+            _floorOpacity = pct / 100.0;
+            if (_selectedFloor != null)
+            {
+                _selectedFloor.Opacity = _floorOpacity;
+                await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, opacity: _floorOpacity);
+                await JS.InvokeVoidAsync("eval", "window._fpOverlay && window._fpOverlay.setOpacity(" + _floorOpacity + ");");
+            }
+        }
+    }
+
+    private async Task OnFloorPlanUpload(InputFileChangeEventArgs e)
+    {
+        if (_selectedFloor == null) return;
+        var file = e.File;
+        if (file.Size > 20 * 1024 * 1024) return;
+
+        using var stream = file.OpenReadStream(20 * 1024 * 1024);
+        await FloorPlanSvc.SaveFloorImageAsync(_selectedFloor.Id, stream);
+        _selectedFloor.HasImage = true;
+
+        if (_selectedFloor.SwLatitude == 0 && _selectedFloor.NeLatitude == 0 && _selectedBuilding != null)
+        {
+            var centerLat = _selectedBuilding.CenterLatitude;
+            var centerLng = _selectedBuilding.CenterLongitude;
+            if (centerLat == 0 && centerLng == 0) { centerLat = 38.0; centerLng = -92.0; }
+            var latOffset = 25.0 / 111320.0;
+            var lngOffset = 25.0 / (111320.0 * Math.Cos(centerLat * Math.PI / 180));
+            _selectedFloor.SwLatitude = centerLat - latOffset;
+            _selectedFloor.SwLongitude = centerLng - lngOffset;
+            _selectedFloor.NeLatitude = centerLat + latOffset;
+            _selectedFloor.NeLongitude = centerLng + lngOffset;
+            await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id,
+                _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
+                _selectedFloor.NeLatitude, _selectedFloor.NeLongitude);
+        }
+
+        await UpdateFloorOverlay();
+        StateHasChanged();
+    }
+
+    private void ShowAddBuildingDialog()
+    {
+        _newBuildingName = "";
+        _showAddBuilding = true;
+    }
+
+    private async Task CreateBuilding()
+    {
+        if (string.IsNullOrWhiteSpace(_newBuildingName)) return;
+        var lat = 38.0;
+        var lng = -92.0;
+        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue);
+        if (firstAp != null) { lat = firstAp.Latitude!.Value; lng = firstAp.Longitude!.Value; }
+
+        var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
+        _showAddBuilding = false;
+        await LoadBuildings();
+        _selectedBuildingId = building.Id;
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == building.Id);
+        _floors = _selectedBuilding?.Floors ?? new();
+        StateHasChanged();
+    }
+
+    private void ShowAddFloorDialog()
+    {
+        var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : -1;
+        _newFloorNumber = maxFloor + 1;
+        _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+        _showAddFloor = true;
+    }
+
+    private static string GetDefaultFloorLabel(int n)
+    {
+        if (n <= -1) return "Basement " + Math.Abs(n);
+        if (n == 0) return "Ground Floor";
+        if (n == 1) return "1st Floor";
+        if (n == 2) return "2nd Floor";
+        if (n == 3) return "3rd Floor";
+        return n + "th Floor";
+    }
+
+    private async Task CreateFloor()
+    {
+        if (_selectedBuilding == null) return;
+        var lat = _selectedBuilding.CenterLatitude;
+        var lng = _selectedBuilding.CenterLongitude;
+        var cosLat = lat == 0 ? 1.0 : Math.Cos(lat * Math.PI / 180);
+        var latOffset = 25.0 / 111320.0;
+        var lngOffset = 25.0 / (111320.0 * cosLat);
+
+        await FloorPlanSvc.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
+            lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset);
+
+        _showAddFloor = false;
+        await LoadBuildings();
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+        var newFloor = _floors.FirstOrDefault(f => f.FloorNumber == _newFloorNumber);
+        if (newFloor != null) await SelectFloor(newFloor.Id);
+        StateHasChanged();
+    }
+
+    private async Task DeleteSelectedFloor()
+    {
+        if (_selectedFloor == null) return;
+        await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
+        await LoadBuildings();
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+        _selectedFloorId = 0;
+        _selectedFloor = null;
+
+        var script = "(function(){" +
+            "if(window._fpOverlay){window._fpMap.removeLayer(window._fpOverlay);window._fpOverlay=null;}" +
+            "if(window._fpHeatmapOverlay){window._fpMap.removeLayer(window._fpHeatmapOverlay);window._fpHeatmapOverlay=null;}" +
+            "if(window._fpWallLayer){window._fpWallLayer.clearLayers();}})();";
+        await JS.InvokeVoidAsync("eval", script);
+        StateHasChanged();
+    }
+
+    private static string GetFloorLabel(int floorNumber)
+    {
+        if (floorNumber <= -1) return "B" + Math.Abs(floorNumber);
+        if (floorNumber == 0) return "G";
+        return floorNumber.ToString();
+    }
+
+    private string BuildMapInitScript()
+    {
+        var centerLat = 38.0;
+        var centerLng = -92.0;
+        var zoom = 4;
+        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue);
+        if (firstAp != null)
+        {
+            centerLat = firstAp.Latitude!.Value;
+            centerLng = firstAp.Longitude!.Value;
+            zoom = 19;
+        }
+
+        return "(function(){" +
+            "function init(){" +
+            "if(typeof L==='undefined'){" +
+            "if(!document.querySelector('link[href*=\"leaflet\"]')){" +
+            "var css=document.createElement('link');css.rel='stylesheet';" +
+            "css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';document.head.appendChild(css);}" +
+            "if(!document.querySelector('script[src*=\"leaflet\"]')){" +
+            "var js=document.createElement('script');js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';" +
+            "js.onload=function(){setTimeout(init,100);};document.head.appendChild(js);" +
+            "}else{setTimeout(init,100);}return;}" +
+            "var container=document.getElementById('" + _mapId + "');if(!container){setTimeout(init,100);return;}" +
+            "var m=L.map('" + _mapId + "',{center:[" + centerLat + "," + centerLng + "],zoom:" + zoom + ",zoomControl:true});" +
+            "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'}).addTo(m);" +
+            "window._fpMap=m;window._fpApLayer=L.layerGroup().addTo(m);window._fpWallLayer=L.layerGroup().addTo(m);}" +
+            "init();})();";
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
+    }
+
+    private class BuildingDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public double CenterLatitude { get; set; }
+        public double CenterLongitude { get; set; }
+        public List<FloorDto> Floors { get; set; } = new();
+    }
+
+    private class FloorDto
+    {
+        public int Id { get; set; }
+        public int BuildingId { get; set; }
+        public int FloorNumber { get; set; }
+        public string Label { get; set; } = "";
+        public double SwLatitude { get; set; }
+        public double SwLongitude { get; set; }
+        public double NeLatitude { get; set; }
+        public double NeLongitude { get; set; }
+        public double Opacity { get; set; } = 0.7;
+        public string? WallsJson { get; set; }
+        public bool HasImage { get; set; }
+    }
+}
