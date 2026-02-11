@@ -1968,9 +1968,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // not a physical port. The UI bottleneck check uses EgressSpeedMbps consistently
             // (matching "to device" direction), so we only feed Egress into the min calculation
             // for these hops. Directional efficiency handles download/upload separately.
+            // Exception: gateway direct paths (WAN speed test on gateway) have no LAN hops,
+            // so WAN ingress (download) IS needed for bottleneck detection and asymmetric display.
             var isExternalHop = hop.Type == HopType.Wan || hop.Type == HopType.Vpn ||
                 hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport;
-            if (hop.IngressSpeedMbps > 0 && !isExternalHop)
+            var isGatewayDirect = path.TargetIsGateway && path.IsExternalPath;
+            if (hop.IngressSpeedMbps > 0 && (!isExternalHop || isGatewayDirect))
             {
                 allSpeeds.Add(hop.IngressSpeedMbps);
                 if (hop.IngressSpeedMbps > maxSpeed) maxSpeed = hop.IngressSpeedMbps;
