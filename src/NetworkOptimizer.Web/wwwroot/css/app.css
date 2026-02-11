@@ -11571,6 +11571,12 @@ a.affected-client:hover {
    WAN Speed Test
    ============================================ */
 
+.wan-speedtest .wan-test-description {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
 .wan-speedtest .wan-test-options {
     display: flex;
     gap: 1rem;
