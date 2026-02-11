@@ -868,8 +868,7 @@
     {
         var down = result.DownloadBitsPerSecond / 1_000_000.0;
         var up = result.UploadBitsPerSecond / 1_000_000.0;
-        var latency = result.PingMs > 0 ? $" | {result.PingMs:F1} ms" : "";
-        return $"↓ {down:F1} Mbps  ↑ {up:F1} Mbps{latency}";
+        return $"Down: {down:F1} / Up: {up:F1} Mbps";
     }
 
     private void OnWanSelectionChanged()
