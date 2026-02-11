@@ -47,14 +47,13 @@
                     </button>
                     @if (_mode == "walls")
                     {
-                        <select class="fp-select fp-select-sm" @bind="_wallMaterial">
-                            <option value="drywall">Drywall</option>
-                            <option value="wood">Wood</option>
-                            <option value="glass">Glass</option>
-                            <option value="brick">Brick</option>
-                            <option value="concrete">Concrete</option>
-                            <option value="exterior">Exterior</option>
-                            <option value="metal">Metal</option>
+                        <select class="fp-select fp-select-sm fp-wall-select" @bind="_wallMaterial">
+                            @foreach (var mat in MaterialAttenuation.MaterialLabels
+                                .Where(m => !m.Key.StartsWith("floor_")))
+                            {
+                                var db = MaterialAttenuation.GetAttenuation(mat.Key, "5");
+                                <option value="@mat.Key">@mat.Value (@db dB)</option>
+                            }
                         </select>
                     }
                 </div>
@@ -124,7 +123,7 @@
         @if (_mode == "walls")
         {
             <div class="fp-edit-hint fp-wall-hint">
-                Click to place wall vertices (snaps to 90°). Double-click to finish. Hold Shift for free-form.
+                Click to place vertices. First segment sets the angle, then snaps to 90° from it. Double-click to finish. Shift = free-form.
             </div>
         }
 
@@ -240,6 +239,7 @@
     }
 
     .fp-select-sm { max-width: 100px; }
+    .fp-wall-select { max-width: 200px !important; }
 
     .fp-btn {
         background: var(--btn-bg, #2d2d4a);
@@ -846,17 +846,38 @@
                 "m.dragging.disable();" +
                 "m.getContainer().style.cursor='crosshair';" +
                 // Wall click handler with snapping
-                "window._fpWallClickHandler=function(e){" +
+                // Snap function: snaps to reference angle (first wall sets the angle) or 90 degrees from it
+            "window._fpRefAngle=null;" +
+            "window._fpSnapPoint=function(prev,lat,lng,shiftKey){" +
+            "if(shiftKey)return{lat:lat,lng:lng};" +
+            "var cosLat=Math.cos(prev.lat*Math.PI/180);" +
+            "var dx=(lng-prev.lng)*cosLat;var dy=lat-prev.lat;" +
+            "var dist=Math.sqrt(dx*dx+dy*dy);" +
+            "if(dist<1e-10)return{lat:lat,lng:lng};" +
+            // If no reference angle yet, snap to nearest cardinal or 45-degree
+            "if(window._fpRefAngle===null){" +
+            "if(Math.abs(dx)>Math.abs(dy)){return{lat:prev.lat,lng:lng};}" +
+            "else{return{lat:lat,lng:prev.lng};}}" +
+            // Snap to reference angle or perpendicular
+            "var angle=window._fpRefAngle;var perpAngle=angle+Math.PI/2;" +
+            "var ca=Math.cos(angle);var sa=Math.sin(angle);" +
+            "var cp=Math.cos(perpAngle);var sp=Math.sin(perpAngle);" +
+            // Project onto both directions, pick the closer one
+            "var projRef=dx*ca+dy*sa;var projPerp=dx*cp+dy*sp;" +
+            "if(Math.abs(projRef)>=Math.abs(projPerp)){" +
+            "return{lat:prev.lat+projRef*sa,lng:prev.lng+projRef*ca/cosLat};}" +
+            "else{return{lat:prev.lat+projPerp*sp,lng:prev.lng+projPerp*cp/cosLat};}};" +
+            "window._fpWallClickHandler=function(e){" +
                 "var lat=e.latlng.lat;var lng=e.latlng.lng;" +
-                // 90-degree snap unless Shift held
                 "if(!e.originalEvent.shiftKey&&window._fpCurrentWall&&window._fpCurrentWall.points.length>0){" +
                 "var prev=window._fpCurrentWall.points[window._fpCurrentWall.points.length-1];" +
-                "var cosLat=Math.cos(prev.lat*Math.PI/180);" +
-                "var dx=(lng-prev.lng)*cosLat;var dy=lat-prev.lat;" +
-                "var absDx=Math.abs(dx);var absDy=Math.abs(dy);" +
-                // Snap: if more horizontal, force horizontal; if more vertical, force vertical
-                "if(absDx>absDy){lat=prev.lat;}" +
-                "else{lng=prev.lng;}}" +
+                "var snapped=window._fpSnapPoint(prev,lat,lng,false);" +
+                "lat=snapped.lat;lng=snapped.lng;" +
+                // Set reference angle from first segment
+                "if(window._fpRefAngle===null&&window._fpCurrentWall.points.length===1){" +
+                "var cosLat2=Math.cos(prev.lat*Math.PI/180);" +
+                "var dx2=(lng-prev.lng)*cosLat2;var dy2=lat-prev.lat;" +
+                "window._fpRefAngle=Math.atan2(dy2,dx2);}}" +
                 "window._fpDotNetRef.invokeMethodAsync('OnMapClickForWall',lat,lng);};" +
                 // Double-click handler
                 "window._fpWallDblClickHandler=function(e){" +
@@ -870,11 +891,8 @@
                 "window._fpWallMoveHandler=function(e){" +
                 "if(!window._fpCurrentWall||window._fpCurrentWall.points.length===0)return;" +
                 "var prev=window._fpCurrentWall.points[window._fpCurrentWall.points.length-1];" +
-                "var lat=e.latlng.lat;var lng=e.latlng.lng;" +
-                "if(!e.originalEvent.shiftKey){" +
-                "var cosLat=Math.cos(prev.lat*Math.PI/180);" +
-                "var dx=(lng-prev.lng)*cosLat;var dy=lat-prev.lat;" +
-                "if(Math.abs(dx)>Math.abs(dy)){lat=prev.lat;}else{lng=prev.lng;}}" +
+                "var snapped=window._fpSnapPoint(prev,e.latlng.lat,e.latlng.lng,e.originalEvent.shiftKey);" +
+                "var lat=snapped.lat;var lng=snapped.lng;" +
                 "if(!window._fpPreviewLine){window._fpPreviewLine=L.polyline([[prev.lat,prev.lng],[lat,lng]],{color:'#818cf8',weight:2,dashArray:'6,4',opacity:0.8}).addTo(m);}" +
                 "else{window._fpPreviewLine.setLatLngs([[prev.lat,prev.lng],[lat,lng]]);}};" +
                 "m.on('mousemove',window._fpWallMoveHandler);" +
@@ -947,7 +965,7 @@
             // Save wall
             "if(!window._fpAllWalls)window._fpAllWalls=[];" +
             "window._fpAllWalls.push(window._fpCurrentWall);" +
-            "window._fpCurrentWall=null;" +
+            "window._fpCurrentWall=null;window._fpRefAngle=null;" +
             "window._fpDotNetRef.invokeMethodAsync('SaveWallsFromJs',JSON.stringify(window._fpAllWalls));})();";
         await JS.InvokeVoidAsync("eval", script);
     }
