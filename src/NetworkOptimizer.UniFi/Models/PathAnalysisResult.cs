@@ -121,15 +121,19 @@ public class PathAnalysisResult
             Insights.Add("Performance is moderate - some overhead or minor congestion");
         }
 
-        // Recommendations based on bottleneck (wired only - wireless speeds vary naturally)
-        // 10/100 Mbps links on UniFi gear typically indicate cable or auto-negotiation issues
-        if ((Path.TheoreticalMaxMbps == 10 || Path.TheoreticalMaxMbps == 100) && !Path.HasWirelessConnection)
+        // Recommendations based on bottleneck (wired LAN only - wireless speeds vary naturally,
+        // and WAN speeds reflect ISP limits not physical link issues)
+        if (!Path.IsExternalPath)
         {
-            Recommendations.Add("10/100 Mbps link detected - cable quality or auto-negotiation may be faulty");
-        }
-        else if (Path.TheoreticalMaxMbps == 1000 && avgEfficiency >= 90)
-        {
-            Recommendations.Add("Maxing out 1 GbE - consider 2.5G or 10G upgrade for higher speeds");
+            // 10/100 Mbps links on UniFi gear typically indicate cable or auto-negotiation issues
+            if ((Path.TheoreticalMaxMbps == 10 || Path.TheoreticalMaxMbps == 100) && !Path.HasWirelessConnection)
+            {
+                Recommendations.Add("10/100 Mbps link detected - cable quality or auto-negotiation may be faulty");
+            }
+            else if (Path.TheoreticalMaxMbps == 1000 && avgEfficiency >= 90)
+            {
+                Recommendations.Add("Maxing out 1 GbE - consider 2.5G or 10G upgrade for higher speeds");
+            }
         }
 
         // Retransmit analysis
