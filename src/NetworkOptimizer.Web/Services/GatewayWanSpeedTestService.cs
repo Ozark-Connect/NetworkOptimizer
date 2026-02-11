@@ -230,19 +230,19 @@ public class GatewayWanSpeedTestService
             var sshTask = _gatewaySsh.RunCommandAsync(
                 command, TimeSpan.FromSeconds(120), cancellationToken);
 
-            var progressSteps = new (string Phase, int Percent, int DelayMs)[]
+            var progressSteps = new (string Phase, int Percent, string Status, int DelayMs)[]
             {
-                ("Latency", 15, 2500),
-                ("Testing download", 22, 1800),
-                ("Testing download", 32, 1800),
-                ("Testing download", 42, 1800),
-                ("Testing download", 52, 1800),
-                ("Testing download", 58, 1800),
-                ("Testing upload", 65, 1800),
-                ("Testing upload", 72, 1800),
-                ("Testing upload", 78, 1800),
-                ("Testing upload", 84, 1800),
-                ("Testing upload", 90, 1800),
+                ("Latency", 15, "Measuring latency...", 2500),
+                ("Testing download", 22, "Testing download...", 1800),
+                ("Testing download", 32, "Testing download...", 1800),
+                ("Testing download", 42, "Testing download...", 1800),
+                ("Testing download", 52, "Testing download...", 1800),
+                ("Testing download", 58, "Testing download...", 1800),
+                ("Testing upload", 65, "Testing upload...", 1800),
+                ("Testing upload", 72, "Testing upload...", 1800),
+                ("Testing upload", 78, "Testing upload...", 1800),
+                ("Testing upload", 84, "Testing upload...", 1800),
+                ("Testing upload", 90, "Testing upload...", 1800),
             };
 
             foreach (var step in progressSteps)
@@ -251,7 +251,7 @@ public class GatewayWanSpeedTestService
                 try { await Task.WhenAny(sshTask, Task.Delay(step.DelayMs, cancellationToken)); }
                 catch (OperationCanceledException) { break; }
                 if (!sshTask.IsCompleted)
-                    Report(step.Phase, step.Percent, null);
+                    Report(step.Phase, step.Percent, step.Status);
             }
 
             var result = await sshTask;
