@@ -11624,7 +11624,7 @@ a.affected-client:hover {
 
 .wan-speedtest .wan-test-option-hint {
     font-size: 0.8rem;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     line-height: 1.4;
 }
 
