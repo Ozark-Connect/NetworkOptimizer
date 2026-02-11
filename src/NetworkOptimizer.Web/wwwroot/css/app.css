@@ -3226,11 +3226,13 @@ select.form-control {
     display: flex;
     gap: 1rem 2rem;
     justify-content: center;
+    align-items: center;
     flex-wrap: wrap;
     color: var(--text-secondary);
     font-size: 0.875rem;
     padding-top: 1rem;
     border-top: 1px solid var(--border-color);
+    text-align: center;
 }
 
 .test-details code {
@@ -3273,7 +3275,15 @@ select.form-control {
     opacity: 0.4;
 }
 
+.test-details .wan-reassign-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+}
+
 .test-details .wan-reassign-select {
+    position: relative;
+    z-index: 100;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 4px;

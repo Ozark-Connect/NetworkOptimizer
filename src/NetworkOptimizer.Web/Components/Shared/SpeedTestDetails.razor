@@ -78,8 +78,8 @@
             </span>
         }
     }
-    <span class="hide-mobile">Time <code>@TestTime.ToLocalTime().ToString("g")</code></span>
-    <span class="show-mobile"><code>@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</code></span>
+    <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
+    <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
     @if ((OnDelete.HasDelegate || (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)) && Result != null)
     {
         <span class="detail-actions" @onclick:stopPropagation="true">
@@ -87,7 +87,8 @@
             {
                 @if (_wanEditing)
                 {
-                    <select class="wan-reassign-select" @onchange="HandleWanSelected" @onblur="CancelWanEdit">
+                    <div class="wan-reassign-overlay" @onclick="CancelWanEdit"></div>
+                    <select class="wan-reassign-select" @onchange="HandleWanSelected">
                         <option value="">Select WAN...</option>
                         @foreach (var wan in AvailableWans)
                         {
@@ -1116,18 +1117,7 @@
 
     private void CancelWanEdit()
     {
-        // Small delay to allow onchange to fire before blur closes the dropdown
-        _ = Task.Delay(150).ContinueWith(_ =>
-        {
-            if (!_disposed && !_wanSaving)
-            {
-                InvokeAsync(() =>
-                {
-                    _wanEditing = false;
-                    StateHasChanged();
-                });
-            }
-        });
+        _wanEditing = false;
     }
 
     private async Task HandleWanSelected(ChangeEventArgs e)
