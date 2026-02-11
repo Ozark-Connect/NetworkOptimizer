@@ -726,6 +726,13 @@
         if (nextHop.IsBottleneck && nextHop.IngressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps)
             return true;
 
+        // For WAN/VPN hops, ingress and egress are both on the same logical link (download/upload),
+        // so also check the ingress side of the bottleneck hop
+        var isExternalBottleneck = hop.IsBottleneck && (hop.Type == HopType.Wan || hop.Type == HopType.Vpn ||
+            hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport);
+        if (isExternalBottleneck && hop.IngressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps)
+            return true;
+
         // For symmetric (wired) links, highlight ALL links matching the bottleneck speed
         var isAsymmetricLink = isWirelessLink ||
             hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport ||
