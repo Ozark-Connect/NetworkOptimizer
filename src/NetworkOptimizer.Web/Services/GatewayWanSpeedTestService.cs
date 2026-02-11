@@ -196,11 +196,40 @@ public class GatewayWanSpeedTestService
             Report("Preparing", 10, "Binary ready");
 
             // Phase 2: Run test via SSH (10-95%)
-            Report("Testing", 12, $"Running speed test on {interfaceName}...");
+            // Simulate progress based on known timing (~30s total: 3s latency, 12s download, 12s upload, 3s finalize)
+            Report("Testing", 12, "Measuring latency...");
 
             var command = $"{RemoteBinaryPath} --interface {interfaceName} 2>/dev/null";
-            var result = await _gatewaySsh.RunCommandAsync(
+            var sshTask = _gatewaySsh.RunCommandAsync(
                 command, TimeSpan.FromSeconds(120), cancellationToken);
+
+            var progressSteps = new (int Percent, string Status, int DelayMs)[]
+            {
+                (15, "Measuring latency...", 3000),
+                (20, "Testing download...", 2000),
+                (30, "Testing download...", 2000),
+                (40, "Testing download...", 2000),
+                (50, "Testing download...", 2000),
+                (55, "Testing download...", 2000),
+                (60, "Testing download...", 2000),
+                (65, "Testing upload...", 2000),
+                (70, "Testing upload...", 2000),
+                (75, "Testing upload...", 2000),
+                (80, "Testing upload...", 2000),
+                (85, "Testing upload...", 2000),
+                (90, "Testing upload...", 2000),
+            };
+
+            foreach (var step in progressSteps)
+            {
+                if (sshTask.IsCompleted) break;
+                try { await Task.WhenAny(sshTask, Task.Delay(step.DelayMs, cancellationToken)); }
+                catch (OperationCanceledException) { break; }
+                if (!sshTask.IsCompleted)
+                    Report("Testing", step.Percent, step.Status);
+            }
+
+            var result = await sshTask;
 
             if (!result.success)
             {
