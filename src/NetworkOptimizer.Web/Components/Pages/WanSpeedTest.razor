@@ -49,7 +49,7 @@
                                 }
                             </select>
                         }
-                        <button class="btn btn-secondary test-button wan-test-button"
+                        <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunGatewayTest"
                                 disabled="@(_isRunning || !_gatewayAvailable)">
                             @if (_isRunning && _activeTestType == "gateway")
