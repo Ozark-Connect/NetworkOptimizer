@@ -68,31 +68,49 @@ public class GatewayWanSpeedTestService
     }
 
     /// <summary>
-    /// Check if the cfspeedtest binary is deployed and its version.
+    /// Check if the cfspeedtest binary is deployed and up to date.
+    /// Compares remote file size against local binary to detect updates.
     /// </summary>
-    public async Task<(bool Deployed, string? Version)> CheckBinaryStatusAsync()
+    public async Task<(bool Deployed, bool NeedsUpdate)> CheckBinaryStatusAsync()
     {
         try
         {
             var settings = await _gatewaySsh.GetSettingsAsync();
             if (string.IsNullOrEmpty(settings.Host) || !settings.HasCredentials || !settings.Enabled)
-                return (false, null);
+                return (false, false);
 
             var result = await _gatewaySsh.RunCommandAsync(
                 $"{RemoteBinaryPath} -version", TimeSpan.FromSeconds(10));
 
-            if (result.success)
+            if (!result.success)
+                return (false, false);
+
+            // Check if the remote binary matches the local one by file size
+            var localPath = Path.Combine(AppContext.BaseDirectory, "tools", LocalBinaryName);
+            if (File.Exists(localPath))
             {
-                var version = result.output.Trim();
-                return (true, version);
+                var localSize = new FileInfo(localPath).Length;
+                var sizeResult = await _gatewaySsh.RunCommandAsync(
+                    $"stat -c %s {RemoteBinaryPath} 2>/dev/null || wc -c < {RemoteBinaryPath}",
+                    TimeSpan.FromSeconds(10));
+
+                if (sizeResult.success && long.TryParse(sizeResult.output.Trim(), out var remoteSize))
+                {
+                    if (localSize != remoteSize)
+                    {
+                        _logger.LogInformation("cfspeedtest binary size mismatch (local: {Local}, remote: {Remote}) - update needed",
+                            localSize, remoteSize);
+                        return (true, true);
+                    }
+                }
             }
 
-            return (false, null);
+            return (true, false);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to check cfspeedtest binary status on gateway");
-            return (false, null);
+            return (false, false);
         }
     }
 
@@ -182,10 +200,11 @@ public class GatewayWanSpeedTestService
 
             // Phase 1: Check/deploy binary (0-10%)
             Report("Preparing", 2, "Checking gateway binary...");
-            var (deployed, _) = await CheckBinaryStatusAsync();
-            if (!deployed)
+            var (deployed, needsUpdate) = await CheckBinaryStatusAsync();
+            if (!deployed || needsUpdate)
             {
-                Report("Deploying", 5, "Uploading speed test binary to gateway...");
+                var action = needsUpdate ? "Updating" : "Deploying";
+                Report("Deploying", 5, $"{action} speed test binary on gateway...");
                 var (deploySuccess, deployError) = await DeployBinaryAsync(cancellationToken);
                 if (!deploySuccess)
                 {
