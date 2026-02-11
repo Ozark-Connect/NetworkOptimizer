@@ -315,7 +315,8 @@ public class SpeedTestRepository : ISpeedTestRepository
         {
             // Only clear LAN speed test results - preserve WAN (Cloudflare) results
             var lanResults = await _context.Iperf3Results
-                .Where(r => r.Direction != SpeedTestDirection.CloudflareWan)
+                .Where(r => r.Direction != SpeedTestDirection.CloudflareWan
+                          && r.Direction != SpeedTestDirection.CloudflareWanGateway)
                 .ToListAsync(cancellationToken);
             if (lanResults.Count > 0)
             {

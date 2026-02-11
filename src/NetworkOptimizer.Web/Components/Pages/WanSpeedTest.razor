@@ -1175,7 +1175,9 @@
 
         try
         {
-            var path = await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
+            var path = result.Direction == SpeedTestDirection.CloudflareWanGateway
+                ? await PathAnalyzer.CalculateGatewayDirectPathAsync(resolvedWanGroup: result.WanNetworkGroup)
+                : await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
             var analysis = PathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,

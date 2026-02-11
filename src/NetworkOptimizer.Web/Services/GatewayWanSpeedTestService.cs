@@ -289,9 +289,9 @@ public class GatewayWanSpeedTestService
             Report("Complete", 100, $"Down: {testResult.DownloadMbps:F1} / Up: {testResult.UploadMbps:F1} Mbps");
             lock (_lock) _lastCompletedResult = testResult;
 
-            // Background path analysis
+            // Background path analysis - gateway direct path (Cloudflare → WAN → Gateway, no LAN hops)
             var resolvedWanGroup = testResult.WanNetworkGroup;
-            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup: resolvedWanGroup), CancellationToken.None);
+            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
 
             return testResult;
         }
@@ -491,8 +491,8 @@ public class GatewayWanSpeedTestService
             var result = await db.Iperf3Results.FindAsync(resultId);
             if (result == null) return;
 
-            var path = await _pathAnalyzer.CalculatePathAsync(
-                result.DeviceHost, result.LocalIp, retryOnFailure: true,
+            // Gateway direct path: Cloudflare → WAN → Gateway (no LAN hops)
+            var path = await _pathAnalyzer.CalculateGatewayDirectPathAsync(
                 resolvedWanGroup: resolvedWanGroup);
 
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(

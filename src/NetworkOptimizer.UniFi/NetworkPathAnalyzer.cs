@@ -40,6 +40,12 @@ public interface INetworkPathAnalyzer
     PathAnalysisResult AnalyzeSpeedTest(NetworkPath path, double fromDeviceMbps, double toDeviceMbps, int fromDeviceRetransmits = 0, int toDeviceRetransmits = 0, long fromDeviceBytes = 0, long toDeviceBytes = 0);
 
     /// <summary>
+    /// Calculates the network path for a gateway-direct speed test.
+    /// The path is Cloudflare → WAN → Gateway (no LAN hops since the test runs on the gateway).
+    /// </summary>
+    Task<NetworkPath> CalculateGatewayDirectPathAsync(string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Identifies which WAN connection was used based on the Cloudflare-reported external IP.
     /// Returns the WAN network group (e.g. "WAN", "WAN2") and friendly name (e.g. "Starlink").
     /// When measured speeds are provided and no direct IP match is found (e.g. CGNAT),
@@ -472,6 +478,74 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error calculating path to {Target}", targetHost);
+            path.IsValid = false;
+            path.ErrorMessage = $"Error calculating path: {ex.Message}";
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// Calculates the network path for a gateway-direct speed test.
+    /// The path is Cloudflare → WAN → Gateway (no LAN hops since the test runs on the gateway).
+    /// </summary>
+    public async Task<NetworkPath> CalculateGatewayDirectPathAsync(
+        string? resolvedWanGroup = null,
+        CancellationToken cancellationToken = default)
+    {
+        var path = new NetworkPath
+        {
+            DestinationHost = "speed.cloudflare.com",
+            IsExternalPath = true,
+            TargetIsGateway = true,
+        };
+
+        try
+        {
+            var topology = await GetTopologyAsync(cancellationToken);
+            if (topology == null)
+            {
+                path.IsValid = false;
+                path.ErrorMessage = "Could not retrieve network topology";
+                return path;
+            }
+
+            var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+            if (gateway == null)
+            {
+                path.IsValid = false;
+                path.ErrorMessage = "Gateway not found in topology";
+                return path;
+            }
+
+            path.SourceHost = gateway.IpAddress;
+            path.SourceMac = gateway.Mac;
+
+            var rawDevices = await GetRawDevicesAsync(cancellationToken);
+            var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices, resolvedWanGroup: resolvedWanGroup);
+
+            var wanHop = new NetworkHop
+            {
+                Order = 0,
+                Type = HopType.Wan,
+                DeviceName = "WAN",
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                IngressPortName = "WAN",
+                EgressPortName = "WAN",
+                Notes = wanUploadMbps > 0
+                    ? $"Gateway direct (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : "Gateway direct"
+            };
+
+            path.Hops = new List<NetworkHop> { wanHop };
+            CalculateBottleneck(path);
+
+            _logger.LogInformation("Gateway direct path: WAN {Down}/{Up} Mbps", wanDownloadMbps, wanUploadMbps);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calculating gateway direct path");
             path.IsValid = false;
             path.ErrorMessage = $"Error calculating path: {ex.Message}";
         }
