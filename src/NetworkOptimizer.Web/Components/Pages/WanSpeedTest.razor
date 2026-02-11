@@ -905,9 +905,6 @@
             {
                 _progressPhase = progress.Phase;
                 _progressPercent = progress.Percent;
-                // Show deploy-related status (unique to gateway), skip test phases (button shows those)
-                if (progress.Status != null && progress.Phase is "Preparing" or "Deploying")
-                    _gatewayStatus = progress.Status;
                 InvokeAsync(StateHasChanged);
             });
 
