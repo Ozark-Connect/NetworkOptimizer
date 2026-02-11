@@ -3234,11 +3234,10 @@ select.form-control {
 }
 
 .test-details code {
-    color: var(--text-color);
-    font-family: inherit;
-    font-size: inherit;
-    background: none;
-    padding: 0;
+    background: var(--bg-primary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.8125rem;
 }
 
 .test-details .detail-actions {
@@ -3275,20 +3274,23 @@ select.form-control {
 }
 
 .test-details .wan-reassign-select {
-    background: var(--card-bg);
-    color: var(--text-color);
-    color-scheme: dark;
+    background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    padding: 0.15rem 0.25rem;
-    font-size: 0.75rem;
+    color: var(--text-primary);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
     cursor: pointer;
-    max-width: 120px;
 }
 
 .test-details .wan-reassign-select:focus {
     outline: none;
     border-color: var(--primary-color);
+}
+
+.test-details .wan-reassign-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 .test-details .wan-saved-indicator {
