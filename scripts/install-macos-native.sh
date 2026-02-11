@@ -126,6 +126,26 @@ dotnet publish src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj \
     -p:DebugType=None \
     -o "$INSTALL_DIR"
 
+# Step 3b: Build cfspeedtest binary for gateway deployment
+echo ""
+echo "[3b/9] Building cfspeedtest for gateway (linux/arm64)..."
+if command -v go &> /dev/null; then
+    CFSPEEDTEST_SRC="$REPO_ROOT/src/cfspeedtest"
+    if [ -d "$CFSPEEDTEST_SRC" ]; then
+        mkdir -p "$INSTALL_DIR/tools"
+        cd "$CFSPEEDTEST_SRC"
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+            -ldflags "-s -w" \
+            -o "$INSTALL_DIR/tools/cfspeedtest-linux-arm64" .
+        echo "Built cfspeedtest for linux/arm64"
+    else
+        echo "Warning: cfspeedtest source not found at $CFSPEEDTEST_SRC"
+    fi
+else
+    echo "Warning: Go not installed - gateway speed test binary not available"
+    echo "  Install with: brew install go"
+fi
+
 # Step 4: Sign binary (single-file executable has native libs embedded)
 echo ""
 echo "[4/9] Signing binary..."
