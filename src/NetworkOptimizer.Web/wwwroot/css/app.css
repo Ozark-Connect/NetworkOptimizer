@@ -11540,7 +11540,7 @@ a.affected-client:hover {
 }
 
 .wan-speedtest .wan-test-button {
-    min-width: 220px;
+    min-width: 180px;
 }
 
 .wan-speedtest .wan-progress-status {
