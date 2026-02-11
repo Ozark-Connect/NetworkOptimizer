@@ -66,7 +66,7 @@
             {
                 <div class="wan-metadata">
                     <div class="metadata-item">
-                        <span class="metadata-label">Edge</span>
+                        <span class="metadata-label">Test Server</span>
                         <span class="metadata-value">@_metadata.Colo</span>
                     </div>
                     <div class="metadata-item">
@@ -74,7 +74,7 @@
                         <span class="metadata-value">@_metadata.City, @_metadata.Country</span>
                     </div>
                     <div class="metadata-item">
-                        <span class="metadata-label">IP</span>
+                        <span class="metadata-label">WAN IP</span>
                         <span class="metadata-value">@_metadata.Ip</span>
                     </div>
                 </div>
@@ -92,7 +92,9 @@
             <div class="card-body">
                 <SpeedTestDetails Result="_latestResult"
                                   UseWanLabels="true"
-                                  OnNotesChanged="HandleNotesChanged" />
+                                  OnNotesChanged="HandleNotesChanged"
+                                  AvailableWans="_availableWans"
+                                  OnWanReassigned="HandleWanReassigned" />
             </div>
         </div>
     }
@@ -177,7 +179,7 @@
                                 {
                                     <th>WAN</th>
                                 }
-                                <th>Edge</th>
+                                <th>Test Server</th>
                                 <th class="hide-mobile">
                                     <span class="tooltip-wrapper tooltip-bottom">
                                         ↓ Mbps
@@ -283,6 +285,8 @@
                                                                           UseWanLabels="true"
                                                                           OnDelete="HandleDeleteResult"
                                                                           OnNotesChanged="HandleNotesChanged"
+                                                                          AvailableWans="_availableWans"
+                                                                          OnWanReassigned="HandleWanReassigned"
                                                                           IsInTableRow="true" />
 
                                                         @if (pathAnalysis == null && ConnectionService.IsConnected)
@@ -347,6 +351,7 @@
     private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
     private Iperf3Result? _latestResult;
     private bool _hasMultipleWans;
+    private List<WanOption> _availableWans = new();
 
     // History state
     private List<Iperf3Result> _testHistory = new();
@@ -439,7 +444,32 @@
     protected override async Task OnInitializedAsync()
     {
         InitializeChartOptions();
-        await LoadHistory(resetPage: true);
+
+        // Load WAN list and history in parallel so both are ready before first render
+        var historyTask = LoadHistory(resetPage: true);
+        Task? wanTask = null;
+        if (ConnectionService.IsConnected)
+        {
+            wanTask = Task.Run(async () =>
+            {
+                try
+                {
+                    var networks = await ConnectionService.GetNetworksAsync();
+                    var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
+                    _hasMultipleWans = wanNetworks.Count > 1;
+                    _availableWans = wanNetworks
+                        .Select(n => new WanOption(
+                            n.WanNetworkgroup ?? "WAN",
+                            !string.IsNullOrEmpty(n.Name) ? n.Name : NormalizeWanDisplay(n.WanNetworkgroup ?? "WAN")))
+                        .ToList();
+                }
+                catch { /* Non-critical */ }
+            });
+        }
+
+        await historyTask;
+        if (wanTask != null) await wanTask;
+
         if (_testHistory.Count > 0)
         {
             _latestResult = _testHistory.FirstOrDefault(r => r.Success);
@@ -451,17 +481,6 @@
             _isRunning = true;
             SyncProgressFromService();
             StartPolling();
-        }
-
-        // Check if user has multiple WAN connections
-        if (ConnectionService.IsConnected)
-        {
-            try
-            {
-                var networks = await ConnectionService.GetNetworksAsync();
-                _hasMultipleWans = networks.Count(n => n.IsWan && n.Enabled) > 1;
-            }
-            catch { /* Non-critical */ }
         }
 
         // Subscribe to path analysis completion to refresh UI
@@ -919,6 +938,28 @@
     private async Task HandleNotesChanged((int Id, string? Notes) args)
     {
         await WanSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
+    }
+
+    private async Task HandleWanReassigned((int Id, string NetworkGroup, string? Name) args)
+    {
+        await WanSpeedTestService.UpdateWanAssignmentAsync(args.Id, args.NetworkGroup, args.Name);
+
+        // Update local result state so the table/chart reflect the change immediately
+        var result = _testHistory.FirstOrDefault(r => r.Id == args.Id);
+        if (result != null)
+        {
+            result.WanNetworkGroup = args.NetworkGroup;
+            result.WanName = args.Name;
+            result.PathAnalysisJson = null;
+        }
+
+        // Clear cached path analysis (will be repopulated by background analysis)
+        _historyPathAnalysis.Remove(args.Id);
+
+        // Refresh chart data (result may have moved to a different WAN series)
+        TransformChartData();
+        ApplyFilters();
+        await RenderChartAsync();
     }
 
     private async Task AnalyzeHistoricalPath(Iperf3Result result)

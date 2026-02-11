@@ -3124,6 +3124,17 @@ select.form-control {
     gap: 1.5rem;
     justify-content: center;
     margin: 1rem 0;
+    position: relative;
+}
+
+.speed-results > .detail-actions {
+    position: absolute;
+    right: 0.5rem;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .speed-result {
@@ -3226,22 +3237,23 @@ select.form-control {
     display: flex;
     gap: 1rem 2rem;
     justify-content: center;
+    align-items: center;
     flex-wrap: wrap;
     color: var(--text-secondary);
     font-size: 0.875rem;
     padding-top: 1rem;
-    padding-right: 1.5rem;
     border-top: 1px solid var(--border-color);
+    text-align: center;
 }
 
-.test-details .delete-action {
-    position: absolute;
-    right: 0;
-    padding-top: 1rem;
-    transform: translateY(-50%);
+.test-details code {
+    background: var(--bg-primary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.8125rem;
 }
 
-.test-details .btn-link-danger {
+.btn-action-icon {
     background: none;
     border: none;
     padding: 0.25rem;
@@ -3253,17 +3265,55 @@ select.form-control {
     align-items: center;
 }
 
-.test-details .btn-link-danger:hover {
+.btn-action-icon:hover {
     opacity: 1;
+    color: var(--primary-color);
+}
+
+.btn-action-danger:hover {
     color: var(--danger-color);
 }
 
-.test-details .btn-link-danger:disabled {
+.btn-action-icon:disabled {
     cursor: wait;
     opacity: 0.4;
 }
 
-.test-details .spinner-sm {
+.detail-actions .wan-reassign-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+}
+
+.detail-actions .wan-reassign-select {
+    position: relative;
+    z-index: 100;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.detail-actions .wan-reassign-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.detail-actions .wan-reassign-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.detail-actions .wan-saved-indicator {
+    font-size: 0.7rem;
+    color: var(--success-color);
+    opacity: 0.8;
+}
+
+.detail-actions .spinner-sm {
     width: 14px;
     height: 14px;
     border: 2px solid var(--border-color);
@@ -3350,9 +3400,11 @@ select.form-control {
         text-align: center;
     }
 
-    .test-details .delete-action {
-        min-width: 0;
-        padding-top: 1.25rem;
+    .speed-results > .detail-actions {
+        position: static;
+        transform: none;
+        width: 100%;
+        justify-content: center;
     }
 
     .hide-mobile {
@@ -11540,7 +11592,7 @@ a.affected-client:hover {
 }
 
 .wan-speedtest .wan-test-button {
-    min-width: 220px;
+    min-width: 180px;
 }
 
 .wan-speedtest .wan-progress-status {

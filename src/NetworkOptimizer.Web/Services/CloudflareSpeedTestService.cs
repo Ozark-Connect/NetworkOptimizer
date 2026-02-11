@@ -210,10 +210,13 @@ public partial class CloudflareSpeedTestService
                 DurationSeconds = (int)(DownloadDuration + UploadDuration).TotalSeconds,
             };
 
-            // Identify which WAN connection was used based on Cloudflare-reported IP
+            // Identify which WAN connection was used based on Cloudflare-reported IP.
+            // Pass measured speeds so CGNAT connections (where IP doesn't match the gateway port)
+            // can be identified by comparing against configured ISP speeds.
             try
             {
-                var (wanGroup, wanName) = await _pathAnalyzer.IdentifyWanConnectionAsync(metadata.Ip, cancellationToken);
+                var (wanGroup, wanName) = await _pathAnalyzer.IdentifyWanConnectionAsync(
+                    metadata.Ip, downloadMbps, uploadMbps, cancellationToken);
                 result.WanNetworkGroup = wanGroup;
                 result.WanName = wanName;
             }
@@ -239,9 +242,10 @@ public partial class CloudflareSpeedTestService
             GC.WaitForPendingFinalizers();
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 
-            // Trigger background path analysis with Cloudflare-reported WAN IP for correct WAN speed matching
+            // Trigger background path analysis with Cloudflare-reported WAN IP and pre-resolved WAN group
             var cfWanIp = metadata.Ip;
-            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, cfWanIp), CancellationToken.None);
+            var resolvedWanGroup = result.WanNetworkGroup;
+            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, cfWanIp, resolvedWanGroup), CancellationToken.None);
 
             return result;
         }
@@ -313,21 +317,24 @@ public partial class CloudflareSpeedTestService
 
         // Fire-and-forget path analysis retries for recent results without valid paths.
         // Runs in background to avoid blocking page load; notifies UI via OnPathAnalysisComplete.
+        // Exclude results from the last 10 seconds to avoid racing with the initial background analysis.
         var retryWindow = DateTime.UtcNow.AddMinutes(-30);
+        var recentCutoff = DateTime.UtcNow.AddSeconds(-10);
         var needsRetry = results.Where(r =>
             r.TestTime > retryWindow &&
+            r.TestTime < recentCutoff &&
             r.Success &&
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
-            .Select(r => r.Id)
+            .Select(r => new { r.Id, r.WanNetworkGroup })
             .ToList();
 
         if (needsRetry.Count > 0)
         {
             _logger.LogInformation("Retrying path analysis in background for {Count} WAN results", needsRetry.Count);
-            foreach (var resultId in needsRetry)
-                _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId));
+            foreach (var item in needsRetry)
+                _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(item.Id, resolvedWanGroup: item.WanNetworkGroup));
         }
 
         return results;
@@ -346,6 +353,29 @@ public partial class CloudflareSpeedTestService
         db.Iperf3Results.Remove(result);
         await db.SaveChangesAsync();
         _logger.LogInformation("Deleted WAN speed test result {Id}", id);
+        return true;
+    }
+
+    /// <summary>
+    /// Reassigns the WAN interface for a speed test result and re-runs path analysis.
+    /// </summary>
+    public async Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var result = await db.Iperf3Results.FindAsync(id);
+        if (result == null || result.Direction != SpeedTestDirection.CloudflareWan)
+            return false;
+
+        result.WanNetworkGroup = wanNetworkGroup;
+        result.WanName = wanName;
+        result.PathAnalysisJson = null;
+        await db.SaveChangesAsync();
+
+        _logger.LogInformation("Reassigned WAN for result {Id} to {Group} ({Name})", id, wanNetworkGroup, wanName);
+
+        // Re-run path analysis with the resolved WAN group
+        _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(id, resolvedWanGroup: wanNetworkGroup), CancellationToken.None);
+
         return true;
     }
 
@@ -740,7 +770,7 @@ public partial class CloudflareSpeedTestService
         }
     }
 
-    private async Task AnalyzePathInBackgroundAsync(int resultId, string? wanIp = null)
+    private async Task AnalyzePathInBackgroundAsync(int resultId, string? wanIp = null, string? resolvedWanGroup = null)
     {
         try
         {
@@ -751,7 +781,8 @@ public partial class CloudflareSpeedTestService
             if (result == null) return;
 
             var path = await _pathAnalyzer.CalculatePathAsync(
-                result.DeviceHost, result.LocalIp, retryOnFailure: true, wanIp: wanIp);
+                result.DeviceHost, result.LocalIp, retryOnFailure: true,
+                wanIp: wanIp, resolvedWanGroup: resolvedWanGroup);
 
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
                 path,
