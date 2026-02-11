@@ -427,6 +427,11 @@ public partial class CloudflareSpeedTestService
     private static Dictionary<string, string>? _coloLookup;
     private static readonly object _coloLock = new();
 
+    /// <summary>
+    /// Look up city name from Cloudflare colo (IATA airport) code.
+    /// </summary>
+    public static string GetCityName(string colo) => ColoToCityName(colo);
+
     private static string ColoToCityName(string colo)
     {
         if (string.IsNullOrEmpty(colo)) return "";

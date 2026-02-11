@@ -391,13 +391,15 @@ public class GatewayWanSpeedTestService
 
             var colo = json.Metadata?.Colo ?? "";
             var country = json.Metadata?.Country ?? "";
-            var edgeInfo = !string.IsNullOrEmpty(colo) ? $"{colo} ({country})" : "Cloudflare";
+            var edgeInfo = !string.IsNullOrEmpty(colo)
+                ? $"{colo} - {CloudflareSpeedTestService.GetCityName(colo)}, {country}"
+                : "Cloudflare";
 
             return new Iperf3Result
             {
                 Direction = SpeedTestDirection.CloudflareWanGateway,
                 DeviceHost = "speed.cloudflare.com",
-                DeviceName = $"{edgeInfo} - Gateway ({interfaceName})",
+                DeviceName = edgeInfo,
                 DeviceType = "WAN",
                 DownloadBitsPerSecond = json.Download?.Bps ?? 0,
                 UploadBitsPerSecond = json.Upload?.Bps ?? 0,
