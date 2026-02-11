@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
+@using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.WiFi.Data
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
@@ -76,7 +77,45 @@
     </div>
 
     <!-- Map -->
-    <div id="@_mapId" class="fp-map" style="height: @MapHeight;"></div>
+    <div class="fp-map-container" style="position: relative;">
+        <div id="@_mapId" class="fp-map" style="height: @MapHeight;"></div>
+
+        @if (_mode == "aps")
+        {
+            @if (UnplacedAps.Any())
+            {
+                <div class="fp-ap-panel">
+                    <div class="fp-ap-panel-header">
+                        @if (_selectedApForPlacement != null)
+                        {
+                            <span>Click the map to place <strong>@_selectedApForPlacement.Name</strong></span>
+                        }
+                        else
+                        {
+                            <span>Select an AP to place on the map</span>
+                        }
+                    </div>
+                    <div class="fp-ap-panel-list">
+                        @foreach (var ap in UnplacedAps)
+                        {
+                            <button class="fp-ap-item @(_selectedApForPlacement?.Mac == ap.Mac ? "selected" : "")"
+                                    @onclick="() => SelectApForPlacement(ap)">
+                                <img src="@(DeviceIcon.GetIconPath(ap.Model) ?? "/images/devices/default-ap.png")"
+                                     alt="@ap.Model" class="fp-ap-item-icon" />
+                                <span class="fp-ap-item-name">@ap.Name</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="fp-edit-hint">
+                    Drag APs to adjust their locations
+                </div>
+            }
+        }
+    </div>
 
     <!-- Bottom bar -->
     @if (_selectedFloor != null)
@@ -297,6 +336,85 @@
         margin-top: 16px;
     }
 
+    .fp-ap-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.95);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 6px;
+        padding: 0.75rem;
+        max-width: 220px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .fp-ap-panel-header {
+        font-size: 0.8rem;
+        color: var(--text-muted, #8888aa);
+        margin-bottom: 0.5rem;
+        line-height: 1.4;
+    }
+
+    .fp-ap-panel-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .fp-ap-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        background: var(--btn-bg, #2d2d4a);
+        border: 1px solid transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-color, #e0e0e0);
+        font-size: 0.8rem;
+        text-align: left;
+        transition: all 0.15s ease;
+    }
+
+    .fp-ap-item:hover {
+        background: var(--btn-hover-bg, #3d3d5c);
+        border-color: var(--border-color, #2d2d4a);
+    }
+
+    .fp-ap-item.selected {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: #3b82f6;
+    }
+
+    .fp-ap-item-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+
+    .fp-ap-item-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .fp-edit-hint {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 6px;
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+        color: var(--text-muted, #8888aa);
+        white-space: nowrap;
+    }
+
     :global(.fp-ap-marker) {
         display: flex;
         flex-direction: column;
@@ -304,18 +422,9 @@
         pointer-events: auto !important;
     }
 
-    :global(.fp-ap-dot) {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: #22c55e;
-        border: 2px solid #fff;
-        box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
-    }
-
-    :global(.fp-ap-marker.offline .fp-ap-dot) {
-        background: #6b7280;
-        box-shadow: none;
+    :global(.fp-ap-icon) {
+        width: 32px;
+        height: 32px;
     }
 
     :global(.fp-ap-label) {
@@ -326,6 +435,17 @@
         border-radius: 3px;
         white-space: nowrap;
         margin-top: 2px;
+    }
+
+    :global(.fp-wall-length) {
+        font-size: 11px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.75);
+        padding: 1px 5px;
+        border-radius: 3px;
+        white-space: nowrap;
+        text-align: center;
+        pointer-events: none;
     }
 
     :global(.fp-corner-handle) {
@@ -368,6 +488,9 @@
     private string _newBuildingName = "";
     private int _newFloorNumber;
     private string _newFloorLabel = "";
+    private ApMapMarker? _selectedApForPlacement;
+
+    private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -479,7 +602,8 @@
         {
             mac = a.Mac, name = a.Name, model = a.Model,
             lat = a.Latitude, lng = a.Longitude,
-            online = a.IsOnline, clients = a.TotalClients
+            online = a.IsOnline, clients = a.TotalClients,
+            iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png"
         }));
 
         var draggable = _mode == "aps" ? "true" : "false";
@@ -489,9 +613,10 @@
             "var aps=" + markersJson + ";" +
             "var ref=window._fpDotNetRef;" +
             "aps.forEach(function(ap){" +
-            "var icon=L.divIcon({className:'fp-ap-marker '+(ap.online?'online':'offline')," +
-            "html:'<div class=\"fp-ap-dot\"></div><div class=\"fp-ap-label\">'+(ap.name||ap.model)+'</div>'," +
-            "iconSize:[80,30],iconAnchor:[40,15]});" +
+            "var icon=L.divIcon({className:'fp-ap-marker'," +
+            "html:'<img src=\"'+ap.iconUrl+'\" class=\"fp-ap-icon\" style=\"opacity:'+(ap.online?'1.0':'0.4')+'\" />" +
+            "<div class=\"fp-ap-label\">'+(ap.name||ap.model)+'</div>'," +
+            "iconSize:[32,40],iconAnchor:[16,20],popupAnchor:[0,-20]});" +
             "var marker=L.marker([ap.lat,ap.lng],{icon:icon,draggable:" + draggable + "}).addTo(window._fpApLayer);" +
             "marker.bindPopup('<b>'+(ap.name||ap.mac)+'</b><br/>Model: '+ap.model+'<br/>Clients: '+ap.clients);" +
             "if(" + draggable + "){marker.on('dragend',function(e){" +
@@ -515,6 +640,14 @@
             "var latlngs=wall.points.map(function(p){return[p.lat,p.lng];});" +
             "var color=colors[wall.material]||'#94a3b8';" +
             "L.polyline(latlngs,{color:color,weight:3,opacity:0.8}).addTo(window._fpWallLayer);" +
+            // Show length labels on each segment
+            "for(var i=0;i<wall.points.length-1;i++){" +
+            "var p1=wall.points[i];var p2=wall.points[i+1];" +
+            "var d=m.distance(L.latLng(p1.lat,p1.lng),L.latLng(p2.lat,p2.lng));" +
+            "var ft=d*3.28084;var label=ft<100?ft.toFixed(1)+' ft':Math.round(ft)+' ft';" +
+            "var midLat=(p1.lat+p2.lat)/2;var midLng=(p1.lng+p2.lng)/2;" +
+            "L.marker([midLat,midLng],{icon:L.divIcon({className:'fp-wall-length',html:label,iconSize:[60,16],iconAnchor:[30,8]})," +
+            "interactive:false}).addTo(window._fpWallLayer);}" +
             "});})();";
         await JS.InvokeVoidAsync("eval", script);
     }
@@ -532,11 +665,24 @@
     {
         if (_mode != "walls") return;
         var color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8");
-        var script = "(function(){" +
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
             "if(!window._fpCurrentWall){window._fpCurrentWall={points:[],material:'" + _wallMaterial + "'};" +
-            "window._fpCurrentWallLine=L.polyline([],{color:'" + color + "',weight:3}).addTo(window._fpWallLayer||window._fpMap);}" +
+            "window._fpCurrentWallLine=L.polyline([],{color:'" + color + "',weight:3,opacity:0.9}).addTo(window._fpWallLayer||m);" +
+            "window._fpCurrentWallVertices=L.layerGroup().addTo(m);" +
+            "window._fpCurrentWallLabels=L.layerGroup().addTo(m);}" +
+            // Add vertex dot
+            "L.circleMarker([" + lat + "," + lng + "],{radius:5,color:'" + color + "',fillColor:'#fff',fillOpacity:1,weight:2}).addTo(window._fpCurrentWallVertices);" +
             "window._fpCurrentWall.points.push({lat:" + lat + ",lng:" + lng + "});" +
-            "window._fpCurrentWallLine.addLatLng([" + lat + "," + lng + "]);})();";
+            "window._fpCurrentWallLine.addLatLng([" + lat + "," + lng + "]);" +
+            // Show segment length label (imperial - feet)
+            "var pts=window._fpCurrentWall.points;if(pts.length>=2){" +
+            "var p1=pts[pts.length-2];var p2=pts[pts.length-1];" +
+            "var d=m.distance(L.latLng(p1.lat,p1.lng),L.latLng(p2.lat,p2.lng));" +
+            "var ft=d*3.28084;var label=ft<100?ft.toFixed(1)+' ft':Math.round(ft)+' ft';" +
+            "var midLat=(p1.lat+p2.lat)/2;var midLng=(p1.lng+p2.lng)/2;" +
+            "L.marker([midLat,midLng],{icon:L.divIcon({className:'fp-wall-length',html:label,iconSize:[60,16],iconAnchor:[30,8]})," +
+            "interactive:false}).addTo(window._fpCurrentWallLabels);}" +
+            "})();";
         await JS.InvokeVoidAsync("eval", script);
     }
 
@@ -544,7 +690,10 @@
     public async Task OnMapDblClickFinishWall()
     {
         if (_mode != "walls" || _selectedFloor == null) return;
-        var script = "(function(){" +
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            // Clean up vertex dots and length labels
+            "if(window._fpCurrentWallVertices){m.removeLayer(window._fpCurrentWallVertices);window._fpCurrentWallVertices=null;}" +
+            "if(window._fpCurrentWallLabels){m.removeLayer(window._fpCurrentWallLabels);window._fpCurrentWallLabels=null;}" +
             "if(!window._fpCurrentWall||window._fpCurrentWall.points.length<2){" +
             "window._fpCurrentWall=null;if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}return;}" +
             "if(!window._fpAllWalls)window._fpAllWalls=[];" +
@@ -566,30 +715,98 @@
     private async Task ToggleApEditMode()
     {
         _mode = _mode == "aps" ? "view" : "aps";
+        _selectedApForPlacement = null;
         await UpdateApMarkers();
+        await SetMapClickToPlaceMode(_mode == "aps");
+    }
+
+    private void SelectApForPlacement(ApMapMarker ap)
+    {
+        _selectedApForPlacement = _selectedApForPlacement?.Mac == ap.Mac ? null : ap;
+    }
+
+    private async Task SetMapClickToPlaceMode(bool enabled)
+    {
+        if (!_mapInitialized) return;
+        var enableStr = enabled ? "true" : "false";
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "if(window._fpPlacementHandler){m.off('click',window._fpPlacementHandler);window._fpPlacementHandler=null;}" +
+            "if(" + enableStr + "){" +
+            "window._fpPlacementHandler=function(e){" +
+            "window._fpDotNetRef.invokeMethodAsync('OnMapClickForPlacement',e.latlng.lat,e.latlng.lng);};" +
+            "m.on('click',window._fpPlacementHandler);" +
+            "m.getContainer().style.cursor='crosshair';" +
+            "}else{m.getContainer().style.cursor='';}})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    [JSInvokable]
+    public async Task OnMapClickForPlacement(double lat, double lng)
+    {
+        if (_selectedApForPlacement == null) return;
+        var mac = _selectedApForPlacement.Mac;
+        _selectedApForPlacement = null;
+
+        await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (_mapInitialized)
+                await UpdateApMarkers();
+        });
     }
 
     private async Task ToggleWallDrawMode()
     {
         _mode = _mode == "walls" ? "view" : "walls";
+        // Disable AP placement click handler when entering wall mode
+        if (_mode == "walls")
+            await SetMapClickToPlaceMode(false);
+
         if (_mode == "walls")
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
             var script = "(function(){var m=window._fpMap;if(!m)return;" +
                 "window._fpAllWalls=" + initWalls + ";" +
-                "m.on('click',function(e){window._fpDotNetRef.invokeMethodAsync('OnMapClickForWall',e.latlng.lat,e.latlng.lng);});" +
-                "m.on('dblclick',function(e){L.DomEvent.stopPropagation(e);window._fpDotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');});" +
-                "m.doubleClickZoom.disable();})();";
+                // Disable map dragging so clicks draw walls, not pan
+                "m.dragging.disable();" +
+                "m.getContainer().style.cursor='crosshair';" +
+                // Use mousedown for more responsive wall drawing (no drag interference)
+                "window._fpWallClickHandler=function(e){" +
+                "L.DomEvent.stopPropagation(e);L.DomEvent.preventDefault(e);" +
+                "window._fpDotNetRef.invokeMethodAsync('OnMapClickForWall',e.latlng.lat,e.latlng.lng);};" +
+                "window._fpWallDblClickHandler=function(e){" +
+                "L.DomEvent.stopPropagation(e);L.DomEvent.preventDefault(e);" +
+                "window._fpDotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');};" +
+                "m.on('click',window._fpWallClickHandler);" +
+                "m.on('dblclick',window._fpWallDblClickHandler);" +
+                "m.doubleClickZoom.disable();" +
+                // Add preview dot on mouse move
+                "if(!window._fpPreviewDot){window._fpPreviewDot=L.circleMarker([0,0],{radius:4,color:'#4f46e5',fillColor:'#4f46e5',fillOpacity:1,weight:0});}" +
+                "window._fpPreviewDot.addTo(m);" +
+                "window._fpWallMoveHandler=function(e){window._fpPreviewDot.setLatLng(e.latlng);};" +
+                "m.on('mousemove',window._fpWallMoveHandler);" +
+                "})();";
             await JS.InvokeVoidAsync("eval", script);
         }
         else
         {
             var script = "(function(){var m=window._fpMap;if(!m)return;" +
-                "m.off('click');m.off('dblclick');m.doubleClickZoom.enable();" +
+                // Re-enable map dragging
+                "m.dragging.enable();" +
+                "m.getContainer().style.cursor='';" +
+                // Remove wall-specific handlers
+                "if(window._fpWallClickHandler){m.off('click',window._fpWallClickHandler);window._fpWallClickHandler=null;}" +
+                "if(window._fpWallDblClickHandler){m.off('dblclick',window._fpWallDblClickHandler);window._fpWallDblClickHandler=null;}" +
+                "if(window._fpWallMoveHandler){m.off('mousemove',window._fpWallMoveHandler);window._fpWallMoveHandler=null;}" +
+                "if(window._fpPreviewDot){m.removeLayer(window._fpPreviewDot);window._fpPreviewDot=null;}" +
+                "m.doubleClickZoom.enable();" +
                 "window._fpCurrentWall=null;" +
                 "if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}})();";
             await JS.InvokeVoidAsync("eval", script);
         }
+        await UpdateApMarkers();
     }
 
     private async Task TogglePositionMode()
@@ -830,7 +1047,8 @@
             "var container=document.getElementById('" + _mapId + "');if(!container){setTimeout(init,100);return;}" +
             "var m=L.map('" + _mapId + "',{center:[" + centerLat + "," + centerLng + "],zoom:" + zoom + ",zoomControl:true});" +
             "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'}).addTo(m);" +
-            "window._fpMap=m;window._fpApLayer=L.layerGroup().addTo(m);window._fpWallLayer=L.layerGroup().addTo(m);}" +
+            "window._fpMap=m;window._fpApLayer=L.layerGroup().addTo(m);window._fpWallLayer=L.layerGroup().addTo(m);" +
+            "L.control.scale({imperial:true,metric:false,position:'bottomleft'}).addTo(m);}" +
             "init();})();";
     }
 
