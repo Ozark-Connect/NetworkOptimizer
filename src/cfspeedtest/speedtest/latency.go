@@ -3,6 +3,7 @@ package speedtest
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"sort"
@@ -15,6 +16,15 @@ import (
 func MeasureLatency(ctx context.Context, client *http.Client) (*LatencyResult, error) {
 	url := baseURL + "/" + downloadPath + "0"
 	var latencies []float64
+
+	// Warmup request to establish TCP+TLS connection before timing begins.
+	// Without this, the first sample includes handshake overhead (~80-100ms).
+	if warmReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil); err == nil {
+		if warmResp, err := client.Do(warmReq); err == nil {
+			io.Copy(io.Discard, warmResp.Body)
+			warmResp.Body.Close()
+		}
+	}
 
 	for i := 0; i < 20; i++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -29,6 +39,7 @@ func MeasureLatency(ctx context.Context, client *http.Client) (*LatencyResult, e
 		if err != nil {
 			return nil, fmt.Errorf("latency request %d: %w", i, err)
 		}
+		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 
 		serverMs := parseServerTiming(resp)

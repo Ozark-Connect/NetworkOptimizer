@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -223,6 +224,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 			elapsed := time.Since(start).Seconds() * 1000
 
 			serverMs := parseServerTiming(resp)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 
 			latency := elapsed - serverMs
