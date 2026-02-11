@@ -333,7 +333,7 @@
                 </div>
             }
 
-            @if (PathAnalysis.Path.HasRealBottleneck)
+            @if (PathAnalysis.Path.HasRealBottleneck && !(PathAnalysis.Path.IsExternalPath && PathAnalysis.Path.TargetIsGateway))
             {
                 <div class="bottleneck-warning" data-tooltip="This is the slowest link in the path, limiting overall throughput">
                     @FormatBottleneckDescription()
@@ -714,6 +714,10 @@
     private bool IsBottleneckLink(NetworkHop hop, NetworkHop nextHop, bool isWirelessLink, int linkSpeed)
     {
         if (PathAnalysis?.Path?.HasRealBottleneck != true)
+            return false;
+
+        // Gateway-direct WAN tests measure the WAN link itself - no meaningful bottleneck to highlight
+        if (PathAnalysis.Path.IsExternalPath && PathAnalysis.Path.TargetIsGateway)
             return false;
 
         // WirelessClient's IsBottleneck always means the Wi-Fi link (both directions stored on client)
