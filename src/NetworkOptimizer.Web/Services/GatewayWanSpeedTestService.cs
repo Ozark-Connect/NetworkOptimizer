@@ -205,19 +205,17 @@ public class GatewayWanSpeedTestService
 
             var progressSteps = new (int Percent, string Status, int DelayMs)[]
             {
-                (15, "Measuring latency...", 3000),
-                (20, "Testing download...", 2000),
-                (30, "Testing download...", 2000),
-                (40, "Testing download...", 2000),
-                (50, "Testing download...", 2000),
-                (55, "Testing download...", 2000),
-                (60, "Testing download...", 2000),
-                (65, "Testing upload...", 2000),
-                (70, "Testing upload...", 2000),
-                (75, "Testing upload...", 2000),
-                (80, "Testing upload...", 2000),
-                (85, "Testing upload...", 2000),
-                (90, "Testing upload...", 2000),
+                (15, "Measuring latency...", 2500),
+                (22, "Testing download...", 1800),
+                (32, "Testing download...", 1800),
+                (42, "Testing download...", 1800),
+                (52, "Testing download...", 1800),
+                (58, "Testing download...", 1800),
+                (65, "Testing upload...", 1800),
+                (72, "Testing upload...", 1800),
+                (78, "Testing upload...", 1800),
+                (84, "Testing upload...", 1800),
+                (90, "Testing upload...", 1800),
             };
 
             foreach (var step in progressSteps)

@@ -106,7 +106,7 @@
                 </div>
             </div>
 
-            @if (!string.IsNullOrEmpty(_progressStatus) && _isRunning)
+            @if (!string.IsNullOrEmpty(_progressStatus))
             {
                 <div class="wan-progress-status">@_progressStatus</div>
             }
@@ -864,6 +864,14 @@
         ");
     }
 
+    private static string FormatResultSummary(Iperf3Result result)
+    {
+        var down = result.DownloadBitsPerSecond / 1_000_000.0;
+        var up = result.UploadBitsPerSecond / 1_000_000.0;
+        var latency = result.PingMs > 0 ? $" | {result.PingMs:F1} ms" : "";
+        return $"↓ {down:F1} Mbps  ↑ {up:F1} Mbps{latency}";
+    }
+
     private void OnWanSelectionChanged()
     {
         // No-op - just triggers @bind update
@@ -908,15 +916,18 @@
             if (result.Success)
             {
                 _latestResult = result;
+                _progressStatus = FormatResultSummary(result);
             }
             else
             {
                 _errorMessage = result.ErrorMessage ?? "Test failed";
+                _progressStatus = null;
             }
         }
         else
         {
             _errorMessage = "Test was cancelled or could not start";
+            _progressStatus = null;
         }
 
         await LoadHistory(resetPage: true);
@@ -958,15 +969,18 @@
             if (result.Success)
             {
                 _latestResult = result;
+                _progressStatus = FormatResultSummary(result);
             }
             else
             {
                 _errorMessage = result.ErrorMessage ?? "Test failed";
+                _progressStatus = null;
             }
         }
         else
         {
             _errorMessage = "Test was cancelled or could not start";
+            _progressStatus = null;
         }
 
         await LoadHistory(resetPage: true);

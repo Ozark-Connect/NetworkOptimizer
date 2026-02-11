@@ -11579,6 +11579,7 @@ a.affected-client:hover {
 
 .wan-speedtest .wan-test-options {
     display: flex;
+    flex-wrap: wrap;
     gap: 1rem;
     padding-top: 1rem;
 }
@@ -11619,6 +11620,7 @@ a.affected-client:hover {
 
 .wan-speedtest .wan-test-option-controls {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     align-items: center;
     margin-bottom: 0.5rem;
