@@ -144,10 +144,10 @@ public partial class CloudflareSpeedTestService
             Report("Metadata", 5, edgeInfo);
 
             // Phase 2: Latency (5-15%)
-            Report("Latency", 7, "Measuring latency...");
+            Report("Testing latency", 7, "Measuring latency...");
             var (latencyMs, jitterMs) = await MeasureLatencyAsync(client, cancellationToken);
             _logger.LogInformation("Latency: {Latency:F1} ms, Jitter: {Jitter:F1} ms", latencyMs, jitterMs);
-            Report("Latency", 15, $"Latency: {latencyMs:F1} ms / {jitterMs:F1} ms jitter");
+            Report("Testing latency", 15, $"Latency: {latencyMs:F1} ms / {jitterMs:F1} ms jitter");
 
             // Phase 3: Download (15-55%) - concurrent connections + latency probes
             Report("Testing download", 16, null);

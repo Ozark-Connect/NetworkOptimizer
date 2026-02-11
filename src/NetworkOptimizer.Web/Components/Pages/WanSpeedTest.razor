@@ -65,6 +65,10 @@
                                 <span>Run Test from Gateway</span>
                             }
                         </button>
+                        @if (!string.IsNullOrEmpty(_gatewayStatus))
+                        {
+                            <code class="wan-result-summary">@_gatewayStatus</code>
+                        }
                     </div>
                     <div class="wan-test-option-hint">
                         Deploys a speed test binary to the gateway and runs it directly. Most accurate WAN measurement - no LAN overhead.
@@ -92,6 +96,10 @@
                                 <span>Run Test from Server</span>
                             }
                         </button>
+                        @if (!string.IsNullOrEmpty(_serverStatus))
+                        {
+                            <code class="wan-result-summary">@_serverStatus</code>
+                        }
                     </div>
                     <div class="wan-test-option-hint">
                         @if (_hasMultipleWans)
@@ -105,11 +113,6 @@
                     </div>
                 </div>
             </div>
-
-            @if (!string.IsNullOrEmpty(_progressStatus))
-            {
-                <div class="wan-progress-status"><code>@_progressStatus</code></div>
-            }
 
             @if (!string.IsNullOrEmpty(_errorMessage))
             {
@@ -401,7 +404,8 @@
     private string _activeTestType = ""; // "gateway" or "server"
     private string _progressPhase = "";
     private int _progressPercent;
-    private string? _progressStatus;
+    private string? _gatewayStatus;
+    private string? _serverStatus;
     private string? _errorMessage;
     private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
     private Iperf3Result? _latestResult;
@@ -888,7 +892,7 @@
         _metadata = null;
         _progressPhase = "Starting";
         _progressPercent = 0;
-        _progressStatus = null;
+        _gatewayStatus = null;
         StateHasChanged();
 
         StartPolling();
@@ -902,7 +906,7 @@
                 _progressPhase = progress.Phase;
                 _progressPercent = progress.Percent;
                 if (progress.Status != null)
-                    _progressStatus = progress.Status;
+                    _gatewayStatus = progress.Status;
                 InvokeAsync(StateHasChanged);
             });
 
@@ -915,18 +919,18 @@
             if (result.Success)
             {
                 _latestResult = result;
-                _progressStatus = FormatResultSummary(result);
+                _gatewayStatus = FormatResultSummary(result);
             }
             else
             {
                 _errorMessage = result.ErrorMessage ?? "Test failed";
-                _progressStatus = null;
+                _gatewayStatus = null;
             }
         }
         else
         {
             _errorMessage = "Test was cancelled or could not start";
-            _progressStatus = null;
+            _gatewayStatus = null;
         }
 
         await LoadHistory(resetPage: true);
@@ -943,7 +947,7 @@
         _metadata = null;
         _progressPhase = "Starting";
         _progressPercent = 0;
-        _progressStatus = null;
+        _serverStatus = null;
         StateHasChanged();
 
         StartPolling();
@@ -954,7 +958,7 @@
                 _progressPhase = progress.Phase;
                 _progressPercent = progress.Percent;
                 if (progress.Status != null)
-                    _progressStatus = progress.Status;
+                    _serverStatus = progress.Status;
                 _metadata = WanSpeedTestService.LastMetadata;
                 InvokeAsync(StateHasChanged);
             });
@@ -968,18 +972,18 @@
             if (result.Success)
             {
                 _latestResult = result;
-                _progressStatus = FormatResultSummary(result);
+                _serverStatus = FormatResultSummary(result);
             }
             else
             {
                 _errorMessage = result.ErrorMessage ?? "Test failed";
-                _progressStatus = null;
+                _serverStatus = null;
             }
         }
         else
         {
             _errorMessage = "Test was cancelled or could not start";
-            _progressStatus = null;
+            _serverStatus = null;
         }
 
         await LoadHistory(resetPage: true);
@@ -1038,7 +1042,7 @@
         _progressPhase = phase;
         _progressPercent = percent;
         if (status != null)
-            _progressStatus = status;
+            _serverStatus = status;
         _metadata = WanSpeedTestService.LastMetadata;
     }
 
@@ -1048,7 +1052,7 @@
         _progressPhase = phase;
         _progressPercent = percent;
         if (status != null)
-            _progressStatus = status;
+            _gatewayStatus = status;
     }
 
     private async Task LoadHistory(bool resetPage = false)

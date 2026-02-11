@@ -224,7 +224,7 @@ public class GatewayWanSpeedTestService
 
             // Phase 2: Run test via SSH (10-95%)
             // Simulate progress based on known timing (~28s total: 3s latency, 10s download, 10s upload, 5s finalize)
-            Report("Latency", 12, "Measuring latency...");
+            Report("Testing latency", 12, "Measuring latency...");
 
             var command = $"{RemoteBinaryPath} --interface {interfaceName} 2>/dev/null";
             var sshTask = _gatewaySsh.RunCommandAsync(
@@ -232,7 +232,7 @@ public class GatewayWanSpeedTestService
 
             var progressSteps = new (string Phase, int Percent, string Status, int DelayMs)[]
             {
-                ("Latency", 15, "Measuring latency...", 2500),
+                ("Testing latency", 15, "Measuring latency...", 2500),
                 ("Testing download", 22, "Testing download...", 1800),
                 ("Testing download", 32, "Testing download...", 1800),
                 ("Testing download", 42, "Testing download...", 1800),
