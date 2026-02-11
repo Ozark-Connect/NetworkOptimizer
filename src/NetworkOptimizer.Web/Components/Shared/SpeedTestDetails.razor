@@ -333,7 +333,7 @@
                 </div>
             }
 
-            @if (PathAnalysis.Path.HasRealBottleneck && !(PathAnalysis.Path.IsExternalPath && PathAnalysis.Path.TargetIsGateway))
+            @if (PathAnalysis.Path.HasRealBottleneck && (PathAnalysis.Path.Hops?.Count ?? 0) > 2)
             {
                 <div class="bottleneck-warning" data-tooltip="This is the slowest link in the path, limiting overall throughput">
                     @FormatBottleneckDescription()
@@ -716,8 +716,8 @@
         if (PathAnalysis?.Path?.HasRealBottleneck != true)
             return false;
 
-        // Gateway-direct WAN tests measure the WAN link itself - no meaningful bottleneck to highlight
-        if (PathAnalysis.Path.IsExternalPath && PathAnalysis.Path.TargetIsGateway)
+        // Gateway-direct WAN tests have only 2 hops (WAN + Gateway) - no meaningful bottleneck to highlight
+        if ((PathAnalysis.Path.Hops?.Count ?? 0) <= 2)
             return false;
 
         // WirelessClient's IsBottleneck always means the Wi-Fi link (both directions stored on client)
