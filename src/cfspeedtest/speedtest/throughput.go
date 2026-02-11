@@ -56,6 +56,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 	defer cancel()
 
 	var totalBytes atomic.Int64
+	var activeWorkers atomic.Int32
 	var wg sync.WaitGroup
 
 	// Loaded latency probe samples
@@ -83,8 +84,9 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 			defer wg.Done()
 			client, err := newWorkerClient(60*time.Second, cfg.Interface)
 			if err != nil {
-				return // interface binding failed; will show as lower throughput
+				return
 			}
+			activeWorkers.Add(1)
 			defer client.CloseIdleConnections()
 
 			workerChunk := chunkSize
@@ -243,6 +245,14 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 			}
 		}
 	}()
+
+	// Brief wait for workers to initialize, then check if any bound successfully
+	time.Sleep(100 * time.Millisecond)
+	if activeWorkers.Load() == 0 && cfg.Streams > 0 {
+		close(stopCh)
+		wg.Wait()
+		return nil, fmt.Errorf("no workers could bind to interface %q", cfg.Interface)
+	}
 
 	// Sample throughput at regular intervals
 	var mbpsSamples []float64

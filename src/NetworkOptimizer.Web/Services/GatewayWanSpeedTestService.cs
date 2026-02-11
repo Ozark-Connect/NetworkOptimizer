@@ -226,6 +226,9 @@ public class GatewayWanSpeedTestService
             // Simulate progress based on known timing (~28s total: 3s latency, 10s download, 10s upload, 5s finalize)
             Report("Testing latency", 12, "Measuring latency...");
 
+            if (!System.Text.RegularExpressions.Regex.IsMatch(interfaceName, @"^[a-zA-Z0-9._-]+$"))
+                throw new ArgumentException($"Invalid interface name: {interfaceName}");
+
             var command = $"{RemoteBinaryPath} --interface {interfaceName} 2>/dev/null";
             var sshTask = _gatewaySsh.RunCommandAsync(
                 command, TimeSpan.FromSeconds(120), cancellationToken);

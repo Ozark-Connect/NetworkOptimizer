@@ -27,6 +27,10 @@ jobs:
         working-directory: src/cfspeedtest
         run: go build -trimpath ./...
 
+      - name: Build cfspeedtest (arm64 cross-compile)
+        working-directory: src/cfspeedtest
+        run: GOOS=linux GOARCH=arm64 go build -trimpath ./...
+
       - name: Restore dependencies
         run: dotnet restore
 

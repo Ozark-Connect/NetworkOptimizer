@@ -391,7 +391,7 @@
             {
                 <div class="empty-state">
                     <p>No WAN speed tests recorded yet.</p>
-                    <p class="form-help">Click "Run WAN Speed Test" above to measure your internet connection speed via Cloudflare.</p>
+                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from Server" above to measure your internet connection speed via Cloudflare.</p>
                 </div>
             }
         </div>
@@ -883,6 +883,8 @@
     private async Task RunGatewayTest()
     {
         if (_isRunning || _wanInterfaces.Count == 0) return;
+        if (_selectedWanIndex >= _wanInterfaces.Count)
+            _selectedWanIndex = 0;
 
         var wan = _wanInterfaces[_selectedWanIndex];
 
@@ -999,17 +1001,16 @@
             if (!serverRunning && !gatewayRunning)
             {
                 StopPolling();
+                var testType = _activeTestType;
                 _isRunning = false;
                 _activeTestType = "";
 
-                var lastResult = _activeTestType == "gateway"
+                var lastResult = testType == "gateway"
                     ? GatewayWanTestService.LastCompletedResult
                     : WanSpeedTestService.LastCompletedResult;
-                if (lastResult != null)
-                    _latestResult = lastResult;
-
-                // Try both services for the latest result
-                _latestResult ??= WanSpeedTestService.LastCompletedResult ?? GatewayWanTestService.LastCompletedResult;
+                _latestResult = lastResult
+                    ?? WanSpeedTestService.LastCompletedResult
+                    ?? GatewayWanTestService.LastCompletedResult;
 
                 await InvokeAsync(async () =>
                 {
