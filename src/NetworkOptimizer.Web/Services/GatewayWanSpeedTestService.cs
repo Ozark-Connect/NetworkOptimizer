@@ -69,7 +69,7 @@ public class GatewayWanSpeedTestService
 
     /// <summary>
     /// Check if the cfspeedtest binary is deployed and up to date.
-    /// Compares remote file size against local binary to detect updates.
+    /// Compares MD5 hash of remote binary against local to detect updates.
     /// </summary>
     public async Task<(bool Deployed, bool NeedsUpdate)> CheckBinaryStatusAsync()
     {
@@ -85,21 +85,22 @@ public class GatewayWanSpeedTestService
             if (!result.success)
                 return (false, false);
 
-            // Check if the remote binary matches the local one by file size
+            // Compare MD5 hashes to detect updates (size comparison is unreliable)
             var localPath = Path.Combine(AppContext.BaseDirectory, "tools", LocalBinaryName);
             if (File.Exists(localPath))
             {
-                var localSize = new FileInfo(localPath).Length;
-                var sizeResult = await _gatewaySsh.RunCommandAsync(
-                    $"stat -c %s {RemoteBinaryPath} 2>/dev/null || wc -c < {RemoteBinaryPath}",
+                var localHash = ComputeMd5(localPath);
+                var hashResult = await _gatewaySsh.RunCommandAsync(
+                    $"md5sum {RemoteBinaryPath} 2>/dev/null | cut -d' ' -f1",
                     TimeSpan.FromSeconds(10));
 
-                if (sizeResult.success && long.TryParse(sizeResult.output.Trim(), out var remoteSize))
+                if (hashResult.success)
                 {
-                    if (localSize != remoteSize)
+                    var remoteHash = hashResult.output.Trim();
+                    if (!string.Equals(localHash, remoteHash, StringComparison.OrdinalIgnoreCase))
                     {
-                        _logger.LogInformation("cfspeedtest binary size mismatch (local: {Local}, remote: {Remote}) - update needed",
-                            localSize, remoteSize);
+                        _logger.LogInformation("cfspeedtest binary hash mismatch (local: {Local}, remote: {Remote}) - update needed",
+                            localHash, remoteHash);
                         return (true, true);
                     }
                 }
@@ -112,6 +113,13 @@ public class GatewayWanSpeedTestService
             _logger.LogDebug(ex, "Failed to check cfspeedtest binary status on gateway");
             return (false, false);
         }
+    }
+
+    private static string ComputeMd5(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        var hash = System.Security.Cryptography.MD5.HashData(stream);
+        return Convert.ToHexStringLower(hash);
     }
 
     /// <summary>
