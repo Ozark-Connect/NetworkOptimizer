@@ -538,7 +538,20 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     : "Gateway direct"
             };
 
-            path.Hops = new List<NetworkHop> { wanHop };
+            var gatewayModel = UniFiProductDatabase.GetBestProductName(gateway.Model, gateway.Shortname);
+            var gatewayHop = new NetworkHop
+            {
+                Order = 1,
+                Type = HopType.Gateway,
+                DeviceMac = gateway.Mac,
+                DeviceName = gateway.Name,
+                DeviceModel = gatewayModel,
+                DeviceFirmware = gateway.Firmware,
+                DeviceIp = gateway.IpAddress,
+                Notes = "Speed test source"
+            };
+
+            path.Hops = new List<NetworkHop> { wanHop, gatewayHop };
             CalculateBottleneck(path);
 
             _logger.LogInformation("Gateway direct path: WAN {Down}/{Up} Mbps", wanDownloadMbps, wanUploadMbps);
