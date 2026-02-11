@@ -144,7 +144,7 @@ public partial class CloudflareSpeedTestService
             Report("Metadata", 5, edgeInfo);
 
             // Phase 2: Latency (5-15%)
-            Report("Testing latency", 7, "Measuring latency...");
+            Report("Testing latency", 7, null);
             var (latencyMs, jitterMs) = await MeasureLatencyAsync(client, cancellationToken);
             _logger.LogInformation("Latency: {Latency:F1} ms, Jitter: {Jitter:F1} ms", latencyMs, jitterMs);
             Report("Testing latency", 15, $"Latency: {latencyMs:F1} ms / {jitterMs:F1} ms jitter");
@@ -177,10 +177,10 @@ public partial class CloudflareSpeedTestService
             var uploadMbps = uploadBps / 1_000_000.0;
             _logger.LogInformation("Upload: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
                 uploadMbps, uploadBytes, Concurrency, ulLatencyMs);
-            Report("Upload complete", 95, $"Up: {uploadMbps:F1} Mbps");
+            Report("Upload complete", 95, null);
 
             // Phase 5: Save result (95-100%)
-            Report("Saving", 96, "Saving results...");
+            Report("Saving", 96, null);
 
             var serverIp = _configuration["HOST_IP"];
 

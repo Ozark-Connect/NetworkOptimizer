@@ -905,8 +905,6 @@
             {
                 _progressPhase = progress.Phase;
                 _progressPercent = progress.Percent;
-                if (progress.Status != null)
-                    _gatewayStatus = progress.Status;
                 InvokeAsync(StateHasChanged);
             });
 
@@ -1051,8 +1049,6 @@
         var (phase, percent, status) = GatewayWanTestService.CurrentProgress;
         _progressPhase = phase;
         _progressPercent = percent;
-        if (status != null)
-            _gatewayStatus = status;
     }
 
     private async Task LoadHistory(bool resetPage = false)
