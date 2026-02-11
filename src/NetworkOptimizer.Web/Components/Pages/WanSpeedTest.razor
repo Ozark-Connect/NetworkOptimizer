@@ -39,7 +39,7 @@
                     <div class="wan-test-option-controls">
                         @if (_wanInterfaces.Count > 1)
                         {
-                            <select class="form-select wan-select"
+                            <select class="wan-reassign-select"
                                     @bind="_selectedWanIndex"
                                     @bind:after="OnWanSelectionChanged"
                                     disabled="@(_isRunning)">
@@ -49,7 +49,7 @@
                                 }
                             </select>
                         }
-                        <button class="btn btn-primary test-button wan-test-button"
+                        <button class="btn btn-secondary test-button wan-test-button"
                                 @onclick="RunGatewayTest"
                                 disabled="@(_isRunning || !_gatewayAvailable)">
                             @if (_isRunning && _activeTestType == "gateway")
@@ -61,7 +61,7 @@
                             }
                             else
                             {
-                                <span>Run Gateway Test</span>
+                                <span>Run Test from Gateway</span>
                             }
                         </button>
                     </div>
@@ -76,7 +76,7 @@
                         <span class="wan-test-option-label">Server</span>
                     </div>
                     <div class="wan-test-option-controls">
-                        <button class="btn btn-secondary test-button wan-test-button"
+                        <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunServerTest"
                                 disabled="@_isRunning">
                             @if (_isRunning && _activeTestType == "server")
@@ -88,19 +88,12 @@
                             }
                             else
                             {
-                                <span>Run Server Test</span>
+                                <span>Run Test from Server</span>
                             }
                         </button>
                     </div>
                     <div class="wan-test-option-hint">
-                        @if (_hasMultipleWans)
-                        {
-                            <text>Tests from this server through the LAN. Uses whichever WAN routes to speed.cloudflare.com.</text>
-                        }
-                        else
-                        {
-                            <text>Tests from this server through the LAN. Includes LAN traversal overhead.</text>
-                        }
+                        Tests from this server through the LAN. Uses whichever WAN routes to speed.cloudflare.com.
                     </div>
                 </div>
             </div>
@@ -404,7 +397,6 @@
     private string? _errorMessage;
     private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
     private Iperf3Result? _latestResult;
-    private bool _hasMultipleWans;
     private List<WanOption> _availableWans = new();
 
     // Gateway test state
@@ -518,7 +510,6 @@
                 {
                     var networks = await ConnectionService.GetNetworksAsync();
                     var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-                    _hasMultipleWans = wanNetworks.Count > 1;
                     _availableWans = wanNetworks
                         .Select(n => new WanOption(
                             n.WanNetworkgroup ?? "WAN",

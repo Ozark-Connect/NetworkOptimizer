@@ -3285,7 +3285,7 @@ select.form-control {
     z-index: 99;
 }
 
-.detail-actions .wan-reassign-select {
+.wan-reassign-select {
     position: relative;
     z-index: 100;
     background: var(--bg-secondary);
@@ -3297,12 +3297,12 @@ select.form-control {
     cursor: pointer;
 }
 
-.detail-actions .wan-reassign-select:focus {
+.wan-reassign-select:focus {
     outline: none;
     border-color: var(--primary-color);
 }
 
-.detail-actions .wan-reassign-select option {
+.wan-reassign-select option {
     background: var(--bg-secondary);
     color: var(--text-primary);
 }
@@ -11618,7 +11618,7 @@ a.affected-client:hover {
     margin-bottom: 0.5rem;
 }
 
-.wan-speedtest .wan-select {
+.wan-speedtest .wan-reassign-select {
     max-width: 200px;
 }
 
@@ -11681,7 +11681,7 @@ a.affected-client:hover {
         flex-direction: column;
     }
 
-    .wan-speedtest .wan-select {
+    .wan-speedtest .wan-reassign-select {
         max-width: 100%;
         width: 100%;
     }
