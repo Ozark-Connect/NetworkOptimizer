@@ -261,8 +261,10 @@ public class SqmService : ISqmService
                 return result;
             }
 
-            // Get WAN network configs for friendly names and SmartQ status
-            var wanConfigs = await _connectionService.Client.GetWanConfigsAsync();
+            // Get WAN network configs for friendly names and SmartQ status (exclude disabled WANs)
+            var wanConfigs = (await _connectionService.Client.GetWanConfigsAsync())
+                .Where(w => w.Enabled)
+                .ToList();
 
             // Build lookup by IP (for WANs with static IPs)
             var ipToName = wanConfigs
@@ -284,7 +286,14 @@ public class SqmService : ISqmService
                 .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup) && !string.IsNullOrEmpty(w.WanType))
                 .ToDictionary(w => w.WanNetworkgroup!, w => w.WanType!, StringComparer.OrdinalIgnoreCase);
 
-            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName, networkGroupToWanType);
+            // Build set of enabled network groups to filter device-level WAN entries
+            var enabledNetworkGroups = new HashSet<string>(
+                wanConfigs
+                    .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
+                    .Select(w => w.WanNetworkgroup!),
+                StringComparer.OrdinalIgnoreCase);
+
+            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName, networkGroupToWanType, enabledNetworkGroups);
 
             _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
         }
@@ -307,7 +316,8 @@ public class SqmService : ISqmService
         Dictionary<string, string> ipToName,
         Dictionary<string, bool> networkGroupToSmartq,
         Dictionary<string, string> networkGroupToName,
-        Dictionary<string, string> networkGroupToWanType)
+        Dictionary<string, string> networkGroupToWanType,
+        HashSet<string> enabledNetworkGroups)
     {
         var result = new List<WanInterfaceInfo>();
 
@@ -378,6 +388,14 @@ public class SqmService : ISqmService
                         var lookupIfname = physicalIfname ?? uplinkIfname;
                         if (ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
                             networkGroup = ng;
+
+                        // Skip disabled WAN interfaces
+                        if (!string.IsNullOrEmpty(networkGroup) && !enabledNetworkGroups.Contains(networkGroup))
+                        {
+                            _logger.LogDebug("Skipping disabled WAN {WanKey} ({Interface}, NetworkGroup: {NG})",
+                                wanKey, uplinkIfname, networkGroup);
+                            continue;
+                        }
 
                         // Try to get friendly name: first from networkgroup lookup, then IP lookup, then fallback
                         var friendlyName = wanKey.ToUpper();
