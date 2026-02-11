@@ -16,6 +16,8 @@ public class PropagationService
     private const double EarthRadiusMeters = 6371000.0;
     private const double DefaultFloorHeightMeters = 3.0;
 
+    private bool _loggedPatternInfo;
+
     public PropagationService(AntennaPatternLoader antennaLoader, ILogger<PropagationService> logger)
     {
         _antennaLoader = antennaLoader;
@@ -34,6 +36,19 @@ public class PropagationService
         double gridResolutionMeters = 1.0)
     {
         var freqMhz = MaterialAttenuation.GetCenterFrequencyMhz(band);
+
+        // Log AP and antenna pattern info on first computation
+        if (!_loggedPatternInfo)
+        {
+            _loggedPatternInfo = true;
+            foreach (var ap in aps)
+            {
+                var pattern = _antennaLoader.GetPattern(ap.Model, band);
+                _logger.LogInformation(
+                    "Heatmap AP: {Model} band={Band} txPower={TxPower}dBm antennaGain={AntennaGain}dBi pattern={HasPattern}",
+                    ap.Model, band, ap.TxPowerDbm, ap.AntennaGainDbi, pattern != null);
+            }
+        }
 
         // Calculate grid dimensions
         var widthMeters = HaversineDistance(swLat, swLng, swLat, neLng);
@@ -132,11 +147,12 @@ public class PropagationService
             elevationDeg = Math.Clamp(elevationDeg, 0, 358);
         }
 
-        // Antenna gain
+        // Antenna pattern gain using pattern multiplication:
+        // Combine 2D azimuth and elevation cuts into 3D approximation.
+        // Both patterns are normalized to 0 dB at peak, so addition in dB = multiplication in linear.
         var azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, azimuthDeg);
         var elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg);
-        // Use the more conservative (lower) of the two pattern gains
-        var antennaGain = Math.Min(azGain, elGain);
+        var antennaGain = azGain + elGain;
 
         // Wall attenuation via ray-casting (only same-floor walls)
         var wallLoss = 0.0;

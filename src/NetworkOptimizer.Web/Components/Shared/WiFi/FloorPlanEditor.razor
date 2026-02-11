@@ -36,14 +36,14 @@
             }
         </div>
         <div class="fp-toolbar-right">
+            <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
+                @(_mode == "aps" ? "Done" : "Edit APs")
+            </button>
             @if (_selectedFloor != null)
             {
-                <button class="fp-btn @(_mode == "aps" ? "active" : "")" @onclick="ToggleApEditMode">
-                    Edit APs
-                </button>
                 <div class="fp-wall-group">
-                    <button class="fp-btn @(_mode == "walls" ? "active" : "")" @onclick="ToggleWallDrawMode">
-                        Draw Walls
+                    <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "")" @onclick="ToggleWallDrawMode">
+                        @(_mode == "walls" ? "Done Drawing" : "Draw Walls")
                     </button>
                     @if (_mode == "walls")
                     {
@@ -58,6 +58,11 @@
                         </select>
                     }
                 </div>
+                @if (_selectedFloor != null && _mode != "walls")
+                {
+                    <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
+                            data-tooltip="Delete last wall">Undo Wall</button>
+                }
                 <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
                     Heatmap
                 </button>
@@ -114,6 +119,13 @@
                     Drag APs to adjust their locations
                 </div>
             }
+        }
+
+        @if (_mode == "walls")
+        {
+            <div class="fp-edit-hint fp-wall-hint">
+                Click to place wall vertices (snaps to 90°). Double-click to finish. Hold Shift for free-form.
+            </div>
         }
     </div>
 
@@ -229,8 +241,12 @@
     .fp-btn.active { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
     .fp-btn-sm { padding: 2px 8px; }
     .fp-btn-primary { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-btn-warning { background: rgba(234, 179, 8, 0.85); border-color: rgba(234, 179, 8, 0.85); color: #1e293b; font-weight: 600; }
+    .fp-btn-warning:hover { background: rgba(234, 179, 8, 1); }
     .fp-btn-danger { background: #dc2626; border-color: #dc2626; }
     .fp-btn-danger:hover { background: #ef4444; }
+    .fp-btn-danger-sm { background: transparent; border-color: #dc2626; color: #f87171; padding: 3px 8px; font-size: 12px; }
+    .fp-btn-danger-sm:hover { background: #dc2626; color: #fff; }
 
     .fp-floor-picker { display: flex; gap: 2px; }
 
@@ -251,6 +267,8 @@
     .fp-floor-add { font-weight: bold; }
 
     .fp-wall-group { display: flex; align-items: center; gap: 4px; }
+
+    .fp-map-container { position: relative; }
 
     .fp-map {
         width: 100%;
@@ -336,6 +354,7 @@
         margin-top: 16px;
     }
 
+    /* AP placement panel */
     .fp-ap-panel {
         position: absolute;
         top: 10px;
@@ -400,54 +419,78 @@
         white-space: nowrap;
     }
 
+    /* Mode hints */
     .fp-edit-hint {
         position: absolute;
         top: 10px;
         left: 50%;
         transform: translateX(-50%);
         z-index: 1000;
-        background: rgba(15, 23, 42, 0.9);
-        border: 1px solid var(--border-color, #2d2d4a);
-        border-radius: 6px;
-        padding: 0.5rem 1rem;
-        font-size: 0.85rem;
-        color: var(--text-muted, #8888aa);
+        background: rgba(234, 179, 8, 0.9);
+        color: #1e293b;
+        padding: 0.35rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        pointer-events: none;
         white-space: nowrap;
     }
 
-    :global(.fp-ap-marker) {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        pointer-events: auto !important;
+    .fp-wall-hint { white-space: normal; max-width: 380px; text-align: center; }
+
+    /* AP markers - match Coverage Map */
+    :global(.fp-ap-marker-container) {
+        background: transparent !important;
+        border: none !important;
     }
 
-    :global(.fp-ap-icon) {
+    :global(.fp-ap-marker-icon) {
         width: 32px;
         height: 32px;
     }
 
-    :global(.fp-ap-label) {
-        font-size: 10px;
-        color: #fff;
-        background: rgba(0, 0, 0, 0.7);
-        padding: 1px 4px;
-        border-radius: 3px;
-        white-space: nowrap;
-        margin-top: 2px;
+    :global(.fp-ap-glow-container) {
+        background: transparent !important;
+        border: none !important;
     }
 
+    :global(.fp-ap-glow-dot) {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.55) 0%, rgba(59, 130, 246, 0.12) 55%, transparent 100%);
+        filter: blur(3px);
+    }
+
+    :global(.fp-ap-glow-dot.other-floor) {
+        background: radial-gradient(circle, rgba(100, 100, 140, 0.3) 0%, transparent 55%);
+    }
+
+    /* Wall length labels */
     :global(.fp-wall-length) {
         font-size: 11px;
-        color: #fff;
-        background: rgba(0, 0, 0, 0.75);
-        padding: 1px 5px;
+        font-weight: 600;
+        color: #e2e8f0;
+        background: rgba(15, 23, 42, 0.9);
+        padding: 2px 6px;
         border-radius: 3px;
+        border: 1px solid rgba(100, 116, 139, 0.5);
         white-space: nowrap;
         text-align: center;
         pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
     }
 
+    /* Wall vertex dots during drawing */
+    :global(.fp-wall-vertex) {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Floor plan corner handles */
     :global(.fp-corner-handle) {
         width: 14px;
         height: 14px;
@@ -500,6 +543,8 @@
             await LoadBuildings();
             await LoadApMarkers();
             await InitializeMap();
+            // Show placed APs immediately on map load (no floor selection needed)
+            await UpdateApMarkers();
             StateHasChanged();
         }
     }
@@ -507,7 +552,6 @@
     private async Task InitializeMap()
     {
         await JS.InvokeVoidAsync("eval", BuildMapInitScript());
-        // Pass DotNetObjectReference properly via InvokeVoidAsync (not inline JS)
         await JS.InvokeVoidAsync("eval", "window._fpSetDotNetRef=function(ref){window._fpDotNetRef=ref;};");
         await JS.InvokeVoidAsync("_fpSetDotNetRef", _dotNetRef);
         _mapInitialized = true;
@@ -541,6 +585,8 @@
         catch { }
     }
 
+    // ── Building / Floor management ──────────────────────────────────
+
     private async Task OnBuildingChanged(ChangeEventArgs e)
     {
         _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
@@ -553,8 +599,10 @@
             await SelectFloor(_floors.First().Id);
         else if (_selectedBuilding != null)
             await JS.InvokeVoidAsync("eval",
-                $"window._fpMap && window._fpMap.setView([{_selectedBuilding.CenterLatitude},{_selectedBuilding.CenterLongitude}], 19);");
+                "(function(){var m=window._fpMap;if(m)m.setView([" +
+                _selectedBuilding.CenterLatitude + "," + _selectedBuilding.CenterLongitude + "],19);})();");
 
+        await UpdateApMarkers();
         StateHasChanged();
     }
 
@@ -573,6 +621,8 @@
         StateHasChanged();
     }
 
+    // ── Floor plan overlay ───────────────────────────────────────────
+
     private async Task UpdateFloorOverlay()
     {
         if (_selectedFloor == null || !_mapInitialized) return;
@@ -589,66 +639,50 @@
         await JS.InvokeVoidAsync("eval", script);
     }
 
+    // ── AP markers (match Coverage Map) ──────────────────────────────
+
     private async Task UpdateApMarkers()
     {
         if (!_mapInitialized) return;
 
         var floorNum = _selectedFloor?.FloorNumber ?? 1;
+        // Show ALL placed APs regardless of floor selection
         var placedAps = _apMarkers
-            .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
-            .Where(a => _selectedFloor == null || (a.Floor ?? 1) == floorNum);
+            .Where(a => a.Latitude.HasValue && a.Longitude.HasValue);
 
         var markersJson = System.Text.Json.JsonSerializer.Serialize(placedAps.Select(a => new
         {
             mac = a.Mac, name = a.Name, model = a.Model,
             lat = a.Latitude, lng = a.Longitude,
             online = a.IsOnline, clients = a.TotalClients,
-            iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png"
+            iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
+            sameFloor = _selectedFloor == null || (a.Floor ?? 1) == floorNum
         }));
 
         var draggable = _mode == "aps" ? "true" : "false";
         var script = "(function(){var m=window._fpMap;if(!m)return;" +
             "if(!window._fpApLayer)window._fpApLayer=L.layerGroup().addTo(m);" +
-            "window._fpApLayer.clearLayers();" +
+            "if(!window._fpApGlowLayer)window._fpApGlowLayer=L.layerGroup().addTo(m);" +
+            "window._fpApLayer.clearLayers();window._fpApGlowLayer.clearLayers();" +
             "var aps=" + markersJson + ";" +
             "var ref=window._fpDotNetRef;" +
             "aps.forEach(function(ap){" +
-            "var icon=L.divIcon({className:'fp-ap-marker'," +
-            "html:'<img src=\"'+ap.iconUrl+'\" class=\"fp-ap-icon\" style=\"opacity:'+(ap.online?'1.0':'0.4')+'\" />" +
-            "<div class=\"fp-ap-label\">'+(ap.name||ap.model)+'</div>'," +
-            "iconSize:[32,40],iconAnchor:[16,20],popupAnchor:[0,-20]});" +
-            "var marker=L.marker([ap.lat,ap.lng],{icon:icon,draggable:" + draggable + "}).addTo(window._fpApLayer);" +
+            // Glow layer (behind icons)
+            "var glowIcon=L.divIcon({className:'fp-ap-glow-container'," +
+            "html:'<div class=\"fp-ap-glow-dot'+(ap.sameFloor?'':' other-floor')+'\"></div>'," +
+            "iconSize:[48,48],iconAnchor:[24,24]});" +
+            "L.marker([ap.lat,ap.lng],{icon:glowIcon,interactive:false}).addTo(window._fpApGlowLayer);" +
+            // Icon layer
+            "var opacity=ap.online?(ap.sameFloor?1.0:0.35):(ap.sameFloor?0.4:0.2);" +
+            "var icon=L.divIcon({className:'fp-ap-marker-container'," +
+            "html:'<img src=\"'+ap.iconUrl+'\" class=\"fp-ap-marker-icon\" style=\"opacity:'+opacity+'\" />'," +
+            "iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-16]});" +
+            "var marker=L.marker([ap.lat,ap.lng],{icon:icon,draggable:" + draggable + "&&ap.sameFloor}).addTo(window._fpApLayer);" +
             "marker.bindPopup('<b>'+(ap.name||ap.mac)+'</b><br/>Model: '+ap.model+'<br/>Clients: '+ap.clients);" +
-            "if(" + draggable + "){marker.on('dragend',function(e){" +
+            "if(" + draggable + "&&ap.sameFloor){marker.on('dragend',function(e){" +
             "var pos=e.target.getLatLng();" +
             "ref.invokeMethodAsync('OnApDragEndFromJs',ap.mac,pos.lat,pos.lng);" +
             "});}});})();";
-        await JS.InvokeVoidAsync("eval", script);
-    }
-
-    private async Task UpdateWalls()
-    {
-        if (!_mapInitialized || _selectedFloor == null) return;
-        var wallsJson = _selectedFloor.WallsJson ?? "[]";
-        var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
-
-        var script = "(function(){var m=window._fpMap;if(!m)return;" +
-            "if(!window._fpWallLayer)window._fpWallLayer=L.layerGroup().addTo(m);" +
-            "window._fpWallLayer.clearLayers();" +
-            "var walls=" + wallsJson + ";var colors=" + colorsJson + ";" +
-            "walls.forEach(function(wall){" +
-            "var latlngs=wall.points.map(function(p){return[p.lat,p.lng];});" +
-            "var color=colors[wall.material]||'#94a3b8';" +
-            "L.polyline(latlngs,{color:color,weight:3,opacity:0.8}).addTo(window._fpWallLayer);" +
-            // Show length labels on each segment
-            "for(var i=0;i<wall.points.length-1;i++){" +
-            "var p1=wall.points[i];var p2=wall.points[i+1];" +
-            "var d=m.distance(L.latLng(p1.lat,p1.lng),L.latLng(p2.lat,p2.lng));" +
-            "var ft=d*3.28084;var label=ft<100?ft.toFixed(1)+' ft':Math.round(ft)+' ft';" +
-            "var midLat=(p1.lat+p2.lat)/2;var midLng=(p1.lng+p2.lng)/2;" +
-            "L.marker([midLat,midLng],{icon:L.divIcon({className:'fp-wall-length',html:label,iconSize:[60,16],iconAnchor:[30,8]})," +
-            "interactive:false}).addTo(window._fpWallLayer);}" +
-            "});})();";
         await JS.InvokeVoidAsync("eval", script);
     }
 
@@ -657,58 +691,7 @@
     {
         await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
         await LoadApMarkers();
-        if (_showHeatmap) await ComputeHeatmap();
-    }
-
-    [JSInvokable]
-    public async Task OnMapClickForWall(double lat, double lng)
-    {
-        if (_mode != "walls") return;
-        var color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8");
-        var script = "(function(){var m=window._fpMap;if(!m)return;" +
-            "if(!window._fpCurrentWall){window._fpCurrentWall={points:[],material:'" + _wallMaterial + "'};" +
-            "window._fpCurrentWallLine=L.polyline([],{color:'" + color + "',weight:3,opacity:0.9}).addTo(window._fpWallLayer||m);" +
-            "window._fpCurrentWallVertices=L.layerGroup().addTo(m);" +
-            "window._fpCurrentWallLabels=L.layerGroup().addTo(m);}" +
-            // Add vertex dot
-            "L.circleMarker([" + lat + "," + lng + "],{radius:5,color:'" + color + "',fillColor:'#fff',fillOpacity:1,weight:2}).addTo(window._fpCurrentWallVertices);" +
-            "window._fpCurrentWall.points.push({lat:" + lat + ",lng:" + lng + "});" +
-            "window._fpCurrentWallLine.addLatLng([" + lat + "," + lng + "]);" +
-            // Show segment length label (imperial - feet)
-            "var pts=window._fpCurrentWall.points;if(pts.length>=2){" +
-            "var p1=pts[pts.length-2];var p2=pts[pts.length-1];" +
-            "var d=m.distance(L.latLng(p1.lat,p1.lng),L.latLng(p2.lat,p2.lng));" +
-            "var ft=d*3.28084;var label=ft<100?ft.toFixed(1)+' ft':Math.round(ft)+' ft';" +
-            "var midLat=(p1.lat+p2.lat)/2;var midLng=(p1.lng+p2.lng)/2;" +
-            "L.marker([midLat,midLng],{icon:L.divIcon({className:'fp-wall-length',html:label,iconSize:[60,16],iconAnchor:[30,8]})," +
-            "interactive:false}).addTo(window._fpCurrentWallLabels);}" +
-            "})();";
-        await JS.InvokeVoidAsync("eval", script);
-    }
-
-    [JSInvokable]
-    public async Task OnMapDblClickFinishWall()
-    {
-        if (_mode != "walls" || _selectedFloor == null) return;
-        var script = "(function(){var m=window._fpMap;if(!m)return;" +
-            // Clean up vertex dots and length labels
-            "if(window._fpCurrentWallVertices){m.removeLayer(window._fpCurrentWallVertices);window._fpCurrentWallVertices=null;}" +
-            "if(window._fpCurrentWallLabels){m.removeLayer(window._fpCurrentWallLabels);window._fpCurrentWallLabels=null;}" +
-            "if(!window._fpCurrentWall||window._fpCurrentWall.points.length<2){" +
-            "window._fpCurrentWall=null;if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}return;}" +
-            "if(!window._fpAllWalls)window._fpAllWalls=[];" +
-            "window._fpAllWalls.push(window._fpCurrentWall);" +
-            "window._fpCurrentWall=null;window._fpCurrentWallLine=null;" +
-            "window._fpDotNetRef.invokeMethodAsync('SaveWallsFromJs',JSON.stringify(window._fpAllWalls));})();";
-        await JS.InvokeVoidAsync("eval", script);
-    }
-
-    [JSInvokable]
-    public async Task SaveWallsFromJs(string wallsJson)
-    {
-        if (_selectedFloor == null) return;
-        _selectedFloor.WallsJson = wallsJson;
-        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+        await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
     }
 
@@ -757,35 +740,84 @@
         });
     }
 
+    // ── Wall drawing system ──────────────────────────────────────────
+
+    private async Task UpdateWalls()
+    {
+        if (!_mapInitialized || _selectedFloor == null) return;
+        var wallsJson = _selectedFloor.WallsJson ?? "[]";
+        var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
+
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "if(!window._fpWallLayer)window._fpWallLayer=L.layerGroup().addTo(m);" +
+            "window._fpWallLayer.clearLayers();" +
+            "var walls=" + wallsJson + ";var colors=" + colorsJson + ";" +
+            "window._fpAllWalls=walls;" + // Keep JS in sync
+            "walls.forEach(function(wall,wi){" +
+            "var latlngs=wall.points.map(function(p){return[p.lat,p.lng];});" +
+            "var color=colors[wall.material]||'#94a3b8';" +
+            "var line=L.polyline(latlngs,{color:color,weight:4,opacity:0.9}).addTo(window._fpWallLayer);" +
+            // Wall length labels on each segment
+            "for(var i=0;i<wall.points.length-1;i++){" +
+            "var p1=wall.points[i];var p2=wall.points[i+1];" +
+            "var d=m.distance(L.latLng(p1.lat,p1.lng),L.latLng(p2.lat,p2.lng));" +
+            "var ft=d*3.28084;var label=ft<100?ft.toFixed(1)+\"'\":Math.round(ft)+\"'\";" +
+            "var midLat=(p1.lat+p2.lat)/2;var midLng=(p1.lng+p2.lng)/2;" +
+            "L.marker([midLat,midLng],{icon:L.divIcon({className:'fp-wall-length',html:label,iconSize:[50,18],iconAnchor:[25,9]})," +
+            "interactive:false}).addTo(window._fpWallLayer);}" +
+            // Vertex dots on each wall point
+            "wall.points.forEach(function(p){" +
+            "L.circleMarker([p.lat,p.lng],{radius:3,color:color,fillColor:'#fff',fillOpacity:1,weight:2,interactive:false}).addTo(window._fpWallLayer);});" +
+            "});})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
     private async Task ToggleWallDrawMode()
     {
         _mode = _mode == "walls" ? "view" : "walls";
-        // Disable AP placement click handler when entering wall mode
         if (_mode == "walls")
             await SetMapClickToPlaceMode(false);
 
         if (_mode == "walls")
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
+            // JS click handler with 90-degree snap (Shift for free-form)
             var script = "(function(){var m=window._fpMap;if(!m)return;" +
                 "window._fpAllWalls=" + initWalls + ";" +
-                // Disable map dragging so clicks draw walls, not pan
                 "m.dragging.disable();" +
                 "m.getContainer().style.cursor='crosshair';" +
-                // Use mousedown for more responsive wall drawing (no drag interference)
+                // Wall click handler with snapping
                 "window._fpWallClickHandler=function(e){" +
-                "L.DomEvent.stopPropagation(e);L.DomEvent.preventDefault(e);" +
-                "window._fpDotNetRef.invokeMethodAsync('OnMapClickForWall',e.latlng.lat,e.latlng.lng);};" +
+                "var lat=e.latlng.lat;var lng=e.latlng.lng;" +
+                // 90-degree snap unless Shift held
+                "if(!e.originalEvent.shiftKey&&window._fpCurrentWall&&window._fpCurrentWall.points.length>0){" +
+                "var prev=window._fpCurrentWall.points[window._fpCurrentWall.points.length-1];" +
+                "var cosLat=Math.cos(prev.lat*Math.PI/180);" +
+                "var dx=(lng-prev.lng)*cosLat;var dy=lat-prev.lat;" +
+                "var absDx=Math.abs(dx);var absDy=Math.abs(dy);" +
+                // Snap: if more horizontal, force horizontal; if more vertical, force vertical
+                "if(absDx>absDy){lat=prev.lat;}" +
+                "else{lng=prev.lng;}}" +
+                "window._fpDotNetRef.invokeMethodAsync('OnMapClickForWall',lat,lng);};" +
+                // Double-click handler
                 "window._fpWallDblClickHandler=function(e){" +
                 "L.DomEvent.stopPropagation(e);L.DomEvent.preventDefault(e);" +
                 "window._fpDotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');};" +
                 "m.on('click',window._fpWallClickHandler);" +
                 "m.on('dblclick',window._fpWallDblClickHandler);" +
                 "m.doubleClickZoom.disable();" +
-                // Add preview dot on mouse move
-                "if(!window._fpPreviewDot){window._fpPreviewDot=L.circleMarker([0,0],{radius:4,color:'#4f46e5',fillColor:'#4f46e5',fillOpacity:1,weight:0});}" +
-                "window._fpPreviewDot.addTo(m);" +
-                "window._fpWallMoveHandler=function(e){window._fpPreviewDot.setLatLng(e.latlng);};" +
+                // Preview line (rubber-band from last point to cursor) with snap
+                "window._fpPreviewLine=null;" +
+                "window._fpWallMoveHandler=function(e){" +
+                "if(!window._fpCurrentWall||window._fpCurrentWall.points.length===0)return;" +
+                "var prev=window._fpCurrentWall.points[window._fpCurrentWall.points.length-1];" +
+                "var lat=e.latlng.lat;var lng=e.latlng.lng;" +
+                "if(!e.originalEvent.shiftKey){" +
+                "var cosLat=Math.cos(prev.lat*Math.PI/180);" +
+                "var dx=(lng-prev.lng)*cosLat;var dy=lat-prev.lat;" +
+                "if(Math.abs(dx)>Math.abs(dy)){lat=prev.lat;}else{lng=prev.lng;}}" +
+                "if(!window._fpPreviewLine){window._fpPreviewLine=L.polyline([[prev.lat,prev.lng],[lat,lng]],{color:'#818cf8',weight:2,dashArray:'6,4',opacity:0.8}).addTo(m);}" +
+                "else{window._fpPreviewLine.setLatLngs([[prev.lat,prev.lng],[lat,lng]]);}};" +
                 "m.on('mousemove',window._fpWallMoveHandler);" +
                 "})();";
             await JS.InvokeVoidAsync("eval", script);
@@ -793,21 +825,97 @@
         else
         {
             var script = "(function(){var m=window._fpMap;if(!m)return;" +
-                // Re-enable map dragging
-                "m.dragging.enable();" +
-                "m.getContainer().style.cursor='';" +
-                // Remove wall-specific handlers
+                "m.dragging.enable();m.getContainer().style.cursor='';" +
                 "if(window._fpWallClickHandler){m.off('click',window._fpWallClickHandler);window._fpWallClickHandler=null;}" +
                 "if(window._fpWallDblClickHandler){m.off('dblclick',window._fpWallDblClickHandler);window._fpWallDblClickHandler=null;}" +
                 "if(window._fpWallMoveHandler){m.off('mousemove',window._fpWallMoveHandler);window._fpWallMoveHandler=null;}" +
-                "if(window._fpPreviewDot){m.removeLayer(window._fpPreviewDot);window._fpPreviewDot=null;}" +
+                "if(window._fpPreviewLine){m.removeLayer(window._fpPreviewLine);window._fpPreviewLine=null;}" +
                 "m.doubleClickZoom.enable();" +
                 "window._fpCurrentWall=null;" +
-                "if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}})();";
+                "if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}" +
+                "if(window._fpCurrentWallVertices){m.removeLayer(window._fpCurrentWallVertices);window._fpCurrentWallVertices=null;}" +
+                "if(window._fpCurrentWallLabels){m.removeLayer(window._fpCurrentWallLabels);window._fpCurrentWallLabels=null;}})();";
             await JS.InvokeVoidAsync("eval", script);
+            // Re-render walls from DB state after exiting draw mode
+            if (_selectedFloor != null) await UpdateWalls();
         }
         await UpdateApMarkers();
     }
+
+    [JSInvokable]
+    public async Task OnMapClickForWall(double lat, double lng)
+    {
+        if (_mode != "walls") return;
+        var color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8");
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "if(!window._fpCurrentWall){window._fpCurrentWall={points:[],material:'" + _wallMaterial + "'};" +
+            "window._fpCurrentWallLine=L.polyline([],{color:'" + color + "',weight:4,opacity:0.9}).addTo(window._fpWallLayer||m);" +
+            "window._fpCurrentWallVertices=L.layerGroup().addTo(m);" +
+            "window._fpCurrentWallLabels=L.layerGroup().addTo(m);}" +
+            // Add vertex dot
+            "L.circleMarker([" + lat + "," + lng + "],{radius:5,color:'" + color + "',fillColor:'#fff',fillOpacity:1,weight:2}).addTo(window._fpCurrentWallVertices);" +
+            "window._fpCurrentWall.points.push({lat:" + lat + ",lng:" + lng + "});" +
+            "window._fpCurrentWallLine.addLatLng([" + lat + "," + lng + "]);" +
+            // Show segment length label (imperial - feet)
+            "var pts=window._fpCurrentWall.points;if(pts.length>=2){" +
+            "var p1=pts[pts.length-2];var p2=pts[pts.length-1];" +
+            "var d=m.distance(L.latLng(p1.lat,p1.lng),L.latLng(p2.lat,p2.lng));" +
+            "var ft=d*3.28084;var label=ft<100?ft.toFixed(1)+\"'\":Math.round(ft)+\"'\";" +
+            "var midLat=(p1.lat+p2.lat)/2;var midLng=(p1.lng+p2.lng)/2;" +
+            "L.marker([midLat,midLng],{icon:L.divIcon({className:'fp-wall-length',html:label,iconSize:[50,18],iconAnchor:[25,9]})," +
+            "interactive:false}).addTo(window._fpCurrentWallLabels);}" +
+            // Reset preview line
+            "if(window._fpPreviewLine){m.removeLayer(window._fpPreviewLine);window._fpPreviewLine=null;}" +
+            "})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    [JSInvokable]
+    public async Task OnMapDblClickFinishWall()
+    {
+        if (_mode != "walls" || _selectedFloor == null) return;
+        var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            // Clean up drawing aids
+            "if(window._fpCurrentWallVertices){m.removeLayer(window._fpCurrentWallVertices);window._fpCurrentWallVertices=null;}" +
+            "if(window._fpCurrentWallLabels){m.removeLayer(window._fpCurrentWallLabels);window._fpCurrentWallLabels=null;}" +
+            "if(window._fpPreviewLine){m.removeLayer(window._fpPreviewLine);window._fpPreviewLine=null;}" +
+            // Validate wall (need at least 2 points)
+            "if(!window._fpCurrentWall||window._fpCurrentWall.points.length<2){" +
+            "window._fpCurrentWall=null;" +
+            "if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}return;}" +
+            // Remove the drawn polyline (UpdateWalls will re-render)
+            "if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}" +
+            // Save wall
+            "if(!window._fpAllWalls)window._fpAllWalls=[];" +
+            "window._fpAllWalls.push(window._fpCurrentWall);" +
+            "window._fpCurrentWall=null;" +
+            "window._fpDotNetRef.invokeMethodAsync('SaveWallsFromJs',JSON.stringify(window._fpAllWalls));})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    [JSInvokable]
+    public async Task SaveWallsFromJs(string wallsJson)
+    {
+        if (_selectedFloor == null) return;
+        _selectedFloor.WallsJson = wallsJson;
+        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+        // Re-render walls from saved state so they persist visually
+        await UpdateWalls();
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task DeleteLastWall()
+    {
+        if (_selectedFloor == null) return;
+        // Remove last wall from JS array and save
+        var script = "(function(){" +
+            "if(!window._fpAllWalls||window._fpAllWalls.length===0)return;" +
+            "window._fpAllWalls.pop();" +
+            "window._fpDotNetRef.invokeMethodAsync('SaveWallsFromJs',JSON.stringify(window._fpAllWalls));})();";
+        await JS.InvokeVoidAsync("eval", script);
+    }
+
+    // ── Floor plan positioning ───────────────────────────────────────
 
     private async Task TogglePositionMode()
     {
@@ -847,6 +955,8 @@
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, swLat, swLng, neLat, neLng);
     }
 
+    // ── Heatmap ──────────────────────────────────────────────────────
+
     private async Task ToggleHeatmap()
     {
         _showHeatmap = !_showHeatmap;
@@ -877,18 +987,29 @@
             "if(window._fpHeatmapOverlay){m.removeLayer(window._fpHeatmapOverlay);}" +
             "var canvas=document.createElement('canvas');canvas.width=data.width;canvas.height=data.height;" +
             "var ctx=canvas.getContext('2d');var imgData=ctx.createImageData(data.width,data.height);" +
-            "for(var i=0;i<data.data.length;i++){var sig=data.data[i];var r,g,b;" +
-            "if(sig>-50){r=34;g=197;b=94;}else if(sig>-60){r=250;g=204;b=21;}" +
-            "else if(sig>-70){r=251;g=146;b=60;}else if(sig>-80){r=239;g=68;b=68;}" +
-            "else{r=107;g=114;b=128;}" +
+            // Smooth color gradient function: interpolates between color stops
+            "function lerpColor(sig){" +
+            "var stops=[{s:-30,r:0,g:220,b:0},{s:-50,r:34,g:197,b:94},{s:-60,r:250,g:204,b:21}," +
+            "{s:-70,r:251,g:146,b:60},{s:-75,r:239,g:68,b:68},{s:-85,r:107,g:114,b:128}];" +
+            "if(sig>=stops[0].s)return stops[0];" +
+            "if(sig<=stops[stops.length-1].s)return stops[stops.length-1];" +
+            "for(var j=0;j<stops.length-1;j++){" +
+            "if(sig<=stops[j].s&&sig>=stops[j+1].s){" +
+            "var t=(sig-stops[j+1].s)/(stops[j].s-stops[j+1].s);" +
+            "return{r:Math.round(stops[j].r*t+stops[j+1].r*(1-t))," +
+            "g:Math.round(stops[j].g*t+stops[j+1].g*(1-t))," +
+            "b:Math.round(stops[j].b*t+stops[j+1].b*(1-t))};}}return stops[stops.length-1];}" +
+            "for(var i=0;i<data.data.length;i++){var c=lerpColor(data.data[i]);" +
             "var row=data.height-1-Math.floor(i/data.width);var col=i%data.width;var idx=(row*data.width+col)*4;" +
-            "imgData.data[idx]=r;imgData.data[idx+1]=g;imgData.data[idx+2]=b;imgData.data[idx+3]=140;}" +
+            "imgData.data[idx]=c.r;imgData.data[idx+1]=c.g;imgData.data[idx+2]=c.b;imgData.data[idx+3]=140;}" +
             "ctx.putImageData(imgData,0,0);var dataUrl=canvas.toDataURL();" +
             "var bounds=[[data.swLat,data.swLng],[data.neLat,data.neLng]];" +
             "window._fpHeatmapOverlay=L.imageOverlay(dataUrl,bounds,{opacity:0.6}).addTo(m);})" +
             ".catch(function(err){console.error('Heatmap error:',err);});})();";
         await JS.InvokeVoidAsync("eval", script);
     }
+
+    // ── Floor plan management ────────────────────────────────────────
 
     private async Task OnOpacityChange(ChangeEventArgs e)
     {
@@ -1014,6 +1135,8 @@
         StateHasChanged();
     }
 
+    // ── Helpers ──────────────────────────────────────────────────────
+
     private static string GetFloorLabel(int floorNumber)
     {
         if (floorNumber <= -1) return "B" + Math.Abs(floorNumber);
@@ -1047,7 +1170,11 @@
             "var container=document.getElementById('" + _mapId + "');if(!container){setTimeout(init,100);return;}" +
             "var m=L.map('" + _mapId + "',{center:[" + centerLat + "," + centerLng + "],zoom:" + zoom + ",zoomControl:true});" +
             "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'}).addTo(m);" +
-            "window._fpMap=m;window._fpApLayer=L.layerGroup().addTo(m);window._fpWallLayer=L.layerGroup().addTo(m);" +
+            "window._fpMap=m;" +
+            "window._fpApGlowLayer=L.layerGroup().addTo(m);" +
+            "window._fpApLayer=L.layerGroup().addTo(m);" +
+            "window._fpWallLayer=L.layerGroup().addTo(m);" +
+            "window._fpAllWalls=[];" +
             "L.control.scale({imperial:true,metric:false,position:'bottomleft'}).addTo(m);}" +
             "init();})();";
     }
