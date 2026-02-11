@@ -18,6 +18,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build cfspeedtest
+        working-directory: src/cfspeedtest
+        run: go build -trimpath ./...
+
       - name: Restore dependencies
         run: dotnet restore
 

@@ -36,7 +36,7 @@ Write-Host "Configuration: $Configuration"
 Write-Host ""
 
 # Step 1: Publish self-contained single-file application
-Write-Host "[1/3] Publishing self-contained single-file application for win-x64..." -ForegroundColor Yellow
+Write-Host "[1/4] Publishing self-contained single-file application for win-x64..." -ForegroundColor Yellow
 dotnet publish $WebProject `
     -c $Configuration `
     -r win-x64 `
@@ -59,8 +59,43 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Published to: $PublishDir" -ForegroundColor Green
 Write-Host ""
 
-# Step 2: Build WiX installer
-Write-Host "[2/3] Building MSI installer with WiX..." -ForegroundColor Yellow
+# Step 2: Build cfspeedtest binary for gateway (linux/arm64)
+Write-Host "[2/4] Building cfspeedtest binary for gateway..." -ForegroundColor Yellow
+$CfSpeedTestSrc = Join-Path $RepoRoot "src\cfspeedtest"
+$ToolsDir = Join-Path $PublishDir "tools"
+
+if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Path $ToolsDir | Out-Null }
+
+$GoCmd = Get-Command go -ErrorAction SilentlyContinue
+if ($GoCmd) {
+    Push-Location $CfSpeedTestSrc
+    $env:CGO_ENABLED = "0"
+    $env:GOOS = "linux"
+    $env:GOARCH = "arm64"
+    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "$ToolsDir\cfspeedtest-linux-arm64" .
+    $env:CGO_ENABLED = $null
+    $env:GOOS = $null
+    $env:GOARCH = $null
+    Pop-Location
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "cfspeedtest build failed - gateway speed test will not be available in this installer"
+    } else {
+        Write-Host "Built cfspeedtest for linux/arm64" -ForegroundColor Green
+    }
+} else {
+    $PrebuiltBinary = Join-Path $CfSpeedTestSrc "bin\cfspeedtest-linux-arm64"
+    if (Test-Path $PrebuiltBinary) {
+        Copy-Item $PrebuiltBinary "$ToolsDir\cfspeedtest-linux-arm64" -Force
+        Write-Host "Copied pre-built cfspeedtest binary" -ForegroundColor Green
+    } else {
+        Write-Warning "Go not installed and no pre-built binary found - gateway speed test will not be available"
+    }
+}
+Write-Host ""
+
+# Step 3: Build WiX installer
+Write-Host "[3/4] Building MSI installer with WiX..." -ForegroundColor Yellow
 dotnet build $InstallerProject -c $Configuration
 
 if ($LASTEXITCODE -ne 0) {
@@ -70,8 +105,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 
-# Step 3: Copy to output
-Write-Host "[3/3] Copying installer to publish folder..." -ForegroundColor Yellow
+# Step 4: Copy to output
+Write-Host "[4/4] Copying installer to publish folder..." -ForegroundColor Yellow
 
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir | Out-Null

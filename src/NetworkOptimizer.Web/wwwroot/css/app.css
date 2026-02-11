@@ -11571,33 +11571,71 @@ a.affected-client:hover {
    WAN Speed Test
    ============================================ */
 
-.wan-speedtest .wan-test-controls {
+.wan-speedtest .wan-test-options {
     display: flex;
-    align-items: center;
     gap: 1rem;
-    flex-wrap: wrap;
     padding-top: 1rem;
 }
 
-.wan-speedtest .wan-test-hint {
-    flex-basis: 100%;
+.wan-speedtest .wan-test-option {
+    flex: 1;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+}
+
+.wan-speedtest .wan-test-option-unavailable {
+    opacity: 0.6;
+}
+
+.wan-speedtest .wan-test-option-header {
     display: flex;
-    flex-direction: column;
-    margin-top: 1rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--border-color);
-    font-size: 0.85rem;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.wan-speedtest .wan-test-option-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wan-speedtest .wan-test-option-badge {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    background: var(--bg-secondary);
     color: var(--text-muted);
-    line-height: 1.5;
+    border: 1px solid var(--border-color);
+}
+
+.wan-speedtest .wan-test-option-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.wan-speedtest .wan-select {
+    max-width: 200px;
+}
+
+.wan-speedtest .wan-test-option-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.4;
 }
 
 .wan-speedtest .wan-test-button {
-    min-width: 180px;
+    min-width: 160px;
 }
 
 .wan-speedtest .wan-progress-status {
     color: var(--text-secondary);
     font-size: 0.9rem;
+    margin-top: 0.75rem;
 }
 
 .wan-speedtest .wan-metadata {
@@ -11635,6 +11673,19 @@ a.affected-client:hover {
 }
 
 @@media (max-width: 768px) {
+    .wan-speedtest .wan-test-options {
+        flex-direction: column;
+    }
+
+    .wan-speedtest .wan-test-option-controls {
+        flex-direction: column;
+    }
+
+    .wan-speedtest .wan-select {
+        max-width: 100%;
+        width: 100%;
+    }
+
     .wan-speedtest .wan-metadata {
         gap: 0.75rem;
     }

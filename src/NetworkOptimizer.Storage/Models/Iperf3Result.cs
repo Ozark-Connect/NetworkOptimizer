@@ -21,7 +21,10 @@ public enum SpeedTestDirection
     BrowserToServer = 2,
 
     /// <summary>WAN speed test via Cloudflare: measures internet throughput from server</summary>
-    CloudflareWan = 3
+    CloudflareWan = 3,
+
+    /// <summary>WAN speed test via Cloudflare: runs directly on the gateway via SSH</summary>
+    CloudflareWanGateway = 4
 }
 
 /// <summary>

@@ -441,6 +441,7 @@ public class SqmService : ISqmService
                             Interface = uplinkIfname,
                             TcInterface = tcInterface,
                             WanType = wanType,
+                            NetworkGroup = networkGroup,
                             LoadBalanceType = null,
                             LoadBalanceWeight = null,
                             SuggestedPingIp = suggestedPingIp,
@@ -693,6 +694,9 @@ public class WanInterfaceInfo
 
     /// <summary>Suggested ISP gateway IP for ping monitoring (from mac_table)</summary>
     public string? SuggestedPingIp { get; set; }
+
+    /// <summary>WAN network group identifier from UniFi (e.g., "WAN", "WAN2")</summary>
+    public string? NetworkGroup { get; set; }
 
     /// <summary>Whether UniFi Smart Queues (SQM) is enabled for this WAN in the controller</summary>
     public bool SmartqEnabled { get; set; }

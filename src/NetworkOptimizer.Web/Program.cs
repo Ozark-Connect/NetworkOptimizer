@@ -185,6 +185,9 @@ builder.Services.AddSingleton<ClientSpeedTestService>();
 // Register Cloudflare WAN Speed Test service (singleton - server-side WAN speed tests)
 builder.Services.AddSingleton<CloudflareSpeedTestService>();
 
+// Register Gateway WAN Speed Test service (singleton - gateway-direct WAN speed tests via SSH)
+builder.Services.AddSingleton<GatewayWanSpeedTestService>();
+
 // Register Topology Snapshot service (singleton - captures wireless rate snapshots during speed tests)
 builder.Services.AddSingleton<TopologySnapshotService>();
 builder.Services.AddSingleton<ITopologySnapshotService>(sp => sp.GetRequiredService<TopologySnapshotService>());

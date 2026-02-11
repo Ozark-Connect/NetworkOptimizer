@@ -188,6 +188,40 @@ public class SshClientService
     }
 
     /// <summary>
+    /// Upload a binary file to the remote host via SFTP.
+    /// </summary>
+    /// <param name="connection">SSH connection information</param>
+    /// <param name="localFilePath">Local file path to upload</param>
+    /// <param name="remotePath">Destination path on remote host</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task UploadBinaryAsync(
+        SshConnectionInfo connection,
+        string localFilePath,
+        string remotePath,
+        CancellationToken cancellationToken = default)
+    {
+        using var sftp = CreateSftpClient(connection);
+
+        try
+        {
+            await Task.Run(() => sftp.Connect(), cancellationToken);
+
+            using var stream = File.OpenRead(localFilePath);
+            await Task.Run(() => sftp.UploadFile(stream, remotePath, true), cancellationToken);
+
+            _logger.LogDebug("Uploaded binary to {Host}:{Path} ({Bytes} bytes)",
+                connection.Host, remotePath, new FileInfo(localFilePath).Length);
+        }
+        finally
+        {
+            if (sftp.IsConnected)
+            {
+                sftp.Disconnect();
+            }
+        }
+    }
+
+    /// <summary>
     /// Check if a file exists on the remote host.
     /// </summary>
     public async Task<bool> FileExistsAsync(

@@ -36,7 +36,16 @@ RUN dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     --no-restore \
     -p:MinVerVersionOverride=${VERSION}
 
-# Stage 2: Build iperf3 from source for latest version
+# Stage 2: Build cfspeedtest Go binary for gateway-direct WAN speed tests
+FROM golang:1.22-alpine AS cfspeedtest-build
+ARG VERSION=0.0.0
+WORKDIR /src
+COPY src/cfspeedtest/ .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /cfspeedtest .
+
+# Stage 3: Build iperf3 from source for latest version
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS iperf-build
 
 # iperf3 version - check https://github.com/esnet/iperf/releases for updates
@@ -57,7 +66,7 @@ RUN curl -LO https://github.com/esnet/iperf/releases/download/${IPERF3_VERSION}/
     && make \
     && make install
 
-# Stage 3: Runtime stage with ASP.NET runtime only
+# Stage 4: Runtime stage with ASP.NET runtime only
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
@@ -78,6 +87,10 @@ RUN ldconfig
 
 # Copy published application
 COPY --from=build /app/publish .
+
+# Copy cfspeedtest binary for gateway deployment
+RUN mkdir -p /app/tools
+COPY --from=cfspeedtest-build /cfspeedtest /app/tools/cfspeedtest-linux-arm64
 
 # Create directories for volumes
 RUN mkdir -p /app/data /app/ssh-keys /app/logs
