@@ -1406,7 +1406,7 @@
     private async Task FinishCurrentWall()
     {
         if (_mode != "walls" || _selectedFloor == null) return;
-        await JS.InvokeVoidAsync("fpEditor.finishWall");
+        await JS.InvokeVoidAsync("fpEditor.finishWall", true);
     }
 
     [JSInvokable]

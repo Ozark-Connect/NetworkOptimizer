@@ -1329,19 +1329,33 @@ window.fpEditor = {
         if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
     },
 
-    finishWall: function () {
+    // calledFromButton: true when triggered by Finish Shape button (no extra dblclick point to remove)
+    finishWall: function (calledFromButton) {
         var m = this._map;
         if (!m) return;
+        if (!this._currentWall || this._currentWall.points.length < 2) {
+            // Nothing to finish - clean up and return
+            this._currentWall = null;
+            if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
+            if (this._currentWallVertices) { m.removeLayer(this._currentWallVertices); this._currentWallVertices = null; }
+            if (this._currentWallLabels) { m.removeLayer(this._currentWallLabels); this._currentWallLabels = null; }
+            if (this._previewLine) { m.removeLayer(this._previewLine); this._previewLine = null; }
+            if (this._snapIndicator) { m.removeLayer(this._snapIndicator); this._snapIndicator = null; }
+            return;
+        }
 
         // Clean up drawing aids
         if (this._currentWallVertices) { m.removeLayer(this._currentWallVertices); this._currentWallVertices = null; }
         if (this._currentWallLabels) { m.removeLayer(this._currentWallLabels); this._currentWallLabels = null; }
         if (this._previewLine) { m.removeLayer(this._previewLine); this._previewLine = null; }
         if (this._snapIndicator) { m.removeLayer(this._snapIndicator); this._snapIndicator = null; }
+        if (this._snapGuideLine) { m.removeLayer(this._snapGuideLine); this._snapGuideLine = null; }
+        if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
+        if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
 
         // Remove the extra point added by the second click of the double-click
-        // (but NOT when the wall was closed via snap - that point is intentional)
-        if (!this._closedBySnap && this._currentWall && this._currentWall.points.length > 2) {
+        // (but NOT when closed via snap or triggered by button - no extra point in those cases)
+        if (!this._closedBySnap && !calledFromButton && this._currentWall.points.length > 2) {
             this._currentWall.points.pop();
             if (this._currentWall.materials) this._currentWall.materials.pop();
         }
