@@ -60,12 +60,10 @@
             }
         </div>
         <div class="fp-toolbar-right">
-            <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
-                @(_mode == "aps" ? "Done" : "Edit APs")
-            </button>
             @if (_selectedFloor != null)
             {
-                <div class="fp-wall-group">
+                @* ── Walls group ── *@
+                <div class="fp-toolbar-group">
                     <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "")" @onclick="ToggleWallDrawMode">
                         @(_mode == "walls" ? "Done Drawing" : "Draw Walls")
                     </button>
@@ -86,54 +84,60 @@
                                 data-tooltip="Delete last wall">Undo Wall</button>
                     }
                 </div>
-                @* TODO: Re-enable alongside floor plan image upload
-                <button class="fp-btn @(_mode == "position" ? "active" : "")" @onclick="TogglePositionMode">
-                    Position
-                </button>
-                <button class="fp-btn @(_mode == "move" ? "active" : "")" @onclick="ToggleMoveMode">
-                    Move
-                </button>
-                *@
+                <span class="fp-toolbar-sep"></span>
             }
-            <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
-                Heatmap
-            </button>
-            @if (_showHeatmap)
-            {
-                <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged">
-                    <option value="2.4">2.4 GHz</option>
-                    <option value="5">5 GHz</option>
-                    <option value="6">6 GHz</option>
-                </select>
-                <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
-                    Reset Sim
+
+            @* ── APs group ── *@
+            <div class="fp-toolbar-group">
+                <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
+                    @(_mode == "aps" ? "Done" : "Edit APs")
                 </button>
-            }
-            <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
-                Signal Data
-            </button>
-            <button class="fp-btn @(_isFullscreen ? "fp-btn-warning" : "")" @onclick="ToggleFullscreen"
-                    data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")"
-                    style="padding: 4px 6px; line-height: 0;">
-                @if (_isFullscreen)
+            </div>
+
+            <span class="fp-toolbar-sep"></span>
+
+            @* ── View group ── *@
+            <div class="fp-toolbar-group">
+                <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
+                    Heatmap
+                </button>
+                @if (_showHeatmap)
                 {
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="4 10 10 10 10 4"></polyline>
-                        <polyline points="14 4 14 10 20 10"></polyline>
-                        <polyline points="20 14 14 14 14 20"></polyline>
-                        <polyline points="10 20 10 14 4 14"></polyline>
-                    </svg>
+                    <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged">
+                        <option value="2.4">2.4 GHz</option>
+                        <option value="5">5 GHz</option>
+                        <option value="6">6 GHz</option>
+                    </select>
+                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
+                        Reset Sim
+                    </button>
                 }
-                else
-                {
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="3 8 3 3 8 3"></polyline>
-                        <polyline points="16 3 21 3 21 8"></polyline>
-                        <polyline points="21 16 21 21 16 21"></polyline>
-                        <polyline points="8 21 3 21 3 16"></polyline>
-                    </svg>
-                }
-            </button>
+                <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
+                    Signal Data
+                </button>
+                <button class="fp-btn @(_isFullscreen ? "fp-btn-warning" : "")" @onclick="ToggleFullscreen"
+                        data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")"
+                        style="padding: 4px 6px; line-height: 0;">
+                    @if (_isFullscreen)
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="4 10 10 10 10 4"></polyline>
+                            <polyline points="14 4 14 10 20 10"></polyline>
+                            <polyline points="20 14 14 14 14 20"></polyline>
+                            <polyline points="10 20 10 14 4 14"></polyline>
+                        </svg>
+                    }
+                    else
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 8 3 3 8 3"></polyline>
+                            <polyline points="16 3 21 3 21 8"></polyline>
+                            <polyline points="21 16 21 21 16 21"></polyline>
+                            <polyline points="8 21 3 21 3 16"></polyline>
+                        </svg>
+                    }
+                </button>
+            </div>
         </div>
     </div>
 
@@ -419,7 +423,8 @@
     .fp-floor-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
     .fp-floor-add { font-weight: bold; }
 
-    .fp-wall-group { display: flex; align-items: center; gap: 4px; }
+    .fp-toolbar-group { display: flex; align-items: center; gap: 4px; }
+    .fp-toolbar-sep { width: 1px; height: 20px; background: var(--border-color, #2d2d4a); flex-shrink: 0; }
 
     .fp-map-container { position: relative; z-index: 1; }
 
@@ -1751,7 +1756,12 @@
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
         var newFloor = _floors.FirstOrDefault(f => f.FloorNumber == _newFloorNumber);
-        if (newFloor != null) await SelectFloor(newFloor.Id);
+        if (newFloor != null)
+        {
+            await SelectFloor(newFloor.Id);
+            // Auto-enter draw walls mode for new floors
+            await ToggleWallDrawMode();
+        }
         StateHasChanged();
     }
 
