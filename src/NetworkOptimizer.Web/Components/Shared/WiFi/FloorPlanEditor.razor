@@ -1126,12 +1126,15 @@
         if (_selectedBuilding != null && _floors.Count > 0)
         {
             await SelectFloor(_floors.First().Id);
-            var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
-            // 15% buffer per side (scales with building size)
-            var bufferLat = (neLat - swLat) * 0.15;
-            var bufferLng = (neLng - swLng) * 0.15;
-            await JS.InvokeVoidAsync("fpEditor.fitBounds",
-                swLat - bufferLat, swLng - bufferLng, neLat + bufferLat, neLng + bufferLng);
+            if (BuildingHasWalls())
+            {
+                var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
+                var bufferLat = (neLat - swLat) * 0.15;
+                var bufferLng = (neLng - swLng) * 0.15;
+                await JS.InvokeVoidAsync("fpEditor.fitBounds",
+                    swLat - bufferLat, swLng - bufferLng, neLat + bufferLat, neLng + bufferLng);
+            }
+            // No walls yet - stay at current view
         }
         else if (_selectedBuilding != null)
         {
@@ -1159,6 +1162,9 @@
         await UpdateBackgroundWalls();
         StateHasChanged();
     }
+
+    private bool BuildingHasWalls() =>
+        _floors.Any(f => !string.IsNullOrEmpty(f.WallsJson) && f.WallsJson != "[]");
 
     /// Compute building bounds from wall vertices (tight fit), falling back to floor plan bounds.
     private (double swLat, double swLng, double neLat, double neLng) ComputeBuildingBounds()
