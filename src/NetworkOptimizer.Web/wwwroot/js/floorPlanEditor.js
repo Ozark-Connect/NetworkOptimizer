@@ -1057,8 +1057,8 @@ window.fpEditor = {
                 var stops = [
                     { s: -30, r: 0, g: 220, b: 0 }, { s: -45, r: 34, g: 197, b: 94 },
                     { s: -55, r: 180, g: 220, b: 40 }, { s: -65, r: 250, g: 204, b: 21 },
-                    { s: -72, r: 251, g: 146, b: 60 }, { s: -78, r: 239, g: 68, b: 68 },
-                    { s: -85, r: 107, g: 114, b: 128 }
+                    { s: -72, r: 251, g: 146, b: 60 }, { s: -80, r: 239, g: 68, b: 68 },
+                    { s: -90, r: 107, g: 114, b: 128 }
                 ];
                 if (sig >= stops[0].s) return stops[0];
                 if (sig <= stops[stops.length - 1].s) return stops[stops.length - 1];
@@ -1081,7 +1081,7 @@ window.fpEditor = {
                 var row = data.height - 1 - Math.floor(i / data.width);
                 var col = i % data.width;
                 var idx = (row * data.width + col) * 4;
-                var alpha = sig >= -85 ? 140 : sig <= -90 ? 0 : Math.round(140 * (-90 - sig) / (-90 + 85));
+                var alpha = sig >= -90 ? 140 : sig <= -95 ? 0 : Math.round(140 * (-95 - sig) / (-95 + 90));
                 imgData.data[idx] = c.r;
                 imgData.data[idx + 1] = c.g;
                 imgData.data[idx + 2] = c.b;
@@ -1186,8 +1186,8 @@ window.fpEditor = {
         var stops = [
             { s: -30, r: 0, g: 220, b: 0 }, { s: -45, r: 34, g: 197, b: 94 },
             { s: -55, r: 180, g: 220, b: 40 }, { s: -65, r: 250, g: 204, b: 21 },
-            { s: -72, r: 251, g: 146, b: 60 }, { s: -78, r: 239, g: 68, b: 68 },
-            { s: -85, r: 107, g: 114, b: 128 }
+            { s: -72, r: 251, g: 146, b: 60 }, { s: -80, r: 239, g: 68, b: 68 },
+            { s: -90, r: 107, g: 114, b: 128 }
         ];
         if (dbm >= stops[0].s) return 'rgb(' + stops[0].r + ',' + stops[0].g + ',' + stops[0].b + ')';
         if (dbm <= stops[stops.length - 1].s) return 'rgb(' + stops[stops.length - 1].r + ',' + stops[stops.length - 1].g + ',' + stops[stops.length - 1].b + ')';

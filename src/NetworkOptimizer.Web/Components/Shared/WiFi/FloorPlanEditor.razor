@@ -158,8 +158,8 @@
                     <span>-30</span>
                     <span>-55</span>
                     <span>-65</span>
-                    <span>-78</span>
-                    <span>-85</span>
+                    <span>-80</span>
+                    <span>-90</span>
                 </div>
             </div>
         }
@@ -688,6 +688,61 @@
         margin-bottom: 0.35rem;
     }
 
+    /* Signal-colored cluster icons */
+    .speed-cluster {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 12px;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .speed-cluster-icon {
+        background: transparent !important;
+    }
+
+    /* Dark theme for marker clusters */
+    .marker-cluster-small {
+        background-color: rgba(59, 130, 246, 0.6);
+    }
+    .marker-cluster-small div {
+        background-color: rgba(59, 130, 246, 0.9);
+    }
+    .marker-cluster-medium {
+        background-color: rgba(234, 179, 8, 0.6);
+    }
+    .marker-cluster-medium div {
+        background-color: rgba(234, 179, 8, 0.9);
+    }
+    .marker-cluster-large {
+        background-color: rgba(239, 68, 68, 0.6);
+    }
+    .marker-cluster-large div {
+        background-color: rgba(239, 68, 68, 0.9);
+    }
+    .marker-cluster {
+        background-clip: padding-box;
+        border-radius: 20px;
+    }
+    .marker-cluster div {
+        width: 30px;
+        height: 30px;
+        margin-left: 5px;
+        margin-top: 5px;
+        text-align: center;
+        border-radius: 15px;
+        font: 12px "Helvetica Neue", Arial, Helvetica, sans-serif;
+        font-weight: bold;
+        color: #fff;
+        line-height: 30px;
+    }
+
     @@media (max-width: 768px) {
         .fp-toolbar { flex-direction: column; align-items: flex-start; }
         .fp-toolbar-left, .fp-toolbar-right { width: 100%; }
@@ -1195,8 +1250,8 @@
             (-55, 180, 220, 40),
             (-65, 250, 204, 21),
             (-72, 251, 146, 60),
-            (-78, 239, 68, 68),
-            (-85, 107, 114, 128)
+            (-80, 239, 68, 68),
+            (-90, 107, 114, 128)
         ];
 
         if (dbm >= stops[0].s) return $"rgb({stops[0].r},{stops[0].g},{stops[0].b})";
@@ -1229,16 +1284,7 @@
         var html = "<div class='map-popup'>";
         html += $"<div class='wifi-tooltip-header'>{deviceName}</div>";
 
-        // Speed row
-        html += "<div class='wifi-tooltip-row wifi-tooltip-speed'>";
-        html += $"<span class='wifi-speed-rx'>\u2193 {result.DownloadMbps:F0}</span> \u00b7 ";
-        html += $"<span class='wifi-speed-tx'>\u2191 {result.UploadMbps:F0}</span> Mbps";
-        html += "</div>";
-
-        if (!string.IsNullOrEmpty(apName))
-            html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
-
-        // Band and signal
+        // Band and signal first
         if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio))
         {
             html += "<div class='wifi-tooltip-link-signal'>";
@@ -1251,6 +1297,15 @@
                 html += $"{result.WifiSignalDbm} dBm";
             html += "</div>";
         }
+
+        if (!string.IsNullOrEmpty(apName))
+            html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
+
+        // Speed row
+        html += "<div class='wifi-tooltip-row wifi-tooltip-speed'>";
+        html += $"<span class='wifi-speed-rx'>\u2193 {result.DownloadMbps:F0}</span> \u00b7 ";
+        html += $"<span class='wifi-speed-tx'>\u2191 {result.UploadMbps:F0}</span> Mbps";
+        html += "</div>";
 
         html += "<div class='wifi-tooltip-divider'></div>";
         html += $"<div class='map-popup-footer'><span class='map-popup-time'>{time}</span></div>";
