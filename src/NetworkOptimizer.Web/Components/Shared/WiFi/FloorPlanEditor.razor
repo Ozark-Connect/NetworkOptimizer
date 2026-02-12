@@ -34,6 +34,19 @@
                     <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor">+</button>
                 </div>
             }
+            else if (AllFloorNumbers.Any())
+            {
+                <div class="fp-floor-picker">
+                    @foreach (var fn in AllFloorNumbers)
+                    {
+                        <button class="fp-floor-btn @(fn == _globalActiveFloor ? "active" : "")"
+                                @onclick="() => SetGlobalFloor(fn)"
+                                data-tooltip="@GetFloorLabel(fn) Floor">
+                            @GetFloorLabel(fn)
+                        </button>
+                    }
+                </div>
+            }
         </div>
         <div class="fp-toolbar-right">
             <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
@@ -627,7 +640,8 @@
     private FloorDto? _selectedFloor;
 
     private string _mode = "view";
-    private bool _showHeatmap;
+    private bool _showHeatmap = true;
+    private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
     private string _wallMaterial = "drywall";
     private double _floorOpacity = 0.7;
@@ -650,6 +664,7 @@
             await InitializeMap();
             // Show placed APs immediately on map load (no floor selection needed)
             await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
             StateHasChanged();
         }
     }
@@ -734,6 +749,7 @@
         _selectedFloor = _floors.FirstOrDefault(f => f.Id == floorId);
         if (_selectedFloor != null)
         {
+            _globalActiveFloor = _selectedFloor.FloorNumber;
             _floorOpacity = _selectedFloor.Opacity;
             await UpdateFloorOverlay();
             await UpdateApMarkers();
@@ -761,7 +777,6 @@
     {
         if (!_mapInitialized) return;
 
-        var floorNum = _selectedFloor?.FloorNumber ?? 1;
         var placedAps = _apMarkers
             .Where(a => a.Latitude.HasValue && a.Longitude.HasValue);
 
@@ -772,7 +787,7 @@
             orientation = a.OrientationDeg, mountType = a.MountType,
             online = a.IsOnline, clients = a.TotalClients,
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
-            sameFloor = _selectedFloor == null || (a.Floor ?? 1) == floorNum
+            sameFloor = (a.Floor ?? 1) == _globalActiveFloor
         }));
 
         await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps");
@@ -971,7 +986,7 @@
     {
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
-        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _selectedFloor?.Id ?? 0, _heatmapBand);
+        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand);
     }
 
     // ── Floor plan management ────────────────────────────────────────
@@ -1096,13 +1111,36 @@
         StateHasChanged();
     }
 
+    // ── Global floor picker ────────────────────────────────────────
+
+    private IEnumerable<int> AllFloorNumbers => _buildings
+        .SelectMany(b => b.Floors)
+        .Select(f => f.FloorNumber)
+        .Distinct()
+        .OrderByDescending(n => n);
+
+    private async Task SetGlobalFloor(int floorNumber)
+    {
+        _globalActiveFloor = floorNumber;
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+        StateHasChanged();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static string GetFloorLabel(int floorNumber)
     {
         if (floorNumber <= -1) return "B" + Math.Abs(floorNumber);
-        if (floorNumber == 0) return "G";
-        return floorNumber.ToString();
+        var lastTwo = Math.Abs(floorNumber) % 100;
+        var suffix = (lastTwo >= 11 && lastTwo <= 13) ? "th" : (Math.Abs(floorNumber) % 10) switch
+        {
+            1 => "st",
+            2 => "nd",
+            3 => "rd",
+            _ => "th"
+        };
+        return floorNumber + suffix;
     }
 
     [JSInvokable]

@@ -859,7 +859,7 @@ window.fpEditor = {
 
     // ── Heatmap ──────────────────────────────────────────────────────
 
-    computeHeatmap: function (baseUrl, floorId, band) {
+    computeHeatmap: function (baseUrl, activeFloor, band) {
         var m = this._map;
         if (!m) return;
         var self = this;
@@ -876,7 +876,7 @@ window.fpEditor = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                floorId: floorId, band: band,
+                activeFloor: activeFloor, band: band,
                 gridResolutionMeters: res,
                 swLat: sw.lat, swLng: sw.lng, neLat: ne.lat, neLng: ne.lng
             })

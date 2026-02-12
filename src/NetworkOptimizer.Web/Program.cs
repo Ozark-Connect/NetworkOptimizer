@@ -1027,35 +1027,31 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
     var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
 
-    int activeFloor;
+    if (!request.SwLat.HasValue || !request.SwLng.HasValue || !request.NeLat.HasValue || !request.NeLng.HasValue)
+        return Results.BadRequest(new { error = "Viewport bounds are required" });
+
+    var activeFloor = request.ActiveFloor;
+
+    // Load walls from ALL floors matching the active floor number across ALL buildings
     var walls = new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
-    NetworkOptimizer.Storage.Models.FloorPlan? floor = null;
-
-    if (request.FloorId > 0)
+    var allBuildings = await floorSvc.GetBuildingsAsync();
+    foreach (var building in allBuildings)
     {
-        floor = await floorSvc.GetFloorAsync(request.FloorId);
-        if (floor == null) return Results.NotFound(new { error = "Floor not found" });
-        activeFloor = floor.FloorNumber;
-
-        // Parse walls from floor's WallsJson
-        if (!string.IsNullOrEmpty(floor.WallsJson))
+        foreach (var f in building.Floors.Where(f => f.FloorNumber == activeFloor))
         {
+            if (string.IsNullOrEmpty(f.WallsJson)) continue;
             try
             {
-                walls = System.Text.Json.JsonSerializer.Deserialize<List<NetworkOptimizer.WiFi.Models.PropagationWall>>(
-                    floor.WallsJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                    ?? new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
+                var floorWalls = System.Text.Json.JsonSerializer.Deserialize<List<NetworkOptimizer.WiFi.Models.PropagationWall>>(
+                    f.WallsJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (floorWalls != null) walls.AddRange(floorWalls);
             }
             catch { /* ignore bad JSON */ }
         }
     }
-    else
-    {
-        activeFloor = 1;
-    }
 
-    // Get placed APs
+    // Get ALL placed APs (heatmap is campus-wide, not per-building)
     var apMarkers = await apMapSvc.GetApMapMarkersAsync();
     var placedAps = apMarkers
         .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
@@ -1082,33 +1078,8 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
                 .FirstOrDefault(3)
         }).ToList();
 
-    // Use viewport bounds from the client if provided, otherwise fall back to floor plan bounds with padding
-    double swLat, swLng, neLat, neLng;
-    if (request.SwLat.HasValue && request.SwLng.HasValue && request.NeLat.HasValue && request.NeLng.HasValue)
-    {
-        swLat = request.SwLat.Value;
-        swLng = request.SwLng.Value;
-        neLat = request.NeLat.Value;
-        neLng = request.NeLng.Value;
-    }
-    else if (floor != null)
-    {
-        var latSpan = floor.NeLatitude - floor.SwLatitude;
-        var lngSpan = floor.NeLongitude - floor.SwLongitude;
-        var padLat = latSpan * 0.5;
-        var padLng = lngSpan * 0.5;
-        swLat = floor.SwLatitude - padLat;
-        swLng = floor.SwLongitude - padLng;
-        neLat = floor.NeLatitude + padLat;
-        neLng = floor.NeLongitude + padLng;
-    }
-    else
-    {
-        return Results.BadRequest(new { error = "Viewport bounds required when no floor is selected" });
-    }
-
     var result = propagationSvc.ComputeHeatmap(
-        swLat, swLng, neLat, neLng,
+        request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
         request.Band, placedAps, walls, activeFloor, request.GridResolutionMeters);
 
     return Results.Ok(result);

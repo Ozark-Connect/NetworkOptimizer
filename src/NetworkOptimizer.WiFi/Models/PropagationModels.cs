@@ -5,8 +5,8 @@ namespace NetworkOptimizer.WiFi.Models;
 /// </summary>
 public class HeatmapRequest
 {
-    /// <summary>Floor plan ID to compute heatmap for</summary>
-    public int FloorId { get; set; }
+    /// <summary>Active floor number for propagation (1 = 1st floor, 2 = 2nd, etc.)</summary>
+    public int ActiveFloor { get; set; } = 1;
 
     /// <summary>RF band: "2.4", "5", or "6"</summary>
     public string Band { get; set; } = "5";
@@ -14,7 +14,7 @@ public class HeatmapRequest
     /// <summary>Grid resolution in meters (default 1m)</summary>
     public double GridResolutionMeters { get; set; } = 1.0;
 
-    /// <summary>Viewport bounds from the map (if set, overrides floor plan bounds)</summary>
+    /// <summary>Viewport bounds from the map</summary>
     public double? SwLat { get; set; }
     public double? SwLng { get; set; }
     public double? NeLat { get; set; }
