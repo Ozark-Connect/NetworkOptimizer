@@ -1089,7 +1089,7 @@
 
     private void ShowAddFloorDialog()
     {
-        var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : -1;
+        var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : 0;
         _newFloorNumber = maxFloor + 1;
         _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
         _showAddFloor = true;
