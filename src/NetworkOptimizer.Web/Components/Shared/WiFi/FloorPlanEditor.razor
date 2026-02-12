@@ -769,7 +769,7 @@
         {
             mac = a.Mac, name = a.Name, model = a.Model,
             lat = a.Latitude, lng = a.Longitude, floor = a.Floor ?? 1,
-            orientation = a.OrientationDeg,
+            orientation = a.OrientationDeg, mountType = a.MountType,
             online = a.IsOnline, clients = a.TotalClients,
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
             sameFloor = _selectedFloor == null || (a.Floor ?? 1) == floorNum
@@ -804,6 +804,19 @@
     public async Task OnApOrientationChangedFromJs(string mac, int orientationDeg)
     {
         await ApMapSvc.SaveApOrientationAsync(mac, orientationDeg);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnApMountTypeChangedFromJs(string mac, string mountType)
+    {
+        await ApMapSvc.SaveApMountTypeAsync(mac, mountType);
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {

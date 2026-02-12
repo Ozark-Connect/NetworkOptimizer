@@ -61,6 +61,7 @@ public class PropagationAp
     public int TxPowerDbm { get; set; } = 20;
     public int AntennaGainDbi { get; set; } = 3;
     public int OrientationDeg { get; set; }
+    public string MountType { get; set; } = "ceiling";
 
     /// <summary>
     /// Active antenna mode (e.g., "OMNI", "Internal"). Null for standard indoor APs.

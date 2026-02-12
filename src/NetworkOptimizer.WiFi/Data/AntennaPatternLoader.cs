@@ -43,7 +43,10 @@ public class AntennaPatternLoader
 
         if (_patterns == null) return null;
 
-        var patternName = model;
+        // Strip color suffix (e.g., "-B" for black) that doesn't affect antenna pattern
+        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            ? model[..^2]
+            : model;
 
         // Normalize band key
         var bandKey = band switch

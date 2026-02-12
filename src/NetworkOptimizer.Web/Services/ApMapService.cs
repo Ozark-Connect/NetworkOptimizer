@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Models;
+using NetworkOptimizer.WiFi.Data;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -45,6 +46,7 @@ public class ApMapService
                 Longitude = savedLocation?.Longitude,
                 Floor = savedLocation?.Floor,
                 OrientationDeg = savedLocation?.OrientationDeg ?? 0,
+                MountType = MountTypeHelper.Resolve(savedLocation?.MountType, ap.Model),
                 IsOnline = ap.IsOnline,
                 TotalClients = ap.TotalClients,
                 Radios = ap.Radios.Select(r => new ApRadioSummary
@@ -121,6 +123,23 @@ public class ApMapService
         if (existing != null)
         {
             existing.OrientationDeg = orientationDeg;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
+    /// Save an AP's mount type ("ceiling", "wall", or "desktop").
+    /// </summary>
+    public async Task SaveApMountTypeAsync(string mac, string mountType)
+    {
+        var normalizedMac = mac.ToLowerInvariant();
+
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+        if (existing != null)
+        {
+            existing.MountType = mountType;
             existing.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
         }

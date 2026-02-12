@@ -28,6 +28,10 @@ public class ApLocation
     /// <summary>AP orientation in degrees (0-359, 0 = North, clockwise)</summary>
     public int OrientationDeg { get; set; }
 
+    /// <summary>Mount type: "ceiling", "wall", or "desktop". Null = auto-detect from model.</summary>
+    [MaxLength(20)]
+    public string? MountType { get; set; }
+
     /// <summary>When this location was last updated</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -27,6 +27,9 @@ public class ApMapMarker
     /// <summary>AP orientation in degrees (0-359, 0 = North, clockwise)</summary>
     public int OrientationDeg { get; set; }
 
+    /// <summary>Mount type: "ceiling", "wall", or "desktop"</summary>
+    public string MountType { get; set; } = "ceiling";
+
     /// <summary>Whether the AP is currently online</summary>
     public bool IsOnline { get; set; }
 

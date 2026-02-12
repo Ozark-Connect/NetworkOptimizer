@@ -150,6 +150,10 @@ public class PropagationService
             elevationDeg = Math.Clamp(elevationDeg, 0, 358);
         }
 
+        // Apply mount type elevation offset before antenna pattern lookup
+        var elevationOffset = ap.MountType switch { "wall" => -90, "desktop" => 180, _ => 0 };
+        elevationDeg = ((elevationDeg + elevationOffset) % 359 + 359) % 359;
+
         // Antenna pattern gain using pattern multiplication:
         // Combine 2D azimuth and elevation cuts into 3D approximation.
         // Both patterns are normalized to 0 dB at peak, so addition in dB = multiplication in linear.

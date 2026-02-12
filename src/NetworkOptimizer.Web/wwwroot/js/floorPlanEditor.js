@@ -200,12 +200,24 @@ window.fpEditor = {
                     ' Floor</option>';
             }
 
+            // Mount type dropdown options
+            var mountTypes = ['ceiling', 'wall', 'desktop'];
+            var mountLabels = { ceiling: 'Ceiling', wall: 'Wall', desktop: 'Desktop' };
+            var mountOpts = '';
+            mountTypes.forEach(function (mt) {
+                mountOpts += '<option value="' + mt + '"' + (mt === (ap.mountType || 'ceiling') ? ' selected' : '') + '>' + mountLabels[mt] + '</option>';
+            });
+
             marker.bindPopup(
                 '<b>' + (ap.name || ap.mac) + '</b><br/>Model: ' + ap.model + '<br/>Clients: ' + ap.clients +
                 '<br/><label style="font-size:12px;color:#94a3b8">Floor: </label>' +
                 '<select style="padding:2px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px;font-size:12px" ' +
                 'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApFloorChangedFromJs\',\'' + ap.mac + '\',parseInt(this.value))">' +
                 floorOpts + '</select>' +
+                '<br/><label style="font-size:12px;color:#94a3b8">Mount: </label>' +
+                '<select style="padding:2px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px;font-size:12px" ' +
+                'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApMountTypeChangedFromJs\',\'' + ap.mac + '\',this.value)">' +
+                mountOpts + '</select>' +
                 '<br/><label style="font-size:12px;color:#94a3b8">Facing: </label>' +
                 '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
                 'style="width:100px;vertical-align:middle" ' +
