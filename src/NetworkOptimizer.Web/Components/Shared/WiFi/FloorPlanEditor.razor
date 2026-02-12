@@ -808,6 +808,7 @@
 @code {
     [Parameter] public string MapHeight { get; set; } = "600px";
     [Parameter] public List<Iperf3Result> SpeedTestResults { get; set; } = new();
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
@@ -1327,7 +1328,7 @@
         return $"rgb({stops[^1].r},{stops[^1].g},{stops[^1].b})";
     }
 
-    private static string BuildSignalPopup(Iperf3Result result)
+    private string BuildSignalPopup(Iperf3Result result)
     {
         var deviceName = (result.DeviceName ?? result.DeviceHost)?
             .Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
@@ -1363,8 +1364,19 @@
         html += $"<span class='wifi-speed-tx'>\u2191 {result.UploadMbps:F0}</span> Mbps";
         html += "</div>";
 
+        // Footer with time and client details link
         html += "<div class='wifi-tooltip-divider'></div>";
-        html += $"<div class='map-popup-footer'><span class='map-popup-time'>{time}</span></div>";
+        html += "<div class='map-popup-footer'>";
+        html += $"<span class='map-popup-time'>{time}</span>";
+        var clientMac = result.ClientMac ?? result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
+        if (OnClientClick.HasDelegate && !string.IsNullOrEmpty(clientMac))
+        {
+            var escapedMac = clientMac.Replace("'", "\\'").Replace("\"", "&quot;");
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{escapedMac}\")' class='map-popup-link'>Client details \u2192</a>";
+        }
+        html += "</div>";
+
         html += "</div>";
         return html;
     }
@@ -1529,6 +1541,13 @@
     {
         if (_showHeatmap)
             await ComputeHeatmap();
+    }
+
+    [JSInvokable]
+    public async Task OnSignalClientClick(string mac)
+    {
+        if (OnClientClick.HasDelegate)
+            await OnClientClick.InvokeAsync(mac);
     }
 
     public void Dispose()
