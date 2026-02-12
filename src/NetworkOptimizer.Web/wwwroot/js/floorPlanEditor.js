@@ -89,7 +89,7 @@ window.fpEditor = {
             var container = document.getElementById(containerId);
             if (!container) { setTimeout(init, 100); return; }
 
-            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0 });
+            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0.25, zoomDelta: 0.25, wheelPxPerZoomLevel: 120 });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap'
             }).addTo(m);
@@ -229,9 +229,12 @@ window.fpEditor = {
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
             var bounds = [[swLat, swLng], [neLat, neLng]];
-            console.log('fitBounds called:', { swLat, swLng, neLat, neLng, mapSize: this._map.getSize(), currentZoom: this._map.getZoom() });
+            var latSpanM = (neLat - swLat) * 111320;
+            var lngSpanM = (neLng - swLng) * 111320 * Math.cos((swLat + neLat) / 2 * Math.PI / 180);
+            var sz = this._map.getSize();
+            console.log('fitBounds:', { widthM: lngSpanM.toFixed(1), heightM: latSpanM.toFixed(1), viewportPx: sz.x + 'x' + sz.y, curZoom: this._map.getZoom() });
             this._map.fitBounds(bounds, { padding: [0, 0], maxZoom: 24 });
-            console.log('fitBounds result:', { newZoom: this._map.getZoom(), newCenter: this._map.getCenter() });
+            console.log('fitBounds result:', { zoom: this._map.getZoom(), center: this._map.getCenter() });
         }
     },
 
