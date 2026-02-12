@@ -1190,6 +1190,14 @@ window.fpEditor = {
                 } else {
                     self._previewLine.setLatLngs([[prev.lat, prev.lng], [fp3.lat, fp3.lng]]);
                 }
+                if (!self._snapIndicator) {
+                    self._snapIndicator = L.marker([fp3.lat, fp3.lng], {
+                        icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
+                        interactive: false
+                    }).addTo(m);
+                } else {
+                    self._snapIndicator.setLatLng([fp3.lat, fp3.lng]);
+                }
                 if (self._snapGuideLine) { m.removeLayer(self._snapGuideLine); self._snapGuideLine = null; }
                 if (self._snapAngleMarker) { m.removeLayer(self._snapAngleMarker); self._snapAngleMarker = null; }
                 return;
@@ -1209,6 +1217,15 @@ window.fpEditor = {
                 } else {
                     self._previewLine.setLatLngs([[prev.lat, prev.lng], [snapTarget.lat, snapTarget.lng]]);
                     self._previewLine.setStyle(lineStyle);
+                }
+                // Snap indicator dot at the actual snap target
+                if (!self._snapIndicator) {
+                    self._snapIndicator = L.marker([snapTarget.lat, snapTarget.lng], {
+                        icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
+                        interactive: false
+                    }).addTo(m);
+                } else {
+                    self._snapIndicator.setLatLng([snapTarget.lat, snapTarget.lng]);
                 }
                 // Show guide line along target wall for any segment snap
                 if (vtxSnap.type === 'segment' && vtxSnap.segA && vtxSnap.segB) {
