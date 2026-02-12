@@ -1750,6 +1750,9 @@
         _selectedFloor = null;
 
         await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
+        await UpdateBackgroundWalls();
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
         StateHasChanged();
     }
 
@@ -1758,8 +1761,9 @@
         if (_selectedBuilding == null) return;
         _showDeleteBuilding = false;
         await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
-        await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
         await LoadBuildings();
+        await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+        if (_showHeatmap) await ComputeHeatmap();
         StateHasChanged();
     }
 
