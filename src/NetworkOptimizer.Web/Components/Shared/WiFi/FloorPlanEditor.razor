@@ -109,9 +109,9 @@
             <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
                 Signal Data
             </button>
-            <button class="fp-btn @(_isFullscreen ? "active" : "")" @onclick="ToggleFullscreen"
+            <button class="fp-btn @(_isFullscreen ? "fp-btn-warning" : "")" @onclick="ToggleFullscreen"
                     data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")">
-                @(_isFullscreen ? "\u2716" : "\u26F6")
+                @(_isFullscreen ? "Exit Fullscreen" : "Fullscreen")
             </button>
         </div>
     </div>
@@ -295,15 +295,30 @@
         border-radius: 0;
     }
 
+    .fp-fullscreen .fp-toolbar {
+        position: relative;
+        z-index: 10000;
+        flex-shrink: 0;
+    }
+
     .fp-fullscreen .fp-map-container {
         flex: 1;
         display: flex;
         flex-direction: column;
+        min-height: 0;
+        position: relative;
     }
 
     .fp-fullscreen .fp-map {
         flex: 1;
         min-height: 0;
+        height: 100% !important;
+    }
+
+    .fp-fullscreen .fp-bottom-bar {
+        position: relative;
+        z-index: 10000;
+        flex-shrink: 0;
     }
 
     .fp-toolbar {
