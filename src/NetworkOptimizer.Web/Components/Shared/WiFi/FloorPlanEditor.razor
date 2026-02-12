@@ -184,9 +184,8 @@
         @if (_mode == "walls")
         {
             <div class="fp-edit-hint fp-wall-hint">
-                <span>Click to place points. Double-click or</span>
+                <span>Click to place points. Shift = free-form.</span>
                 <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
-                <span>when done. Shift = free-form.</span>
             </div>
         }
 
@@ -1368,6 +1367,8 @@
             _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
                 ? "exterior_residential"
                 : "drywall";
+            // Temporarily hide heatmap while drawing walls
+            if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
         }
         else
@@ -1375,6 +1376,8 @@
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
             // Re-render walls from DB state after exiting draw mode
             if (_selectedFloor != null) await UpdateWalls();
+            // Restore heatmap if it was on
+            if (_showHeatmap) await ComputeHeatmap();
         }
         await UpdateApMarkers();
     }
