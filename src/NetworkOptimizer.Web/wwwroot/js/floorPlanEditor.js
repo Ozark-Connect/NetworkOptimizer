@@ -769,6 +769,44 @@ window.fpEditor = {
         return bestVertexPt || bestSegPt;
     },
 
+    // Check if drawing line from prev to snap point is within ±5° of perpendicular to the target wall.
+    // If so, returns adjusted snap point at the exact perpendicular foot; otherwise null.
+    _perpSnap: function (prev, vtxSnap) {
+        if (!vtxSnap || vtxSnap.type !== 'segment' || !vtxSnap.segA || !vtxSnap.segB) return null;
+        var m = this._map;
+        if (!m) return null;
+
+        var prevPx = m.latLngToContainerPoint(L.latLng(prev.lat, prev.lng));
+        var snapPx = m.latLngToContainerPoint(L.latLng(vtxSnap.lat, vtxSnap.lng));
+        var aPx = m.latLngToContainerPoint(L.latLng(vtxSnap.segA.lat, vtxSnap.segA.lng));
+        var bPx = m.latLngToContainerPoint(L.latLng(vtxSnap.segB.lat, vtxSnap.segB.lng));
+
+        // Wall direction vector
+        var wdx = bPx.x - aPx.x, wdy = bPx.y - aPx.y;
+        var wlen = Math.sqrt(wdx * wdx + wdy * wdy);
+        if (wlen < 1) return null;
+
+        // Drawing direction: from prev to current snap point
+        var ddx = snapPx.x - prevPx.x, ddy = snapPx.y - prevPx.y;
+        var dlen = Math.sqrt(ddx * ddx + ddy * ddy);
+        if (dlen < 1) return null;
+
+        // cos(angle) between draw direction and wall direction
+        // Perpendicular means cos ≈ 0, i.e. |dot| < sin(5°) ≈ 0.087
+        var dot = (ddx * wdx + ddy * wdy) / (dlen * wlen);
+        if (Math.abs(dot) > Math.sin(5 * Math.PI / 180)) return null;
+
+        // Compute perpendicular foot of prev onto the wall segment line
+        var t = ((prevPx.x - aPx.x) * wdx + (prevPx.y - aPx.y) * wdy) / (wdx * wdx + wdy * wdy);
+        if (t < 0.01 || t > 0.99) return null; // outside segment
+
+        var footLatLng = m.containerPointToLatLng(L.point(aPx.x + t * wdx, aPx.y + t * wdy));
+        return {
+            lat: footLatLng.lat, lng: footLatLng.lng,
+            type: 'segment', segA: vtxSnap.segA, segB: vtxSnap.segB, isPerp: true
+        };
+    },
+
     // Show live segment length label at midpoint of preview line
     _updatePreviewLength: function (from, to) {
         var m = this._map;
@@ -871,20 +909,35 @@ window.fpEditor = {
             }
 
             var lat = e.latlng.lat, lng = e.latlng.lng;
+            var didSnapToWall = false;
 
-            // Vertex snap: snap to nearby existing wall vertices (10px threshold)
+            // Vertex/segment snap: snap to nearby existing wall vertices or perpendicular to segments
             if (!e.originalEvent.shiftKey) {
                 var vtxSnap = self._snapToVertex(lat, lng, 10);
                 if (vtxSnap) {
-                    lat = vtxSnap.lat;
-                    lng = vtxSnap.lng;
+                    // For segment snaps with a previous point, apply perpendicular adjustment
+                    if (vtxSnap.type === 'segment' && self._currentWall && self._currentWall.points.length > 0) {
+                        var prevPt = self._currentWall.points[self._currentWall.points.length - 1];
+                        var perpAdj = self._perpSnap(prevPt, vtxSnap);
+                        if (perpAdj) {
+                            lat = perpAdj.lat;
+                            lng = perpAdj.lng;
+                        } else {
+                            lat = vtxSnap.lat;
+                            lng = vtxSnap.lng;
+                        }
+                    } else {
+                        lat = vtxSnap.lat;
+                        lng = vtxSnap.lng;
+                    }
+                    didSnapToWall = true;
                 }
             }
 
             if (!e.originalEvent.shiftKey && self._currentWall && self._currentWall.points.length > 0) {
                 var prev = self._currentWall.points[self._currentWall.points.length - 1];
-                // Only apply angle snap if we didn't vertex-snap
-                if (!self._snapToVertex(e.latlng.lat, e.latlng.lng, 10)) {
+                // Only apply angle snap if we didn't snap to an existing wall
+                if (!didSnapToWall) {
                     var snapped = self._snapPoint(prev, lat, lng, false);
                     lat = snapped.lat;
                     lng = snapped.lng;
@@ -970,26 +1023,30 @@ window.fpEditor = {
             // Vertex/segment snap: check for nearby existing wall vertices or perpendicular projection
             var vtxSnap = e.originalEvent.shiftKey ? null : self._snapToVertex(e.latlng.lat, e.latlng.lng, 10);
             if (vtxSnap) {
-                // Preview line: solid when segment snap (locked 90°), dashed for vertex
-                var lineStyle = vtxSnap.type === 'segment'
+                // For segment snaps, check if we're within ±5° of perpendicular and adjust
+                var perpAdj = (vtxSnap.type === 'segment') ? self._perpSnap(prev, vtxSnap) : null;
+                var snapTarget = perpAdj || vtxSnap;
+
+                // Preview line: solid green when locked perpendicular, dashed blue for vertex/non-perp segment
+                var lineStyle = perpAdj
                     ? { color: '#22c55e', weight: 2, dashArray: null, opacity: 0.9 }
                     : { color: '#60a5fa', weight: 2, dashArray: '6,4', opacity: 0.8 };
                 if (!self._previewLine) {
-                    self._previewLine = L.polyline([[prev.lat, prev.lng], [vtxSnap.lat, vtxSnap.lng]], lineStyle).addTo(m);
+                    self._previewLine = L.polyline([[prev.lat, prev.lng], [snapTarget.lat, snapTarget.lng]], lineStyle).addTo(m);
                 } else {
-                    self._previewLine.setLatLngs([[prev.lat, prev.lng], [vtxSnap.lat, vtxSnap.lng]]);
+                    self._previewLine.setLatLngs([[prev.lat, prev.lng], [snapTarget.lat, snapTarget.lng]]);
                     self._previewLine.setStyle(lineStyle);
                 }
                 // Snap indicator dot
                 if (!self._snapIndicator) {
-                    self._snapIndicator = L.marker([vtxSnap.lat, vtxSnap.lng], {
+                    self._snapIndicator = L.marker([snapTarget.lat, snapTarget.lng], {
                         icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
                         interactive: false
                     }).addTo(m);
                 } else {
-                    self._snapIndicator.setLatLng([vtxSnap.lat, vtxSnap.lng]);
+                    self._snapIndicator.setLatLng([snapTarget.lat, snapTarget.lng]);
                 }
-                // Segment snap: show guide line along the target wall + right angle marker
+                // Show guide line along target wall for any segment snap
                 if (vtxSnap.type === 'segment' && vtxSnap.segA && vtxSnap.segB) {
                     if (!self._snapGuideLine) {
                         self._snapGuideLine = L.polyline(
@@ -999,37 +1056,40 @@ window.fpEditor = {
                     } else {
                         self._snapGuideLine.setLatLngs([[vtxSnap.segA.lat, vtxSnap.segA.lng], [vtxSnap.segB.lat, vtxSnap.segB.lng]]);
                     }
-                    // Right angle marker: small L-shape at the snap point
-                    var sp = m.latLngToContainerPoint(L.latLng(vtxSnap.lat, vtxSnap.lng));
-                    var ap = m.latLngToContainerPoint(L.latLng(vtxSnap.segA.lat, vtxSnap.segA.lng));
-                    var bp = m.latLngToContainerPoint(L.latLng(vtxSnap.segB.lat, vtxSnap.segB.lng));
-                    var wdx = bp.x - ap.x, wdy = bp.y - ap.y;
-                    var wlen = Math.sqrt(wdx * wdx + wdy * wdy);
-                    if (wlen > 0) {
-                        var ux = wdx / wlen, uy = wdy / wlen; // unit along wall
-                        // Perpendicular direction (toward the drawing point)
-                        var pp = m.latLngToContainerPoint(L.latLng(prev.lat, prev.lng));
-                        var perpSide = (pp.x - sp.x) * (-uy) + (pp.y - sp.y) * ux;
-                        var nx = perpSide >= 0 ? -uy : uy;
-                        var ny = perpSide >= 0 ? ux : -ux;
-                        var sz = 8; // right angle marker size in pixels
-                        var c1 = m.containerPointToLatLng(L.point(sp.x + ux * sz, sp.y + uy * sz));
-                        var c2 = m.containerPointToLatLng(L.point(sp.x + ux * sz + nx * sz, sp.y + uy * sz + ny * sz));
-                        var c3 = m.containerPointToLatLng(L.point(sp.x + nx * sz, sp.y + ny * sz));
-                        if (!self._snapAngleMarker) {
-                            self._snapAngleMarker = L.polyline(
-                                [[c1.lat, c1.lng], [c2.lat, c2.lng], [c3.lat, c3.lng]],
-                                { color: '#22c55e', weight: 1.5, opacity: 0.9, interactive: false }
-                            ).addTo(m);
-                        } else {
-                            self._snapAngleMarker.setLatLngs([[c1.lat, c1.lng], [c2.lat, c2.lng], [c3.lat, c3.lng]]);
+                    // Right angle marker: only when actually snapped to perpendicular
+                    if (perpAdj) {
+                        var sp = m.latLngToContainerPoint(L.latLng(snapTarget.lat, snapTarget.lng));
+                        var ap2 = m.latLngToContainerPoint(L.latLng(vtxSnap.segA.lat, vtxSnap.segA.lng));
+                        var bp2 = m.latLngToContainerPoint(L.latLng(vtxSnap.segB.lat, vtxSnap.segB.lng));
+                        var wdx = bp2.x - ap2.x, wdy = bp2.y - ap2.y;
+                        var wlen = Math.sqrt(wdx * wdx + wdy * wdy);
+                        if (wlen > 0) {
+                            var ux = wdx / wlen, uy = wdy / wlen;
+                            var pp = m.latLngToContainerPoint(L.latLng(prev.lat, prev.lng));
+                            var perpSide = (pp.x - sp.x) * (-uy) + (pp.y - sp.y) * ux;
+                            var nx = perpSide >= 0 ? -uy : uy;
+                            var ny = perpSide >= 0 ? ux : -ux;
+                            var sz = 8;
+                            var c1 = m.containerPointToLatLng(L.point(sp.x + ux * sz, sp.y + uy * sz));
+                            var c2 = m.containerPointToLatLng(L.point(sp.x + ux * sz + nx * sz, sp.y + uy * sz + ny * sz));
+                            var c3 = m.containerPointToLatLng(L.point(sp.x + nx * sz, sp.y + ny * sz));
+                            if (!self._snapAngleMarker) {
+                                self._snapAngleMarker = L.polyline(
+                                    [[c1.lat, c1.lng], [c2.lat, c2.lng], [c3.lat, c3.lng]],
+                                    { color: '#22c55e', weight: 1.5, opacity: 0.9, interactive: false }
+                                ).addTo(m);
+                            } else {
+                                self._snapAngleMarker.setLatLngs([[c1.lat, c1.lng], [c2.lat, c2.lng], [c3.lat, c3.lng]]);
+                            }
                         }
+                    } else {
+                        if (self._snapAngleMarker) { m.removeLayer(self._snapAngleMarker); self._snapAngleMarker = null; }
                     }
                 } else {
                     if (self._snapGuideLine) { m.removeLayer(self._snapGuideLine); self._snapGuideLine = null; }
                     if (self._snapAngleMarker) { m.removeLayer(self._snapAngleMarker); self._snapAngleMarker = null; }
                 }
-                self._updatePreviewLength(prev, vtxSnap);
+                self._updatePreviewLength(prev, snapTarget);
                 return;
             }
 
