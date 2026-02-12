@@ -742,9 +742,26 @@ window.fpEditor = {
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 
+    _isExteriorWall: function (wall) {
+        // Check if any segment has exterior material
+        if (wall.materials) {
+            for (var i = 0; i < wall.materials.length; i++) {
+                if (wall.materials[i] && wall.materials[i].indexOf('exterior') === 0) return true;
+            }
+        }
+        return wall.material && wall.material.indexOf('exterior') === 0;
+    },
+
     moveWall: function (wi) {
         var wall = this._allWalls[wi];
         if (!wall) return;
+
+        // Exterior perimeter → building move (all floors, all APs, all bounds)
+        if (this._isExteriorWall(wall)) {
+            this._moveBuildingByWall(wi);
+            return;
+        }
+
         var m = this._map;
         var self = this;
         m.closePopup();
@@ -794,6 +811,72 @@ window.fpEditor = {
             self._wallHighlightLayer.clearLayers();
             self._wallSelection = { wallIdx: null, segIdx: null };
             self._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(self._allWalls));
+        };
+        m.on('mousemove', moveHandler);
+        m.on('click', finishMove);
+    },
+
+    _moveBuildingByWall: function (wi) {
+        var wall = this._allWalls[wi];
+        if (!wall) return;
+        var m = this._map;
+        var self = this;
+        m.closePopup();
+        if (this._wallHighlightLayer) this._wallHighlightLayer.clearLayers();
+        m.dragging.disable();
+        m.getContainer().style.cursor = 'move';
+
+        // Compute centroid of the exterior wall as drag anchor
+        var cLat = 0, cLng = 0;
+        for (var i = 0; i < wall.points.length; i++) {
+            cLat += wall.points[i].lat;
+            cLng += wall.points[i].lng;
+        }
+        cLat /= wall.points.length;
+        cLng /= wall.points.length;
+
+        // Preview ALL walls on this floor (exterior + interior) shifting together
+        var drawPreview = function (dLat, dLng) {
+            self._wallHighlightLayer.clearLayers();
+            for (var w = 0; w < self._allWalls.length; w++) {
+                var ww = self._allWalls[w];
+                var color = w === wi ? '#60a5fa' : '#94a3b8';
+                for (var j = 0; j < ww.points.length - 1; j++) {
+                    L.polyline(
+                        [[ww.points[j].lat + dLat, ww.points[j].lng + dLng],
+                         [ww.points[j + 1].lat + dLat, ww.points[j + 1].lng + dLng]],
+                        { color: color, weight: w === wi ? 4 : 2, opacity: 0.8, interactive: false }
+                    ).addTo(self._wallHighlightLayer);
+                }
+            }
+        };
+        drawPreview(0, 0);
+
+        var moveHandler = function (e) {
+            drawPreview(e.latlng.lat - cLat, e.latlng.lng - cLng);
+        };
+        var finishMove = function (e) {
+            m.off('mousemove', moveHandler);
+            m.off('click', finishMove);
+            m.dragging.enable();
+            m.getContainer().style.cursor = '';
+            self._wallHighlightLayer.clearLayers();
+            self._wallSelection = { wallIdx: null, segIdx: null };
+
+            var dLat = e.latlng.lat - cLat;
+            var dLng = e.latlng.lng - cLng;
+
+            // Apply delta to ALL walls on this floor
+            for (var w = 0; w < self._allWalls.length; w++) {
+                for (var k = 0; k < self._allWalls[w].points.length; k++) {
+                    self._allWalls[w].points[k].lat += dLat;
+                    self._allWalls[w].points[k].lng += dLng;
+                }
+            }
+
+            // Save this floor's walls, then tell Blazor to move the entire building
+            self._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(self._allWalls));
+            self._dotNetRef.invokeMethodAsync('OnBuildingMoveFromJs', dLat, dLng);
         };
         m.on('mousemove', moveHandler);
         m.on('click', finishMove);

@@ -236,7 +236,7 @@
                        @oninput="OnOpacityChange" class="fp-opacity-slider" />
             </div>
             *@
-            <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete Floor</button>
+            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
     }
@@ -290,6 +290,23 @@
             <div class="fp-dialog-actions">
                 <button class="fp-btn" @onclick="() => _showAddFloor = false">Cancel</button>
                 <button class="fp-btn fp-btn-primary" @onclick="CreateFloor">Create</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Floor Confirmation -->
+@if (_showDeleteFloor && _selectedFloor != null)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showDeleteFloor = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Delete Floor</h3>
+            <p style="color: var(--text-muted, #aaa); margin: 8px 0 16px;">
+                Delete <strong>@(_selectedFloor.Label ?? $"Floor {_selectedFloor.FloorNumber}")</strong> and all its walls? This cannot be undone.
+            </p>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showDeleteFloor = false">Cancel</button>
+                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete</button>
             </div>
         </div>
     </div>
@@ -1013,6 +1030,7 @@
     private string _newFloorLabel = "";
     private string _newFloorMaterial = "floor_wood";
     private bool _showDeleteBuilding;
+    private bool _showDeleteFloor;
     private bool _isFullscreen;
     private ApMapMarker? _selectedApForPlacement;
 
@@ -1276,6 +1294,76 @@
         await LoadApMarkers();
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    [JSInvokable]
+    public async Task OnBuildingMoveFromJs(double dLat, double dLng)
+    {
+        if (_selectedBuilding == null) return;
+        var buildingId = _selectedBuilding.Id;
+
+        // Update building center
+        await FloorPlanSvc.UpdateBuildingAsync(buildingId, _selectedBuilding.Name,
+            _selectedBuilding.CenterLatitude + dLat, _selectedBuilding.CenterLongitude + dLng);
+
+        // Shift ALL floors: walls, bounds
+        foreach (var floor in _floors)
+        {
+            // Shift floor bounds
+            await FloorPlanSvc.UpdateFloorAsync(floor.Id,
+                swLat: floor.SwLatitude + dLat, swLng: floor.SwLongitude + dLng,
+                neLat: floor.NeLatitude + dLat, neLng: floor.NeLongitude + dLng);
+
+            // Shift walls on other floors (current floor already shifted by JS)
+            if (floor.Id == _selectedFloorId) continue;
+            if (string.IsNullOrEmpty(floor.WallsJson) || floor.WallsJson == "[]") continue;
+            try
+            {
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(floor.WallsJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (walls != null)
+                {
+                    foreach (var w in walls)
+                        foreach (var p in w.Points)
+                        {
+                            p.Lat += dLat;
+                            p.Lng += dLng;
+                        }
+                    await FloorPlanSvc.UpdateFloorAsync(floor.Id,
+                        wallsJson: System.Text.Json.JsonSerializer.Serialize(walls));
+                }
+            }
+            catch { }
+        }
+
+        // Shift all APs that were inside this building's bounds
+        var swLat = _floors.Min(f => f.SwLatitude);
+        var swLng = _floors.Min(f => f.SwLongitude);
+        var neLat = _floors.Max(f => f.NeLatitude);
+        var neLng = _floors.Max(f => f.NeLongitude);
+        foreach (var ap in _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue))
+        {
+            // Check if AP was inside building bounds (pre-move position)
+            var apLat = ap.Latitude!.Value;
+            var apLng = ap.Longitude!.Value;
+            if (apLat >= swLat && apLat <= neLat && apLng >= swLng && apLng <= neLng)
+            {
+                await ApMapSvc.SaveApLocationAsync(ap.Mac, apLat + dLat, apLng + dLng);
+            }
+        }
+
+        // Reload everything
+        await LoadBuildings();
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == buildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+        if (_selectedFloor != null)
+            _selectedFloor = _floors.FirstOrDefault(f => f.Id == _selectedFloorId);
+        await LoadApMarkers();
+        await UpdateWalls();
+        await UpdateBackgroundWalls();
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+        StateHasChanged();
     }
 
     [JSInvokable]
@@ -1827,8 +1915,16 @@
         var newFloor = _floors.FirstOrDefault(f => f.FloorNumber == _newFloorNumber);
         if (newFloor != null)
         {
-            await SelectFloor(newFloor.Id);
-            // Auto-enter draw walls mode for new floors
+            // Select floor without computing heatmap (we're about to enter draw mode which clears it)
+            _selectedFloorId = newFloor.Id;
+            _selectedFloor = newFloor;
+            _globalActiveFloor = newFloor.FloorNumber;
+            _floorOpacity = newFloor.Opacity;
+            await UpdateFloorOverlay();
+            await UpdateApMarkers();
+            await UpdateWalls();
+            await UpdateBackgroundWalls();
+            // Auto-enter draw walls mode (will clear heatmap)
             await ToggleWallDrawMode();
         }
         StateHasChanged();
@@ -1837,6 +1933,7 @@
     private async Task DeleteSelectedFloor()
     {
         if (_selectedFloor == null) return;
+        _showDeleteFloor = false;
         await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
         await LoadBuildings();
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
@@ -1967,5 +2064,18 @@
         public string? WallsJson { get; set; }
         public bool HasImage { get; set; }
         public string FloorMaterial { get; set; } = "floor_wood";
+    }
+
+    private class WallShape
+    {
+        public List<WallPoint> Points { get; set; } = new();
+        public string Material { get; set; } = "drywall";
+        public List<string>? Materials { get; set; }
+    }
+
+    private class WallPoint
+    {
+        public double Lat { get; set; }
+        public double Lng { get; set; }
     }
 }
