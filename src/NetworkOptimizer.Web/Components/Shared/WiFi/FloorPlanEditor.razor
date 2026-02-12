@@ -643,6 +643,51 @@
         50% { transform: scale(1.4); opacity: 0.6; }
     }
 
+    /* Dark theme for Leaflet popups (matches Speed Map) */
+    .leaflet-popup-content-wrapper {
+        background: #1e293b;
+        color: #f1f5f9;
+        border-radius: 6px;
+        font-family: var(--font-sans);
+    }
+
+    .leaflet-popup-tip {
+        background: #1e293b;
+    }
+
+    .leaflet-popup-content {
+        margin: 10px 12px;
+    }
+
+    .leaflet-container a.leaflet-popup-close-button {
+        color: #94a3b8;
+    }
+
+    .leaflet-container a.leaflet-popup-close-button:hover {
+        color: #f1f5f9;
+    }
+
+    /* Signal data popup styles (matches Speed Map) */
+    .map-popup {
+        min-width: 200px;
+    }
+
+    .map-popup-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+    }
+
+    .map-popup-time {
+        color: #64748b;
+    }
+
+    .map-tooltip-ap {
+        padding-left: 0.3rem;
+        margin-bottom: 0.35rem;
+    }
+
     @@media (max-width: 768px) {
         .fp-toolbar { flex-direction: column; align-items: flex-start; }
         .fp-toolbar-left, .fp-toolbar-right { width: 100%; }
@@ -1133,6 +1178,7 @@
             lat = r.Latitude!.Value,
             lng = r.Longitude!.Value,
             color = GetSignalColor(r.WifiSignalDbm!.Value),
+            signalDbm = r.WifiSignalDbm!.Value,
             popup = BuildSignalPopup(r)
         }));
 

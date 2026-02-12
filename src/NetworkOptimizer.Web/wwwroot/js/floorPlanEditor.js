@@ -33,29 +33,49 @@ window.fpEditor = {
     _moveMarker: null,
     _heatmapOverlay: null,
     _contourLayer: null,
-    _signalDataLayer: null,
+    _signalClusterGroup: null,
+    _signalCurrentSpider: null,
+    _signalSwitchingSpider: false,
 
     // ── Map Initialization ───────────────────────────────────────────
 
     initMap: function (containerId, centerLat, centerLng, zoom) {
         var self = this;
 
+        function loadCss(href) {
+            if (document.querySelector('link[href="' + href + '"]')) return;
+            var l = document.createElement('link');
+            l.rel = 'stylesheet';
+            l.href = href;
+            document.head.appendChild(l);
+        }
+
+        function loadScript(src, cb) {
+            var existing = document.querySelector('script[src="' + src + '"]');
+            if (existing) {
+                if (existing.dataset.loaded === 'true') { cb(); return; }
+                existing.addEventListener('load', cb);
+                return;
+            }
+            var s = document.createElement('script');
+            s.src = src;
+            s.onload = function () { s.dataset.loaded = 'true'; cb(); };
+            document.head.appendChild(s);
+        }
+
         function init() {
+            // Load Leaflet first
             if (typeof L === 'undefined') {
-                if (!document.querySelector('link[href*="leaflet"]')) {
-                    var css = document.createElement('link');
-                    css.rel = 'stylesheet';
-                    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-                    document.head.appendChild(css);
-                }
-                if (!document.querySelector('script[src*="leaflet"]')) {
-                    var js = document.createElement('script');
-                    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-                    js.onload = function () { setTimeout(init, 100); };
-                    document.head.appendChild(js);
-                } else {
-                    setTimeout(init, 100);
-                }
+                loadCss('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+                loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', function () { setTimeout(init, 100); });
+                return;
+            }
+
+            // Load MarkerCluster after Leaflet
+            if (typeof L.markerClusterGroup !== 'function') {
+                loadCss('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css');
+                loadCss('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css');
+                loadScript('https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js', function () { setTimeout(init, 100); });
                 return;
             }
 
@@ -92,8 +112,80 @@ window.fpEditor = {
             self._apLayer = L.layerGroup().addTo(m);
             self._bgWallLayer = L.layerGroup().addTo(m);
             self._wallLayer = L.layerGroup().addTo(m);
-            self._signalDataLayer = L.layerGroup().addTo(m);
             self._allWalls = [];
+
+            // Signal data cluster group with signal-based coloring
+            self._signalClusterGroup = L.markerClusterGroup({
+                clusterPane: 'signalDataPane',
+                maxClusterRadius: 24,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false,
+                zoomToBoundsOnClick: true,
+                iconCreateFunction: function (cluster) {
+                    var markers = cluster.getAllChildMarkers();
+                    var totalSignal = 0;
+                    markers.forEach(function (mk) { totalSignal += mk.options.signalDbm || -85; });
+                    var avgSignal = totalSignal / markers.length;
+                    var color = self._signalColor(avgSignal);
+                    return L.divIcon({
+                        html: "<div class='speed-cluster' style='background:" + color + "'>" + markers.length + "</div>",
+                        className: 'speed-cluster-icon',
+                        iconSize: L.point(40, 40)
+                    });
+                }
+            });
+            m.addLayer(self._signalClusterGroup);
+
+            // Spider fade and z-index management
+            self._signalClusterGroup.on('clusterclick', function () {
+                if (self._signalCurrentSpider) {
+                    self._signalSwitchingSpider = true;
+                    var markers = self._signalCurrentSpider.getAllChildMarkers();
+                    markers.forEach(function (mk) {
+                        if (mk._path) { mk._path.style.transition = 'opacity 0.2s ease-out'; mk._path.style.opacity = '0'; }
+                        if (mk._spiderLeg && mk._spiderLeg._path) { mk._spiderLeg._path.style.transition = 'opacity 0.2s ease-out'; mk._spiderLeg._path.style.opacity = '0'; }
+                    });
+                }
+                m.getPane('signalDataPane').style.zIndex = 650;
+            });
+
+            self._signalClusterGroup.on('spiderfied', function (e) {
+                self._signalCurrentSpider = e.cluster;
+                self._signalSwitchingSpider = false;
+                if (e.cluster._icon) e.cluster._icon.style.pointerEvents = 'none';
+                var markers = e.cluster.getAllChildMarkers();
+                markers.forEach(function (mk) {
+                    if (mk._spiderLeg && mk._spiderLeg._path) mk._spiderLeg._path.style.pointerEvents = 'none';
+                });
+            });
+
+            self._signalClusterGroup.on('unspiderfied', function (e) {
+                if (e.cluster && e.cluster._icon) e.cluster._icon.style.pointerEvents = '';
+                var markers = e.cluster.getAllChildMarkers();
+                markers.forEach(function (mk) {
+                    if (mk._spiderLeg && mk._spiderLeg._path) mk._spiderLeg._path.style.pointerEvents = '';
+                });
+                self._signalCurrentSpider = null;
+                if (!self._signalSwitchingSpider) m.getPane('signalDataPane').style.zIndex = 420;
+            });
+
+            // Fade spider on click outside
+            m.getContainer().addEventListener('mousedown', function (e) {
+                if (!self._signalCurrentSpider) return;
+                var markers = self._signalCurrentSpider.getAllChildMarkers();
+                var clickedOnSpider = markers.some(function (mk) {
+                    return e.target === mk._path || (mk._spiderLeg && e.target === mk._spiderLeg._path);
+                });
+                if (clickedOnSpider) return;
+                if (e.target.closest && e.target.closest('.leaflet-popup')) return;
+                if (e.target.closest && e.target.closest('.speed-cluster')) return;
+                if (e.target.closest && e.target.closest('.fp-ap-marker-container')) return;
+                if (e.target.classList && e.target.classList.contains('leaflet-interactive')) return;
+                markers.forEach(function (mk) {
+                    if (mk._path) { mk._path.style.transition = 'opacity 0.2s ease-out'; mk._path.style.opacity = '0'; }
+                    if (mk._spiderLeg && mk._spiderLeg._path) { mk._spiderLeg._path.style.transition = 'opacity 0.2s ease-out'; mk._spiderLeg._path.style.opacity = '0'; }
+                });
+            }, true);
 
             // Scale AP icons with zoom level
             function updateApScale() {
@@ -1090,32 +1182,55 @@ window.fpEditor = {
 
     // ── Signal Data Overlay ────────────────────────────────────────
 
-    updateSignalData: function (markersJson) {
-        if (!this._map || !this._signalDataLayer) return;
-        this._signalDataLayer.clearLayers();
+    _signalColor: function (dbm) {
+        var stops = [
+            { s: -30, r: 0, g: 220, b: 0 }, { s: -45, r: 34, g: 197, b: 94 },
+            { s: -55, r: 180, g: 220, b: 40 }, { s: -65, r: 250, g: 204, b: 21 },
+            { s: -72, r: 251, g: 146, b: 60 }, { s: -78, r: 239, g: 68, b: 68 },
+            { s: -85, r: 107, g: 114, b: 128 }
+        ];
+        if (dbm >= stops[0].s) return 'rgb(' + stops[0].r + ',' + stops[0].g + ',' + stops[0].b + ')';
+        if (dbm <= stops[stops.length - 1].s) return 'rgb(' + stops[stops.length - 1].r + ',' + stops[stops.length - 1].g + ',' + stops[stops.length - 1].b + ')';
+        for (var j = 0; j < stops.length - 1; j++) {
+            if (dbm <= stops[j].s && dbm >= stops[j + 1].s) {
+                var t = (dbm - stops[j + 1].s) / (stops[j].s - stops[j + 1].s);
+                return 'rgb(' + Math.round(stops[j].r * t + stops[j + 1].r * (1 - t)) + ',' +
+                    Math.round(stops[j].g * t + stops[j + 1].g * (1 - t)) + ',' +
+                    Math.round(stops[j].b * t + stops[j + 1].b * (1 - t)) + ')';
+            }
+        }
+        return 'rgb(' + stops[stops.length - 1].r + ',' + stops[stops.length - 1].g + ',' + stops[stops.length - 1].b + ')';
+    },
 
-        var markers = JSON.parse(markersJson);
+    updateSignalData: function (markersJson) {
+        if (!this._map || !this._signalClusterGroup) return;
         var self = this;
 
+        this._signalClusterGroup.clearLayers();
+        this._signalCurrentSpider = null;
+
+        var markers = JSON.parse(markersJson);
+
         markers.forEach(function (m) {
-            var circle = L.circleMarker([m.lat, m.lng], {
-                radius: 7,
+            var marker = L.circleMarker([m.lat, m.lng], {
+                radius: 8,
                 fillColor: m.color,
                 color: '#fff',
-                weight: 1.5,
-                fillOpacity: 0.85,
-                pane: 'signalDataPane',
-                interactive: true
-            }).addTo(self._signalDataLayer);
-
-            if (m.popup) {
-                circle.bindPopup(m.popup);
-            }
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8,
+                signalDbm: m.signalDbm
+            });
+            if (m.popup) marker.bindPopup(m.popup);
+            self._signalClusterGroup.addLayer(marker);
         });
     },
 
     clearSignalData: function () {
-        if (this._signalDataLayer) this._signalDataLayer.clearLayers();
+        if (this._signalClusterGroup) {
+            this._signalClusterGroup.clearLayers();
+            this._signalCurrentSpider = null;
+        }
     },
 
     // ── Cleanup ──────────────────────────────────────────────────────
@@ -1124,7 +1239,7 @@ window.fpEditor = {
         if (this._overlay && this._map) { this._map.removeLayer(this._overlay); this._overlay = null; }
         if (this._heatmapOverlay && this._map) { this._map.removeLayer(this._heatmapOverlay); this._heatmapOverlay = null; }
         if (this._contourLayer && this._map) { this._map.removeLayer(this._contourLayer); this._contourLayer = null; }
-        if (this._signalDataLayer) this._signalDataLayer.clearLayers();
+        if (this._signalClusterGroup) this._signalClusterGroup.clearLayers();
         if (this._bgWallLayer) this._bgWallLayer.clearLayers();
         if (this._wallLayer) this._wallLayer.clearLayers();
     }
