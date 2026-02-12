@@ -1357,8 +1357,10 @@
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
             // Default to exterior_residential for empty floors (saves a click when drawing the building outline)
-            if (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
-                _wallMaterial = "exterior_residential";
+            // Otherwise reset to drywall (first material)
+            _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
+                ? "exterior_residential"
+                : "drywall";
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
         }
         else
