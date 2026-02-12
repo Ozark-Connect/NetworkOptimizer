@@ -61,6 +61,12 @@ public class PropagationAp
     public int TxPowerDbm { get; set; } = 20;
     public int AntennaGainDbi { get; set; } = 3;
     public int OrientationDeg { get; set; }
+
+    /// <summary>
+    /// Active antenna mode (e.g., "OMNI", "Internal"). Null for standard indoor APs.
+    /// Used to select variant antenna pattern (e.g., "U7-Outdoor:omni").
+    /// </summary>
+    public string? AntennaMode { get; set; }
 }
 
 /// <summary>

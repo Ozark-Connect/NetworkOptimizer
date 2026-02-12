@@ -102,6 +102,7 @@ public class UniFiDiscovery
                 // Wi-Fi specific (APs only)
                 RadioTable = d.RadioTable,
                 RadioTableStats = d.RadioTableStats,
+                AntennaTable = d.AntennaTable,
                 VapTable = d.VapTable,
                 Satisfaction = d.Satisfaction,
                 ScanRadioTable = d.ScanRadioTable
@@ -641,6 +642,12 @@ public class DiscoveredDevice
     /// Only present on access points.
     /// </summary>
     public List<RadioTableStats>? RadioTableStats { get; set; }
+
+    /// <summary>
+    /// Antenna table - available antenna modes (Internal, OMNI, etc.)
+    /// Only present on outdoor APs with switchable antenna modes.
+    /// </summary>
+    public List<AntennaTableEntry>? AntennaTable { get; set; }
 
     /// <summary>
     /// Virtual AP table - per-SSID/radio statistics.

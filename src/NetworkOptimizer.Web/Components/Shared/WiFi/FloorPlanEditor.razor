@@ -1295,7 +1295,7 @@
             "imgData.data[idx]=c.r;imgData.data[idx+1]=c.g;imgData.data[idx+2]=c.b;imgData.data[idx+3]=alpha;}" +
             "ctx.putImageData(imgData,0,0);var dataUrl=canvas.toDataURL();" +
             "var bounds=[[data.swLat,data.swLng],[data.neLat,data.neLng]];" +
-            "window._fpHeatmapOverlay=L.imageOverlay(dataUrl,bounds,{opacity:0.6,pane:'heatmapPane'}).addTo(m);" +
+            "window._fpHeatmapOverlay=L.imageOverlay(dataUrl,bounds,{opacity:0.6,pane:'heatmapPane',interactive:false}).addTo(m);" +
             // Contour lines using marching squares
             "if(window._fpContourLayer){m.removeLayer(window._fpContourLayer);}" +
             "window._fpContourLayer=L.layerGroup().addTo(m);" +
@@ -1500,7 +1500,7 @@
             "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'}).addTo(m);" +
             "window._fpMap=m;" +
             // Custom panes for z-ordering: heatmap(350) < floorOverlay(380) < apGlow(390) < walls(400) < apIcons(450)
-            "m.createPane('heatmapPane');m.getPane('heatmapPane').style.zIndex=350;" +
+            "m.createPane('heatmapPane');var hpEl=m.getPane('heatmapPane');hpEl.style.zIndex=350;hpEl.style.pointerEvents='none';" +
             "m.createPane('fpOverlayPane');m.getPane('fpOverlayPane').style.zIndex=380;" +
             "m.createPane('apGlowPane');m.getPane('apGlowPane').style.zIndex=390;" +
             "m.createPane('wallPane');m.getPane('wallPane').style.zIndex=400;" +

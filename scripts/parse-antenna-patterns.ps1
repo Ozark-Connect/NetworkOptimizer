@@ -12,6 +12,9 @@
 
     Files are UTF-16LE encoded.
 
+    Antenna variant files (e.g., U7-Outdoor-Omni-Antenna.zip) are stored under
+    variant keys like "U7-Outdoor:omni". The base model uses the standard key.
+
 .PARAMETER InputDir
     Directory containing .zip files with .ant patterns.
     Default: research/wifi-optimizer/antenna-patterns/
@@ -30,10 +33,39 @@ $ErrorActionPreference = "Stop"
 
 # Band name extraction from filename
 function Get-BandFromFilename($filename) {
-    if ($filename -match "2\.4GHz|2\.4 GHz|2_4GHz") { return "2.4" }
+    if ($filename -match "2\.4GHz|2\.4 GHz|2_4GHz|2\.45GHz") { return "2.4" }
     if ($filename -match "5GHz|5 GHz|5_GHz") { return "5" }
     if ($filename -match "6GHz|6 GHz|6_GHz") { return "6" }
     return $null
+}
+
+# Extract model name and variant from zip filename
+# e.g., "U7-Outdoor-Omni-Antenna" -> ("U7-Outdoor", "omni")
+#        "UACC-UK-Ultra-Panel-Antenna" -> ("UK-Ultra", "panel")
+#        "U7-Pro" -> ("U7-Pro", $null)
+function Get-ModelAndVariant($zipName) {
+    # Variant patterns and their normalized names
+    $variantPatterns = @(
+        @{ Pattern = "-Omni-Antenna$"; Variant = "omni"; StripPrefix = "UACC-" },
+        @{ Pattern = "-Panel-Antenna$"; Variant = "panel"; StripPrefix = "UACC-" },
+        @{ Pattern = "-Narrow-Angle-High-Gain$"; Variant = "narrow" },
+        @{ Pattern = "-Narrow-Angle$"; Variant = "narrow" },
+        @{ Pattern = "-Wide-Angle-Low-Gain$"; Variant = "wide" },
+        @{ Pattern = "-Wide-Angle$"; Variant = "wide" }
+    )
+
+    foreach ($vp in $variantPatterns) {
+        if ($zipName -match $vp.Pattern) {
+            $baseName = $zipName -replace $vp.Pattern, ""
+            # Strip accessory prefix (UACC-) if present
+            if ($vp.StripPrefix -and $baseName.StartsWith($vp.StripPrefix)) {
+                $baseName = $baseName.Substring($vp.StripPrefix.Length)
+            }
+            return @{ Model = $baseName; Variant = $vp.Variant }
+        }
+    }
+
+    return @{ Model = $zipName; Variant = $null }
 }
 
 # Parse a single .ant file
@@ -71,15 +103,17 @@ Write-Host "Found $($zipFiles.Count) zip files"
 Write-Host ""
 
 foreach ($zip in $zipFiles) {
-    $modelName = [System.IO.Path]::GetFileNameWithoutExtension($zip.Name)
+    $rawName = [System.IO.Path]::GetFileNameWithoutExtension($zip.Name)
+    $parsed = Get-ModelAndVariant $rawName
 
-    # Skip accessories and special variants (Omni/Panel antennas, narrow/wide angle)
-    if ($modelName -match "Omni-Antenna|Panel-Antenna|Narrow-Angle|Wide-Angle") {
-        Write-Host "  Skipping accessory pattern: $modelName"
-        continue
+    # Build the key: "ModelName" for base, "ModelName:variant" for variants
+    if ($parsed.Variant) {
+        $patternKey = "$($parsed.Model):$($parsed.Variant)"
+    } else {
+        $patternKey = $parsed.Model
     }
 
-    Write-Host "Processing: $modelName"
+    Write-Host "Processing: $rawName -> $patternKey"
 
     try {
         $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
@@ -92,8 +126,8 @@ foreach ($zip in $zipFiles) {
             continue
         }
 
-        if (-not $patterns.ContainsKey($modelName)) {
-            $patterns[$modelName] = @{}
+        if (-not $patterns.ContainsKey($patternKey)) {
+            $patterns[$patternKey] = @{}
         }
 
         foreach ($entry in $antFiles) {
@@ -110,7 +144,7 @@ foreach ($zip in $zipFiles) {
             $entryStream.Dispose()
 
             if ($result) {
-                $patterns[$modelName][$band] = $result
+                $patterns[$patternKey][$band] = $result
             }
         }
 
@@ -132,5 +166,6 @@ $json = $patterns | ConvertTo-Json -Depth 5 -Compress
 [System.IO.File]::WriteAllText($OutputFile, $json)
 
 $fileSize = (Get-Item $OutputFile).Length
+$variantCount = ($patterns.Keys | Where-Object { $_ -match ":" }).Count
 Write-Host ""
-Write-Host "Done! Wrote $($patterns.Count) models to $OutputFile ($([math]::Round($fileSize / 1024))KB)"
+Write-Host "Done! Wrote $($patterns.Count) models ($variantCount with variants) to $OutputFile ($([math]::Round($fileSize / 1024))KB)"

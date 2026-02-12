@@ -76,25 +76,37 @@ public class AntennaPatternLoader
     }
 
     /// <summary>
-    /// Get the antenna pattern for a given model and band.
+    /// Maps antenna mode names from the UniFi API to pattern variant keys.
+    /// API names like "OMNI" → pattern key suffix "omni".
+    /// "Internal" and "Combined" use the base pattern (no variant).
+    /// </summary>
+    private static readonly Dictionary<string, string> AntennaModeToVariant = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["OMNI"] = "omni",
+        ["Panel"] = "panel",
+        ["Narrow"] = "narrow",
+        ["Wide"] = "wide",
+    };
+
+    /// <summary>
+    /// Get the antenna pattern for a given model, band, and optional antenna mode.
+    /// For outdoor APs with switchable modes, tries the variant pattern first (e.g., "U7-Outdoor:omni"),
+    /// then falls back to the base pattern.
     /// Returns null if the pattern is not found.
     /// </summary>
-    public AntennaPattern? GetPattern(string model, string band)
+    public AntennaPattern? GetPattern(string model, string band, string? antennaMode = null)
     {
         EnsureLoaded();
 
         if (_patterns == null) return null;
 
-        // Try direct model name first, then mapped name
+        // Resolve the base pattern name (handles API model codes → file names)
         var patternName = model;
         if (!_patterns.ContainsKey(patternName))
         {
             if (ModelNameMapping.TryGetValue(model, out var mapped))
                 patternName = mapped;
         }
-
-        if (!_patterns.TryGetValue(patternName, out var bands))
-            return null;
 
         // Normalize band key
         var bandKey = band switch
@@ -105,16 +117,33 @@ public class AntennaPatternLoader
             _ => "5"
         };
 
+        // Try variant pattern first if antenna mode is specified
+        if (!string.IsNullOrEmpty(antennaMode) &&
+            AntennaModeToVariant.TryGetValue(antennaMode, out var variant))
+        {
+            var variantKey = $"{patternName}:{variant}";
+            if (_patterns.TryGetValue(variantKey, out var variantBands))
+            {
+                var variantPattern = variantBands.GetValueOrDefault(bandKey);
+                if (variantPattern != null)
+                    return variantPattern;
+            }
+        }
+
+        // Fall back to base pattern
+        if (!_patterns.TryGetValue(patternName, out var bands))
+            return null;
+
         return bands.GetValueOrDefault(bandKey);
     }
 
     /// <summary>
-    /// Get antenna gain at a specific azimuth angle for a model/band.
+    /// Get antenna gain at a specific azimuth angle for a model/band/mode.
     /// Returns 0 dBi if pattern not found.
     /// </summary>
-    public float GetAzimuthGain(string model, string band, int azimuthDegrees)
+    public float GetAzimuthGain(string model, string band, int azimuthDegrees, string? antennaMode = null)
     {
-        var pattern = GetPattern(model, band);
+        var pattern = GetPattern(model, band, antennaMode);
         if (pattern?.Azimuth == null || pattern.Azimuth.Length == 0) return 0;
 
         var index = ((azimuthDegrees % 360) + 360) % 360;
@@ -122,12 +151,12 @@ public class AntennaPatternLoader
     }
 
     /// <summary>
-    /// Get antenna gain at a specific elevation angle for a model/band.
+    /// Get antenna gain at a specific elevation angle for a model/band/mode.
     /// Returns 0 dBi if pattern not found.
     /// </summary>
-    public float GetElevationGain(string model, string band, int elevationDegrees)
+    public float GetElevationGain(string model, string band, int elevationDegrees, string? antennaMode = null)
     {
-        var pattern = GetPattern(model, band);
+        var pattern = GetPattern(model, band, antennaMode);
         if (pattern?.Elevation == null || pattern.Elevation.Length == 0) return 0;
 
         var index = Math.Clamp(elevationDegrees, 0, pattern.Elevation.Length - 1);

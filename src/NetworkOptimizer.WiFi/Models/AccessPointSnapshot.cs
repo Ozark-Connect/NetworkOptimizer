@@ -115,6 +115,13 @@ public class RadioSnapshot
 
     /// <summary>Whether this radio supports 802.11be (Wi-Fi 7). Required for MLO.</summary>
     public bool Is11Be { get; set; }
+
+    /// <summary>
+    /// Active antenna mode name (e.g., "Internal", "OMNI", "Combined").
+    /// Resolved from radio_table.antenna_id → antenna_table.name.
+    /// Null for indoor APs with no switchable modes (antenna_id = -1).
+    /// </summary>
+    public string? AntennaMode { get; set; }
 }
 
 /// <summary>

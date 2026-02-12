@@ -46,10 +46,10 @@ public class PropagationService
             _loggedPatternInfo = true;
             foreach (var ap in aps)
             {
-                var pattern = _antennaLoader.GetPattern(ap.Model, band);
+                var pattern = _antennaLoader.GetPattern(ap.Model, band, ap.AntennaMode);
                 _logger.LogInformation(
-                    "Heatmap AP: {Model} band={Band} txPower={TxPower}dBm antennaGain={AntennaGain}dBi pattern={HasPattern}",
-                    ap.Model, band, ap.TxPowerDbm, ap.AntennaGainDbi, pattern != null);
+                    "Heatmap AP: {Model} band={Band} txPower={TxPower}dBm antennaGain={AntennaGain}dBi antennaMode={Mode} pattern={HasPattern}",
+                    ap.Model, band, ap.TxPowerDbm, ap.AntennaGainDbi, ap.AntennaMode ?? "default", pattern != null);
             }
         }
 
@@ -153,8 +153,8 @@ public class PropagationService
         // Antenna pattern gain using pattern multiplication:
         // Combine 2D azimuth and elevation cuts into 3D approximation.
         // Both patterns are normalized to 0 dB at peak, so addition in dB = multiplication in linear.
-        var azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, azimuthDeg);
-        var elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg);
+        var azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+        var elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         var antennaGain = azGain + elGain;
 
         // Wall attenuation via ray-casting (only same-floor walls)

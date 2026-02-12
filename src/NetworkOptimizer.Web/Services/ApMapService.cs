@@ -56,7 +56,8 @@ public class ApMapService
                     TxPowerDbm = r.TxPower,
                     Eirp = r.Eirp,
                     Clients = r.ClientCount,
-                    Utilization = r.ChannelUtilization
+                    Utilization = r.ChannelUtilization,
+                    AntennaMode = r.AntennaMode
                 }).ToList()
             };
         }).ToList();

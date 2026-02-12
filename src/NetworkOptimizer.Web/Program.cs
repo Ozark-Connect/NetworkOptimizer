@@ -1042,6 +1042,10 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
             Longitude = a.Longitude!.Value,
             Floor = a.Floor ?? 1,
             OrientationDeg = a.OrientationDeg,
+            AntennaMode = a.Radios
+                .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
+                .Select(r => r.AntennaMode)
+                .FirstOrDefault(),
             TxPowerDbm = a.Radios
                 .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
                 .Select(r => r.TxPowerDbm ?? 20)

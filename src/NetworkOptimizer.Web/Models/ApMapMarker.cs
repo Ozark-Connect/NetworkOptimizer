@@ -65,4 +65,10 @@ public class ApRadioSummary
 
     /// <summary>Channel utilization percentage (0-100)</summary>
     public int? Utilization { get; set; }
+
+    /// <summary>
+    /// Active antenna mode name (e.g., "Internal", "OMNI").
+    /// Null for indoor APs with no switchable modes.
+    /// </summary>
+    public string? AntennaMode { get; set; }
 }
