@@ -44,6 +44,7 @@ public class ApMapService
                 Latitude = savedLocation?.Latitude,
                 Longitude = savedLocation?.Longitude,
                 Floor = savedLocation?.Floor,
+                OrientationDeg = savedLocation?.OrientationDeg ?? 0,
                 IsOnline = ap.IsOnline,
                 TotalClients = ap.TotalClients,
                 Radios = ap.Radios.Select(r => new ApRadioSummary
@@ -102,6 +103,23 @@ public class ApMapService
         if (existing != null)
         {
             existing.Floor = floor;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
+    /// Save an AP's orientation (azimuth in degrees, 0-359).
+    /// </summary>
+    public async Task SaveApOrientationAsync(string mac, int orientationDeg)
+    {
+        var normalizedMac = mac.ToLowerInvariant();
+
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+        if (existing != null)
+        {
+            existing.OrientationDeg = orientationDeg;
             existing.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
         }

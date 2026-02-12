@@ -24,6 +24,9 @@ public class ApMapMarker
     /// <summary>Floor number (null if not placed, default 1 for single-story)</summary>
     public int? Floor { get; set; }
 
+    /// <summary>AP orientation in degrees (0-359, 0 = North, clockwise)</summary>
+    public int OrientationDeg { get; set; }
+
     /// <summary>Whether the AP is currently online</summary>
     public bool IsOnline { get; set; }
 

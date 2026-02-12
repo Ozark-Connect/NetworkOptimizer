@@ -518,6 +518,30 @@
         background: radial-gradient(circle, rgba(100, 100, 140, 0.3) 0%, transparent 55%);
     }
 
+    /* AP direction indicator */
+    .fp-ap-direction {
+        position: absolute;
+        width: 32px;
+        height: 32px;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .fp-ap-arrow {
+        position: absolute;
+        top: -10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 10px solid #60a5fa;
+        filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.8));
+    }
+
     /* Wall length labels */
     .fp-wall-length {
         font-size: 11px;
@@ -735,6 +759,7 @@
         {
             mac = a.Mac, name = a.Name, model = a.Model,
             lat = a.Latitude, lng = a.Longitude, floor = a.Floor ?? 1,
+            orientation = a.OrientationDeg,
             online = a.IsOnline, clients = a.TotalClients,
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
             sameFloor = _selectedFloor == null || (a.Floor ?? 1) == floorNum
@@ -753,19 +778,26 @@
             "html:'<div class=\"fp-ap-glow-dot'+(ap.sameFloor?'':' other-floor')+'\"></div>'," +
             "iconSize:[48,48],iconAnchor:[24,24]});" +
             "L.marker([ap.lat,ap.lng],{icon:glowIcon,interactive:false,pane:'apGlowPane'}).addTo(window._fpApGlowLayer);" +
-            // Icon layer
+            // Icon layer with orientation arrow
             "var opacity=ap.online?(ap.sameFloor?1.0:0.35):(ap.sameFloor?0.4:0.2);" +
+            "var arrowHtml=ap.sameFloor?'<div class=\"fp-ap-direction\" style=\"transform:rotate('+ap.orientation+'deg)\"><div class=\"fp-ap-arrow\"></div></div>':'';" +
             "var icon=L.divIcon({className:'fp-ap-marker-container'," +
-            "html:'<img src=\"'+ap.iconUrl+'\" class=\"fp-ap-marker-icon\" style=\"opacity:'+opacity+'\" />'," +
+            "html:arrowHtml+'<img src=\"'+ap.iconUrl+'\" class=\"fp-ap-marker-icon\" style=\"opacity:'+opacity+'\" />'," +
             "iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-16]});" +
             "var marker=L.marker([ap.lat,ap.lng],{icon:icon,draggable:" + draggable + "&&ap.sameFloor,pane:'apIconPane'}).addTo(window._fpApLayer);" +
-            // Popup with floor selector
+            // Popup with floor selector and orientation input
             "var floorOpts='';for(var fi=-2;fi<=5;fi++){floorOpts+='<option value=\"'+fi+'\"'+(fi===ap.floor?' selected':'')+'>'+(fi<=0?'B'+Math.abs(fi-1):fi===1?'1st':fi===2?'2nd':fi===3?'3rd':fi+'th')+' Floor</option>';}" +
             "marker.bindPopup('<b>'+(ap.name||ap.mac)+'</b><br/>Model: '+ap.model+'<br/>Clients: '+ap.clients+" +
             "'<br/><label style=\"font-size:12px;color:#94a3b8\">Floor: </label>'+" +
             "'<select style=\"padding:2px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px;font-size:12px\" " +
             "onchange=\"window._fpDotNetRef.invokeMethodAsync(\\x27OnApFloorChangedFromJs\\x27,\\x27'+ap.mac+'\\x27,parseInt(this.value))\">'+" +
-            "floorOpts+'</select>');" +
+            "floorOpts+'</select>'+" +
+            "'<br/><label style=\"font-size:12px;color:#94a3b8\">Facing: </label>'+" +
+            "'<input type=\"range\" min=\"0\" max=\"359\" value=\"'+ap.orientation+'\" " +
+            "style=\"width:100px;vertical-align:middle\" " +
+            "oninput=\"this.nextElementSibling.textContent=this.value+\\x27\\xB0\\x27\" " +
+            "onchange=\"window._fpDotNetRef.invokeMethodAsync(\\x27OnApOrientationChangedFromJs\\x27,\\x27'+ap.mac+'\\x27,parseInt(this.value))\" />'+" +
+            "'<span style=\"font-size:12px;color:#e0e0e0;margin-left:4px\">'+ap.orientation+'\\xB0</span>');" +
             "if(" + draggable + "&&ap.sameFloor){marker.on('dragend',function(e){" +
             "var pos=e.target.getLatLng();" +
             "ref.invokeMethodAsync('OnApDragEndFromJs',ap.mac,pos.lat,pos.lng);" +
@@ -786,6 +818,19 @@
     public async Task OnApFloorChangedFromJs(string mac, int floor)
     {
         await ApMapSvc.SaveApFloorAsync(mac, floor);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnApOrientationChangedFromJs(string mac, int orientationDeg)
+    {
+        await ApMapSvc.SaveApOrientationAsync(mac, orientationDeg);
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -1215,8 +1260,17 @@
         if (_selectedFloor == null || !_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
         var script = "(function(){var m=window._fpMap;if(!m)return;" +
+            "var vb=m.getBounds();" +
+            // Adjust grid resolution based on viewport size to stay under 500x500
+            "var sw=vb.getSouthWest();var ne=vb.getNorthEast();" +
+            "var vWidth=m.distance(sw,L.latLng(sw.lat,ne.lng));" +
+            "var vHeight=m.distance(sw,L.latLng(ne.lat,sw.lng));" +
+            "var maxDim=Math.max(vWidth,vHeight);" +
+            "var res=maxDim>400?Math.ceil(maxDim/400):1.0;" +
             "fetch('" + baseUrl + "/api/heatmap/compute',{method:'POST',headers:{'Content-Type':'application/json'}," +
-            "body:JSON.stringify({floorId:" + _selectedFloor.Id + ",band:'" + _heatmapBand + "',gridResolutionMeters:1.0})})" +
+            "body:JSON.stringify({floorId:" + _selectedFloor.Id + ",band:'" + _heatmapBand + "'," +
+            "gridResolutionMeters:res," +
+            "swLat:sw.lat,swLng:sw.lng,neLat:ne.lat,neLng:ne.lng})})" +
             ".then(function(r){return r.json();})" +
             ".then(function(data){if(!data||!data.data)return;" +
             "if(window._fpHeatmapOverlay){m.removeLayer(window._fpHeatmapOverlay);}" +

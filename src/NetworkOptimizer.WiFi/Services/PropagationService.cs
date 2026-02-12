@@ -133,9 +133,9 @@ public class PropagationService
         // Indoor path loss (ITU-R P.1238): uses higher exponent than free-space for realistic indoor falloff
         var fspl = 10 * IndoorPathLossExponent * Math.Log10(distance3d) + 20 * Math.Log10(freqMhz) - 27.55;
 
-        // Azimuth angle from AP to point
+        // Azimuth angle from AP to point, adjusted for AP orientation
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
-        var azimuthDeg = (int)((azimuth + 360) % 360);
+        var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
 
         // Elevation angle (90 = horizon for same floor, decreasing for below)
         int elevationDeg;

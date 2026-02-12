@@ -13,6 +13,12 @@ public class HeatmapRequest
 
     /// <summary>Grid resolution in meters (default 1m)</summary>
     public double GridResolutionMeters { get; set; } = 1.0;
+
+    /// <summary>Viewport bounds from the map (if set, overrides floor plan bounds)</summary>
+    public double? SwLat { get; set; }
+    public double? SwLng { get; set; }
+    public double? NeLat { get; set; }
+    public double? NeLng { get; set; }
 }
 
 /// <summary>
@@ -54,6 +60,7 @@ public class PropagationAp
     public int Floor { get; set; } = 1;
     public int TxPowerDbm { get; set; } = 20;
     public int AntennaGainDbi { get; set; } = 3;
+    public int OrientationDeg { get; set; }
 }
 
 /// <summary>

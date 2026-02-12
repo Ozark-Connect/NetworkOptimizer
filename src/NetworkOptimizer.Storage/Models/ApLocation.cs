@@ -25,6 +25,9 @@ public class ApLocation
     /// <summary>Floor number for multi-story buildings (future use)</summary>
     public int? Floor { get; set; }
 
+    /// <summary>AP orientation in degrees (0-359, 0 = North, clockwise)</summary>
+    public int OrientationDeg { get; set; }
+
     /// <summary>When this location was last updated</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

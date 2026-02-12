@@ -1041,6 +1041,7 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
             Latitude = a.Latitude!.Value,
             Longitude = a.Longitude!.Value,
             Floor = a.Floor ?? 1,
+            OrientationDeg = a.OrientationDeg,
             TxPowerDbm = a.Radios
                 .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
                 .Select(r => r.TxPowerDbm ?? 20)
@@ -1065,15 +1066,29 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
         catch { /* ignore bad JSON */ }
     }
 
-    // Extend heatmap bounds beyond floor plan so signal renders until it fades out
-    var latSpan = floor.NeLatitude - floor.SwLatitude;
-    var lngSpan = floor.NeLongitude - floor.SwLongitude;
-    var padLat = latSpan * 0.5;
-    var padLng = lngSpan * 0.5;
+    // Use viewport bounds from the client if provided, otherwise fall back to floor plan bounds with padding
+    double swLat, swLng, neLat, neLng;
+    if (request.SwLat.HasValue && request.SwLng.HasValue && request.NeLat.HasValue && request.NeLng.HasValue)
+    {
+        swLat = request.SwLat.Value;
+        swLng = request.SwLng.Value;
+        neLat = request.NeLat.Value;
+        neLng = request.NeLng.Value;
+    }
+    else
+    {
+        var latSpan = floor.NeLatitude - floor.SwLatitude;
+        var lngSpan = floor.NeLongitude - floor.SwLongitude;
+        var padLat = latSpan * 0.5;
+        var padLng = lngSpan * 0.5;
+        swLat = floor.SwLatitude - padLat;
+        swLng = floor.SwLongitude - padLng;
+        neLat = floor.NeLatitude + padLat;
+        neLng = floor.NeLongitude + padLng;
+    }
 
     var result = propagationSvc.ComputeHeatmap(
-        floor.SwLatitude - padLat, floor.SwLongitude - padLng,
-        floor.NeLatitude + padLat, floor.NeLongitude + padLng,
+        swLat, swLng, neLat, neLng,
         request.Band, placedAps, walls, floor.FloorNumber, request.GridResolutionMeters);
 
     return Results.Ok(result);
