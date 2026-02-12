@@ -2,6 +2,9 @@
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.WiFi.Data
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi
+@using NetworkOptimizer.UniFi.Models
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
 @inject NavigationManager Nav
@@ -93,6 +96,9 @@
                     <option value="6">6 GHz</option>
                 </select>
             }
+            <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
+                Signal Data
+            </button>
         </div>
     </div>
 
@@ -645,6 +651,7 @@
 
 @code {
     [Parameter] public string MapHeight { get; set; } = "600px";
+    [Parameter] public List<Iperf3Result> SpeedTestResults { get; set; } = new();
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
@@ -660,6 +667,7 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
+    private bool _showSignalData;
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
     private string _wallMaterial = "drywall";
@@ -1099,6 +1107,109 @@
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
         await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand);
+    }
+
+    // ── Signal Data Overlay ────────────────────────────────────────
+
+    private async Task ToggleSignalData()
+    {
+        _showSignalData = !_showSignalData;
+        if (_showSignalData)
+            await UpdateSignalDataMarkers();
+        else
+            await JS.InvokeVoidAsync("fpEditor.clearSignalData");
+    }
+
+    private async Task UpdateSignalDataMarkers()
+    {
+        if (!_mapInitialized || !_showSignalData) return;
+
+        var filtered = SpeedTestResults
+            .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
+            .ToList();
+
+        var markersJson = System.Text.Json.JsonSerializer.Serialize(filtered.Select(r => new
+        {
+            lat = r.Latitude!.Value,
+            lng = r.Longitude!.Value,
+            color = GetSignalColor(r.WifiSignalDbm!.Value),
+            popup = BuildSignalPopup(r)
+        }));
+
+        await JS.InvokeVoidAsync("fpEditor.updateSignalData", markersJson);
+    }
+
+    private static string GetSignalColor(int dbm)
+    {
+        // Same gradient stops as heatmap lerpColor
+        (int s, int r, int g, int b)[] stops =
+        [
+            (-30, 0, 220, 0),
+            (-45, 34, 197, 94),
+            (-55, 180, 220, 40),
+            (-65, 250, 204, 21),
+            (-72, 251, 146, 60),
+            (-78, 239, 68, 68),
+            (-85, 107, 114, 128)
+        ];
+
+        if (dbm >= stops[0].s) return $"rgb({stops[0].r},{stops[0].g},{stops[0].b})";
+        if (dbm <= stops[^1].s) return $"rgb({stops[^1].r},{stops[^1].g},{stops[^1].b})";
+
+        for (int i = 0; i < stops.Length - 1; i++)
+        {
+            if (dbm <= stops[i].s && dbm >= stops[i + 1].s)
+            {
+                var t = (double)(dbm - stops[i + 1].s) / (stops[i].s - stops[i + 1].s);
+                var cr = (int)(stops[i].r * t + stops[i + 1].r * (1 - t));
+                var cg = (int)(stops[i].g * t + stops[i + 1].g * (1 - t));
+                var cb = (int)(stops[i].b * t + stops[i + 1].b * (1 - t));
+                return $"rgb({cr},{cg},{cb})";
+            }
+        }
+        return $"rgb({stops[^1].r},{stops[^1].g},{stops[^1].b})";
+    }
+
+    private static string BuildSignalPopup(Iperf3Result result)
+    {
+        var deviceName = (result.DeviceName ?? result.DeviceHost)?
+            .Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
+        var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+
+        var apHop = result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.AccessPoint);
+        var apName = apHop?.DeviceName?.Replace("'", "\\'").Replace("\"", "&quot;");
+
+        var html = "<div class='map-popup'>";
+        html += $"<div class='wifi-tooltip-header'>{deviceName}</div>";
+
+        // Speed row
+        html += "<div class='wifi-tooltip-row wifi-tooltip-speed'>";
+        html += $"<span class='wifi-speed-rx'>\u2193 {result.DownloadMbps:F0}</span> \u00b7 ";
+        html += $"<span class='wifi-speed-tx'>\u2191 {result.UploadMbps:F0}</span> Mbps";
+        html += "</div>";
+
+        if (!string.IsNullOrEmpty(apName))
+            html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
+
+        // Band and signal
+        if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio))
+        {
+            html += "<div class='wifi-tooltip-link-signal'>";
+            if (!string.IsNullOrEmpty(result.WifiRadio))
+            {
+                var radio = result.WifiRadio.ToLowerInvariant();
+                html += $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span> ";
+            }
+            if (result.WifiSignalDbm.HasValue)
+                html += $"{result.WifiSignalDbm} dBm";
+            html += "</div>";
+        }
+
+        html += "<div class='wifi-tooltip-divider'></div>";
+        html += $"<div class='map-popup-footer'><span class='map-popup-time'>{time}</span></div>";
+        html += "</div>";
+        return html;
     }
 
     // ── Floor plan management ────────────────────────────────────────

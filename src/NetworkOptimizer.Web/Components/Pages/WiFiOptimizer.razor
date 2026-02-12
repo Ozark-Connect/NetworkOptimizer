@@ -158,11 +158,11 @@
             </button>
             <button class="wifi-view-tab @(_activeTab == "coverage" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("coverage"))">
-                Coverage Map
+                Speed Map
             </button>
             <button class="wifi-view-tab @(_activeTab == "floorplan" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("floorplan"))">
-                Floor Plan
+                Signal Map
             </button>
             <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("roaming"))">
@@ -227,8 +227,8 @@
     }
     else if (_activeTab == "floorplan")
     {
-        <!-- Floor Plan Editor -->
-        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" />
+        <!-- Signal Map / Floor Plan Editor -->
+        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" />
     }
     else if (_activeTab == "roaming")
     {

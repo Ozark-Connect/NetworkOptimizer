@@ -33,6 +33,7 @@ window.fpEditor = {
     _moveMarker: null,
     _heatmapOverlay: null,
     _contourLayer: null,
+    _signalDataLayer: null,
 
     // ── Map Initialization ───────────────────────────────────────────
 
@@ -84,11 +85,14 @@ window.fpEditor = {
             m.getPane('wallPane').style.zIndex = 400;
             m.createPane('apIconPane');
             m.getPane('apIconPane').style.zIndex = 450;
+            m.createPane('signalDataPane');
+            m.getPane('signalDataPane').style.zIndex = 420;
 
             self._apGlowLayer = L.layerGroup().addTo(m);
             self._apLayer = L.layerGroup().addTo(m);
             self._bgWallLayer = L.layerGroup().addTo(m);
             self._wallLayer = L.layerGroup().addTo(m);
+            self._signalDataLayer = L.layerGroup().addTo(m);
             self._allWalls = [];
 
             // Scale AP icons with zoom level
@@ -1084,12 +1088,43 @@ window.fpEditor = {
         }
     },
 
+    // ── Signal Data Overlay ────────────────────────────────────────
+
+    updateSignalData: function (markersJson) {
+        if (!this._map || !this._signalDataLayer) return;
+        this._signalDataLayer.clearLayers();
+
+        var markers = JSON.parse(markersJson);
+        var self = this;
+
+        markers.forEach(function (m) {
+            var circle = L.circleMarker([m.lat, m.lng], {
+                radius: 7,
+                fillColor: m.color,
+                color: '#fff',
+                weight: 1.5,
+                fillOpacity: 0.85,
+                pane: 'signalDataPane',
+                interactive: true
+            }).addTo(self._signalDataLayer);
+
+            if (m.popup) {
+                circle.bindPopup(m.popup);
+            }
+        });
+    },
+
+    clearSignalData: function () {
+        if (this._signalDataLayer) this._signalDataLayer.clearLayers();
+    },
+
     // ── Cleanup ──────────────────────────────────────────────────────
 
     clearFloorLayers: function () {
         if (this._overlay && this._map) { this._map.removeLayer(this._overlay); this._overlay = null; }
         if (this._heatmapOverlay && this._map) { this._map.removeLayer(this._heatmapOverlay); this._heatmapOverlay = null; }
         if (this._contourLayer && this._map) { this._map.removeLayer(this._contourLayer); this._contourLayer = null; }
+        if (this._signalDataLayer) this._signalDataLayer.clearLayers();
         if (this._bgWallLayer) this._bgWallLayer.clearLayers();
         if (this._wallLayer) this._wallLayer.clearLayers();
     }
