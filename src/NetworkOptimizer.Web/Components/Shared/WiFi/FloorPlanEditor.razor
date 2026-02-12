@@ -1329,8 +1329,12 @@
             if (string.IsNullOrEmpty(floor.WallsJson) || floor.WallsJson == "[]") continue;
             try
             {
-                var walls = System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(floor.WallsJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var jsonOpts = new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+                };
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(floor.WallsJson, jsonOpts);
                 if (walls != null)
                 {
                     foreach (var w in walls)
@@ -1340,7 +1344,7 @@
                             p.Lng += dLng;
                         }
                     await FloorPlanSvc.UpdateFloorAsync(floor.Id,
-                        wallsJson: System.Text.Json.JsonSerializer.Serialize(walls));
+                        wallsJson: System.Text.Json.JsonSerializer.Serialize(walls, jsonOpts));
                 }
             }
             catch { }
