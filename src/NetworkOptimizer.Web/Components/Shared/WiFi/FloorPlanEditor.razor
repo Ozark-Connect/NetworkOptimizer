@@ -86,12 +86,14 @@
                                 data-tooltip="Delete last wall">Undo Wall</button>
                     }
                 </div>
+                @* TODO: Re-enable alongside floor plan image upload
                 <button class="fp-btn @(_mode == "position" ? "active" : "")" @onclick="TogglePositionMode">
                     Position
                 </button>
                 <button class="fp-btn @(_mode == "move" ? "active" : "")" @onclick="ToggleMoveMode">
                     Move
                 </button>
+                *@
             }
             <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
                 Heatmap
@@ -215,11 +217,13 @@
                     <option value="floor_concrete">Concrete Slab</option>
                 </select>
             </div>
+            @* TODO: Re-enable alongside floor plan image upload
             <div class="fp-opacity-control">
                 <span>Opacity:</span>
                 <input type="range" min="0" max="100" value="@((int)(_floorOpacity * 100))"
                        @oninput="OnOpacityChange" class="fp-opacity-slider" />
             </div>
+            *@
             <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete Floor</button>
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>

@@ -619,7 +619,8 @@ window.fpEditor = {
                 'onchange="fpEditor.changeWallMat(' + wi + ',this.value)">' +
                 wallOpts + '</select><br/>' +
                 '<span style="font-size:11px;color:#94a3b8">' + (wall.points.length - 1) + ' segment' + (wall.points.length > 2 ? 's' : '') + '</span><br/>' +
-                '<button onclick="fpEditor.deleteWall(' + wi + ')" style="margin-top:4px;padding:2px 12px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete Shape</button></div>';
+                '<button onclick="fpEditor.moveWall(' + wi + ')" style="margin-top:4px;padding:2px 10px;background:#4f46e5;color:#fff;border:none;border-radius:3px;cursor:pointer;margin-right:4px">Move</button>' +
+                '<button onclick="fpEditor.deleteWall(' + wi + ')" style="padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
             L.popup({ closeButton: true }).setLatLng(e.latlng).setContent(wallHtml).openOn(m);
             return;
         }
@@ -739,6 +740,63 @@ window.fpEditor = {
         this._map.closePopup();
         this._wallSelection = { wallIdx: null, segIdx: null };
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    moveWall: function (wi) {
+        var wall = this._allWalls[wi];
+        if (!wall) return;
+        var m = this._map;
+        var self = this;
+        m.closePopup();
+        if (this._wallHighlightLayer) this._wallHighlightLayer.clearLayers();
+        m.dragging.disable();
+        m.getContainer().style.cursor = 'move';
+
+        // Compute centroid as drag anchor
+        var cLat = 0, cLng = 0;
+        for (var i = 0; i < wall.points.length; i++) {
+            cLat += wall.points[i].lat;
+            cLng += wall.points[i].lng;
+        }
+        cLat /= wall.points.length;
+        cLng /= wall.points.length;
+
+        // Draw shape preview in highlight layer
+        var drawPreview = function (dLat, dLng) {
+            self._wallHighlightLayer.clearLayers();
+            for (var j = 0; j < wall.points.length - 1; j++) {
+                L.polyline(
+                    [[wall.points[j].lat + dLat, wall.points[j].lng + dLng],
+                     [wall.points[j + 1].lat + dLat, wall.points[j + 1].lng + dLng]],
+                    { color: '#60a5fa', weight: 4, opacity: 0.8, interactive: false }
+                ).addTo(self._wallHighlightLayer);
+            }
+        };
+        drawPreview(0, 0);
+
+        var moveHandler = function (e) {
+            var dLat = e.latlng.lat - cLat;
+            var dLng = e.latlng.lng - cLng;
+            drawPreview(dLat, dLng);
+        };
+        var finishMove = function (e) {
+            m.off('mousemove', moveHandler);
+            m.off('click', finishMove);
+            m.dragging.enable();
+            m.getContainer().style.cursor = '';
+            // Apply delta to all points
+            var dLat = e.latlng.lat - cLat;
+            var dLng = e.latlng.lng - cLng;
+            for (var k = 0; k < wall.points.length; k++) {
+                wall.points[k].lat += dLat;
+                wall.points[k].lng += dLng;
+            }
+            self._wallHighlightLayer.clearLayers();
+            self._wallSelection = { wallIdx: null, segIdx: null };
+            self._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(self._allWalls));
+        };
+        m.on('mousemove', moveHandler);
+        m.on('click', finishMove);
     },
 
     deleteLastWall: function () {
