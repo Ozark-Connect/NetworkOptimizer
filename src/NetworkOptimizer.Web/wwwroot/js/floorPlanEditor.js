@@ -378,12 +378,15 @@ window.fpEditor = {
                 var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
                 var isOverridden = self._txPowerOverrides[overrideKey] != null;
                 var safeKey = esc(overrideKey);
-                var eirpText = activeRadio.eirp != null ? ' / ' + activeRadio.eirp + ' dBm EIRP' : '';
+                var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
+                var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
+                var eirpText = currentEirp != null ? ' / ' + currentEirp + ' dBm EIRP' : '';
                 txPowerHtml =
                     '<div class="fp-ap-popup-divider"></div>' +
                     '<div class="fp-ap-popup-section-label">Simulate</div>' +
                     '<div class="fp-ap-popup-row"><label>TX Power</label>' +
                     '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
+                    (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
                     'oninput="fpEditor._updateTxPowerLabel(this)" ' +
                     'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
                     '</div>' +
@@ -457,10 +460,10 @@ window.fpEditor = {
     _updateTxPowerLabel: function (slider) {
         var info = slider.closest('.fp-ap-popup-rows').querySelector('.fp-ap-popup-tx-info');
         if (!info) return;
-        var val = slider.value;
-        // Update just the TX dBm portion, keep EIRP suffix if present
-        var parts = info.textContent.split('/');
-        info.textContent = val + ' dBm TX' + (parts.length > 1 ? ' / ' + parts[1].trim() : '');
+        var tx = parseInt(slider.value);
+        var gain = slider.dataset.antennaGain;
+        var eirpText = gain != null ? ' / ' + (tx + parseInt(gain)) + ' dBm EIRP' : '';
+        info.textContent = tx + ' dBm TX' + eirpText;
         info.classList.add('overridden');
     },
 
