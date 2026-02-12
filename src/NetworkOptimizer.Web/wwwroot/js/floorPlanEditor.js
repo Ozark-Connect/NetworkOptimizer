@@ -89,11 +89,14 @@ window.fpEditor = {
             var container = document.getElementById(containerId);
             if (!container) { setTimeout(init, 100); return; }
 
-            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0.25, zoomDelta: 1, wheelPxPerZoomLevel: 120 });
+            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0.25, zoomDelta: zoom >= 19 ? 0.5 : 1, wheelPxPerZoomLevel: 120 });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap'
             }).addTo(m);
             self._map = m;
+
+            // Dynamic zoom delta: 0.5 at building level (zoom >= 19), 1 otherwise
+            m.on('zoomend', function () { m.options.zoomDelta = m.getZoom() >= 19 ? 0.5 : 1; });
 
             // Custom panes for z-ordering: heatmap(350) < floorOverlay(380) < apGlow(390) < walls(400) < apIcons(450)
             m.createPane('heatmapPane');
