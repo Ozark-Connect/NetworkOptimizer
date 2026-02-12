@@ -1073,10 +1073,9 @@
         {
             await SelectFloor(_floors.First().Id);
             var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
-            // Add ~15 ft (4.6m) buffer per side = ~30 ft total around the perimeter
-            var bufferLat = 4.6 / 111320.0;
-            var centerLat = (swLat + neLat) / 2;
-            var bufferLng = 4.6 / (111320.0 * Math.Cos(centerLat * Math.PI / 180));
+            // 15% buffer per side (scales with building size)
+            var bufferLat = (neLat - swLat) * 0.15;
+            var bufferLng = (neLng - swLng) * 0.15;
             await JS.InvokeVoidAsync("fpEditor.fitBounds",
                 swLat - bufferLat, swLng - bufferLng, neLat + bufferLat, neLng + bufferLng);
         }
