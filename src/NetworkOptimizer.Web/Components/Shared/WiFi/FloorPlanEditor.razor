@@ -1135,8 +1135,7 @@
         }
         else if (_selectedBuilding != null)
         {
-            await JS.InvokeVoidAsync("fpEditor.setView",
-                _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude, 22);
+            // No floors yet - stay at current view
         }
         else
         {
