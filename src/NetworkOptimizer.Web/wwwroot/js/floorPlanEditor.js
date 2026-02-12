@@ -312,21 +312,22 @@ window.fpEditor = {
             });
 
             marker.bindPopup(
-                '<b>' + (ap.name || ap.mac) + '</b><br/>Model: ' + ap.model + '<br/>Clients: ' + ap.clients +
-                '<br/><label style="font-size:12px;color:#94a3b8">Floor: </label>' +
-                '<select style="padding:2px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px;font-size:12px" ' +
-                'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApFloorChangedFromJs\',\'' + ap.mac + '\',parseInt(this.value))">' +
-                floorOpts + '</select>' +
-                '<br/><label style="font-size:12px;color:#94a3b8">Mount: </label>' +
-                '<select style="padding:2px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px;font-size:12px" ' +
-                'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApMountTypeChangedFromJs\',\'' + ap.mac + '\',this.value)">' +
-                mountOpts + '</select>' +
-                '<br/><label style="font-size:12px;color:#94a3b8">Facing: </label>' +
+                '<div class="fp-ap-popup">' +
+                '<div class="fp-ap-popup-name">' + (ap.name || ap.mac) + '</div>' +
+                '<div class="fp-ap-popup-model">' + ap.model + ' \u00b7 ' + ap.clients + ' client' + (ap.clients !== 1 ? 's' : '') + '</div>' +
+                '<div class="fp-ap-popup-rows">' +
+                '<div class="fp-ap-popup-row"><label>Floor</label>' +
+                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApFloorChangedFromJs\',\'' + ap.mac + '\',parseInt(this.value))">' +
+                floorOpts + '</select></div>' +
+                '<div class="fp-ap-popup-row"><label>Mount</label>' +
+                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApMountTypeChangedFromJs\',\'' + ap.mac + '\',this.value)">' +
+                mountOpts + '</select></div>' +
+                '<div class="fp-ap-popup-row"><label>Facing</label>' +
                 '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
-                'style="width:100px;vertical-align:middle" ' +
                 'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\'" ' +
                 'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + ap.mac + '\',parseInt(this.value))" />' +
-                '<span style="font-size:12px;color:#e0e0e0;margin-left:4px">' + ap.orientation + '\u00B0</span>'
+                '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                '</div></div>'
             );
 
             if (draggable && ap.sameFloor) {
