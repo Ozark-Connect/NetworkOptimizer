@@ -232,14 +232,11 @@ public class PropagationService
             return Math.Abs(ap.Floor - activeFloor) * MaterialAttenuation.GetAttenuation("floor_wood", band);
         }
 
-        // Find building containing the observation point (primary) or the AP (fallback)
-        var pointBuilding = buildings.FirstOrDefault(b =>
-            pointLat >= b.SwLat && pointLat <= b.NeLat &&
-            pointLng >= b.SwLng && pointLng <= b.NeLng);
-
-        var apBuilding = buildings.FirstOrDefault(b =>
-            ap.Latitude >= b.SwLat && ap.Latitude <= b.NeLat &&
-            ap.Longitude >= b.SwLng && ap.Longitude <= b.NeLng);
+        // Find building containing the observation point (primary) or the AP (fallback).
+        // When multiple buildings overlap, pick the smallest area (most specific match)
+        // to avoid a large-bounds single-floor building shadowing a smaller multi-floor one.
+        var pointBuilding = FindSmallestContainingBuilding(buildings, pointLat, pointLng);
+        var apBuilding = FindSmallestContainingBuilding(buildings, ap.Latitude, ap.Longitude);
 
         var building = pointBuilding ?? apBuilding;
 
@@ -391,6 +388,29 @@ public class PropagationService
             return "ceiling";
 
         return MountTypeHelper.GetDefaultMountType(model);
+    }
+
+    /// <summary>
+    /// Find the building with the smallest bounding area that contains the given point.
+    /// Prevents large-bounds buildings from shadowing smaller, more specific ones.
+    /// </summary>
+    private static BuildingFloorInfo? FindSmallestContainingBuilding(List<BuildingFloorInfo> buildings, double lat, double lng)
+    {
+        BuildingFloorInfo? best = null;
+        var bestArea = double.MaxValue;
+        foreach (var b in buildings)
+        {
+            if (lat >= b.SwLat && lat <= b.NeLat && lng >= b.SwLng && lng <= b.NeLng)
+            {
+                var area = (b.NeLat - b.SwLat) * (b.NeLng - b.SwLng);
+                if (area < bestArea)
+                {
+                    bestArea = area;
+                    best = b;
+                }
+            }
+        }
+        return best;
     }
 
     private struct WallSegment

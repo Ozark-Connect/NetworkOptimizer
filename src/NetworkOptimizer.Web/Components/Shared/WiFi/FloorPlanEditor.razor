@@ -1159,7 +1159,10 @@
 
         if (_selectedBuilding != null && _floors.Count > 0)
         {
-            await SelectFloor(_floors.First().Id);
+            // Preserve the current global floor if this building has it; otherwise pick first available
+            var matchingFloor = _floors.FirstOrDefault(f => f.FloorNumber == _globalActiveFloor)
+                                ?? _floors.First();
+            await SelectFloor(matchingFloor.Id);
             if (BuildingHasWalls())
             {
                 var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
