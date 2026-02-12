@@ -13,63 +13,6 @@ public class AntennaPatternLoader
     private Dictionary<string, Dictionary<string, AntennaPattern>>? _patterns;
     private readonly object _loadLock = new();
 
-    /// <summary>
-    /// Maps UniFi API model strings to antenna pattern file names.
-    /// </summary>
-    private static readonly Dictionary<string, string> ModelNameMapping = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // Wi-Fi 7
-        ["U7Pro"] = "U7-Pro",
-        ["U7ProMax"] = "U7-Pro-Max",
-        ["U7ProWall"] = "U7-Pro-Wall",
-        ["U7ProXG"] = "U7-Pro-XG",
-        ["U7ProXGS"] = "U7-Pro-XGS",
-        ["U7LR"] = "U7-LR",
-        ["U7Lite"] = "U7-Lite",
-        ["U7IW"] = "U7-IW",
-        ["U7Outdoor"] = "U7-Outdoor",
-        ["U7ProOutdoor"] = "U7-Pro-Outdoor",
-        ["UX7"] = "UX7",
-        ["UDR7"] = "UDR7",
-        // Wi-Fi 6/6E
-        ["U6Pro"] = "U6-Pro",
-        ["U6LR"] = "U6-LR",
-        ["U6Lite"] = "U6-Lite",
-        ["U6Mesh"] = "U6-Mesh",
-        ["U6Plus"] = "U6-Plus",
-        ["U6IW"] = "U6-IW",
-        ["U6Enterprise"] = "U6-Enterprise",
-        ["U6EnterpriseIW"] = "U6-Enterprise-IW",
-        ["U6Extender"] = "U6-Extender",
-        ["U6MeshPro"] = "U6-Mesh-Pro",
-        // Enterprise
-        ["E7"] = "E7",
-        ["E7Campus"] = "E7-Campus",
-        ["E7Audience"] = "E7-Audience",
-        ["UDBPro"] = "UDB-Pro",
-        ["UDBProSector"] = "UDB-Pro-Sector",
-        // Legacy
-        ["UAPACPro"] = "UAP-AC-Pro",
-        ["UAPACHD"] = "UAP-HD",
-        ["UAPACLite"] = "UAP-AC-Lite",
-        ["UAPACLR"] = "UAP-AC-LR",
-        ["UAPACMesh"] = "UAP-AC-Mesh",
-        ["UAPACMeshPro"] = "UAP-AC-Mesh-Pro",
-        ["UAPnanoHD"] = "UAP-nanoHD",
-        ["UAPFlexHD"] = "UAP-FlexHD",
-        ["UAPSHD"] = "UAP-SHD",
-        ["UAPXG"] = "UAP-XG",
-        ["UAPIWHD"] = "UAP-IW-HD",
-        ["UAPBeaconHD"] = "UAP-BeaconHD",
-        // Gateways with AP
-        ["UDM"] = "UDM",
-        ["UDR"] = "UDR",
-        ["UDW"] = "UDW",
-        // Accessories
-        ["UKUltra"] = "UK-Ultra",
-        ["UMAD"] = "UMA-D",
-    };
-
     public AntennaPatternLoader(ILogger<AntennaPatternLoader> logger)
     {
         _logger = logger;
@@ -100,13 +43,7 @@ public class AntennaPatternLoader
 
         if (_patterns == null) return null;
 
-        // Resolve the base pattern name (handles API model codes → file names)
         var patternName = model;
-        if (!_patterns.ContainsKey(patternName))
-        {
-            if (ModelNameMapping.TryGetValue(model, out var mapped))
-                patternName = mapped;
-        }
 
         // Normalize band key
         var bandKey = band switch

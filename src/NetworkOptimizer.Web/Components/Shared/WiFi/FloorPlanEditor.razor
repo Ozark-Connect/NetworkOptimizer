@@ -56,26 +56,26 @@
                             }
                         </select>
                     }
+                    else
+                    {
+                        <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
+                                data-tooltip="Delete last wall">Undo Wall</button>
+                    }
                 </div>
-                @if (_selectedFloor != null && _mode != "walls")
-                {
-                    <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
-                            data-tooltip="Delete last wall">Undo Wall</button>
-                }
-                <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
-                    Heatmap
-                </button>
-                @if (_showHeatmap)
-                {
-                    <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged">
-                        <option value="2.4">2.4 GHz</option>
-                        <option value="5">5 GHz</option>
-                        <option value="6">6 GHz</option>
-                    </select>
-                }
                 <button class="fp-btn @(_mode == "position" ? "active" : "")" @onclick="TogglePositionMode">
                     Position
                 </button>
+            }
+            <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
+                Heatmap
+            </button>
+            @if (_showHeatmap)
+            {
+                <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged">
+                    <option value="2.4">2.4 GHz</option>
+                    <option value="5">5 GHz</option>
+                    <option value="6">6 GHz</option>
+                </select>
             }
         </div>
     </div>
@@ -956,9 +956,9 @@
 
     private async Task ComputeHeatmap()
     {
-        if (_selectedFloor == null || !_mapInitialized) return;
+        if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
-        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _selectedFloor.Id, _heatmapBand);
+        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _selectedFloor?.Id ?? 0, _heatmapBand);
     }
 
     // ── Floor plan management ────────────────────────────────────────
@@ -1095,7 +1095,7 @@
     [JSInvokable]
     public async Task OnMapMoveEndForHeatmap()
     {
-        if (_showHeatmap && _selectedFloor != null)
+        if (_showHeatmap)
             await ComputeHeatmap();
     }
 

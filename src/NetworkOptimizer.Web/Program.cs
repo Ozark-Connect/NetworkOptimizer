@@ -1027,8 +1027,33 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
     var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
 
-    var floor = await floorSvc.GetFloorAsync(request.FloorId);
-    if (floor == null) return Results.NotFound(new { error = "Floor not found" });
+    int activeFloor;
+    var walls = new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
+    NetworkOptimizer.Storage.Models.FloorPlan? floor = null;
+
+    if (request.FloorId > 0)
+    {
+        floor = await floorSvc.GetFloorAsync(request.FloorId);
+        if (floor == null) return Results.NotFound(new { error = "Floor not found" });
+        activeFloor = floor.FloorNumber;
+
+        // Parse walls from floor's WallsJson
+        if (!string.IsNullOrEmpty(floor.WallsJson))
+        {
+            try
+            {
+                walls = System.Text.Json.JsonSerializer.Deserialize<List<NetworkOptimizer.WiFi.Models.PropagationWall>>(
+                    floor.WallsJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
+            }
+            catch { /* ignore bad JSON */ }
+        }
+    }
+    else
+    {
+        activeFloor = 1;
+    }
 
     // Get placed APs
     var apMarkers = await apMapSvc.GetApMapMarkersAsync();
@@ -1056,20 +1081,6 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
                 .FirstOrDefault(3)
         }).ToList();
 
-    // Parse walls from floor's WallsJson
-    var walls = new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
-    if (!string.IsNullOrEmpty(floor.WallsJson))
-    {
-        try
-        {
-            walls = System.Text.Json.JsonSerializer.Deserialize<List<NetworkOptimizer.WiFi.Models.PropagationWall>>(
-                floor.WallsJson,
-                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                ?? new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
-        }
-        catch { /* ignore bad JSON */ }
-    }
-
     // Use viewport bounds from the client if provided, otherwise fall back to floor plan bounds with padding
     double swLat, swLng, neLat, neLng;
     if (request.SwLat.HasValue && request.SwLng.HasValue && request.NeLat.HasValue && request.NeLng.HasValue)
@@ -1079,7 +1090,7 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
         neLat = request.NeLat.Value;
         neLng = request.NeLng.Value;
     }
-    else
+    else if (floor != null)
     {
         var latSpan = floor.NeLatitude - floor.SwLatitude;
         var lngSpan = floor.NeLongitude - floor.SwLongitude;
@@ -1090,10 +1101,14 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
         neLat = floor.NeLatitude + padLat;
         neLng = floor.NeLongitude + padLng;
     }
+    else
+    {
+        return Results.BadRequest(new { error = "Viewport bounds required when no floor is selected" });
+    }
 
     var result = propagationSvc.ComputeHeatmap(
         swLat, swLng, neLat, neLng,
-        request.Band, placedAps, walls, floor.FloorNumber, request.GridResolutionMeters);
+        request.Band, placedAps, walls, activeFloor, request.GridResolutionMeters);
 
     return Results.Ok(result);
 });

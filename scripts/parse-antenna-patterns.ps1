@@ -6,11 +6,12 @@
     Extracts .ant files from all zip archives in the antenna-patterns directory,
     parses the gain values, and outputs a consolidated JSON file for the web app.
 
-    Each .ant file contains 719 gain values:
+    Each .ant file contains 719+ gain values:
     - 360 azimuth values (0-359 degrees)
     - 359 elevation values (0-358 degrees)
 
-    Files are UTF-16LE encoded.
+    Files may be UTF-16LE or UTF-8 encoded (both are tried automatically).
+    macOS resource fork files (._prefix) are skipped.
 
     Antenna variant files (e.g., U7-Outdoor-Omni-Antenna.zip) are stored under
     variant keys like "U7-Outdoor:omni". The base model uses the standard key.
@@ -30,11 +31,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # Band name extraction from filename
 function Get-BandFromFilename($filename) {
     if ($filename -match "2\.4GHz|2\.4 GHz|2_4GHz|2\.45GHz") { return "2.4" }
-    if ($filename -match "5GHz|5 GHz|5_GHz") { return "5" }
+    if ($filename -match "(?<!\d)2GHz|(?<!\d)2 GHz|(?<!\d)2G(?!Hz)\.ant") { return "2.4" }
+    if ($filename -match "5GHz|5 GHz|5_GHz|(?<!\d)5G\.ant") { return "5" }
     if ($filename -match "6GHz|6 GHz|6_GHz") { return "6" }
     return $null
 }
@@ -68,21 +71,42 @@ function Get-ModelAndVariant($zipName) {
     return @{ Model = $zipName; Variant = $null }
 }
 
-# Parse a single .ant file
-function Parse-AntFile($stream) {
-    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::Unicode)
+# Try to parse gain values from raw content string
+function Parse-GainValues($content) {
     $values = @()
-
-    while (-not $reader.EndOfStream) {
-        $line = $reader.ReadLine().Trim()
-        if ($line -ne "" -and $line -match "^-?\d") {
-            $values += [float]$line
+    foreach ($line in $content.Split("`n")) {
+        $trimmed = $line.Trim()
+        if ($trimmed -ne "" -and $trimmed -match "^-?\d") {
+            $values += [float]$trimmed
         }
     }
+    return $values
+}
+
+# Parse a single .ant file, trying UTF-16LE first then UTF-8
+function Parse-AntFile($entry) {
+    # Try UTF-16LE first (newer files)
+    $stream = $entry.Open()
+    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::Unicode)
+    $content = $reader.ReadToEnd()
     $reader.Dispose()
+    $stream.Dispose()
+
+    $values = Parse-GainValues $content
+
+    # Fall back to UTF-8 (older/macOS-created files)
+    if ($values.Count -lt 719) {
+        $stream = $entry.Open()
+        $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8)
+        $content = $reader.ReadToEnd()
+        $reader.Dispose()
+        $stream.Dispose()
+
+        $values = Parse-GainValues $content
+    }
 
     if ($values.Count -lt 719) {
-        Write-Warning "  Expected 719 values, got $($values.Count)"
+        Write-Warning "  Expected 719+ values, got $($values.Count) in $($entry.Name)"
         return $null
     }
 
@@ -97,7 +121,7 @@ Write-Host "Output: $OutputFile"
 Write-Host ""
 
 $patterns = @{}
-$zipFiles = Get-ChildItem -Path $InputDir -Filter "*.zip" | Sort-Object Name
+$zipFiles = Get-ChildItem -Path $InputDir -Filter "*.zip" -ErrorAction SilentlyContinue | Sort-Object Name
 
 Write-Host "Found $($zipFiles.Count) zip files"
 Write-Host ""
@@ -118,7 +142,10 @@ foreach ($zip in $zipFiles) {
     try {
         $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
 
-        $antFiles = $archive.Entries | Where-Object { $_.Name -match "\.ant$" }
+        # Filter to .ant files, skip macOS resource forks (._prefix)
+        $antFiles = $archive.Entries | Where-Object {
+            $_.Name -match "\.ant$" -and $_.Name -notmatch "^\._"
+        }
 
         if ($antFiles.Count -eq 0) {
             Write-Warning "  No .ant files found in $($zip.Name)"
@@ -139,9 +166,7 @@ foreach ($zip in $zipFiles) {
 
             Write-Host "  Band $band : $($entry.Name)"
 
-            $entryStream = $entry.Open()
-            $result = Parse-AntFile $entryStream
-            $entryStream.Dispose()
+            $result = Parse-AntFile $entry
 
             if ($result) {
                 $patterns[$patternKey][$band] = $result
@@ -155,6 +180,13 @@ foreach ($zip in $zipFiles) {
     }
 }
 
+# Remove models with no band data (failed to parse anything)
+$emptyModels = $patterns.Keys | Where-Object { $patterns[$_].Count -eq 0 }
+foreach ($key in $emptyModels) {
+    Write-Warning "Removing $key (no band data parsed)"
+    $patterns.Remove($key)
+}
+
 # Ensure output directory exists
 $outputDir = [System.IO.Path]::GetDirectoryName($OutputFile)
 if (-not (Test-Path $outputDir)) {
@@ -166,6 +198,7 @@ $json = $patterns | ConvertTo-Json -Depth 5 -Compress
 [System.IO.File]::WriteAllText($OutputFile, $json)
 
 $fileSize = (Get-Item $OutputFile).Length
+$totalBands = ($patterns.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
 $variantCount = ($patterns.Keys | Where-Object { $_ -match ":" }).Count
 Write-Host ""
-Write-Host "Done! Wrote $($patterns.Count) models ($variantCount with variants) to $OutputFile ($([math]::Round($fileSize / 1024))KB)"
+Write-Host "Done! Wrote $($patterns.Count) models ($variantCount with variants, $totalBands total band patterns) to $OutputFile ($([math]::Round($fileSize / 1024))KB)"
