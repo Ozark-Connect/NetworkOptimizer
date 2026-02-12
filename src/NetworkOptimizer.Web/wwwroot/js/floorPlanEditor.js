@@ -1013,11 +1013,13 @@ window.fpEditor = {
             }
 
             // Check current wall being drawn
-            if (self._currentWall) checkPoints(self._currentWall.points, 'currentWall');
+            if (self._currentWall) checkPoints(self._currentWall.points, 'currentWall(' + (self._currentWall.material || '?') + ')');
             // Check all existing walls on this floor (same building only)
             if (self._allWalls) {
                 for (var wi = 0; wi < self._allWalls.length; wi++) {
-                    checkPoints(self._allWalls[wi].points, 'wall[' + wi + ']');
+                    var w = self._allWalls[wi];
+                    var wLabel = 'wall[' + wi + '](' + (w.material || '?') + ' @' + (w.points[0].lat).toFixed(5) + ',' + (w.points[0].lng).toFixed(5) + ')';
+                    checkPoints(w.points, wLabel);
                 }
             }
             if (bestLen !== null) console.log('lengthSnap:', bestSource, 'cur=' + (curMeters * 3.28084).toFixed(1) + "'");
