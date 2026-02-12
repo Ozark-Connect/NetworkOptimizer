@@ -89,4 +89,21 @@ public class ApMapService
         }
         await db.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// Save an AP's floor assignment.
+    /// </summary>
+    public async Task SaveApFloorAsync(string mac, int floor)
+    {
+        var normalizedMac = mac.ToLowerInvariant();
+
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+        if (existing != null)
+        {
+            existing.Floor = floor;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+    }
 }

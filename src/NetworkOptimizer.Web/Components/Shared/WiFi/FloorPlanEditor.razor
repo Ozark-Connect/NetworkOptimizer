@@ -734,7 +734,7 @@
         var markersJson = System.Text.Json.JsonSerializer.Serialize(placedAps.Select(a => new
         {
             mac = a.Mac, name = a.Name, model = a.Model,
-            lat = a.Latitude, lng = a.Longitude,
+            lat = a.Latitude, lng = a.Longitude, floor = a.Floor ?? 1,
             online = a.IsOnline, clients = a.TotalClients,
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
             sameFloor = _selectedFloor == null || (a.Floor ?? 1) == floorNum
@@ -759,7 +759,13 @@
             "html:'<img src=\"'+ap.iconUrl+'\" class=\"fp-ap-marker-icon\" style=\"opacity:'+opacity+'\" />'," +
             "iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-16]});" +
             "var marker=L.marker([ap.lat,ap.lng],{icon:icon,draggable:" + draggable + "&&ap.sameFloor,pane:'apIconPane'}).addTo(window._fpApLayer);" +
-            "marker.bindPopup('<b>'+(ap.name||ap.mac)+'</b><br/>Model: '+ap.model+'<br/>Clients: '+ap.clients);" +
+            // Popup with floor selector
+            "var floorOpts='';for(var fi=-2;fi<=5;fi++){floorOpts+='<option value=\"'+fi+'\"'+(fi===ap.floor?' selected':'')+'>'+(fi<=0?'B'+Math.abs(fi-1):fi===1?'1st':fi===2?'2nd':fi===3?'3rd':fi+'th')+' Floor</option>';}" +
+            "marker.bindPopup('<b>'+(ap.name||ap.mac)+'</b><br/>Model: '+ap.model+'<br/>Clients: '+ap.clients+" +
+            "'<br/><label style=\"font-size:12px;color:#94a3b8\">Floor: </label>'+" +
+            "'<select style=\"padding:2px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px;font-size:12px\" " +
+            "onchange=\"window._fpDotNetRef.invokeMethodAsync(\\x27OnApFloorChangedFromJs\\x27,\\x27'+ap.mac+'\\x27,parseInt(this.value))\">'+" +
+            "floorOpts+'</select>');" +
             "if(" + draggable + "&&ap.sameFloor){marker.on('dragend',function(e){" +
             "var pos=e.target.getLatLng();" +
             "ref.invokeMethodAsync('OnApDragEndFromJs',ap.mac,pos.lat,pos.lng);" +
@@ -774,6 +780,19 @@
         await LoadApMarkers();
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    [JSInvokable]
+    public async Task OnApFloorChangedFromJs(string mac, int floor)
+    {
+        await ApMapSvc.SaveApFloorAsync(mac, floor);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
     }
 
     private async Task ToggleApEditMode()
@@ -940,22 +959,30 @@
             "var projRef=dx*ca+dy*sa;var projPerp=dx*cp+dy*sp;" +
             "if(Math.abs(projRef)>=Math.abs(projPerp)){" +
             "var sLen=Math.abs(projRef);var sDir=projRef>=0?1:-1;" +
-            "var snLen=window._fpSnapLength(sLen);if(snLen!==null)sLen=snLen;" +
+            "var snLen=window._fpSnapLength(sLen,true);if(snLen!==null)sLen=snLen;" +
             "return{lat:prev.lat+sDir*sLen*sa,lng:prev.lng+sDir*sLen*ca/cosLat};}" +
             "else{var sLen2=Math.abs(projPerp);var sDir2=projPerp>=0?1:-1;" +
-            "var snLen2=window._fpSnapLength(sLen2);if(snLen2!==null)sLen2=snLen2;" +
+            "var snLen2=window._fpSnapLength(sLen2,false);if(snLen2!==null)sLen2=snLen2;" +
             "return{lat:prev.lat+sDir2*sLen2*sp,lng:prev.lng+sDir2*sLen2*cp/cosLat};}};" +
-            // Length snap: find matching parallel segment lengths in the current wall
-            "window._fpSnapLength=function(curLen){" +
-            "if(!window._fpCurrentWall||window._fpCurrentWall.points.length<2)return null;" +
+            // Length snap: find matching PARALLEL segment lengths in the current wall
+            "window._fpSnapLength=function(curLen,isRefDir){" +
+            "if(!window._fpCurrentWall||window._fpCurrentWall.points.length<2||window._fpRefAngle===null)return null;" +
             "var pts=window._fpCurrentWall.points;var m2=window._fpMap;" +
+            "var refA=window._fpRefAngle;" +
             "for(var j=0;j<pts.length-1;j++){" +
+            // Determine if this existing segment is ref or perp direction
+            "var sCosLat=Math.cos(pts[j].lat*Math.PI/180);" +
+            "var sdx=(pts[j+1].lng-pts[j].lng)*sCosLat;var sdy=pts[j+1].lat-pts[j].lat;" +
+            "var pRef=Math.abs(sdx*Math.cos(refA)+sdy*Math.sin(refA));" +
+            "var pPerp=Math.abs(sdx*Math.cos(refA+Math.PI/2)+sdy*Math.sin(refA+Math.PI/2));" +
+            "var segIsRef=pRef>=pPerp;" +
+            // Only compare to segments going the same direction
+            "if(segIsRef!==isRefDir)continue;" +
             "var segLen=m2.distance(L.latLng(pts[j].lat,pts[j].lng),L.latLng(pts[j+1].lat,pts[j+1].lng));" +
-            // Convert curLen from geo-units to meters for comparison
-            "var curMeters=curLen*111320;" + // approximate degrees-to-meters
+            "var curMeters=curLen*111320;" +
             "var diff=Math.abs(curMeters-segLen);" +
-            // Snap if within 0.5m (about 1.5 feet)
-            "if(diff<0.5&&diff>0.01){return curLen*(segLen/curMeters);}}" +
+            // Snap if within 1m (about 3 feet)
+            "if(diff<1.0&&diff>0.01){return curLen*(segLen/curMeters);}}" +
             "return null;};" +
             "window._fpWallClickHandler=function(e){" +
                 // If snapping to close, use first point and finish the wall
@@ -1019,6 +1046,11 @@
         else
         {
             var script = "(function(){var m=window._fpMap;if(!m)return;" +
+                // Commit any in-progress wall before exiting draw mode
+                "if(window._fpCurrentWall&&window._fpCurrentWall.points.length>=2){" +
+                "if(!window._fpAllWalls)window._fpAllWalls=[];" +
+                "window._fpAllWalls.push(window._fpCurrentWall);" +
+                "window._fpDotNetRef.invokeMethodAsync('SaveWallsFromJs',JSON.stringify(window._fpAllWalls));}" +
                 "m.dragging.enable();m.getContainer().style.cursor='';" +
                 "if(window._fpWallClickHandler){m.off('click',window._fpWallClickHandler);window._fpWallClickHandler=null;}" +
                 "if(window._fpWallDblClickHandler){m.off('dblclick',window._fpWallDblClickHandler);window._fpWallDblClickHandler=null;}" +
@@ -1026,7 +1058,7 @@
                 "if(window._fpPreviewLine){m.removeLayer(window._fpPreviewLine);window._fpPreviewLine=null;}" +
                 "if(window._fpSnapIndicator){m.removeLayer(window._fpSnapIndicator);window._fpSnapIndicator=null;}" +
                 "m.doubleClickZoom.enable();" +
-                "window._fpCurrentWall=null;" +
+                "window._fpCurrentWall=null;window._fpRefAngle=null;" +
                 "if(window._fpCurrentWallLine){window._fpCurrentWallLine.remove();window._fpCurrentWallLine=null;}" +
                 "if(window._fpCurrentWallVertices){m.removeLayer(window._fpCurrentWallVertices);window._fpCurrentWallVertices=null;}" +
                 "if(window._fpCurrentWallLabels){m.removeLayer(window._fpCurrentWallLabels);window._fpCurrentWallLabels=null;}})();";
