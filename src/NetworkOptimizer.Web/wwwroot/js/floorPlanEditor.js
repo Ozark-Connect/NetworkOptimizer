@@ -89,7 +89,7 @@ window.fpEditor = {
             var container = document.getElementById(containerId);
             if (!container) { setTimeout(init, 100); return; }
 
-            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0.25 });
+            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0 });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap'
             }).addTo(m);
