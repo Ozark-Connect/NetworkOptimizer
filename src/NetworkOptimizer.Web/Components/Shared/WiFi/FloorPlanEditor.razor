@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.WiFi.Data
+@using NetworkOptimizer.WiFi.Models
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
@@ -1071,10 +1072,7 @@
         if (_selectedBuilding != null && _floors.Count > 0)
         {
             await SelectFloor(_floors.First().Id);
-            var swLat = _floors.Min(f => f.SwLatitude);
-            var swLng = _floors.Min(f => f.SwLongitude);
-            var neLat = _floors.Max(f => f.NeLatitude);
-            var neLng = _floors.Max(f => f.NeLongitude);
+            var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
             // Add ~25 ft (7.6m) buffer around the perimeter
             var bufferLat = 7.6 / 111320.0;
             var centerLat = (swLat + neLat) / 2;
@@ -1108,6 +1106,47 @@
         await UpdateApMarkers();
         await UpdateBackgroundWalls();
         StateHasChanged();
+    }
+
+    /// Compute building bounds from wall vertices (tight fit), falling back to floor plan bounds.
+    private (double swLat, double swLng, double neLat, double neLng) ComputeBuildingBounds()
+    {
+        double swLat = double.MaxValue, swLng = double.MaxValue;
+        double neLat = double.MinValue, neLng = double.MinValue;
+        bool hasWallData = false;
+
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        foreach (var floor in _floors)
+        {
+            if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+            try
+            {
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                if (walls == null) continue;
+                foreach (var wall in walls)
+                {
+                    foreach (var pt in wall.Points)
+                    {
+                        swLat = Math.Min(swLat, pt.Lat);
+                        swLng = Math.Min(swLng, pt.Lng);
+                        neLat = Math.Max(neLat, pt.Lat);
+                        neLng = Math.Max(neLng, pt.Lng);
+                        hasWallData = true;
+                    }
+                }
+            }
+            catch { /* malformed JSON - skip */ }
+        }
+
+        if (!hasWallData)
+        {
+            swLat = _floors.Min(f => f.SwLatitude);
+            swLng = _floors.Min(f => f.SwLongitude);
+            neLat = _floors.Max(f => f.NeLatitude);
+            neLng = _floors.Max(f => f.NeLongitude);
+        }
+
+        return (swLat, swLng, neLat, neLng);
     }
 
     private async Task SelectFloor(int floorId)
