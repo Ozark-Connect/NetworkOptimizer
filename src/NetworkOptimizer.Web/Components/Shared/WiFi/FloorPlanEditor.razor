@@ -943,6 +943,17 @@
         color: #38bdf8;
     }
 
+    .fp-ap-popup-tx-info {
+        font-size: 11px;
+        color: #9ca3af;
+        text-align: center;
+        margin-top: 2px;
+    }
+
+    .fp-ap-popup-tx-info.overridden {
+        color: #38bdf8;
+    }
+
     .fp-btn-reset-sim {
         background: transparent;
         border-color: #f97316;
@@ -1307,7 +1318,8 @@
                 radioCode = r.RadioCode,
                 txPowerDbm = r.TxPowerDbm,
                 minTxPower = r.MinTxPowerDbm,
-                maxTxPower = r.MaxTxPowerDbm
+                maxTxPower = r.MaxTxPowerDbm,
+                eirp = r.Eirp
             })
         }));
 

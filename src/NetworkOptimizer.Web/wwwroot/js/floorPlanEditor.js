@@ -378,14 +378,16 @@ window.fpEditor = {
                 var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
                 var isOverridden = self._txPowerOverrides[overrideKey] != null;
                 var safeKey = esc(overrideKey);
+                var eirpText = activeRadio.eirp != null ? ' / ' + activeRadio.eirp + ' dBm EIRP' : '';
                 txPowerHtml =
                     '<div class="fp-ap-popup-divider"></div>' +
                     '<div class="fp-ap-popup-section-label">Simulate</div>' +
                     '<div class="fp-ap-popup-row"><label>TX Power</label>' +
                     '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
-                    'oninput="this.nextElementSibling.textContent=this.value+\' dBm\'" ' +
-                    'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);this.nextElementSibling.classList.add(\'overridden\');fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
-                    '<span class="fp-ap-popup-power' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm</span></div>';
+                    'oninput="fpEditor._updateTxPowerLabel(this)" ' +
+                    'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
+                    '</div>' +
+                    '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
             }
 
             var safeMac = esc(ap.mac);
@@ -450,6 +452,16 @@ window.fpEditor = {
         if (reopenMarker) {
             reopenMarker.openPopup();
         }
+    },
+
+    _updateTxPowerLabel: function (slider) {
+        var info = slider.closest('.fp-ap-popup-rows').querySelector('.fp-ap-popup-tx-info');
+        if (!info) return;
+        var val = slider.value;
+        // Update just the TX dBm portion, keep EIRP suffix if present
+        var parts = info.textContent.split('/');
+        info.textContent = val + ' dBm TX' + (parts.length > 1 ? ' / ' + parts[1].trim() : '');
+        info.classList.add('overridden');
     },
 
     _updateResetSimBtn: function () {
