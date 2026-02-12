@@ -1001,16 +1001,10 @@ window.fpEditor = {
 
             // Check current wall being drawn
             if (self._currentWall) checkPoints(self._currentWall.points);
-            // Check all existing walls on this floor
+            // Check all existing walls on this floor (same building only)
             if (self._allWalls) {
                 for (var wi = 0; wi < self._allWalls.length; wi++) {
                     checkPoints(self._allWalls[wi].points);
-                }
-            }
-            // Check background walls (adjacent floors)
-            if (self._bgWalls) {
-                for (var bi = 0; bi < self._bgWalls.length; bi++) {
-                    checkPoints(self._bgWalls[bi].points);
                 }
             }
             return bestLen;
