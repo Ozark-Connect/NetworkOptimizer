@@ -1304,12 +1304,20 @@
         if (_selectedBuilding == null) return;
         var buildingId = _selectedBuilding.Id;
 
+        // Capture pre-move bounds for AP detection BEFORE shifting anything
+        var buildingFloors = _floors.Where(f => f.BuildingId == buildingId).ToList();
+        if (buildingFloors.Count == 0) return;
+        var preSwLat = buildingFloors.Min(f => f.SwLatitude);
+        var preSwLng = buildingFloors.Min(f => f.SwLongitude);
+        var preNeLat = buildingFloors.Max(f => f.NeLatitude);
+        var preNeLng = buildingFloors.Max(f => f.NeLongitude);
+
         // Update building center
         await FloorPlanSvc.UpdateBuildingAsync(buildingId, _selectedBuilding.Name,
             _selectedBuilding.CenterLatitude + dLat, _selectedBuilding.CenterLongitude + dLng);
 
-        // Shift ALL floors: walls, bounds
-        foreach (var floor in _floors)
+        // Shift ALL floors of this building: walls, bounds
+        foreach (var floor in buildingFloors)
         {
             // Shift floor bounds
             await FloorPlanSvc.UpdateFloorAsync(floor.Id,
@@ -1338,17 +1346,12 @@
             catch { }
         }
 
-        // Shift all APs that were inside this building's bounds
-        var swLat = _floors.Min(f => f.SwLatitude);
-        var swLng = _floors.Min(f => f.SwLongitude);
-        var neLat = _floors.Max(f => f.NeLatitude);
-        var neLng = _floors.Max(f => f.NeLongitude);
+        // Shift all APs that were inside this building's PRE-MOVE bounds
         foreach (var ap in _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue))
         {
-            // Check if AP was inside building bounds (pre-move position)
             var apLat = ap.Latitude!.Value;
             var apLng = ap.Longitude!.Value;
-            if (apLat >= swLat && apLat <= neLat && apLng >= swLng && apLng <= neLng)
+            if (apLat >= preSwLat && apLat <= preNeLat && apLng >= preSwLng && apLng <= preNeLng)
             {
                 await ApMapSvc.SaveApLocationAsync(ap.Mac, apLat + dLat, apLng + dLng);
             }
@@ -1555,6 +1558,10 @@
         _isDrawingShape = false;
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+
+        // Auto-update floor bounds and building center from wall extents
+        await RecalcBoundsFromWalls(_selectedFloor, wallsJson);
+
         // Re-render walls from saved state so they persist visually
         await UpdateWalls();
         // Only recompute heatmap if not still in draw mode (Done Drawing will restore it)
@@ -2045,6 +2052,50 @@
             await Task.Delay(50);
             await JS.InvokeVoidAsync("fpEditor.invalidateSize");
         }
+    }
+
+    /// <summary>
+    /// Recalculate floor bounds from wall coordinates and update building center.
+    /// Called after walls are saved to keep bounds in sync with actual wall positions.
+    /// </summary>
+    private async Task RecalcBoundsFromWalls(FloorDto floor, string wallsJson)
+    {
+        if (string.IsNullOrEmpty(wallsJson) || wallsJson == "[]") return;
+        try
+        {
+            var walls = System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(wallsJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (walls == null || walls.Count == 0) return;
+
+            var allPoints = walls.SelectMany(w => w.Points).ToList();
+            if (allPoints.Count == 0) return;
+
+            var swLat = allPoints.Min(p => p.Lat);
+            var swLng = allPoints.Min(p => p.Lng);
+            var neLat = allPoints.Max(p => p.Lat);
+            var neLng = allPoints.Max(p => p.Lng);
+
+            floor.SwLatitude = swLat;
+            floor.SwLongitude = swLng;
+            floor.NeLatitude = neLat;
+            floor.NeLongitude = neLng;
+            await FloorPlanSvc.UpdateFloorAsync(floor.Id, swLat: swLat, swLng: swLng, neLat: neLat, neLng: neLng);
+
+            // Update building center from union of all floor bounds
+            if (_selectedBuilding != null && _floors.Count > 0)
+            {
+                var unionSwLat = _floors.Min(f => f.SwLatitude);
+                var unionSwLng = _floors.Min(f => f.SwLongitude);
+                var unionNeLat = _floors.Max(f => f.NeLatitude);
+                var unionNeLng = _floors.Max(f => f.NeLongitude);
+                var centerLat = (unionSwLat + unionNeLat) / 2;
+                var centerLng = (unionSwLng + unionNeLng) / 2;
+                _selectedBuilding.CenterLatitude = centerLat;
+                _selectedBuilding.CenterLongitude = centerLng;
+                await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, centerLat, centerLng);
+            }
+        }
+        catch { }
     }
 
     public void Dispose()
