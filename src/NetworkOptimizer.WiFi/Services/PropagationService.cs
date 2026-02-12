@@ -283,17 +283,17 @@ public class PropagationService
 
     /// <summary>
     /// Determine the native mount orientation of the antenna pattern data.
-    /// Outdoor APs in omni mode have patterns measured wall-mounted, but
-    /// directional patterns (base/panel/narrow/wide) are measured flat (ceiling).
+    /// APs with switchable antenna modes (those with an omni variant in the pattern
+    /// data) have their directional patterns measured flat (ceiling orientation),
+    /// while their omni patterns are measured wall-mounted.
     /// </summary>
-    private static string GetPatternNativeMount(string model, string? antennaMode)
+    private string GetPatternNativeMount(string model, string? antennaMode)
     {
-        if (model.Contains("-Outdoor", StringComparison.OrdinalIgnoreCase) &&
-            (string.IsNullOrEmpty(antennaMode) ||
-             !antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase)))
-        {
+        var isOmni = !string.IsNullOrEmpty(antennaMode) &&
+                     antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
+
+        if (!isOmni && _antennaLoader.HasOmniVariant(model))
             return "ceiling";
-        }
 
         return MountTypeHelper.GetDefaultMountType(model);
     }

@@ -91,6 +91,22 @@ public class AntennaPatternLoader
     }
 
     /// <summary>
+    /// Check if a model has an omni variant pattern, indicating it supports
+    /// switchable antenna modes (directional vs omni).
+    /// </summary>
+    public bool HasOmniVariant(string model)
+    {
+        EnsureLoaded();
+        if (_patterns == null) return false;
+
+        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            ? model[..^2]
+            : model;
+
+        return _patterns.ContainsKey($"{patternName}:omni");
+    }
+
+    /// <summary>
     /// Get antenna gain at a specific elevation angle for a model/band/mode.
     /// Returns 0 dBi if pattern not found.
     /// </summary>
