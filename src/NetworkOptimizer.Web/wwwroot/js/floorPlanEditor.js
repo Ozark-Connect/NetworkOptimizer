@@ -813,12 +813,14 @@ window.fpEditor = {
         var m = this._map;
         if (!m) return null;
         var mousePixel = m.latLngToContainerPoint(L.latLng(lat, lng));
+        var mouseLl = L.latLng(lat, lng);
         var bestVertexDist = snapPixels;
         var bestVertexPt = null;
         var bestSegDist = snapPixels;
         var bestSegPt = null;
 
-        function checkWalls(walls) {
+        // maxMeters: optional real-world distance cap (for background walls)
+        function checkWalls(walls, maxMeters) {
             if (!walls) return;
             for (var wi = 0; wi < walls.length; wi++) {
                 var pts = walls[wi].points;
@@ -828,6 +830,8 @@ window.fpEditor = {
                     var px = m.latLngToContainerPoint(L.latLng(pts[pi].lat, pts[pi].lng));
                     var d = mousePixel.distanceTo(px);
                     if (d < bestVertexDist) {
+                        // Enforce real-world distance cap for background walls
+                        if (maxMeters && m.distance(mouseLl, L.latLng(pts[pi].lat, pts[pi].lng)) > maxMeters) continue;
                         bestVertexDist = d;
                         // Include adjacent segment for angle reference
                         var adjA = null, adjB = null;
@@ -848,6 +852,11 @@ window.fpEditor = {
                     var projPx = L.point(aPx.x + t * dx, aPx.y + t * dy);
                     var dist = mousePixel.distanceTo(projPx);
                     if (dist < bestSegDist) {
+                        if (maxMeters) {
+                            var projLat = pts[si].lat + t * (pts[si + 1].lat - pts[si].lat);
+                            var projLng = pts[si].lng + t * (pts[si + 1].lng - pts[si].lng);
+                            if (m.distance(mouseLl, L.latLng(projLat, projLng)) > maxMeters) continue;
+                        }
                         bestSegDist = dist;
                         bestSegPt = {
                             lat: pts[si].lat + t * (pts[si + 1].lat - pts[si].lat),
@@ -862,7 +871,7 @@ window.fpEditor = {
         }
 
         checkWalls(this._allWalls);
-        checkWalls(this._bgWalls);
+        checkWalls(this._bgWalls, 6); // ~20 ft real-world distance cap for other buildings
         var result = bestVertexPt || bestSegPt;
         if (result) console.log('vertexSnap:', result.type, 'at', result.lat.toFixed(6), result.lng.toFixed(6));
         return result;
