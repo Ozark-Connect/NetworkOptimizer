@@ -823,13 +823,17 @@ window.fpEditor = {
             for (var wi = 0; wi < walls.length; wi++) {
                 var pts = walls[wi].points;
                 if (!pts) continue;
-                // Check vertices
+                // Check vertices (include adjacent segment endpoints for angle reference)
                 for (var pi = 0; pi < pts.length; pi++) {
                     var px = m.latLngToContainerPoint(L.latLng(pts[pi].lat, pts[pi].lng));
                     var d = mousePixel.distanceTo(px);
                     if (d < bestVertexDist) {
                         bestVertexDist = d;
-                        bestVertexPt = { lat: pts[pi].lat, lng: pts[pi].lng, type: 'vertex' };
+                        // Include adjacent segment for angle reference
+                        var adjA = null, adjB = null;
+                        if (pi > 0) { adjA = { lat: pts[pi - 1].lat, lng: pts[pi - 1].lng }; adjB = { lat: pts[pi].lat, lng: pts[pi].lng }; }
+                        else if (pi < pts.length - 1) { adjA = { lat: pts[pi].lat, lng: pts[pi].lng }; adjB = { lat: pts[pi + 1].lat, lng: pts[pi + 1].lng }; }
+                        bestVertexPt = { lat: pts[pi].lat, lng: pts[pi].lng, type: 'vertex', segA: adjA, segB: adjB };
                     }
                 }
                 // Check perpendicular projection onto each segment
@@ -1035,6 +1039,14 @@ window.fpEditor = {
                         lng = vtxSnap.lng;
                     }
                     didSnapToWall = true;
+                    // Set reference angle from snapped wall when starting a new shape
+                    if (self._refAngle === null && vtxSnap.segA && vtxSnap.segB &&
+                        (!self._currentWall || self._currentWall.points.length === 0)) {
+                        var sCosLat = Math.cos(vtxSnap.segA.lat * Math.PI / 180);
+                        var sdx = (vtxSnap.segB.lng - vtxSnap.segA.lng) * sCosLat;
+                        var sdy = vtxSnap.segB.lat - vtxSnap.segA.lat;
+                        self._refAngle = Math.atan2(sdy, sdx);
+                    }
                 }
             }
 
@@ -1046,7 +1058,7 @@ window.fpEditor = {
                     lat = snapped.lat;
                     lng = snapped.lng;
                 }
-                // Set reference angle from first segment
+                // Set reference angle from first segment (if not already set from wall snap)
                 if (self._refAngle === null && self._currentWall.points.length === 1) {
                     var cosLat2 = Math.cos(prev.lat * Math.PI / 180);
                     var dx2 = (lng - prev.lng) * cosLat2;
