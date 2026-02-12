@@ -86,9 +86,9 @@ window.fpEditor = {
             var container = document.getElementById(containerId);
             if (!container) { setTimeout(init, 100); return; }
 
-            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true });
+            var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24 });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 22, maxNativeZoom: 19, attribution: 'OpenStreetMap'
+                maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap'
             }).addTo(m);
             self._map = m;
 
@@ -225,7 +225,7 @@ window.fpEditor = {
 
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
-            this._map.fitBounds([[swLat, swLng], [neLat, neLng]], { padding: [50, 50], maxZoom: 22 });
+            this._map.fitBounds([[swLat, swLng], [neLat, neLng]], { padding: [10, 10], maxZoom: 24 });
         }
     },
 

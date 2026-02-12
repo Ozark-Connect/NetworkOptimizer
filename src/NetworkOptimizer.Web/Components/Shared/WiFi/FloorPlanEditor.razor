@@ -1043,12 +1043,17 @@
             var swLng = _floors.Min(f => f.SwLongitude);
             var neLat = _floors.Max(f => f.NeLatitude);
             var neLng = _floors.Max(f => f.NeLongitude);
-            await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
+            // Add ~25 ft (7.6m) buffer around the perimeter
+            var bufferLat = 7.6 / 111320.0;
+            var centerLat = (swLat + neLat) / 2;
+            var bufferLng = 7.6 / (111320.0 * Math.Cos(centerLat * Math.PI / 180));
+            await JS.InvokeVoidAsync("fpEditor.fitBounds",
+                swLat - bufferLat, swLng - bufferLng, neLat + bufferLat, neLng + bufferLng);
         }
         else if (_selectedBuilding != null)
         {
             await JS.InvokeVoidAsync("fpEditor.setView",
-                _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude, 19);
+                _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude, 22);
         }
         else
         {
