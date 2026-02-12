@@ -1065,8 +1065,15 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
         catch { /* ignore bad JSON */ }
     }
 
+    // Extend heatmap bounds beyond floor plan so signal renders until it fades out
+    var latSpan = floor.NeLatitude - floor.SwLatitude;
+    var lngSpan = floor.NeLongitude - floor.SwLongitude;
+    var padLat = latSpan * 0.5;
+    var padLng = lngSpan * 0.5;
+
     var result = propagationSvc.ComputeHeatmap(
-        floor.SwLatitude, floor.SwLongitude, floor.NeLatitude, floor.NeLongitude,
+        floor.SwLatitude - padLat, floor.SwLongitude - padLng,
+        floor.NeLatitude + padLat, floor.NeLongitude + padLng,
         request.Band, placedAps, walls, floor.FloorNumber, request.GridResolutionMeters);
 
     return Results.Ok(result);
