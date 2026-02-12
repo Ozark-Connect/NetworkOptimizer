@@ -230,7 +230,7 @@ window.fpEditor = {
         if (this._map) {
             var bounds = [[swLat, swLng], [neLat, neLng]];
             console.log('fitBounds called:', { swLat, swLng, neLat, neLng, mapSize: this._map.getSize(), currentZoom: this._map.getZoom() });
-            this._map.fitBounds(bounds, { padding: [10, 10], maxZoom: 24 });
+            this._map.fitBounds(bounds, { padding: [0, 0], maxZoom: 24 });
             console.log('fitBounds result:', { newZoom: this._map.getZoom(), newCenter: this._map.getCenter() });
         }
     },
