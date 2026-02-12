@@ -937,7 +937,7 @@ app.MapGet("/api/buildings", async (FloorPlanService svc) =>
         Floors = b.Floors.Select(f => new
         {
             f.Id, f.BuildingId, f.FloorNumber, f.Label, f.SwLatitude, f.SwLongitude,
-            f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson,
+            f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson, f.FloorMaterial,
             HasImage = !string.IsNullOrEmpty(f.ImagePath), f.CreatedAt, f.UpdatedAt
         })
     }));
@@ -970,7 +970,7 @@ app.MapGet("/api/buildings/{id:int}/floors", async (int id, FloorPlanService svc
     return Results.Ok(floors.Select(f => new
     {
         f.Id, f.BuildingId, f.FloorNumber, f.Label, f.SwLatitude, f.SwLongitude,
-        f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson,
+        f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson, f.FloorMaterial,
         HasImage = !string.IsNullOrEmpty(f.ImagePath), f.CreatedAt, f.UpdatedAt
     }));
 });
@@ -990,7 +990,7 @@ app.MapPut("/api/floors/{id:int}", async (int id, HttpContext context, FloorPlan
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
     var floor = await svc.UpdateFloorAsync(id,
         request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude,
-        request.Opacity, request.WallsJson, request.Label);
+        request.Opacity, request.WallsJson, request.Label, floorMaterial: request.FloorMaterial);
     return floor != null ? Results.Ok(new { success = true }) : Results.NotFound();
 });
 
@@ -1197,4 +1197,5 @@ record ApLocationRequest(double Latitude, double Longitude, int? Floor = 1);
 record BuildingRequest(string Name, double CenterLatitude, double CenterLongitude);
 record FloorRequest(int FloorNumber, string Label, double SwLatitude, double SwLongitude, double NeLatitude, double NeLongitude);
 record FloorUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
-    double? NeLongitude = null, double? Opacity = null, string? WallsJson = null, string? Label = null);
+    double? NeLongitude = null, double? Opacity = null, string? WallsJson = null, string? Label = null,
+    string? FloorMaterial = null);

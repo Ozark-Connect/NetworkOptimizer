@@ -7359,7 +7359,7 @@ a.path-hop.hop-clickable:hover {
 
 .wifi-view-tabs {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.4rem;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 0.5rem;
     overflow-x: auto;
@@ -7413,7 +7413,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .wifi-view-tab {
-    padding: 0.5rem 0.8rem;
+    padding: 0.5rem 0.68rem;
     background: transparent;
     border: none;
     color: var(--text-secondary);

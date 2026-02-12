@@ -41,7 +41,7 @@ public static class MaterialAttenuation
         ["drywall"]         = new(2,   3,   4),
         ["drywall_heavy"]   = new(3,   4,   5),
         ["wood"]            = new(4,   5,   6),
-        ["wood_paneling"]   = new(2,   3,   4),
+        ["wood_paneling"]   = new(1,   2,   3),
         ["glass"]           = new(1,   2,   3),
         ["glass_thin"]      = new(1,   1,   2),
         ["brick"]           = new(4,   5,   7),

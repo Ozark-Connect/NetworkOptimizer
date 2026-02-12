@@ -10,6 +10,7 @@
 @inject ApMapService ApMapSvc
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@implements IDisposable
 
 <div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
     <!-- Toolbar -->
@@ -118,6 +119,16 @@
                 }
                 <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
                     Signal Data
+                </button>
+                <button class="fp-btn" @onclick="FitMapToContent"
+                        data-tooltip="Fit to view"
+                        style="padding: 4px 6px; line-height: 0;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h6v6"></path>
+                        <path d="M9 21H3v-6"></path>
+                        <path d="M21 3l-7 7"></path>
+                        <path d="M3 21l7-7"></path>
+                    </svg>
                 </button>
                 <button class="fp-btn @(_isFullscreen ? "fp-btn-warning" : "")" @onclick="ToggleFullscreen"
                         data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")"
@@ -1775,13 +1786,13 @@
 
     private string BuildSignalPopup(Iperf3Result result)
     {
-        var deviceName = (result.DeviceName ?? result.DeviceHost)?
-            .Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
+        var deviceName = System.Net.WebUtility.HtmlEncode(
+            (result.DeviceName ?? result.DeviceHost) ?? "Unknown");
         var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
 
         var apHop = result.PathAnalysis?.Path?.Hops?
             .FirstOrDefault(h => h.Type == HopType.AccessPoint);
-        var apName = apHop?.DeviceName?.Replace("'", "\\'").Replace("\"", "&quot;");
+        var apName = apHop?.DeviceName != null ? System.Net.WebUtility.HtmlEncode(apHop.DeviceName) : null;
 
         var html = "<div class='map-popup'>";
         html += $"<div class='wifi-tooltip-header'>{deviceName}</div>";
@@ -1817,8 +1828,9 @@
             .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
         if (OnClientClick.HasDelegate && !string.IsNullOrEmpty(clientMac))
         {
-            var escapedMac = clientMac.Replace("'", "\\'").Replace("\"", "&quot;");
-            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{escapedMac}\")' class='map-popup-link'>Client details \u2192</a>";
+            var jsMac = clientMac.Replace("'", "\\'");
+            var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client details \u2192</a>";
         }
         html += "</div>";
 
@@ -2096,6 +2108,51 @@
         await JS.InvokeVoidAsync("fpEditor.invalidateSize");
     }
 
+    private async Task FitMapToContent()
+    {
+        if (!_mapInitialized) return;
+
+        // Priority 1: If a building is selected with floor bounds, fit to building
+        if (_selectedBuilding != null && _floors.Count > 0 && BuildingHasWalls())
+        {
+            var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
+            var bufLat = (neLat - swLat) * 0.15;
+            var bufLng = (neLng - swLng) * 0.15;
+            await JS.InvokeVoidAsync("fpEditor.fitBounds",
+                swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
+            return;
+        }
+
+        // Priority 2: Fit to placed APs
+        var placedAps = _apMarkers.Where(a => a.Latitude.HasValue).ToList();
+        if (placedAps.Count > 0)
+        {
+            var swLat = placedAps.Min(a => a.Latitude!.Value);
+            var swLng = placedAps.Min(a => a.Longitude!.Value);
+            var neLat = placedAps.Max(a => a.Latitude!.Value);
+            var neLng = placedAps.Max(a => a.Longitude!.Value);
+            var bufLat = Math.Max((neLat - swLat) * 0.15, 0.0005);
+            var bufLng = Math.Max((neLng - swLng) * 0.15, 0.0005);
+            await JS.InvokeVoidAsync("fpEditor.fitBounds",
+                swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
+            return;
+        }
+
+        // Priority 3: Fit to all building floor bounds
+        var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
+        if (allFloors.Count > 0)
+        {
+            var swLat = allFloors.Min(f => f.SwLatitude);
+            var swLng = allFloors.Min(f => f.SwLongitude);
+            var neLat = allFloors.Max(f => f.NeLatitude);
+            var neLng = allFloors.Max(f => f.NeLongitude);
+            var bufLat = (neLat - swLat) * 0.15;
+            var bufLng = (neLng - swLng) * 0.15;
+            await JS.InvokeVoidAsync("fpEditor.fitBounds",
+                swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
+        }
+    }
+
     private async Task OnEditorKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Escape" && _isFullscreen)
@@ -2153,6 +2210,7 @@
 
     public void Dispose()
     {
+        _ = JS.InvokeVoidAsync("fpEditor.destroy");
         _dotNetRef?.Dispose();
     }
 

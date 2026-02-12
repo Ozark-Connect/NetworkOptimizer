@@ -1,5 +1,7 @@
 // Floor Plan Editor - Leaflet map integration
 // Provides map, AP markers, wall drawing, heatmap, and floor overlay management
+function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
 window.fpEditor = {
 
     // ── State ────────────────────────────────────────────────────────
@@ -375,31 +377,33 @@ window.fpEditor = {
                 var minPower = activeRadio.minTxPower || 1;
                 var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
                 var isOverridden = self._txPowerOverrides[overrideKey] != null;
+                var safeKey = esc(overrideKey);
                 txPowerHtml =
                     '<div class="fp-ap-popup-divider"></div>' +
                     '<div class="fp-ap-popup-section-label">Simulate</div>' +
                     '<div class="fp-ap-popup-row"><label>TX Power</label>' +
                     '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
                     'oninput="this.nextElementSibling.textContent=this.value+\' dBm\'" ' +
-                    'onchange="fpEditor._txPowerOverrides[\'' + overrideKey + '\']=parseInt(this.value);this.nextElementSibling.classList.add(\'overridden\');fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
+                    'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);this.nextElementSibling.classList.add(\'overridden\');fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
                     '<span class="fp-ap-popup-power' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm</span></div>';
             }
 
+            var safeMac = esc(ap.mac);
             marker.bindPopup(
                 '<div class="fp-ap-popup">' +
-                '<div class="fp-ap-popup-name">' + (ap.name || ap.mac) + '</div>' +
-                '<div class="fp-ap-popup-model">' + ap.model + ' \u00b7 ' + ap.clients + ' client' + (ap.clients !== 1 ? 's' : '') + '</div>' +
+                '<div class="fp-ap-popup-name">' + esc(ap.name || ap.mac) + '</div>' +
+                '<div class="fp-ap-popup-model">' + esc(ap.model) + ' \u00b7 ' + ap.clients + ' client' + (ap.clients !== 1 ? 's' : '') + '</div>' +
                 '<div class="fp-ap-popup-rows">' +
                 '<div class="fp-ap-popup-row"><label>Floor</label>' +
-                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApFloorChangedFromJs\',\'' + ap.mac + '\',parseInt(this.value))">' +
+                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApFloorChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))">' +
                 floorOpts + '</select></div>' +
                 '<div class="fp-ap-popup-row"><label>Mount</label>' +
-                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApMountTypeChangedFromJs\',\'' + ap.mac + '\',this.value)">' +
+                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApMountTypeChangedFromJs\',\'' + safeMac + '\',this.value)">' +
                 mountOpts + '</select></div>' +
                 '<div class="fp-ap-popup-row"><label>Facing</label>' +
                 '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
                 'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\'" ' +
-                'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + ap.mac + '\',parseInt(this.value))" />' +
+                'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
                 '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
                 txPowerHtml +
                 '</div></div>'
@@ -1918,5 +1922,19 @@ window.fpEditor = {
         if (this._signalClusterGroup) this._signalClusterGroup.clearLayers();
         if (this._bgWallLayer) this._bgWallLayer.clearLayers();
         if (this._wallLayer) this._wallLayer.clearLayers();
+    },
+
+    destroy: function () {
+        if (this._map) { this._map.remove(); this._map = null; }
+        this._dotNetRef = null;
+        this._overlay = null;
+        this._apLayer = null;
+        this._apGlowLayer = null;
+        this._bgWallLayer = null;
+        this._wallLayer = null;
+        this._wallHighlightLayer = null;
+        this._heatmapOverlay = null;
+        this._contourLayer = null;
+        this._signalClusterGroup = null;
     }
 };

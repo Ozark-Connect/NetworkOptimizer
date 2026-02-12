@@ -179,8 +179,21 @@ public class PropagationService
         // Antenna pattern gain using pattern multiplication:
         // Combine 2D azimuth and elevation cuts into 3D approximation.
         // Both patterns are normalized to 0 dB at peak, so addition in dB = multiplication in linear.
-        var azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
-        var elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+        //
+        // Wall mount swap: when an AP is wall-mounted, its elevation plane (vertical for ceiling)
+        // rotates to horizontal, and its azimuth plane (horizontal for ceiling) rotates to vertical.
+        // So horizontal directionality comes from the elevation pattern, and vertical from azimuth.
+        float azGain, elGain;
+        if (ap.MountType == "wall")
+        {
+            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+        }
+        else
+        {
+            azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+        }
         var antennaGain = azGain + elGain;
 
         // Wall attenuation via ray-casting
