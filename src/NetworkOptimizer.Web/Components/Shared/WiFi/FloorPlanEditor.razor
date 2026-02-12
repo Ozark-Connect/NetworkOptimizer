@@ -1802,6 +1802,7 @@
         _selectedFloor = null;
 
         await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
+        EnsureGlobalFloorExists();
         await UpdateBackgroundWalls();
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
@@ -1814,6 +1815,7 @@
         _showDeleteBuilding = false;
         await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
         await LoadBuildings();
+        EnsureGlobalFloorExists();
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
         if (_showHeatmap) await ComputeHeatmap();
         StateHasChanged();
@@ -1834,6 +1836,14 @@
         await UpdateBackgroundWalls();
         if (_showHeatmap) await ComputeHeatmap();
         StateHasChanged();
+    }
+
+    private void EnsureGlobalFloorExists()
+    {
+        var available = AllFloorNumbers.ToList();
+        if (available.Count == 0) { _globalActiveFloor = 1; return; }
+        if (!available.Contains(_globalActiveFloor))
+            _globalActiveFloor = available.Min();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
