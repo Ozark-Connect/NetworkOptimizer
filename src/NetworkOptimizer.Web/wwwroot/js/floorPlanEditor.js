@@ -96,7 +96,17 @@ window.fpEditor = {
             self._map = m;
 
             // Dynamic zoom delta: 0.5 at building level (zoom >= 21), 1 otherwise
-            m.on('zoomend', function () { m.options.zoomDelta = m.getZoom() >= 19 ? 0.5 : 1; });
+            // Override zoomIn/zoomOut so delta is set BEFORE the zoom, not after
+            var origZoomIn = m.zoomIn.bind(m);
+            var origZoomOut = m.zoomOut.bind(m);
+            m.zoomIn = function (delta, options) {
+                if (!delta) m.options.zoomDelta = m.getZoom() >= 21 ? 0.5 : 1;
+                return origZoomIn(delta, options);
+            };
+            m.zoomOut = function (delta, options) {
+                if (!delta) m.options.zoomDelta = m.getZoom() > 21 ? 0.5 : 1;
+                return origZoomOut(delta, options);
+            };
 
             // Custom panes for z-ordering: heatmap(350) < floorOverlay(380) < apGlow(390) < walls(400) < apIcons(450)
             m.createPane('heatmapPane');
