@@ -151,10 +151,11 @@ public class PropagationService
         }
 
         // Apply mount type elevation offset before antenna pattern lookup.
-        // The offset is the difference between the actual mount and the pattern's native orientation,
-        // since pattern data is measured in the AP's designed mount position (e.g., U7-Outdoor patterns
-        // are measured wall-mounted, so no correction is needed when actually wall-mounted).
-        var patternMountOffset = MountTypeHelper.GetDefaultMountType(ap.Model) switch { "wall" => -90, "desktop" => 180, _ => 0 };
+        // The offset is the difference between the actual mount and the pattern's native orientation.
+        // Outdoor APs in omni mode have patterns measured wall-mounted, but directional (non-omni)
+        // patterns are measured flat (ceiling orientation), so we adjust accordingly.
+        var patternNativeMount = GetPatternNativeMount(ap.Model, ap.AntennaMode);
+        var patternMountOffset = patternNativeMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
         var actualMountOffset = ap.MountType switch { "wall" => -90, "desktop" => 180, _ => 0 };
         var elevationOffset = actualMountOffset - patternMountOffset;
         elevationDeg = ((elevationDeg + elevationOffset) % 359 + 359) % 359;
@@ -278,6 +279,23 @@ public class PropagationService
     private static double CrossProduct(double ax, double ay, double bx, double by, double cx, double cy)
     {
         return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    }
+
+    /// <summary>
+    /// Determine the native mount orientation of the antenna pattern data.
+    /// Outdoor APs in omni mode have patterns measured wall-mounted, but
+    /// directional patterns (base/panel/narrow/wide) are measured flat (ceiling).
+    /// </summary>
+    private static string GetPatternNativeMount(string model, string? antennaMode)
+    {
+        if (model.Contains("-Outdoor", StringComparison.OrdinalIgnoreCase) &&
+            (string.IsNullOrEmpty(antennaMode) ||
+             !antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "ceiling";
+        }
+
+        return MountTypeHelper.GetDefaultMountType(model);
     }
 
     private struct WallSegment

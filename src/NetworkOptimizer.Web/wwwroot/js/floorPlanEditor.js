@@ -209,7 +209,7 @@ window.fpEditor = {
 
             // Mount type dropdown options
             var mountTypes = ['ceiling', 'wall', 'desktop'];
-            var mountLabels = { ceiling: 'Ceiling', wall: 'Wall', desktop: 'Desktop' };
+            var mountLabels = { ceiling: 'Ceiling', wall: 'Wall / Pole', desktop: 'Desktop' };
             var mountOpts = '';
             mountTypes.forEach(function (mt) {
                 mountOpts += '<option value="' + mt + '"' + (mt === (ap.mountType || 'ceiling') ? ' selected' : '') + '>' + mountLabels[mt] + '</option>';
