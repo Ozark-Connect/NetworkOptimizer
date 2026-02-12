@@ -1043,10 +1043,44 @@
             centerLng = firstAp.Longitude!.Value;
             zoom = 19;
         }
+        else if (_buildings.Count > 0)
+        {
+            // No placed APs - fit to all buildings
+            var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
+            if (allFloors.Count > 0)
+            {
+                centerLat = allFloors.Average(f => (f.SwLatitude + f.NeLatitude) / 2);
+                centerLng = allFloors.Average(f => (f.SwLongitude + f.NeLongitude) / 2);
+                zoom = 19;
+            }
+            else
+            {
+                centerLat = _buildings.Average(b => b.CenterLatitude);
+                centerLng = _buildings.Average(b => b.CenterLongitude);
+                zoom = 19;
+            }
+        }
 
         await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom);
         await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
         _mapInitialized = true;
+
+        // If no APs but buildings exist, fit to all building bounds after init
+        if (firstAp == null && _buildings.Count > 0)
+        {
+            var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
+            if (allFloors.Count > 0)
+            {
+                var swLat = allFloors.Min(f => f.SwLatitude);
+                var swLng = allFloors.Min(f => f.SwLongitude);
+                var neLat = allFloors.Max(f => f.NeLatitude);
+                var neLng = allFloors.Max(f => f.NeLongitude);
+                var bufLat = (neLat - swLat) * 0.15;
+                var bufLng = (neLng - swLng) * 0.15;
+                await JS.InvokeVoidAsync("fpEditor.fitBounds",
+                    swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
+            }
+        }
     }
 
     private async Task LoadBuildings()
