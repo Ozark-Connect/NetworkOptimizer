@@ -235,6 +235,12 @@ window.fpEditor = {
         }
     },
 
+    invalidateSize: function () {
+        if (this._map) {
+            this._map.invalidateSize();
+        }
+    },
+
     // ── Floor Overlay ────────────────────────────────────────────────
 
     updateFloorOverlay: function (imageUrl, swLat, swLng, neLat, neLng, opacity) {
