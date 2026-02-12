@@ -707,24 +707,48 @@ window.fpEditor = {
     },
 
     // Snap to nearby vertices from existing walls and background walls (adjacent floors)
+    // Snap to nearby wall vertices (priority) or perpendicular projection onto wall segments
     _snapToVertex: function (lat, lng, snapPixels) {
         var m = this._map;
         if (!m) return null;
         var mousePixel = m.latLngToContainerPoint(L.latLng(lat, lng));
-        var bestDist = snapPixels;
-        var bestPt = null;
+        var bestVertexDist = snapPixels;
+        var bestVertexPt = null;
+        var bestSegDist = snapPixels;
+        var bestSegPt = null;
 
         function checkWalls(walls) {
             if (!walls) return;
             for (var wi = 0; wi < walls.length; wi++) {
                 var pts = walls[wi].points;
                 if (!pts) continue;
+                // Check vertices
                 for (var pi = 0; pi < pts.length; pi++) {
                     var px = m.latLngToContainerPoint(L.latLng(pts[pi].lat, pts[pi].lng));
                     var d = mousePixel.distanceTo(px);
-                    if (d < bestDist) {
-                        bestDist = d;
-                        bestPt = { lat: pts[pi].lat, lng: pts[pi].lng };
+                    if (d < bestVertexDist) {
+                        bestVertexDist = d;
+                        bestVertexPt = { lat: pts[pi].lat, lng: pts[pi].lng };
+                    }
+                }
+                // Check perpendicular projection onto each segment
+                for (var si = 0; si < pts.length - 1; si++) {
+                    var aPx = m.latLngToContainerPoint(L.latLng(pts[si].lat, pts[si].lng));
+                    var bPx = m.latLngToContainerPoint(L.latLng(pts[si + 1].lat, pts[si + 1].lng));
+                    var dx = bPx.x - aPx.x, dy = bPx.y - aPx.y;
+                    var len2 = dx * dx + dy * dy;
+                    if (len2 < 1) continue;
+                    var t = ((mousePixel.x - aPx.x) * dx + (mousePixel.y - aPx.y) * dy) / len2;
+                    if (t < 0.01 || t > 0.99) continue; // skip near endpoints (vertex snap handles those)
+                    var projPx = L.point(aPx.x + t * dx, aPx.y + t * dy);
+                    var dist = mousePixel.distanceTo(projPx);
+                    if (dist < bestSegDist) {
+                        bestSegDist = dist;
+                        // Convert back to lat/lng by interpolating the original coordinates
+                        bestSegPt = {
+                            lat: pts[si].lat + t * (pts[si + 1].lat - pts[si].lat),
+                            lng: pts[si].lng + t * (pts[si + 1].lng - pts[si].lng)
+                        };
                     }
                 }
             }
@@ -732,7 +756,8 @@ window.fpEditor = {
 
         checkWalls(this._allWalls);
         checkWalls(this._bgWalls);
-        return bestPt;
+        // Vertices take priority over segment projections
+        return bestVertexPt || bestSegPt;
     },
 
     // ── Wall Drawing Mode ────────────────────────────────────────────
