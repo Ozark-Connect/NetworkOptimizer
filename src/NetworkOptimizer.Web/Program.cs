@@ -1051,31 +1051,28 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
         }
     }
 
-    // Get ALL placed APs (heatmap is campus-wide, not per-building)
+    // Get ALL placed APs that have a radio for the selected band
+    var bandFilter = request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5";
     var apMarkers = await apMapSvc.GetApMapMarkersAsync();
     var placedAps = apMarkers
         .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
-        .Select(a => new NetworkOptimizer.WiFi.Models.PropagationAp
+        .Where(a => a.Radios.Any(r => r.Band.Contains(bandFilter)))
+        .Select(a =>
         {
-            Mac = a.Mac,
-            Model = a.Model,
-            Latitude = a.Latitude!.Value,
-            Longitude = a.Longitude!.Value,
-            Floor = a.Floor ?? 1,
-            OrientationDeg = a.OrientationDeg,
-            MountType = a.MountType,
-            AntennaMode = a.Radios
-                .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
-                .Select(r => r.AntennaMode)
-                .FirstOrDefault(),
-            TxPowerDbm = a.Radios
-                .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
-                .Select(r => r.TxPowerDbm ?? 20)
-                .FirstOrDefault(20),
-            AntennaGainDbi = a.Radios
-                .Where(r => r.Band.Contains(request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5"))
-                .Select(r => (r.Eirp ?? 23) - (r.TxPowerDbm ?? 20))
-                .FirstOrDefault(3)
+            var radio = a.Radios.First(r => r.Band.Contains(bandFilter));
+            return new NetworkOptimizer.WiFi.Models.PropagationAp
+            {
+                Mac = a.Mac,
+                Model = a.Model,
+                Latitude = a.Latitude!.Value,
+                Longitude = a.Longitude!.Value,
+                Floor = a.Floor ?? 1,
+                OrientationDeg = a.OrientationDeg,
+                MountType = a.MountType,
+                AntennaMode = radio.AntennaMode,
+                TxPowerDbm = radio.TxPowerDbm ?? 20,
+                AntennaGainDbi = (radio.Eirp ?? 23) - (radio.TxPowerDbm ?? 20)
+            };
         }).ToList();
 
     var result = propagationSvc.ComputeHeatmap(
