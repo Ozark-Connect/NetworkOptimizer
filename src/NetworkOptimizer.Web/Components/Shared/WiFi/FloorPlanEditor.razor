@@ -627,7 +627,7 @@
         white-space: nowrap;
     }
 
-    .fp-wall-hint { white-space: normal; max-width: 420px; text-align: center; pointer-events: auto; display: flex; align-items: center; gap: 4px; }
+    .fp-wall-hint { white-space: normal; text-align: center; pointer-events: auto; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center; }
     .fp-hint-btn {
         background: #1e293b; color: #e0e0e0; border: 1px solid #475569; border-radius: 3px;
         padding: 1px 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
@@ -1000,6 +1000,13 @@
     @@media (max-width: 768px) {
         .fp-toolbar { flex-direction: column; align-items: flex-start; }
         .fp-toolbar-left, .fp-toolbar-right { width: 100%; }
+        .fp-edit-hint {
+            top: auto;
+            bottom: 80px;
+            width: 95%;
+            white-space: normal;
+            text-align: center;
+        }
     }
 </style>
 
