@@ -1436,13 +1436,7 @@
 
     private async Task DeselectBuilding()
     {
-        _selectedBuildingId = 0;
-        _selectedBuilding = null;
-        _floors = new();
-        _selectedFloorId = 0;
-        _selectedFloor = null;
-        _mode = "view";
-        await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
+        await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
     }
 
     private void ShowAddBuildingDialog()
