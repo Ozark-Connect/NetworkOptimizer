@@ -1032,12 +1032,13 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
 
     var activeFloor = request.ActiveFloor;
 
-    // Load walls from ALL floors matching the active floor number across ALL buildings
-    var walls = new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
+    // Load walls from ALL floors across ALL buildings, grouped by floor number.
+    // Cross-floor APs need walls from their own floor for shadow casting.
+    var wallsByFloor = new Dictionary<int, List<NetworkOptimizer.WiFi.Models.PropagationWall>>();
     var allBuildings = await floorSvc.GetBuildingsAsync();
     foreach (var building in allBuildings)
     {
-        foreach (var f in building.Floors.Where(f => f.FloorNumber == activeFloor))
+        foreach (var f in building.Floors)
         {
             if (string.IsNullOrEmpty(f.WallsJson)) continue;
             try
@@ -1045,7 +1046,12 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
                 var floorWalls = System.Text.Json.JsonSerializer.Deserialize<List<NetworkOptimizer.WiFi.Models.PropagationWall>>(
                     f.WallsJson,
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (floorWalls != null) walls.AddRange(floorWalls);
+                if (floorWalls != null)
+                {
+                    if (!wallsByFloor.ContainsKey(f.FloorNumber))
+                        wallsByFloor[f.FloorNumber] = new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
+                    wallsByFloor[f.FloorNumber].AddRange(floorWalls);
+                }
             }
             catch { /* ignore bad JSON */ }
         }
@@ -1102,7 +1108,7 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
 
     var result = propagationSvc.ComputeHeatmap(
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
-        request.Band, placedAps, walls, activeFloor, request.GridResolutionMeters, buildingFloorInfos);
+        request.Band, placedAps, wallsByFloor, activeFloor, request.GridResolutionMeters, buildingFloorInfos);
 
     return Results.Ok(result);
 });

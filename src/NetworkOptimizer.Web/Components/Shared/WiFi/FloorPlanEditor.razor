@@ -15,7 +15,8 @@
     <!-- Toolbar -->
     <div class="fp-toolbar">
         <div class="fp-toolbar-left">
-            <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged">
+            <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged"
+                    disabled="@(_mode == "walls")">
                 <option value="0">Select Building...</option>
                 @foreach (var b in _buildings)
                 {
@@ -38,11 +39,13 @@
                     {
                         <button class="fp-floor-btn @(f.Id == _selectedFloorId ? "active" : "")"
                                 @onclick="() => SelectFloor(f.Id)"
-                                data-tooltip="@f.Label">
+                                data-tooltip="@f.Label"
+                                disabled="@(_mode == "walls")">
                             @GetFloorLabel(f.FloorNumber)
                         </button>
                     }
-                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor">+ Floor</button>
+                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor"
+                            disabled="@(_mode == "walls")">+ Floor</button>
                 </div>
             }
             else if (AllFloorNumbers.Any())
@@ -1464,7 +1467,8 @@
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
         // Re-render walls from saved state so they persist visually
         await UpdateWalls();
-        if (_showHeatmap) await ComputeHeatmap();
+        // Only recompute heatmap if not still in draw mode (Done Drawing will restore it)
+        if (_showHeatmap && _mode != "walls") await ComputeHeatmap();
     }
 
     private async Task DeleteLastWall()

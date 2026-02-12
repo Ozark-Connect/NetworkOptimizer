@@ -34,7 +34,7 @@ public class PropagationService
         double swLat, double swLng, double neLat, double neLng,
         string band,
         List<PropagationAp> aps,
-        List<PropagationWall> walls,
+        Dictionary<int, List<PropagationWall>> wallsByFloor,
         int activeFloor,
         double gridResolutionMeters = 1.0,
         List<BuildingFloorInfo>? buildings = null)
@@ -70,8 +70,12 @@ public class PropagationService
         var latStep = (neLat - swLat) / gridHeight;
         var lngStep = (neLng - swLng) / gridWidth;
 
-        // Pre-compute wall segments as line segments for ray-casting
-        var wallSegments = PrecomputeWallSegments(walls);
+        // Pre-compute wall segments per floor for ray-casting
+        var segmentsByFloor = new Dictionary<int, List<WallSegment>>();
+        foreach (var (floor, floorWalls) in wallsByFloor)
+        {
+            segmentsByFloor[floor] = PrecomputeWallSegments(floorWalls);
+        }
 
         for (int y = 0; y < gridHeight; y++)
         {
@@ -84,7 +88,7 @@ public class PropagationService
                 foreach (var ap in aps)
                 {
                     var signal = ComputeSignalAtPoint(
-                        ap, pointLat, pointLng, activeFloor, band, freqMhz, wallSegments, buildings);
+                        ap, pointLat, pointLng, activeFloor, band, freqMhz, segmentsByFloor, buildings);
 
                     if (signal > bestSignal)
                         bestSignal = signal;
@@ -111,7 +115,7 @@ public class PropagationService
         double pointLat, double pointLng,
         int activeFloor,
         string band, double freqMhz,
-        List<WallSegment> wallSegments,
+        Dictionary<int, List<WallSegment>> segmentsByFloor,
         List<BuildingFloorInfo>? buildings)
     {
         // 2D distance from AP to point
@@ -168,11 +172,19 @@ public class PropagationService
         var elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         var antennaGain = azGain + elGain;
 
-        // Wall attenuation via ray-casting (only same-floor walls)
+        // Wall attenuation via ray-casting
+        // For same-floor: check active floor walls
+        // For cross-floor: check both AP's floor walls and active floor walls
+        // (signal must pass through walls on AP's floor before going through the floor,
+        //  then through walls on the active floor to reach the observation point)
         var wallLoss = 0.0;
-        if (floorSeparation == 0)
+        if (segmentsByFloor.TryGetValue(activeFloor, out var activeFloorSegments))
         {
-            wallLoss = ComputeWallLoss(ap.Latitude, ap.Longitude, pointLat, pointLng, band, wallSegments);
+            wallLoss += ComputeWallLoss(ap.Latitude, ap.Longitude, pointLat, pointLng, band, activeFloorSegments);
+        }
+        if (floorSeparation > 0 && segmentsByFloor.TryGetValue(ap.Floor, out var apFloorSegments))
+        {
+            wallLoss += ComputeWallLoss(ap.Latitude, ap.Longitude, pointLat, pointLng, band, apFloorSegments);
         }
 
         // Signal = TX power + antenna gain - FSPL - wall loss - floor loss
