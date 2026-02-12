@@ -95,6 +95,20 @@ public class LatLng
 }
 
 /// <summary>
+/// Building footprint and per-floor material data for propagation.
+/// </summary>
+public class BuildingFloorInfo
+{
+    public double SwLat { get; set; }
+    public double SwLng { get; set; }
+    public double NeLat { get; set; }
+    public double NeLng { get; set; }
+
+    /// <summary>Floor number to material key (e.g. "floor_wood", "floor_concrete")</summary>
+    public Dictionary<int, string> FloorMaterials { get; set; } = new();
+}
+
+/// <summary>
 /// Antenna pattern data for a single AP model and band.
 /// </summary>
 public class AntennaPattern

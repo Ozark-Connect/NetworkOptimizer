@@ -27,9 +27,11 @@ public static class MaterialAttenuation
         ["window_1_pane"]   = "Window (Single Pane)",
         ["window_2_pane"]   = "Window (Double Pane)",
         ["window_3_pane"]   = "Window (Triple Pane)",
-        ["exterior"]        = "Exterior Wall",
-        ["floor_wood"]      = "Floor (Wood)",
-        ["floor_concrete"]  = "Floor (Concrete)",
+        ["exterior"]                = "Exterior Wall",
+        ["exterior_residential"]    = "Exterior (Residential)",
+        ["exterior_commercial"]     = "Exterior (Commercial)",
+        ["floor_wood"]              = "Floor (Wood Frame)",
+        ["floor_concrete"]          = "Floor (Concrete Slab)",
     };
 
     /// <summary>Material type to attenuation mapping per frequency band</summary>
@@ -53,10 +55,13 @@ public static class MaterialAttenuation
         ["window_1_pane"]   = new(3,   4,   5),
         ["window_2_pane"]   = new(5,   7,   9),
         ["window_3_pane"]   = new(8,   10,  12),
-        // Other
-        ["exterior"]        = new(10,  13,  16),
-        ["floor_wood"]      = new(13,  18,  22),
-        ["floor_concrete"]  = new(18,  23,  28),
+        // Exterior walls
+        ["exterior"]                = new(5,   7,   8),   // backward compat alias → residential
+        ["exterior_residential"]    = new(5,   7,   8),   // wood frame + insulation + siding (NIST: 3-8 dB at 2.4 GHz)
+        ["exterior_commercial"]     = new(10,  15,  18),  // brick/masonry + block (NIST: ~10 dB at 2.4 GHz)
+        // Floors (ITU-R P.1238)
+        ["floor_wood"]      = new(5,   8,   10),  // residential wood frame
+        ["floor_concrete"]  = new(15,  18,  21),  // commercial concrete slab
     };
 
     /// <summary>Display colors for each material type (CSS hex, aligned with UniFi Design Center)</summary>
@@ -77,9 +82,11 @@ public static class MaterialAttenuation
         ["window_1_pane"]   = "#8ebbf4",  // rgb(142, 187, 244)
         ["window_2_pane"]   = "#2082ff",  // rgb(32, 130, 255)
         ["window_3_pane"]   = "#025bcc",  // rgb(2, 91, 204)
-        ["exterior"]        = "#ef4444",
-        ["floor_wood"]      = "#8b5cf6",
-        ["floor_concrete"]  = "#dc2626",
+        ["exterior"]                = "#ef4444",
+        ["exterior_residential"]    = "#f97316",  // orange - lighter than commercial
+        ["exterior_commercial"]     = "#dc2626",  // red - heavy material
+        ["floor_wood"]              = "#8b5cf6",
+        ["floor_concrete"]          = "#dc2626",
     };
 
     /// <summary>Get attenuation for a material at a specific frequency band</summary>

@@ -42,6 +42,10 @@ public class FloorPlan
     /// <summary>JSON array of wall segments: [{ points: [{lat,lng}...], material: "drywall" }]</summary>
     public string? WallsJson { get; set; }
 
+    /// <summary>Material type for this floor (e.g. "floor_wood", "floor_concrete")</summary>
+    [MaxLength(50)]
+    public string FloorMaterial { get; set; } = "floor_wood";
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

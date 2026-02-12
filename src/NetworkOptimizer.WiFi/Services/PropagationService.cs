@@ -36,7 +36,8 @@ public class PropagationService
         List<PropagationAp> aps,
         List<PropagationWall> walls,
         int activeFloor,
-        double gridResolutionMeters = 1.0)
+        double gridResolutionMeters = 1.0,
+        List<BuildingFloorInfo>? buildings = null)
     {
         var freqMhz = MaterialAttenuation.GetCenterFrequencyMhz(band);
 
@@ -83,7 +84,7 @@ public class PropagationService
                 foreach (var ap in aps)
                 {
                     var signal = ComputeSignalAtPoint(
-                        ap, pointLat, pointLng, activeFloor, band, freqMhz, wallSegments);
+                        ap, pointLat, pointLng, activeFloor, band, freqMhz, wallSegments, buildings);
 
                     if (signal > bestSignal)
                         bestSignal = signal;
@@ -110,7 +111,8 @@ public class PropagationService
         double pointLat, double pointLng,
         int activeFloor,
         string band, double freqMhz,
-        List<WallSegment> wallSegments)
+        List<WallSegment> wallSegments,
+        List<BuildingFloorInfo>? buildings)
     {
         // 2D distance from AP to point
         var distance2d = HaversineDistance(ap.Latitude, ap.Longitude, pointLat, pointLng);
@@ -121,8 +123,7 @@ public class PropagationService
         var floorLoss = 0.0;
         if (floorSeparation > 0)
         {
-            // Each floor crossing adds attenuation (use concrete floor by default)
-            floorLoss = floorSeparation * MaterialAttenuation.GetAttenuation("floor_concrete", band);
+            floorLoss = ComputeFloorLoss(ap, activeFloor, band, buildings);
         }
 
         // 3D distance including floor separation
@@ -178,6 +179,45 @@ public class PropagationService
         var signal = ap.TxPowerDbm + ap.AntennaGainDbi + antennaGain - fspl - wallLoss - floorLoss;
 
         return (float)signal;
+    }
+
+    /// <summary>
+    /// Compute floor attenuation between AP and active floor.
+    /// Outdoor APs (not inside any building) get zero floor loss.
+    /// Indoor APs sum per-floor material attenuation for each crossed floor.
+    /// </summary>
+    private static double ComputeFloorLoss(PropagationAp ap, int activeFloor, string band, List<BuildingFloorInfo>? buildings)
+    {
+        if (buildings == null || buildings.Count == 0)
+        {
+            // No building data - fall back to wood frame default
+            return Math.Abs(ap.Floor - activeFloor) * MaterialAttenuation.GetAttenuation("floor_wood", band);
+        }
+
+        // Find the building containing this AP
+        var apBuilding = buildings.FirstOrDefault(b =>
+            ap.Latitude >= b.SwLat && ap.Latitude <= b.NeLat &&
+            ap.Longitude >= b.SwLng && ap.Longitude <= b.NeLng);
+
+        if (apBuilding == null)
+        {
+            // AP is outdoors - no physical floor between AP and observation point
+            return 0.0;
+        }
+
+        // Sum attenuation for each floor crossed between AP floor and active floor
+        var totalLoss = 0.0;
+        var minFloor = Math.Min(ap.Floor, activeFloor);
+        var maxFloor = Math.Max(ap.Floor, activeFloor);
+
+        for (var f = minFloor; f < maxFloor; f++)
+        {
+            // Use the material of the floor being crossed (the ceiling of floor f)
+            var material = apBuilding.FloorMaterials.GetValueOrDefault(f, "floor_wood");
+            totalLoss += MaterialAttenuation.GetAttenuation(material, band);
+        }
+
+        return totalLoss;
     }
 
     private double ComputeWallLoss(

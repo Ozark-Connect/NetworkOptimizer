@@ -72,7 +72,7 @@
                     {
                         <select class="fp-select fp-select-sm fp-wall-select" @bind="_wallMaterial">
                             @foreach (var mat in MaterialAttenuation.MaterialLabels
-                                .Where(m => !m.Key.StartsWith("floor_")))
+                                .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior"))
                             {
                                 var db = MaterialAttenuation.GetAttenuation(mat.Key, "5");
                                 <option value="@mat.Key">@mat.Value (@db dB)</option>
@@ -181,6 +181,13 @@
                 <InputFile OnChange="OnFloorPlanUpload" accept="image/*" style="display:none" />
             </label>
             <div class="fp-opacity-control">
+                <span>Floor:</span>
+                <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
+                    <option value="floor_wood">Wood Frame</option>
+                    <option value="floor_concrete">Concrete Slab</option>
+                </select>
+            </div>
+            <div class="fp-opacity-control">
                 <span>Opacity:</span>
                 <input type="range" min="0" max="100" value="@((int)(_floorOpacity * 100))"
                        @oninput="OnOpacityChange" class="fp-opacity-slider" />
@@ -221,6 +228,13 @@
             <div class="fp-form-group">
                 <label>Label</label>
                 <input type="text" @bind="_newFloorLabel" class="fp-input" placeholder="e.g. Ground Floor" />
+            </div>
+            <div class="fp-form-group">
+                <label>Floor Construction</label>
+                <select class="fp-input" @bind="_newFloorMaterial">
+                    <option value="floor_wood">Wood Frame (Residential)</option>
+                    <option value="floor_concrete">Concrete Slab (Commercial)</option>
+                </select>
             </div>
             <div class="fp-dialog-actions">
                 <button class="fp-btn" @onclick="() => _showAddFloor = false">Cancel</button>
@@ -841,6 +855,7 @@
     private string _newBuildingName = "";
     private int _newFloorNumber;
     private string _newFloorLabel = "";
+    private string _newFloorMaterial = "floor_wood";
     private ApMapMarker? _selectedApForPlacement;
 
     private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
@@ -894,7 +909,8 @@
                     SwLatitude = f.SwLatitude, SwLongitude = f.SwLongitude,
                     NeLatitude = f.NeLatitude, NeLongitude = f.NeLongitude,
                     Opacity = f.Opacity, WallsJson = f.WallsJson,
-                    HasImage = !string.IsNullOrEmpty(f.ImagePath)
+                    HasImage = !string.IsNullOrEmpty(f.ImagePath),
+                    FloorMaterial = f.FloorMaterial
                 }).ToList()
             }).ToList();
         }
@@ -1099,7 +1115,7 @@
         var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
         var labelsJson = System.Text.Json.JsonSerializer.Serialize(
             MaterialAttenuation.MaterialLabels
-                .Where(m => !m.Key.StartsWith("floor_"))
+                .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior")
                 .ToDictionary(m => m.Key, m => m.Value));
         await JS.InvokeVoidAsync("fpEditor.updateWalls", wallsJson, colorsJson, labelsJson);
     }
@@ -1390,6 +1406,15 @@
 
     // ── Floor plan management ────────────────────────────────────────
 
+    private async Task OnFloorMaterialChange(ChangeEventArgs e)
+    {
+        if (_selectedFloor == null) return;
+        var material = e.Value?.ToString() ?? "floor_wood";
+        _selectedFloor.FloorMaterial = material;
+        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, floorMaterial: material);
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
     private async Task OnOpacityChange(ChangeEventArgs e)
     {
         if (int.TryParse(e.Value?.ToString(), out var pct))
@@ -1467,6 +1492,13 @@
         var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : 0;
         _newFloorNumber = maxFloor + 1;
         _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+
+        // Infer floor material from existing exterior walls
+        var hasCommercialExterior = _floors.Any(f =>
+            !string.IsNullOrEmpty(f.WallsJson) &&
+            f.WallsJson.Contains("exterior_commercial", StringComparison.OrdinalIgnoreCase));
+        _newFloorMaterial = hasCommercialExterior ? "floor_concrete" : "floor_wood";
+
         _showAddFloor = true;
     }
 
@@ -1490,7 +1522,7 @@
         var lngOffset = 25.0 / (111320.0 * cosLat);
 
         await FloorPlanSvc.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
-            lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset);
+            lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset, _newFloorMaterial);
 
         _showAddFloor = false;
         await LoadBuildings();
@@ -1589,5 +1621,6 @@
         public double Opacity { get; set; } = 0.7;
         public string? WallsJson { get; set; }
         public bool HasImage { get; set; }
+        public string FloorMaterial { get; set; } = "floor_wood";
     }
 }

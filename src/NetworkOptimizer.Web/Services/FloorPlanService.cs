@@ -132,7 +132,7 @@ public class FloorPlanService
     }
 
     public async Task<FloorPlan> CreateFloorAsync(int buildingId, int floorNumber, string label,
-        double swLat, double swLng, double neLat, double neLng)
+        double swLat, double swLng, double neLat, double neLng, string floorMaterial = "floor_wood")
     {
         using var db = await _dbFactory.CreateDbContextAsync();
         var floor = new FloorPlan
@@ -144,6 +144,7 @@ public class FloorPlanService
             SwLongitude = swLng,
             NeLatitude = neLat,
             NeLongitude = neLng,
+            FloorMaterial = floorMaterial,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -154,7 +155,7 @@ public class FloorPlanService
 
     public async Task<FloorPlan?> UpdateFloorAsync(int floorId, double? swLat = null, double? swLng = null,
         double? neLat = null, double? neLng = null, double? opacity = null, string? wallsJson = null,
-        string? label = null)
+        string? label = null, string? floorMaterial = null)
     {
         using var db = await _dbFactory.CreateDbContextAsync();
         var floor = await db.FloorPlans.FindAsync(floorId);
@@ -167,6 +168,7 @@ public class FloorPlanService
         if (opacity.HasValue) floor.Opacity = opacity.Value;
         if (wallsJson != null) floor.WallsJson = wallsJson;
         if (label != null) floor.Label = label;
+        if (floorMaterial != null) floor.FloorMaterial = floorMaterial;
         floor.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync();

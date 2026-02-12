@@ -1075,9 +1075,24 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
             };
         }).ToList();
 
+    // Build per-building floor info for smart floor attenuation
+    var buildingFloorInfos = allBuildings.Select(building =>
+    {
+        var floors = building.Floors;
+        if (floors.Count == 0) return null;
+        return new NetworkOptimizer.WiFi.Models.BuildingFloorInfo
+        {
+            SwLat = floors.Min(f => f.SwLatitude),
+            SwLng = floors.Min(f => f.SwLongitude),
+            NeLat = floors.Max(f => f.NeLatitude),
+            NeLng = floors.Max(f => f.NeLongitude),
+            FloorMaterials = floors.ToDictionary(f => f.FloorNumber, f => f.FloorMaterial)
+        };
+    }).OfType<NetworkOptimizer.WiFi.Models.BuildingFloorInfo>().ToList();
+
     var result = propagationSvc.ComputeHeatmap(
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
-        request.Band, placedAps, walls, activeFloor, request.GridResolutionMeters);
+        request.Band, placedAps, walls, activeFloor, request.GridResolutionMeters, buildingFloorInfos);
 
     return Results.Ok(result);
 });
