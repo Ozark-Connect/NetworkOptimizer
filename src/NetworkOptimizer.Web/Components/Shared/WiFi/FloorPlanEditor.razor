@@ -101,13 +101,14 @@
                 <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
                     Heatmap
                 </button>
+                <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged"
+                        disabled="@(!_showHeatmap)">
+                    <option value="2.4">2.4 GHz</option>
+                    <option value="5">5 GHz</option>
+                    <option value="6">6 GHz</option>
+                </select>
                 @if (_showHeatmap)
                 {
-                    <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged">
-                        <option value="2.4">2.4 GHz</option>
-                        <option value="5">5 GHz</option>
-                        <option value="6">6 GHz</option>
-                    </select>
                     <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
                         Reset Sim
                     </button>

@@ -809,7 +809,7 @@ window.fpEditor = {
     // Snap to nearby wall vertices (priority) or perpendicular projection onto wall segments.
     // Returns { lat, lng, type: 'vertex'|'segment', segA, segB } or null.
     // segA/segB are the segment endpoints (only for type='segment').
-    _snapToVertex: function (lat, lng, snapPixels) {
+    _snapToVertex: function (lat, lng, snapPixels, bgMaxMeters) {
         var m = this._map;
         if (!m) return null;
         var mousePixel = m.latLngToContainerPoint(L.latLng(lat, lng));
@@ -818,6 +818,7 @@ window.fpEditor = {
         var bestVertexPt = null;
         var bestSegDist = snapPixels;
         var bestSegPt = null;
+        if (bgMaxMeters === undefined) bgMaxMeters = 6; // default ~20ft
 
         // maxMeters: optional real-world distance cap (for background walls)
         function checkWalls(walls, maxMeters) {
@@ -871,10 +872,40 @@ window.fpEditor = {
         }
 
         checkWalls(this._allWalls);
-        checkWalls(this._bgWalls, 6); // ~20 ft real-world distance cap for other buildings
+        checkWalls(this._bgWalls, bgMaxMeters); // real-world distance cap for other buildings
         var result = bestVertexPt || bestSegPt;
         if (result) console.log('vertexSnap:', result.type, 'at', result.lat.toFixed(6), result.lng.toFixed(6));
         return result;
+    },
+
+    // Find the angle of the nearest background wall segment (unlimited distance).
+    // Used for cornerstone placement to align new buildings to neighbors.
+    _nearestBgWallAngle: function (lat, lng) {
+        var m = this._map;
+        if (!m || !this._bgWalls || this._bgWalls.length === 0) return null;
+        var mouseLl = L.latLng(lat, lng);
+        var bestDist = Infinity;
+        var bestAngle = null;
+        for (var wi = 0; wi < this._bgWalls.length; wi++) {
+            var pts = this._bgWalls[wi].points;
+            if (!pts || pts.length < 2) continue;
+            for (var si = 0; si < pts.length - 1; si++) {
+                var midLat = (pts[si].lat + pts[si + 1].lat) / 2;
+                var midLng = (pts[si].lng + pts[si + 1].lng) / 2;
+                var dist = m.distance(mouseLl, L.latLng(midLat, midLng));
+                if (dist < bestDist) {
+                    var cosLat = Math.cos(pts[si].lat * Math.PI / 180);
+                    var dx = (pts[si + 1].lng - pts[si].lng) * cosLat;
+                    var dy = pts[si + 1].lat - pts[si].lat;
+                    if (Math.sqrt(dx * dx + dy * dy) > 1e-8) {
+                        bestDist = dist;
+                        bestAngle = Math.atan2(dy, dx);
+                    }
+                }
+            }
+        }
+        if (bestAngle !== null) console.log('cornerstone: nearest bg wall at', bestDist.toFixed(1) + 'm, angle=' + (bestAngle * 180 / Math.PI).toFixed(1) + '°');
+        return bestAngle;
     },
 
     // Check if drawing line from prev to snap point is within ±5° of perpendicular to the target wall.
@@ -1050,10 +1081,14 @@ window.fpEditor = {
 
             var lat = e.latlng.lat, lng = e.latlng.lng;
             var didSnapToWall = false;
+            // Cornerstone: first point of first shape on empty floor
+            var isCornerstone = (!self._currentWall || self._currentWall.points.length === 0) &&
+                (!self._allWalls || self._allWalls.length === 0);
 
             // Vertex/segment snap: snap to nearby existing wall vertices or perpendicular to segments
             if (!e.originalEvent.shiftKey) {
-                var vtxSnap = self._snapToVertex(lat, lng, 10);
+                // Wider bg snap (50ft/15m) for cornerstone, normal (20ft/6m) otherwise
+                var vtxSnap = self._snapToVertex(lat, lng, 10, isCornerstone ? 15 : undefined);
                 if (vtxSnap) {
                     // For segment snaps with a previous point, apply perpendicular adjustment
                     if (vtxSnap.type === 'segment' && self._currentWall && self._currentWall.points.length > 0) {
@@ -1079,6 +1114,11 @@ window.fpEditor = {
                         var sdy = vtxSnap.segB.lat - vtxSnap.segA.lat;
                         self._refAngle = Math.atan2(sdy, sdx);
                     }
+                }
+                // Cornerstone: adopt angle from nearest bg wall even without vertex snap
+                if (self._refAngle === null && isCornerstone) {
+                    var bgAngle = self._nearestBgWallAngle(lat, lng);
+                    if (bgAngle !== null) self._refAngle = bgAngle;
                 }
             }
 
@@ -1120,7 +1160,9 @@ window.fpEditor = {
         this._wallMoveHandler = function (e) {
             // Show vertex snap indicator even before first point is placed
             if (!self._currentWall || self._currentWall.points.length === 0) {
-                var earlySnap = e.originalEvent.shiftKey ? null : self._snapToVertex(e.latlng.lat, e.latlng.lng, 10);
+                // Wider bg snap (50ft/15m) for cornerstone (empty floor)
+                var earlyBgMax = (!self._allWalls || self._allWalls.length === 0) ? 15 : undefined;
+                var earlySnap = e.originalEvent.shiftKey ? null : self._snapToVertex(e.latlng.lat, e.latlng.lng, 10, earlyBgMax);
                 if (earlySnap) {
                     if (!self._snapIndicator) {
                         self._snapIndicator = L.marker([earlySnap.lat, earlySnap.lng], {
