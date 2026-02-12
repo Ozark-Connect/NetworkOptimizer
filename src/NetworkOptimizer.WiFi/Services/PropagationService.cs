@@ -41,6 +41,17 @@ public class PropagationService
     {
         var freqMhz = MaterialAttenuation.GetCenterFrequencyMhz(band);
 
+        // Log building floor info
+        if (buildings != null)
+        {
+            foreach (var b in buildings)
+            {
+                var mats = string.Join(", ", b.FloorMaterials.Select(kv => $"F{kv.Key}={kv.Value}"));
+                _logger.LogInformation("Heatmap building: bounds=({SwLat},{SwLng})-({NeLat},{NeLng}) floors=[{Mats}]",
+                    b.SwLat, b.SwLng, b.NeLat, b.NeLng, mats);
+            }
+        }
+
         // Log AP and antenna pattern info on first computation
         if (!_loggedPatternInfo)
         {
