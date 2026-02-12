@@ -550,6 +550,7 @@ window.fpEditor = {
                 seg._fpWallIdx = wi;
                 seg._fpSegIdx = i;
                 seg.on('click', function (e) {
+                    if (self._isDrawing) return; // Don't intercept clicks during wall drawing
                     L.DomEvent.stopPropagation(e);
                     self._wallSegClick(e, this._fpWallIdx, this._fpSegIdx);
                 });
@@ -864,6 +865,7 @@ window.fpEditor = {
         if (!m) return;
         var self = this;
 
+        this._isDrawing = true;
         this._allWalls = JSON.parse(wallsJson);
         m.dragging.disable();
         m.getContainer().style.cursor = 'crosshair';
@@ -1146,6 +1148,7 @@ window.fpEditor = {
     exitDrawMode: function () {
         var m = this._map;
         if (!m) return;
+        this._isDrawing = false;
 
         // Commit any in-progress wall before exiting draw mode
         if (this._currentWall && this._currentWall.points.length >= 2) {

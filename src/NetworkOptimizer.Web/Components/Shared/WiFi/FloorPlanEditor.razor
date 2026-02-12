@@ -1667,6 +1667,12 @@
 
     private async Task DeselectBuilding()
     {
+        // If currently drawing walls, exit draw mode first (commits in-progress shapes)
+        if (_mode == "walls")
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            _mode = "view";
+        }
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
     }
 
