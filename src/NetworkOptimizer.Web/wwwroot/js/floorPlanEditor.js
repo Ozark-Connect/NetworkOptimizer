@@ -96,17 +96,25 @@ window.fpEditor = {
             self._map = m;
 
             // Dynamic zoom delta: 0.5 at building level (zoom >= 21), 1 otherwise
-            // Override zoomIn/zoomOut so delta is set BEFORE the zoom, not after
+            // Override zoomIn/zoomOut to always use dynamic delta (Leaflet's zoom control
+            // passes options.zoomDelta explicitly, so we must override the value)
             var origZoomIn = m.zoomIn.bind(m);
             var origZoomOut = m.zoomOut.bind(m);
             m.zoomIn = function (delta, options) {
-                if (!delta) m.options.zoomDelta = m.getZoom() >= 21 ? 0.5 : 1;
-                return origZoomIn(delta, options);
+                var d = m.getZoom() >= 21 ? 0.5 : 1;
+                m.options.zoomDelta = d;
+                console.log('zoomIn: cur=' + m.getZoom() + ' delta=' + d + ' → ' + (m.getZoom() + d));
+                return origZoomIn(d, options);
             };
             m.zoomOut = function (delta, options) {
-                if (!delta) m.options.zoomDelta = m.getZoom() > 21 ? 0.5 : 1;
-                return origZoomOut(delta, options);
+                var d = m.getZoom() > 21 ? 0.5 : 1;
+                m.options.zoomDelta = d;
+                console.log('zoomOut: cur=' + m.getZoom() + ' delta=' + d + ' → ' + (m.getZoom() - d));
+                return origZoomOut(d, options);
             };
+            m.on('zoomend', function () {
+                console.log('zoom level: ' + m.getZoom());
+            });
 
             // Custom panes for z-ordering: heatmap(350) < floorOverlay(380) < apGlow(390) < walls(400) < apIcons(450)
             m.createPane('heatmapPane');
