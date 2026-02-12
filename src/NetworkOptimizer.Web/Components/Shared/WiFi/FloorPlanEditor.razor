@@ -1725,6 +1725,7 @@
     private async Task ResetSimulation()
     {
         await JS.InvokeVoidAsync("fpEditor.resetSimulation");
+        await UpdateApMarkers();
     }
 
     private async Task ComputeHeatmap()
