@@ -56,6 +56,8 @@ public class ApMapService
                     Channel = r.Channel,
                     ChannelWidth = r.ChannelWidth,
                     TxPowerDbm = r.TxPower,
+                    MinTxPowerDbm = r.MinTxPower,
+                    MaxTxPowerDbm = r.MaxTxPower,
                     Eirp = r.Eirp,
                     Clients = r.ClientCount,
                     Utilization = r.ChannelUtilization,

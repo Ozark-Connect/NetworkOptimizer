@@ -725,6 +725,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     ExtChannel = radioStats.ExtChannel,
                     TxPower = radioStats.TxPower,
                     TxPowerMode = radioConfig?.TxPowerMode,
+                    MinTxPower = radioConfig?.MinTxPower,
+                    MaxTxPower = radioConfig?.MaxTxPower,
                     AntennaGain = radioConfig?.AntennaGain,
                     Satisfaction = radioStats.Satisfaction,
                     ClientCount = radioStats.NumSta,

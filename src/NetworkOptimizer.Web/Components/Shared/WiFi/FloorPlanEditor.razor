@@ -765,6 +765,29 @@
         min-width: 30px;
     }
 
+    .fp-ap-popup-divider {
+        border-top: 1px solid #334155;
+        margin: 6px 0 2px;
+    }
+
+    .fp-ap-popup-section-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        margin-bottom: 2px;
+    }
+
+    .fp-ap-popup-power {
+        font-size: 12px;
+        color: #e0e0e0;
+        min-width: 48px;
+    }
+
+    .fp-ap-popup-power.overridden {
+        color: #38bdf8;
+    }
+
     /* Signal-colored cluster icons */
     .speed-cluster {
         width: 36px;
@@ -1016,10 +1039,18 @@
             orientation = a.OrientationDeg, mountType = a.MountType,
             online = a.IsOnline, clients = a.TotalClients,
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
-            sameFloor = (a.Floor ?? 1) == _globalActiveFloor
+            sameFloor = (a.Floor ?? 1) == _globalActiveFloor,
+            radios = a.Radios.Select(r => new
+            {
+                band = r.Band,
+                radioCode = r.RadioCode,
+                txPowerDbm = r.TxPowerDbm,
+                minTxPower = r.MinTxPowerDbm,
+                maxTxPower = r.MaxTxPowerDbm
+            })
         }));
 
-        await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps");
+        await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps", _heatmapBand);
     }
 
     [JSInvokable]
@@ -1279,6 +1310,7 @@
     private async Task OnBandChanged(ChangeEventArgs e)
     {
         _heatmapBand = e.Value?.ToString() ?? "5";
+        await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
     }
 

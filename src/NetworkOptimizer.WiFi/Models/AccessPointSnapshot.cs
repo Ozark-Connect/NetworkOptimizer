@@ -77,6 +77,12 @@ public class RadioSnapshot
     /// <summary>TX power mode (auto, high, medium, low, custom)</summary>
     public string? TxPowerMode { get; set; }
 
+    /// <summary>Minimum TX power in dBm (from device capability)</summary>
+    public int? MinTxPower { get; set; }
+
+    /// <summary>Maximum TX power in dBm (from device capability)</summary>
+    public int? MaxTxPower { get; set; }
+
     /// <summary>Antenna gain in dBi</summary>
     public int? AntennaGain { get; set; }
 

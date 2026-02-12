@@ -14,6 +14,9 @@ public class HeatmapRequest
     /// <summary>Grid resolution in meters (default 1m)</summary>
     public double GridResolutionMeters { get; set; } = 1.0;
 
+    /// <summary>Per-AP TX power overrides keyed by MAC address (dBm values)</summary>
+    public Dictionary<string, int>? TxPowerOverrides { get; set; }
+
     /// <summary>Viewport bounds from the map</summary>
     public double? SwLat { get; set; }
     public double? SwLng { get; set; }

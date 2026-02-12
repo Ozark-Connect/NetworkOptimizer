@@ -33,6 +33,8 @@ window.fpEditor = {
     _moveMarker: null,
     _heatmapOverlay: null,
     _contourLayer: null,
+    _txPowerOverrides: {},
+    _heatmapBand: '5',
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
@@ -258,17 +260,28 @@ window.fpEditor = {
 
     // ── AP Markers ───────────────────────────────────────────────────
 
-    updateApMarkers: function (markersJson, draggable) {
+    updateApMarkers: function (markersJson, draggable, band) {
         var m = this._map;
         if (!m) return;
         var self = this;
+        if (band) this._heatmapBand = band;
 
         if (!this._apLayer) this._apLayer = L.layerGroup().addTo(m);
         if (!this._apGlowLayer) this._apGlowLayer = L.layerGroup().addTo(m);
+
+        // Track which AP popup is open so we can restore it
+        var openPopupMac = null;
+        this._apLayer.eachLayer(function (layer) {
+            if (layer.getPopup && layer.getPopup() && layer.getPopup().isOpen()) {
+                openPopupMac = layer._apMac;
+            }
+        });
+
         this._apLayer.clearLayers();
         this._apGlowLayer.clearLayers();
 
         var aps = JSON.parse(markersJson);
+        var reopenMarker = null;
 
         aps.forEach(function (ap) {
             // Glow layer (behind icons)
@@ -294,6 +307,7 @@ window.fpEditor = {
             var marker = L.marker([ap.lat, ap.lng], {
                 icon: icon, draggable: draggable && ap.sameFloor, pane: 'apIconPane'
             }).addTo(self._apLayer);
+            marker._apMac = ap.mac;
 
             // Popup with floor selector and orientation input
             var floorOpts = '';
@@ -311,6 +325,30 @@ window.fpEditor = {
                 mountOpts += '<option value="' + mt + '"' + (mt === (ap.mountType || 'ceiling') ? ' selected' : '') + '>' + mountLabels[mt] + '</option>';
             });
 
+            // Find the radio matching the active heatmap band
+            var bandMap = { '2.4': 'ng', '5': 'na', '6': '6e' };
+            var activeRadioCode = bandMap[self._heatmapBand] || 'na';
+            var activeRadio = (ap.radios || []).find(function (r) { return r.radioCode === activeRadioCode; });
+
+            // TX power slider section (keyed by mac:band for band independence)
+            var txPowerHtml = '';
+            if (activeRadio && activeRadio.txPowerDbm != null) {
+                var macKey = ap.mac.toLowerCase();
+                var overrideKey = macKey + ':' + self._heatmapBand;
+                var currentPower = (self._txPowerOverrides[overrideKey] != null) ? self._txPowerOverrides[overrideKey] : activeRadio.txPowerDbm;
+                var minPower = activeRadio.minTxPower || 1;
+                var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
+                var isOverridden = self._txPowerOverrides[overrideKey] != null;
+                txPowerHtml =
+                    '<div class="fp-ap-popup-divider"></div>' +
+                    '<div class="fp-ap-popup-section-label">Simulate</div>' +
+                    '<div class="fp-ap-popup-row"><label>TX Power</label>' +
+                    '<input type="range" min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
+                    'oninput="this.nextElementSibling.textContent=this.value+\' dBm\'" ' +
+                    'onchange="fpEditor._txPowerOverrides[\'' + overrideKey + '\']=parseInt(this.value);this.nextElementSibling.classList.add(\'overridden\');fpEditor.computeHeatmap()" />' +
+                    '<span class="fp-ap-popup-power' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm</span></div>';
+            }
+
             marker.bindPopup(
                 '<div class="fp-ap-popup">' +
                 '<div class="fp-ap-popup-name">' + (ap.name || ap.mac) + '</div>' +
@@ -327,8 +365,13 @@ window.fpEditor = {
                 'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\'" ' +
                 'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + ap.mac + '\',parseInt(this.value))" />' +
                 '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                txPowerHtml +
                 '</div></div>'
             );
+
+            if (openPopupMac === ap.mac) {
+                reopenMarker = marker;
+            }
 
             if (draggable && ap.sameFloor) {
                 (function (gm) {
@@ -343,6 +386,11 @@ window.fpEditor = {
                 })(glowMarker);
             }
         });
+
+        // Reopen popup if one was open before rebuild
+        if (reopenMarker) {
+            reopenMarker.openPopup();
+        }
     },
 
     // ── AP Placement Mode ────────────────────────────────────────────
@@ -1024,6 +1072,15 @@ window.fpEditor = {
         if (!m) return;
         var self = this;
 
+        // Store params so the slider can re-invoke without arguments
+        if (baseUrl) this._heatmapBaseUrl = baseUrl;
+        if (activeFloor != null) this._heatmapFloor = activeFloor;
+        if (band) this._heatmapBand = band;
+        baseUrl = this._heatmapBaseUrl;
+        activeFloor = this._heatmapFloor;
+        band = this._heatmapBand;
+        if (!baseUrl) return;
+
         var vb = m.getBounds();
         var sw = vb.getSouthWest();
         var ne = vb.getNorthEast();
@@ -1032,14 +1089,27 @@ window.fpEditor = {
         var maxDim = Math.max(vWidth, vHeight);
         var res = maxDim > 400 ? Math.ceil(maxDim / 400) : 1.0;
 
+        var body = {
+            activeFloor: activeFloor, band: band,
+            gridResolutionMeters: res,
+            swLat: sw.lat, swLng: sw.lng, neLat: ne.lat, neLng: ne.lng
+        };
+        // Filter overrides to current band and strip band suffix for API
+        var bandSuffix = ':' + band;
+        var filteredOverrides = {};
+        Object.keys(self._txPowerOverrides).forEach(function (key) {
+            if (key.endsWith(bandSuffix)) {
+                filteredOverrides[key.slice(0, -bandSuffix.length)] = self._txPowerOverrides[key];
+            }
+        });
+        if (Object.keys(filteredOverrides).length > 0) {
+            body.txPowerOverrides = filteredOverrides;
+        }
+
         fetch(baseUrl + '/api/heatmap/compute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                activeFloor: activeFloor, band: band,
-                gridResolutionMeters: res,
-                swLat: sw.lat, swLng: sw.lng, neLat: ne.lat, neLng: ne.lng
-            })
+            body: JSON.stringify(body)
         })
         .then(function (r) { return r.json(); })
         .then(function (data) {

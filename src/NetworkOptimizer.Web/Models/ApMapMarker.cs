@@ -60,6 +60,12 @@ public class ApRadioSummary
     /// <summary>TX power in dBm</summary>
     public int? TxPowerDbm { get; set; }
 
+    /// <summary>Minimum TX power in dBm (device capability)</summary>
+    public int? MinTxPowerDbm { get; set; }
+
+    /// <summary>Maximum TX power in dBm (device capability)</summary>
+    public int? MaxTxPowerDbm { get; set; }
+
     /// <summary>EIRP (Effective Isotropic Radiated Power) in dBm</summary>
     public int? Eirp { get; set; }
 

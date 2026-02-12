@@ -1075,6 +1075,16 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
             };
         }).ToList();
 
+    // Apply TX power overrides from simulation slider
+    if (request.TxPowerOverrides is { Count: > 0 })
+    {
+        foreach (var ap in placedAps)
+        {
+            if (request.TxPowerOverrides.TryGetValue(ap.Mac.ToLowerInvariant(), out var overridePower))
+                ap.TxPowerDbm = overridePower;
+        }
+    }
+
     // Build per-building floor info for smart floor attenuation
     var buildingFloorInfos = allBuildings.Select(building =>
     {
