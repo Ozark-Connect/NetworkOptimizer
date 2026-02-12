@@ -184,7 +184,9 @@
         @if (_mode == "walls")
         {
             <div class="fp-edit-hint fp-wall-hint">
-                Click to place vertices. First segment sets the angle, then snaps to 90° from it. Double-click to finish. Shift = free-form.
+                <span>Click to place points. Double-click or</span>
+                <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
+                <span>when done. Shift = free-form.</span>
             </div>
         }
 
@@ -597,7 +599,12 @@
         white-space: nowrap;
     }
 
-    .fp-wall-hint { white-space: normal; max-width: 380px; text-align: center; }
+    .fp-wall-hint { white-space: normal; max-width: 420px; text-align: center; pointer-events: auto; display: flex; align-items: center; gap: 4px; }
+    .fp-hint-btn {
+        background: #1e293b; color: #e0e0e0; border: 1px solid #475569; border-radius: 3px;
+        padding: 1px 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    .fp-hint-btn:hover { background: #334155; }
 
     .fp-heatmap-legend {
         position: absolute;
@@ -1388,6 +1395,12 @@
 
     [JSInvokable]
     public async Task OnMapDblClickFinishWall()
+    {
+        if (_mode != "walls" || _selectedFloor == null) return;
+        await JS.InvokeVoidAsync("fpEditor.finishWall");
+    }
+
+    private async Task FinishCurrentWall()
     {
         if (_mode != "walls" || _selectedFloor == null) return;
         await JS.InvokeVoidAsync("fpEditor.finishWall");
