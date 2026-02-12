@@ -43,6 +43,7 @@ window.fpEditor = {
 
     initMap: function (containerId, centerLat, centerLng, zoom) {
         var self = this;
+        this._txPowerOverrides = {};
 
         function loadCss(href) {
             if (document.querySelector('link[href="' + href + '"]')) return;
@@ -343,9 +344,9 @@ window.fpEditor = {
                     '<div class="fp-ap-popup-divider"></div>' +
                     '<div class="fp-ap-popup-section-label">Simulate</div>' +
                     '<div class="fp-ap-popup-row"><label>TX Power</label>' +
-                    '<input type="range" min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
+                    '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
                     'oninput="this.nextElementSibling.textContent=this.value+\' dBm\'" ' +
-                    'onchange="fpEditor._txPowerOverrides[\'' + overrideKey + '\']=parseInt(this.value);this.nextElementSibling.classList.add(\'overridden\');fpEditor.computeHeatmap()" />' +
+                    'onchange="fpEditor._txPowerOverrides[\'' + overrideKey + '\']=parseInt(this.value);this.nextElementSibling.classList.add(\'overridden\');fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
                     '<span class="fp-ap-popup-power' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm</span></div>';
             }
 
@@ -369,6 +370,25 @@ window.fpEditor = {
                 '</div></div>'
             );
 
+            // Sync slider with current override each time popup opens
+            (function (macAddr) {
+                marker.on('popupopen', function () {
+                    var key = macAddr.toLowerCase() + ':' + self._heatmapBand;
+                    var override = self._txPowerOverrides[key];
+                    if (override == null) return;
+                    var el = marker.getPopup() && marker.getPopup().getElement();
+                    if (!el) return;
+                    var slider = el.querySelector('[data-tx-slider]');
+                    if (!slider) return;
+                    slider.value = override;
+                    var label = slider.nextElementSibling;
+                    if (label) {
+                        label.textContent = override + ' dBm';
+                        label.classList.add('overridden');
+                    }
+                });
+            })(ap.mac);
+
             if (openPopupMac === ap.mac) {
                 reopenMarker = marker;
             }
@@ -391,6 +411,17 @@ window.fpEditor = {
         if (reopenMarker) {
             reopenMarker.openPopup();
         }
+    },
+
+    _updateResetSimBtn: function () {
+        var btn = document.getElementById('fp-reset-sim-btn');
+        if (btn) btn.style.display = Object.keys(this._txPowerOverrides).length > 0 ? '' : 'none';
+    },
+
+    resetSimulation: function () {
+        this._txPowerOverrides = {};
+        this._updateResetSimBtn();
+        this.computeHeatmap();
     },
 
     // ── AP Placement Mode ────────────────────────────────────────────

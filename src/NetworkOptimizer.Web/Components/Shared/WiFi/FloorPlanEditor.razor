@@ -102,6 +102,9 @@
                     <option value="5">5 GHz</option>
                     <option value="6">6 GHz</option>
                 </select>
+                <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
+                    Reset Sim
+                </button>
             }
             <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
                 Signal Data
@@ -788,6 +791,16 @@
         color: #38bdf8;
     }
 
+    .fp-btn-reset-sim {
+        background: transparent;
+        border-color: #f97316;
+        color: #fb923c;
+    }
+    .fp-btn-reset-sim:hover {
+        background: #f97316;
+        color: #fff;
+    }
+
     /* Signal-colored cluster icons */
     .speed-cluster {
         width: 36px;
@@ -1312,6 +1325,11 @@
         _heatmapBand = e.Value?.ToString() ?? "5";
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task ResetSimulation()
+    {
+        await JS.InvokeVoidAsync("fpEditor.resetSimulation");
     }
 
     private async Task ComputeHeatmap()
