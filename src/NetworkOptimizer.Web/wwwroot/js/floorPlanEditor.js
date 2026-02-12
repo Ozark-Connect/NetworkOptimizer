@@ -972,26 +972,48 @@ window.fpEditor = {
             }
         };
 
-        // Length snap: find matching parallel segment lengths in the current wall
+        // Length snap: find matching parallel segment lengths in current wall + all existing walls
         this._snapLength = function (curLen, isRefDir) {
-            if (!self._currentWall || self._currentWall.points.length < 2 || self._refAngle === null) return null;
-            var pts = self._currentWall.points;
+            if (self._refAngle === null) return null;
             var refA = self._refAngle;
+            var curMeters = curLen * 111320;
+            var bestDiff = 1.0; // snap threshold in meters
+            var bestLen = null;
 
-            for (var j = 0; j < pts.length - 1; j++) {
-                var sCosLat = Math.cos(pts[j].lat * Math.PI / 180);
-                var sdx = (pts[j + 1].lng - pts[j].lng) * sCosLat;
-                var sdy = pts[j + 1].lat - pts[j].lat;
-                var pRef = Math.abs(sdx * Math.cos(refA) + sdy * Math.sin(refA));
-                var pPerp = Math.abs(sdx * Math.cos(refA + Math.PI / 2) + sdy * Math.sin(refA + Math.PI / 2));
-                var segIsRef = pRef >= pPerp;
-                if (segIsRef !== isRefDir) continue;
-                var segLen = m.distance(L.latLng(pts[j].lat, pts[j].lng), L.latLng(pts[j + 1].lat, pts[j + 1].lng));
-                var curMeters = curLen * 111320;
-                var diff = Math.abs(curMeters - segLen);
-                if (diff < 1.0 && diff > 0.01) return curLen * (segLen / curMeters);
+            function checkPoints(pts) {
+                if (!pts || pts.length < 2) return;
+                for (var j = 0; j < pts.length - 1; j++) {
+                    var sCosLat = Math.cos(pts[j].lat * Math.PI / 180);
+                    var sdx = (pts[j + 1].lng - pts[j].lng) * sCosLat;
+                    var sdy = pts[j + 1].lat - pts[j].lat;
+                    var pRef = Math.abs(sdx * Math.cos(refA) + sdy * Math.sin(refA));
+                    var pPerp = Math.abs(sdx * Math.cos(refA + Math.PI / 2) + sdy * Math.sin(refA + Math.PI / 2));
+                    var segIsRef = pRef >= pPerp;
+                    if (segIsRef !== isRefDir) continue;
+                    var segLen = m.distance(L.latLng(pts[j].lat, pts[j].lng), L.latLng(pts[j + 1].lat, pts[j + 1].lng));
+                    var diff = Math.abs(curMeters - segLen);
+                    if (diff < bestDiff && diff > 0.01) {
+                        bestDiff = diff;
+                        bestLen = curLen * (segLen / curMeters);
+                    }
+                }
             }
-            return null;
+
+            // Check current wall being drawn
+            if (self._currentWall) checkPoints(self._currentWall.points);
+            // Check all existing walls on this floor
+            if (self._allWalls) {
+                for (var wi = 0; wi < self._allWalls.length; wi++) {
+                    checkPoints(self._allWalls[wi].points);
+                }
+            }
+            // Check background walls (adjacent floors)
+            if (self._bgWalls) {
+                for (var bi = 0; bi < self._bgWalls.length; bi++) {
+                    checkPoints(self._bgWalls[bi].points);
+                }
+            }
+            return bestLen;
         };
 
         // Click handler
