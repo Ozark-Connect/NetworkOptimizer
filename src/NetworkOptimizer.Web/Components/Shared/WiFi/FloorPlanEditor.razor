@@ -188,15 +188,13 @@
         @if (_mode == "walls")
         {
             <div class="fp-edit-hint fp-wall-hint">
+                <span>Click to place points · Shift = free-form</span>
                 @if (_isDrawingShape)
                 {
-                    <span>Click to place points. Double-click or</span>
+                    <br/>
+                    <span>Double-click or</span>
                     <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
-                    <span>Shift = free-form</span>
-                }
-                else
-                {
-                    <span>Click to place points. Shift = free-form.</span>
+                    <span>to complete</span>
                 }
             </div>
         }
