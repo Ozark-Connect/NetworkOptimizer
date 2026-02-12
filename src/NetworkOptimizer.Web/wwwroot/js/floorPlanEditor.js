@@ -816,9 +816,12 @@ window.fpEditor = {
         m.on('click', finishMove);
     },
 
+    moveBuilding: function () {
+        if (!this._allWalls || this._allWalls.length === 0) return;
+        this._moveBuildingByWall(-1);
+    },
+
     _moveBuildingByWall: function (wi) {
-        var wall = this._allWalls[wi];
-        if (!wall) return;
         var m = this._map;
         var self = this;
         m.closePopup();
@@ -826,26 +829,31 @@ window.fpEditor = {
         m.dragging.disable();
         m.getContainer().style.cursor = 'move';
 
-        // Compute centroid of the exterior wall as drag anchor
-        var cLat = 0, cLng = 0;
-        for (var i = 0; i < wall.points.length; i++) {
-            cLat += wall.points[i].lat;
-            cLng += wall.points[i].lng;
+        // Compute centroid from all walls as drag anchor
+        var cLat = 0, cLng = 0, count = 0;
+        for (var w = 0; w < this._allWalls.length; w++) {
+            for (var i = 0; i < this._allWalls[w].points.length; i++) {
+                cLat += this._allWalls[w].points[i].lat;
+                cLng += this._allWalls[w].points[i].lng;
+                count++;
+            }
         }
-        cLat /= wall.points.length;
-        cLng /= wall.points.length;
+        if (count === 0) return;
+        cLat /= count;
+        cLng /= count;
 
         // Preview ALL walls on this floor (exterior + interior) shifting together
         var drawPreview = function (dLat, dLng) {
             self._wallHighlightLayer.clearLayers();
             for (var w = 0; w < self._allWalls.length; w++) {
                 var ww = self._allWalls[w];
-                var color = w === wi ? '#60a5fa' : '#94a3b8';
+                var isHighlighted = wi >= 0 && w === wi;
+                var color = isHighlighted ? '#60a5fa' : (wi < 0 ? '#60a5fa' : '#94a3b8');
                 for (var j = 0; j < ww.points.length - 1; j++) {
                     L.polyline(
                         [[ww.points[j].lat + dLat, ww.points[j].lng + dLng],
                          [ww.points[j + 1].lat + dLat, ww.points[j + 1].lng + dLng]],
-                        { color: color, weight: w === wi ? 4 : 2, opacity: 0.8, interactive: false }
+                        { color: color, weight: isHighlighted ? 4 : (wi < 0 ? 3 : 2), opacity: 0.8, interactive: false }
                     ).addTo(self._wallHighlightLayer);
                 }
             }

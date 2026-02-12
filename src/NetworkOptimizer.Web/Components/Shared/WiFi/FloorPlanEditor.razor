@@ -237,12 +237,14 @@
             </div>
             *@
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
+            <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
     }
     else if (_selectedBuilding != null)
     {
         <div class="fp-bottom-bar">
+            <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
     }
@@ -1871,6 +1873,15 @@
         StateHasChanged();
     }
 
+    private async Task StartBuildingMove()
+    {
+        if (_selectedBuilding == null || !_mapInitialized) return;
+        // Ensure walls are loaded for the move preview
+        if (_selectedFloor != null)
+            await UpdateWalls();
+        await JS.InvokeVoidAsync("fpEditor.moveBuilding");
+    }
+
     private void ShowAddFloorDialog()
     {
         var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : 0;
@@ -2005,7 +2016,7 @@
     [JSInvokable]
     public async Task OnMapMoveEndForHeatmap()
     {
-        if (_showHeatmap)
+        if (_showHeatmap && _mode != "walls")
             await ComputeHeatmap();
     }
 
