@@ -39,6 +39,9 @@ window.fpEditor = {
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
     _bgWalls: [],
+    _snapGuideLine: null,
+    _snapAngleMarker: null,
+    _previewLengthLabel: null,
 
     // ── Map Initialization ───────────────────────────────────────────
 
@@ -225,13 +228,7 @@ window.fpEditor = {
 
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
-            console.log('fitBounds called:', { swLat, swLng, neLat, neLng });
-            console.log('current zoom:', this._map.getZoom(), 'center:', this._map.getCenter());
             this._map.fitBounds([[swLat, swLng], [neLat, neLng]], { padding: [10, 10], maxZoom: 24 });
-            var self = this;
-            setTimeout(function() {
-                console.log('after fitBounds zoom:', self._map.getZoom(), 'center:', self._map.getCenter());
-            }, 500);
         }
     },
 
@@ -713,7 +710,9 @@ window.fpEditor = {
     },
 
     // Snap to nearby vertices from existing walls and background walls (adjacent floors)
-    // Snap to nearby wall vertices (priority) or perpendicular projection onto wall segments
+    // Snap to nearby wall vertices (priority) or perpendicular projection onto wall segments.
+    // Returns { lat, lng, type: 'vertex'|'segment', segA, segB } or null.
+    // segA/segB are the segment endpoints (only for type='segment').
     _snapToVertex: function (lat, lng, snapPixels) {
         var m = this._map;
         if (!m) return null;
@@ -734,7 +733,7 @@ window.fpEditor = {
                     var d = mousePixel.distanceTo(px);
                     if (d < bestVertexDist) {
                         bestVertexDist = d;
-                        bestVertexPt = { lat: pts[pi].lat, lng: pts[pi].lng };
+                        bestVertexPt = { lat: pts[pi].lat, lng: pts[pi].lng, type: 'vertex' };
                     }
                 }
                 // Check perpendicular projection onto each segment
@@ -745,15 +744,17 @@ window.fpEditor = {
                     var len2 = dx * dx + dy * dy;
                     if (len2 < 1) continue;
                     var t = ((mousePixel.x - aPx.x) * dx + (mousePixel.y - aPx.y) * dy) / len2;
-                    if (t < 0.01 || t > 0.99) continue; // skip near endpoints (vertex snap handles those)
+                    if (t < 0.01 || t > 0.99) continue;
                     var projPx = L.point(aPx.x + t * dx, aPx.y + t * dy);
                     var dist = mousePixel.distanceTo(projPx);
                     if (dist < bestSegDist) {
                         bestSegDist = dist;
-                        // Convert back to lat/lng by interpolating the original coordinates
                         bestSegPt = {
                             lat: pts[si].lat + t * (pts[si + 1].lat - pts[si].lat),
-                            lng: pts[si].lng + t * (pts[si + 1].lng - pts[si].lng)
+                            lng: pts[si].lng + t * (pts[si + 1].lng - pts[si].lng),
+                            type: 'segment',
+                            segA: { lat: pts[si].lat, lng: pts[si].lng },
+                            segB: { lat: pts[si + 1].lat, lng: pts[si + 1].lng }
                         };
                     }
                 }
@@ -762,8 +763,27 @@ window.fpEditor = {
 
         checkWalls(this._allWalls);
         checkWalls(this._bgWalls);
-        // Vertices take priority over segment projections
         return bestVertexPt || bestSegPt;
+    },
+
+    // Show live segment length label at midpoint of preview line
+    _updatePreviewLength: function (from, to) {
+        var m = this._map;
+        if (!m) return;
+        var d = m.distance(L.latLng(from.lat, from.lng), L.latLng(to.lat, to.lng));
+        var ft = d * 3.28084;
+        var label = ft < 100 ? ft.toFixed(1) + "'" : Math.round(ft) + "'";
+        var midLat = (from.lat + to.lat) / 2;
+        var midLng = (from.lng + to.lng) / 2;
+        if (!this._previewLengthLabel) {
+            this._previewLengthLabel = L.marker([midLat, midLng], {
+                icon: L.divIcon({ className: 'fp-wall-length fp-wall-length-live', html: label, iconSize: [50, 18], iconAnchor: [25, 9] }),
+                interactive: false
+            }).addTo(m);
+        } else {
+            this._previewLengthLabel.setLatLng([midLat, midLng]);
+            this._previewLengthLabel.setIcon(L.divIcon({ className: 'fp-wall-length fp-wall-length-live', html: label, iconSize: [50, 18], iconAnchor: [25, 9] }));
+        }
     },
 
     // ── Wall Drawing Mode ────────────────────────────────────────────
@@ -939,19 +959,25 @@ window.fpEditor = {
                         interactive: false
                     }).addTo(m);
                 }
+                if (self._snapGuideLine) { m.removeLayer(self._snapGuideLine); self._snapGuideLine = null; }
+                if (self._snapAngleMarker) { m.removeLayer(self._snapAngleMarker); self._snapAngleMarker = null; }
                 return;
             }
 
-            // Vertex snap: check for nearby existing wall vertices
+            // Vertex/segment snap: check for nearby existing wall vertices or perpendicular projection
             var vtxSnap = e.originalEvent.shiftKey ? null : self._snapToVertex(e.latlng.lat, e.latlng.lng, 10);
             if (vtxSnap) {
+                // Preview line: solid when segment snap (locked 90°), dashed for vertex
+                var lineStyle = vtxSnap.type === 'segment'
+                    ? { color: '#22c55e', weight: 2, dashArray: null, opacity: 0.9 }
+                    : { color: '#60a5fa', weight: 2, dashArray: '6,4', opacity: 0.8 };
                 if (!self._previewLine) {
-                    self._previewLine = L.polyline([[prev.lat, prev.lng], [vtxSnap.lat, vtxSnap.lng]], {
-                        color: '#60a5fa', weight: 2, dashArray: '6,4', opacity: 0.8
-                    }).addTo(m);
+                    self._previewLine = L.polyline([[prev.lat, prev.lng], [vtxSnap.lat, vtxSnap.lng]], lineStyle).addTo(m);
                 } else {
                     self._previewLine.setLatLngs([[prev.lat, prev.lng], [vtxSnap.lat, vtxSnap.lng]]);
+                    self._previewLine.setStyle(lineStyle);
                 }
+                // Snap indicator dot
                 if (!self._snapIndicator) {
                     self._snapIndicator = L.marker([vtxSnap.lat, vtxSnap.lng], {
                         icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
@@ -960,14 +986,54 @@ window.fpEditor = {
                 } else {
                     self._snapIndicator.setLatLng([vtxSnap.lat, vtxSnap.lng]);
                 }
+                // Segment snap: show guide line along the target wall + right angle marker
+                if (vtxSnap.type === 'segment' && vtxSnap.segA && vtxSnap.segB) {
+                    if (!self._snapGuideLine) {
+                        self._snapGuideLine = L.polyline(
+                            [[vtxSnap.segA.lat, vtxSnap.segA.lng], [vtxSnap.segB.lat, vtxSnap.segB.lng]],
+                            { color: '#22c55e', weight: 2, dashArray: '4,4', opacity: 0.5, interactive: false }
+                        ).addTo(m);
+                    } else {
+                        self._snapGuideLine.setLatLngs([[vtxSnap.segA.lat, vtxSnap.segA.lng], [vtxSnap.segB.lat, vtxSnap.segB.lng]]);
+                    }
+                    // Right angle marker: small L-shape at the snap point
+                    var sp = m.latLngToContainerPoint(L.latLng(vtxSnap.lat, vtxSnap.lng));
+                    var ap = m.latLngToContainerPoint(L.latLng(vtxSnap.segA.lat, vtxSnap.segA.lng));
+                    var bp = m.latLngToContainerPoint(L.latLng(vtxSnap.segB.lat, vtxSnap.segB.lng));
+                    var wdx = bp.x - ap.x, wdy = bp.y - ap.y;
+                    var wlen = Math.sqrt(wdx * wdx + wdy * wdy);
+                    if (wlen > 0) {
+                        var ux = wdx / wlen, uy = wdy / wlen; // unit along wall
+                        // Perpendicular direction (toward the drawing point)
+                        var pp = m.latLngToContainerPoint(L.latLng(prev.lat, prev.lng));
+                        var perpSide = (pp.x - sp.x) * (-uy) + (pp.y - sp.y) * ux;
+                        var nx = perpSide >= 0 ? -uy : uy;
+                        var ny = perpSide >= 0 ? ux : -ux;
+                        var sz = 8; // right angle marker size in pixels
+                        var c1 = m.containerPointToLatLng(L.point(sp.x + ux * sz, sp.y + uy * sz));
+                        var c2 = m.containerPointToLatLng(L.point(sp.x + ux * sz + nx * sz, sp.y + uy * sz + ny * sz));
+                        var c3 = m.containerPointToLatLng(L.point(sp.x + nx * sz, sp.y + ny * sz));
+                        if (!self._snapAngleMarker) {
+                            self._snapAngleMarker = L.polyline(
+                                [[c1.lat, c1.lng], [c2.lat, c2.lng], [c3.lat, c3.lng]],
+                                { color: '#22c55e', weight: 1.5, opacity: 0.9, interactive: false }
+                            ).addTo(m);
+                        } else {
+                            self._snapAngleMarker.setLatLngs([[c1.lat, c1.lng], [c2.lat, c2.lng], [c3.lat, c3.lng]]);
+                        }
+                    }
+                } else {
+                    if (self._snapGuideLine) { m.removeLayer(self._snapGuideLine); self._snapGuideLine = null; }
+                    if (self._snapAngleMarker) { m.removeLayer(self._snapAngleMarker); self._snapAngleMarker = null; }
+                }
+                self._updatePreviewLength(prev, vtxSnap);
                 return;
             }
 
-            // Remove snap indicator if not snapping
-            if (self._snapIndicator) {
-                m.removeLayer(self._snapIndicator);
-                self._snapIndicator = null;
-            }
+            // Remove snap indicators if not snapping
+            if (self._snapIndicator) { m.removeLayer(self._snapIndicator); self._snapIndicator = null; }
+            if (self._snapGuideLine) { m.removeLayer(self._snapGuideLine); self._snapGuideLine = null; }
+            if (self._snapAngleMarker) { m.removeLayer(self._snapAngleMarker); self._snapAngleMarker = null; }
 
             var snapped = self._snapPoint(prev, e.latlng.lat, e.latlng.lng, e.originalEvent.shiftKey);
             var lat = snapped.lat, lng = snapped.lng;
@@ -978,6 +1044,7 @@ window.fpEditor = {
             } else {
                 self._previewLine.setLatLngs([[prev.lat, prev.lng], [lat, lng]]);
             }
+            self._updatePreviewLength(prev, { lat: lat, lng: lng });
         };
 
         m.on('mousemove', this._wallMoveHandler);
@@ -1001,6 +1068,9 @@ window.fpEditor = {
         if (this._wallMoveHandler) { m.off('mousemove', this._wallMoveHandler); this._wallMoveHandler = null; }
         if (this._previewLine) { m.removeLayer(this._previewLine); this._previewLine = null; }
         if (this._snapIndicator) { m.removeLayer(this._snapIndicator); this._snapIndicator = null; }
+        if (this._snapGuideLine) { m.removeLayer(this._snapGuideLine); this._snapGuideLine = null; }
+        if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
+        if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
         m.doubleClickZoom.enable();
         this._currentWall = null;
         this._refAngle = null;
@@ -1044,11 +1114,11 @@ window.fpEditor = {
             }).addTo(this._currentWallLabels);
         }
 
-        // Reset preview line
-        if (this._previewLine) {
-            m.removeLayer(this._previewLine);
-            this._previewLine = null;
-        }
+        // Reset preview line and length label
+        if (this._previewLine) { m.removeLayer(this._previewLine); this._previewLine = null; }
+        if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
+        if (this._snapGuideLine) { m.removeLayer(this._snapGuideLine); this._snapGuideLine = null; }
+        if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
     },
 
     finishWall: function () {
