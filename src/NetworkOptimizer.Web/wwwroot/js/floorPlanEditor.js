@@ -228,7 +228,10 @@ window.fpEditor = {
 
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
-            this._map.fitBounds([[swLat, swLng], [neLat, neLng]], { padding: [10, 10], maxZoom: 24 });
+            var bounds = [[swLat, swLng], [neLat, neLng]];
+            console.log('fitBounds called:', { swLat, swLng, neLat, neLng, mapSize: this._map.getSize(), currentZoom: this._map.getZoom() });
+            this._map.fitBounds(bounds, { padding: [10, 10], maxZoom: 24 });
+            console.log('fitBounds result:', { newZoom: this._map.getZoom(), newCenter: this._map.getCenter() });
         }
     },
 

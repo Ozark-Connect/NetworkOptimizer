@@ -110,8 +110,26 @@
                 Signal Data
             </button>
             <button class="fp-btn @(_isFullscreen ? "fp-btn-warning" : "")" @onclick="ToggleFullscreen"
-                    data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")">
-                @(_isFullscreen ? "Exit Fullscreen" : "Fullscreen")
+                    data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")"
+                    style="padding: 4px 6px; line-height: 0;">
+                @if (_isFullscreen)
+                {
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="4 14 10 14 10 20"></polyline>
+                        <polyline points="20 10 14 10 14 4"></polyline>
+                        <line x1="14" y1="10" x2="21" y2="3"></line>
+                        <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                }
+                else
+                {
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <polyline points="9 21 3 21 3 15"></polyline>
+                        <line x1="21" y1="3" x2="14" y2="10"></line>
+                        <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                }
             </button>
         </div>
     </div>
@@ -330,6 +348,9 @@
         border-bottom: 1px solid var(--border-color, #2d2d4a);
         flex-wrap: wrap;
         gap: 8px;
+        position: relative;
+        z-index: 2;
+        flex-shrink: 0;
     }
 
     .fp-toolbar-left, .fp-toolbar-right {
@@ -393,7 +414,7 @@
 
     .fp-wall-group { display: flex; align-items: center; gap: 4px; }
 
-    .fp-map-container { position: relative; }
+    .fp-map-container { position: relative; z-index: 1; }
 
     .fp-map {
         width: 100%;
@@ -408,6 +429,9 @@
         padding: 8px 12px;
         background: var(--card-header-bg, #16162a);
         border-top: 1px solid var(--border-color, #2d2d4a);
+        position: relative;
+        z-index: 2;
+        flex-shrink: 0;
     }
 
     .fp-upload-btn {
