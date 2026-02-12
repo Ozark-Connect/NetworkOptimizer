@@ -1075,9 +1075,17 @@ app.MapPost("/api/heatmap/compute", async (HttpContext context,
             };
         }).ToList();
 
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    foreach (var ap in placedAps)
+        logger.LogInformation("Heatmap AP: {Mac} model={Model} floor={Floor} activeFloor={ActiveFloor} txPower={TxPower}",
+            ap.Mac, ap.Model, ap.Floor, activeFloor, ap.TxPowerDbm);
+
     var result = propagationSvc.ComputeHeatmap(
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
         request.Band, placedAps, walls, activeFloor, request.GridResolutionMeters);
+
+    logger.LogInformation("Heatmap result: {Width}x{Height} min={Min} max={Max}",
+        result.Width, result.Height, result.Data.Min(), result.Data.Max());
 
     return Results.Ok(result);
 });
