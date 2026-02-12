@@ -225,7 +225,13 @@ window.fpEditor = {
 
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
+            console.log('fitBounds called:', { swLat, swLng, neLat, neLng });
+            console.log('current zoom:', this._map.getZoom(), 'center:', this._map.getCenter());
             this._map.fitBounds([[swLat, swLng], [neLat, neLng]], { padding: [10, 10], maxZoom: 24 });
+            var self = this;
+            setTimeout(function() {
+                console.log('after fitBounds zoom:', self._map.getZoom(), 'center:', self._map.getCenter());
+            }, 500);
         }
     },
 
