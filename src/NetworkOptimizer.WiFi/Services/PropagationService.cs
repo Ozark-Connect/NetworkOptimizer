@@ -40,6 +40,7 @@ public class PropagationService
         List<BuildingFloorInfo>? buildings = null)
     {
         var freqMhz = MaterialAttenuation.GetCenterFrequencyMhz(band);
+        _floorLossLogCount = 0;
 
         // Log building floor info
         if (buildings != null)
@@ -50,6 +51,15 @@ public class PropagationService
                 _logger.LogInformation("Heatmap building: bounds=({SwLat},{SwLng})-({NeLat},{NeLng}) floors=[{Mats}]",
                     b.SwLat, b.SwLng, b.NeLat, b.NeLng, mats);
             }
+        }
+
+        // Log AP floor info every computation for debugging
+        foreach (var ap in aps)
+        {
+            var floorSep = Math.Abs(ap.Floor - activeFloor);
+            _logger.LogInformation(
+                "Heatmap AP: {Model} apFloor={ApFloor} activeFloor={ActiveFloor} floorSep={FloorSep} lat={Lat} lng={Lng}",
+                ap.Model, ap.Floor, activeFloor, floorSep, ap.Latitude, ap.Longitude);
         }
 
         // Log AP and antenna pattern info on first computation
@@ -211,7 +221,9 @@ public class PropagationService
     /// to the AP's building, then to wood frame default.
     /// Each crossed floor uses the upper floor's material (floor N+1's slab separates N from N+1).
     /// </summary>
-    private static double ComputeFloorLoss(
+    private int _floorLossLogCount;
+
+    private double ComputeFloorLoss(
         PropagationAp ap, double pointLat, double pointLng,
         int activeFloor, string band, List<BuildingFloorInfo>? buildings)
     {
@@ -248,6 +260,16 @@ public class PropagationService
         {
             var material = building.FloorMaterials.GetValueOrDefault(f, "floor_wood");
             totalLoss += MaterialAttenuation.GetAttenuation(material, band);
+        }
+
+        // Debug: log first few floor loss calculations per heatmap
+        if (_floorLossLogCount < 3)
+        {
+            _floorLossLogCount++;
+            var mats = string.Join(", ", building.FloorMaterials.Select(kv => $"F{kv.Key}={kv.Value}"));
+            _logger.LogInformation(
+                "FloorLoss: apFloor={ApFloor} activeFloor={ActiveFloor} min={Min} max={Max} totalLoss={Loss}dB pointBldg={PointBldg} apBldg={ApBldg} mats=[{Mats}]",
+                ap.Floor, activeFloor, minFloor, maxFloor, totalLoss, pointBuilding != null, apBuilding != null, mats);
         }
 
         return totalLoss;
