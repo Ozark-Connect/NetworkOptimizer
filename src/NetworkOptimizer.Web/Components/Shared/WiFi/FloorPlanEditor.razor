@@ -664,6 +664,7 @@
             await InitializeMap();
             // Show placed APs immediately on map load (no floor selection needed)
             await UpdateApMarkers();
+            await UpdateBackgroundWalls();
             if (_showHeatmap) await ComputeHeatmap();
             StateHasChanged();
         }
@@ -740,6 +741,7 @@
                 _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude, 19);
 
         await UpdateApMarkers();
+        await UpdateBackgroundWalls();
         StateHasChanged();
     }
 
@@ -754,6 +756,7 @@
             await UpdateFloorOverlay();
             await UpdateApMarkers();
             await UpdateWalls();
+            await UpdateBackgroundWalls();
             if (_showHeatmap) await ComputeHeatmap();
         }
         StateHasChanged();
@@ -889,6 +892,32 @@
                 .Where(m => !m.Key.StartsWith("floor_"))
                 .ToDictionary(m => m.Key, m => m.Value));
         await JS.InvokeVoidAsync("fpEditor.updateWalls", wallsJson, colorsJson, labelsJson);
+    }
+
+    private async Task UpdateBackgroundWalls()
+    {
+        if (!_mapInitialized) return;
+
+        // Collect walls from all floors matching _globalActiveFloor, excluding the selected floor
+        var bgWalls = new List<object>();
+        foreach (var b in _buildings)
+        {
+            foreach (var f in b.Floors.Where(f => f.FloorNumber == _globalActiveFloor))
+            {
+                if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
+                if (string.IsNullOrEmpty(f.WallsJson)) continue;
+                try
+                {
+                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(f.WallsJson);
+                    if (parsed != null) bgWalls.AddRange(parsed);
+                }
+                catch { }
+            }
+        }
+
+        var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
+        var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
+        await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson);
     }
 
     private async Task ToggleWallDrawMode()
@@ -1123,6 +1152,7 @@
     {
         _globalActiveFloor = floorNumber;
         await UpdateApMarkers();
+        await UpdateBackgroundWalls();
         if (_showHeatmap) await ComputeHeatmap();
         StateHasChanged();
     }

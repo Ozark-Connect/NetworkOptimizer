@@ -8,6 +8,7 @@ window.fpEditor = {
     _overlay: null,
     _apLayer: null,
     _apGlowLayer: null,
+    _bgWallLayer: null,
     _wallLayer: null,
     _wallHighlightLayer: null,
     _allWalls: [],
@@ -74,6 +75,10 @@ window.fpEditor = {
             m.getPane('fpOverlayPane').style.zIndex = 380;
             m.createPane('apGlowPane');
             m.getPane('apGlowPane').style.zIndex = 390;
+            m.createPane('bgWallPane');
+            var bgWpEl = m.getPane('bgWallPane');
+            bgWpEl.style.zIndex = 395;
+            bgWpEl.style.pointerEvents = 'none';
             m.createPane('wallPane');
             m.getPane('wallPane').style.zIndex = 400;
             m.createPane('apIconPane');
@@ -81,6 +86,7 @@ window.fpEditor = {
 
             self._apGlowLayer = L.layerGroup().addTo(m);
             self._apLayer = L.layerGroup().addTo(m);
+            self._bgWallLayer = L.layerGroup().addTo(m);
             self._wallLayer = L.layerGroup().addTo(m);
             self._allWalls = [];
 
@@ -256,6 +262,31 @@ window.fpEditor = {
         } else {
             m.getContainer().style.cursor = '';
         }
+    },
+
+    // ── Background Walls (faded, non-interactive) ─────────────────────
+
+    updateBackgroundWalls: function (wallsJson, colorsJson) {
+        var m = this._map;
+        if (!m) return;
+        var self = this;
+
+        if (!this._bgWallLayer) this._bgWallLayer = L.layerGroup().addTo(m);
+        this._bgWallLayer.clearLayers();
+
+        var walls = JSON.parse(wallsJson);
+        var colors = JSON.parse(colorsJson);
+
+        walls.forEach(function (wall) {
+            for (var i = 0; i < wall.points.length - 1; i++) {
+                var mat = (wall.materials && i < wall.materials.length) ? wall.materials[i] : wall.material;
+                var color = colors[mat] || '#94a3b8';
+                L.polyline(
+                    [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
+                    { color: color, weight: 2, opacity: 0.3, pane: 'bgWallPane', interactive: false }
+                ).addTo(self._bgWallLayer);
+            }
+        });
     },
 
     // ── Wall Rendering ───────────────────────────────────────────────
@@ -1027,6 +1058,7 @@ window.fpEditor = {
         if (this._overlay && this._map) { this._map.removeLayer(this._overlay); this._overlay = null; }
         if (this._heatmapOverlay && this._map) { this._map.removeLayer(this._heatmapOverlay); this._heatmapOverlay = null; }
         if (this._contourLayer && this._map) { this._map.removeLayer(this._contourLayer); this._contourLayer = null; }
+        if (this._bgWallLayer) this._bgWallLayer.clearLayers();
         if (this._wallLayer) this._wallLayer.clearLayers();
     }
 };
