@@ -1370,6 +1370,12 @@
     }
 
     [JSInvokable]
+    public object GetCurrentWallMaterial()
+    {
+        return new { material = _wallMaterial, color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8") };
+    }
+
+    [JSInvokable]
     public async Task OnMapDblClickFinishWall()
     {
         if (_mode != "walls" || _selectedFloor == null) return;

@@ -21,7 +21,7 @@ window.fpEditor = {
     _wallMoveHandler: null,
     _wallMapClickBound: false,
     _currentWall: null,
-    _currentWallLine: null,
+    _currentWallSegLines: null,
     _currentWallVertices: null,
     _currentWallLabels: null,
     _refAngle: null,
@@ -588,7 +588,7 @@ window.fpEditor = {
         }
     },
 
-    // Two-level wall segment click handler
+    // Two-level wall click handler: 1st click = segment, 2nd click (same wall) = whole shape
     _wallSegClick: function (e, wi, si) {
         var m = this._map;
         var self = this;
@@ -598,35 +598,33 @@ window.fpEditor = {
         this._wallHighlightLayer.clearLayers();
         m.closePopup();
 
-        // Level 1: click a different wall -> select whole shape
-        if (sel.wallIdx !== wi || sel.segIdx !== null) {
-            if (sel.wallIdx !== wi) {
-                // Select entire wall shape - highlight all segments with dashed blue
-                for (var j = 0; j < wall.points.length - 1; j++) {
-                    L.polyline(
-                        [[wall.points[j].lat, wall.points[j].lng], [wall.points[j + 1].lat, wall.points[j + 1].lng]],
-                        { color: '#60a5fa', weight: 6, dashArray: '8,4', opacity: 0.9, interactive: false }
-                    ).addTo(this._wallHighlightLayer);
-                }
-                this._wallSelection = { wallIdx: wi, segIdx: null };
-
-                // Popup with material dropdown for whole shape and delete button
-                var wallOpts = '';
-                for (var wk in labels) {
-                    wallOpts += '<option value="' + wk + '"' + (wk === wall.material ? ' selected' : '') + '>' + labels[wk] + '</option>';
-                }
-                var wallHtml = '<div style="text-align:center;min-width:180px">' +
-                    '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
-                    'onchange="fpEditor.changeWallMat(' + wi + ',this.value)">' +
-                    wallOpts + '</select><br/>' +
-                    '<span style="font-size:11px;color:#94a3b8">' + (wall.points.length - 1) + ' segment' + (wall.points.length > 2 ? 's' : '') + '</span><br/>' +
-                    '<button onclick="fpEditor.deleteWall(' + wi + ')" style="margin-top:4px;padding:2px 12px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete Shape</button></div>';
-                L.popup({ closeButton: true }).setLatLng(e.latlng).setContent(wallHtml).openOn(m);
-                return;
+        // Level 2: clicking same wall again (already have a segment selected) -> select whole shape
+        if (sel.wallIdx === wi && sel.segIdx !== null) {
+            // Select entire wall shape - highlight all segments with dashed blue
+            for (var j = 0; j < wall.points.length - 1; j++) {
+                L.polyline(
+                    [[wall.points[j].lat, wall.points[j].lng], [wall.points[j + 1].lat, wall.points[j + 1].lng]],
+                    { color: '#60a5fa', weight: 6, dashArray: '8,4', opacity: 0.9, interactive: false }
+                ).addTo(this._wallHighlightLayer);
             }
+            this._wallSelection = { wallIdx: wi, segIdx: null };
+
+            // Popup with material dropdown for whole shape and delete button
+            var wallOpts = '';
+            for (var wk in labels) {
+                wallOpts += '<option value="' + wk + '"' + (wk === wall.material ? ' selected' : '') + '>' + labels[wk] + '</option>';
+            }
+            var wallHtml = '<div style="text-align:center;min-width:180px">' +
+                '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
+                'onchange="fpEditor.changeWallMat(' + wi + ',this.value)">' +
+                wallOpts + '</select><br/>' +
+                '<span style="font-size:11px;color:#94a3b8">' + (wall.points.length - 1) + ' segment' + (wall.points.length > 2 ? 's' : '') + '</span><br/>' +
+                '<button onclick="fpEditor.deleteWall(' + wi + ')" style="margin-top:4px;padding:2px 12px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete Shape</button></div>';
+            L.popup({ closeButton: true }).setLatLng(e.latlng).setContent(wallHtml).openOn(m);
+            return;
         }
 
-        // Level 2: click segment of already-selected wall -> select that segment
+        // Level 1: first click on any wall -> select individual segment
         L.polyline(
             [[wall.points[si].lat, wall.points[si].lng], [wall.points[si + 1].lat, wall.points[si + 1].lng]],
             { color: '#facc15', weight: 8, opacity: 0.9, interactive: false }
@@ -640,8 +638,14 @@ window.fpEditor = {
             opts += '<option value="' + k + '"' + (k === segMat ? ' selected' : '') + '>' + labels[k] + '</option>';
         }
 
+        // Hint for multi-segment shapes
+        var hintHtml = (wall.points.length > 2)
+            ? '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Click again to select whole shape</div>'
+            : '';
+
         // Popup with material dropdown, split, and delete buttons
         var html = '<div style="text-align:center;min-width:180px">' +
+            hintHtml +
             '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
             'onchange="fpEditor.changeSegMat(' + wi + ',' + si + ',this.value)">' +
             opts + '</select><br/>' +
@@ -933,10 +937,20 @@ window.fpEditor = {
             // Close-shape snap
             if (self._snapToClose && self._currentWall && self._currentWall.points.length >= 3) {
                 var fp = self._currentWall.points[0];
+                var lastPt = self._currentWall.points[self._currentWall.points.length - 1];
                 self._currentWall.points.push({ lat: fp.lat, lng: fp.lng });
-                self._currentWallLine.addLatLng([fp.lat, fp.lng]);
-                self._closedBySnap = true;
-                self._dotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');
+                // Get current material from C# binding for the closing segment
+                self._dotNetRef.invokeMethodAsync('GetCurrentWallMaterial').then(function (matInfo) {
+                    if (self._currentWall && self._currentWall.materials) {
+                        self._currentWall.materials.push(matInfo.material);
+                        if (self._currentWallSegLines) {
+                            L.polyline([[lastPt.lat, lastPt.lng], [fp.lat, fp.lng]],
+                                { color: matInfo.color, weight: 4, opacity: 0.9 }).addTo(self._currentWallSegLines);
+                        }
+                    }
+                    self._closedBySnap = true;
+                    self._dotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');
+                });
                 return;
             }
 
@@ -1168,7 +1182,7 @@ window.fpEditor = {
         m.doubleClickZoom.enable();
         this._currentWall = null;
         this._refAngle = null;
-        if (this._currentWallLine) { this._currentWallLine.remove(); this._currentWallLine = null; }
+        if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
         if (this._currentWallVertices) { m.removeLayer(this._currentWallVertices); this._currentWallVertices = null; }
         if (this._currentWallLabels) { m.removeLayer(this._currentWallLabels); this._currentWallLabels = null; }
     },
@@ -1178,8 +1192,8 @@ window.fpEditor = {
         if (!m) return;
 
         if (!this._currentWall) {
-            this._currentWall = { points: [], material: material };
-            this._currentWallLine = L.polyline([], { color: color, weight: 4, opacity: 0.9 }).addTo(this._wallLayer || m);
+            this._currentWall = { points: [], material: material, materials: [] };
+            this._currentWallSegLines = L.layerGroup().addTo(this._wallLayer || m);
             this._currentWallVertices = L.layerGroup().addTo(m);
             this._currentWallLabels = L.layerGroup().addTo(m);
         }
@@ -1189,8 +1203,16 @@ window.fpEditor = {
             radius: 5, color: color, fillColor: '#fff', fillOpacity: 1, weight: 2
         }).addTo(this._currentWallVertices);
 
+        // Track per-segment material (added when we have a previous point to connect)
+        var pts = this._currentWall.points;
+        if (pts.length >= 1) {
+            var prev = pts[pts.length - 1];
+            this._currentWall.materials.push(material);
+            L.polyline([[prev.lat, prev.lng], [lat, lng]], { color: color, weight: 4, opacity: 0.9 })
+                .addTo(this._currentWallSegLines);
+        }
+
         this._currentWall.points.push({ lat: lat, lng: lng });
-        this._currentWallLine.addLatLng([lat, lng]);
 
         // Show segment length label (imperial - feet)
         var pts = this._currentWall.points;
@@ -1236,12 +1258,25 @@ window.fpEditor = {
         // Validate wall (need at least 2 points)
         if (!this._currentWall || this._currentWall.points.length < 2) {
             this._currentWall = null;
-            if (this._currentWallLine) { this._currentWallLine.remove(); this._currentWallLine = null; }
+            if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
             return;
         }
 
-        // Remove the drawn polyline (updateWalls will re-render)
-        if (this._currentWallLine) { this._currentWallLine.remove(); this._currentWallLine = null; }
+        // Clean up per-segment materials: if all same, simplify
+        if (this._currentWall.materials && this._currentWall.materials.length > 0) {
+            var allSame = true;
+            var first = this._currentWall.materials[0];
+            for (var mi = 1; mi < this._currentWall.materials.length; mi++) {
+                if (this._currentWall.materials[mi] !== first) { allSame = false; break; }
+            }
+            if (allSame) {
+                this._currentWall.material = first;
+                delete this._currentWall.materials;
+            }
+        }
+
+        // Remove the drawn segments (updateWalls will re-render)
+        if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
 
         if (!this._allWalls) this._allWalls = [];
 
