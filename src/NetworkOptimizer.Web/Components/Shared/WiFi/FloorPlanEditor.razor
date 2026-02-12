@@ -21,7 +21,14 @@
                     <option value="@b.Id">@b.Name</option>
                 }
             </select>
-            <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building">+ Building</button>
+            @if (_selectedBuilding != null)
+            {
+                <button class="fp-btn fp-btn-sm" @onclick="DeselectBuilding">Done Editing</button>
+            }
+            else
+            {
+                <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building">+ Building</button>
+            }
 
             @if (_selectedBuilding != null)
             {
@@ -1425,6 +1432,17 @@
 
         await UpdateFloorOverlay();
         StateHasChanged();
+    }
+
+    private async Task DeselectBuilding()
+    {
+        _selectedBuildingId = 0;
+        _selectedBuilding = null;
+        _floors = new();
+        _selectedFloorId = 0;
+        _selectedFloor = null;
+        _mode = "view";
+        await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
     }
 
     private void ShowAddBuildingDialog()
