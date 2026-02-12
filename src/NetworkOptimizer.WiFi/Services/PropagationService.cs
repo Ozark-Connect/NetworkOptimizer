@@ -150,8 +150,13 @@ public class PropagationService
             elevationDeg = Math.Clamp(elevationDeg, 0, 358);
         }
 
-        // Apply mount type elevation offset before antenna pattern lookup
-        var elevationOffset = ap.MountType switch { "wall" => -90, "desktop" => 180, _ => 0 };
+        // Apply mount type elevation offset before antenna pattern lookup.
+        // The offset is the difference between the actual mount and the pattern's native orientation,
+        // since pattern data is measured in the AP's designed mount position (e.g., U7-Outdoor patterns
+        // are measured wall-mounted, so no correction is needed when actually wall-mounted).
+        var patternMountOffset = MountTypeHelper.GetDefaultMountType(ap.Model) switch { "wall" => -90, "desktop" => 180, _ => 0 };
+        var actualMountOffset = ap.MountType switch { "wall" => -90, "desktop" => 180, _ => 0 };
+        var elevationOffset = actualMountOffset - patternMountOffset;
         elevationDeg = ((elevationDeg + elevationOffset) % 359 + 359) % 359;
 
         // Antenna pattern gain using pattern multiplication:

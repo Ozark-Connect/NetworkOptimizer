@@ -18,7 +18,7 @@
                     <option value="@b.Id">@b.Name</option>
                 }
             </select>
-            <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building">+</button>
+            <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building">+ Building</button>
 
             @if (_selectedBuilding != null)
             {
@@ -31,7 +31,7 @@
                             @GetFloorLabel(f.FloorNumber)
                         </button>
                     }
-                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor">+</button>
+                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor">+ Floor</button>
                 </div>
             }
             else if (AllFloorNumbers.Any())
@@ -77,6 +77,9 @@
                 </div>
                 <button class="fp-btn @(_mode == "position" ? "active" : "")" @onclick="TogglePositionMode">
                     Position
+                </button>
+                <button class="fp-btn @(_mode == "move" ? "active" : "")" @onclick="ToggleMoveMode">
+                    Move
                 </button>
             }
             <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
@@ -589,6 +592,22 @@
         cursor: move;
     }
 
+    /* Building move handle */
+    .fp-move-handle {
+        width: 28px;
+        height: 28px;
+        background: #f59e0b;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        cursor: move;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        color: #fff;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+    }
+
     /* Contour line labels */
     .fp-contour-label {
         font-size: 10px;
@@ -725,11 +744,11 @@
         _floors = _selectedBuilding?.Floors ?? new();
         _selectedFloorId = 0;
         _selectedFloor = null;
+        _mode = "view";
 
         if (_selectedBuilding != null && _floors.Count > 0)
         {
             await SelectFloor(_floors.First().Id);
-            // Fit map to building's combined floor bounds
             var swLat = _floors.Min(f => f.SwLatitude);
             var swLng = _floors.Min(f => f.SwLongitude);
             var neLat = _floors.Max(f => f.NeLatitude);
@@ -737,8 +756,27 @@
             await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
         }
         else if (_selectedBuilding != null)
+        {
             await JS.InvokeVoidAsync("fpEditor.setView",
                 _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude, 19);
+        }
+        else
+        {
+            // Deselected: clear floor overlay, active walls, and move/position modes
+            await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", "", 0, 0, 0, 0, 0);
+            await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+            await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
+            if (_mapInitialized)
+            {
+                // Clear active wall layer (walls will show as background instead)
+                await JS.InvokeVoidAsync("fpEditor.updateWalls", "[]",
+                    System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors),
+                    System.Text.Json.JsonSerializer.Serialize(
+                        MaterialAttenuation.MaterialLabels
+                            .Where(m => !m.Key.StartsWith("floor_"))
+                            .ToDictionary(m => m.Key, m => m.Value)));
+            }
+        }
 
         await UpdateApMarkers();
         await UpdateBackgroundWalls();
@@ -976,6 +1014,7 @@
 
     private async Task TogglePositionMode()
     {
+        if (_mode == "move") await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
         _mode = _mode == "position" ? "view" : "position";
         if (_mode == "position" && _selectedFloor != null)
             await JS.InvokeVoidAsync("fpEditor.enterPositionMode");
@@ -992,6 +1031,50 @@
         _selectedFloor.NeLatitude = neLat;
         _selectedFloor.NeLongitude = neLng;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, swLat, swLng, neLat, neLng);
+    }
+
+    // ── Building move mode ───────────────────────────────────────────
+
+    private async Task ToggleMoveMode()
+    {
+        if (_mode == "position") await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        _mode = _mode == "move" ? "view" : "move";
+        if (_mode == "move" && _selectedBuilding != null)
+            await JS.InvokeVoidAsync("fpEditor.enterMoveMode",
+                _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude);
+        else
+            await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
+    }
+
+    [JSInvokable]
+    public async Task OnBuildingMovedFromJs(double newLat, double newLng)
+    {
+        if (_selectedBuilding == null) return;
+
+        var deltaLat = newLat - _selectedBuilding.CenterLatitude;
+        var deltaLng = newLng - _selectedBuilding.CenterLongitude;
+
+        // Move all floor plan bounds by the same delta
+        foreach (var f in _floors)
+        {
+            f.SwLatitude += deltaLat;
+            f.SwLongitude += deltaLng;
+            f.NeLatitude += deltaLat;
+            f.NeLongitude += deltaLng;
+            await FloorPlanSvc.UpdateFloorAsync(f.Id, f.SwLatitude, f.SwLongitude, f.NeLatitude, f.NeLongitude);
+        }
+
+        // Update building center
+        _selectedBuilding.CenterLatitude = newLat;
+        _selectedBuilding.CenterLongitude = newLng;
+        await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, newLat, newLng);
+
+        // Refresh visuals
+        if (_selectedFloor != null) await UpdateFloorOverlay();
+        await UpdateWalls();
+        await UpdateBackgroundWalls();
+        if (_showHeatmap) await ComputeHeatmap();
+        await InvokeAsync(StateHasChanged);
     }
 
     // ── Heatmap ──────────────────────────────────────────────────────

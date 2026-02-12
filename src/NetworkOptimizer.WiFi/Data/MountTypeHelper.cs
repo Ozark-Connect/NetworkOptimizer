@@ -23,16 +23,21 @@ public static class MountTypeHelper
         if (string.IsNullOrEmpty(model))
             return "ceiling";
 
-        if (WallModels.Contains(model))
+        // Strip color suffix (e.g., "-B" for black) before checking
+        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            ? model[..^2]
+            : model;
+
+        if (WallModels.Contains(m))
             return "wall";
 
-        if (DesktopModels.Contains(model))
+        if (DesktopModels.Contains(m))
             return "desktop";
 
         // Check for wall-mount indicators in model name
-        if (model.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
-            model.Contains("-Wall", StringComparison.OrdinalIgnoreCase) ||
-            model.Contains("-Outdoor", StringComparison.OrdinalIgnoreCase))
+        if (m.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("-Wall", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("-Outdoor", StringComparison.OrdinalIgnoreCase))
             return "wall";
 
         return "ceiling";

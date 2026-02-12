@@ -30,6 +30,7 @@ window.fpEditor = {
     _snapIndicator: null,
     _closedBySnap: false,
     _corners: null,
+    _moveMarker: null,
     _heatmapOverlay: null,
     _contourLayer: null,
 
@@ -180,7 +181,7 @@ window.fpEditor = {
                 html: '<div class="fp-ap-glow-dot' + (ap.sameFloor ? '' : ' other-floor') + '"></div>',
                 iconSize: [48, 48], iconAnchor: [24, 24]
             });
-            L.marker([ap.lat, ap.lng], {
+            var glowMarker = L.marker([ap.lat, ap.lng], {
                 icon: glowIcon, interactive: false, pane: 'apGlowPane'
             }).addTo(self._apGlowLayer);
 
@@ -233,10 +234,16 @@ window.fpEditor = {
             );
 
             if (draggable && ap.sameFloor) {
-                marker.on('dragend', function (e) {
-                    var pos = e.target.getLatLng();
-                    self._dotNetRef.invokeMethodAsync('OnApDragEndFromJs', ap.mac, pos.lat, pos.lng);
-                });
+                (function (gm) {
+                    marker.on('drag', function (e) {
+                        gm.setLatLng(e.target.getLatLng());
+                    });
+                    marker.on('dragend', function (e) {
+                        var pos = e.target.getLatLng();
+                        gm.setLatLng(pos);
+                        self._dotNetRef.invokeMethodAsync('OnApDragEndFromJs', ap.mac, pos.lat, pos.lng);
+                    });
+                })(glowMarker);
             }
         });
     },
@@ -885,6 +892,31 @@ window.fpEditor = {
         if (this._corners) {
             this._corners.forEach(function (c) { m.removeLayer(c); });
             this._corners = null;
+        }
+    },
+
+    // ── Building Move Mode ──────────────────────────────────────────
+
+    enterMoveMode: function (centerLat, centerLng) {
+        var m = this._map;
+        if (!m) return;
+        var self = this;
+
+        this.exitMoveMode();
+
+        var ci = L.divIcon({ className: 'fp-move-handle', html: '\u2725', iconSize: [28, 28], iconAnchor: [14, 14] });
+        this._moveMarker = L.marker([centerLat, centerLng], { icon: ci, draggable: true }).addTo(m);
+
+        this._moveMarker.on('dragend', function (e) {
+            var pos = e.target.getLatLng();
+            self._dotNetRef.invokeMethodAsync('OnBuildingMovedFromJs', pos.lat, pos.lng);
+        });
+    },
+
+    exitMoveMode: function () {
+        if (this._moveMarker && this._map) {
+            this._map.removeLayer(this._moveMarker);
+            this._moveMarker = null;
         }
     },
 
