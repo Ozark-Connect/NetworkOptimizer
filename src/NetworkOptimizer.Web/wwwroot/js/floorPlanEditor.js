@@ -103,18 +103,13 @@ window.fpEditor = {
             m.zoomIn = function (delta, options) {
                 var d = m.getZoom() >= 21 ? 0.5 : 1;
                 m.options.zoomDelta = d;
-                console.log('zoomIn: cur=' + m.getZoom() + ' delta=' + d + ' → ' + (m.getZoom() + d));
                 return origZoomIn(d, options);
             };
             m.zoomOut = function (delta, options) {
                 var d = m.getZoom() > 21 ? 0.5 : 1;
                 m.options.zoomDelta = d;
-                console.log('zoomOut: cur=' + m.getZoom() + ' delta=' + d + ' → ' + (m.getZoom() - d));
                 return origZoomOut(d, options);
             };
-            m.on('zoomend', function () {
-                console.log('zoom level: ' + m.getZoom());
-            });
 
             // Custom panes for z-ordering: heatmap(350) < floorOverlay(380) < apGlow(390) < walls(400) < apIcons(450)
             m.createPane('heatmapPane');
@@ -253,7 +248,6 @@ window.fpEditor = {
             var latSpanM = (neLat - swLat) * 111320;
             var lngSpanM = (neLng - swLng) * 111320 * Math.cos((swLat + neLat) / 2 * Math.PI / 180);
             var sz = this._map.getSize();
-            console.log('fitBounds:', { widthM: lngSpanM.toFixed(1), heightM: latSpanM.toFixed(1), viewportPx: sz.x + 'x' + sz.y, curZoom: this._map.getZoom() });
             // Bypass zoomSnap for precise fit: temporarily set snap to 0
             var origSnap = this._map.options.zoomSnap;
             this._map.options.zoomSnap = 0;
@@ -261,7 +255,6 @@ window.fpEditor = {
             this._map.options.zoomSnap = origSnap;
             zoom = Math.min(zoom, 24);
             this._map.setView(L.latLngBounds(bounds).getCenter(), zoom, { animate: false });
-            console.log('fitBounds result:', { zoom: this._map.getZoom(), center: this._map.getCenter() });
         }
     },
 
@@ -964,9 +957,7 @@ window.fpEditor = {
 
         checkWalls(this._allWalls);
         checkWalls(this._bgWalls, bgMaxMeters); // real-world distance cap for other buildings
-        var result = bestVertexPt || bestSegPt;
-        if (result) console.log('vertexSnap:', result.type, 'at', result.lat.toFixed(6), result.lng.toFixed(6));
-        return result;
+        return bestVertexPt || bestSegPt;
     },
 
     // Find the angle of the nearest background wall segment (unlimited distance).
@@ -995,7 +986,6 @@ window.fpEditor = {
                 }
             }
         }
-        if (bestAngle !== null) console.log('cornerstone: nearest bg wall at', bestDist.toFixed(1) + 'm, angle=' + (bestAngle * 180 / Math.PI).toFixed(1) + '°');
         return bestAngle;
     },
 
