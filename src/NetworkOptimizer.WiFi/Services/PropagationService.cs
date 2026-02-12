@@ -127,7 +127,7 @@ public class PropagationService
         var floorLoss = 0.0;
         if (floorSeparation > 0)
         {
-            floorLoss = ComputeFloorLoss(ap, activeFloor, band, buildings);
+            floorLoss = ComputeFloorLoss(ap, pointLat, pointLng, activeFloor, band, buildings);
         }
 
         // 3D distance including floor separation
@@ -195,37 +195,47 @@ public class PropagationService
 
     /// <summary>
     /// Compute floor attenuation between AP and active floor.
-    /// Outdoor APs (not inside any building) get zero floor loss.
-    /// Indoor APs sum per-floor material attenuation for each crossed floor.
+    /// Uses the observation point's building materials when available (the point is on
+    /// the target floor, so that building's slab is the physical barrier). Falls back
+    /// to the AP's building, then to wood frame default.
+    /// Each crossed floor uses the upper floor's material (floor N+1's slab separates N from N+1).
     /// </summary>
-    private static double ComputeFloorLoss(PropagationAp ap, int activeFloor, string band, List<BuildingFloorInfo>? buildings)
+    private static double ComputeFloorLoss(
+        PropagationAp ap, double pointLat, double pointLng,
+        int activeFloor, string band, List<BuildingFloorInfo>? buildings)
     {
         if (buildings == null || buildings.Count == 0)
         {
-            // No building data - fall back to wood frame default
             return Math.Abs(ap.Floor - activeFloor) * MaterialAttenuation.GetAttenuation("floor_wood", band);
         }
 
-        // Find the building containing this AP
+        // Find building containing the observation point (primary) or the AP (fallback)
+        var pointBuilding = buildings.FirstOrDefault(b =>
+            pointLat >= b.SwLat && pointLat <= b.NeLat &&
+            pointLng >= b.SwLng && pointLng <= b.NeLng);
+
         var apBuilding = buildings.FirstOrDefault(b =>
             ap.Latitude >= b.SwLat && ap.Latitude <= b.NeLat &&
             ap.Longitude >= b.SwLng && ap.Longitude <= b.NeLng);
 
-        if (apBuilding == null)
+        var building = pointBuilding ?? apBuilding;
+
+        if (building == null)
         {
-            // AP is outdoors - no physical floor between AP and observation point
+            // Both AP and point are outdoors
             return 0.0;
         }
 
-        // Sum attenuation for each floor crossed between AP floor and active floor
+        // Sum attenuation for each floor crossed between AP floor and active floor.
+        // The physical barrier between floor N and N+1 is the slab at floor N+1,
+        // so use the upper floor's material for each crossing.
         var totalLoss = 0.0;
         var minFloor = Math.Min(ap.Floor, activeFloor);
         var maxFloor = Math.Max(ap.Floor, activeFloor);
 
-        for (var f = minFloor; f < maxFloor; f++)
+        for (var f = minFloor + 1; f <= maxFloor; f++)
         {
-            // Use the material of the floor being crossed (the ceiling of floor f)
-            var material = apBuilding.FloorMaterials.GetValueOrDefault(f, "floor_wood");
+            var material = building.FloorMaterials.GetValueOrDefault(f, "floor_wood");
             totalLoss += MaterialAttenuation.GetAttenuation(material, band);
         }
 

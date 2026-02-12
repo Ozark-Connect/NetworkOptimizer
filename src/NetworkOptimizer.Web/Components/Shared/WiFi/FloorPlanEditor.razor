@@ -1971,10 +1971,25 @@
         await LoadBuildings();
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
-        _selectedFloorId = 0;
-        _selectedFloor = null;
 
-        await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
+        // Select first remaining floor (if any)
+        var firstFloor = _floors.OrderBy(f => f.FloorNumber).FirstOrDefault();
+        if (firstFloor != null)
+        {
+            _selectedFloorId = firstFloor.Id;
+            _selectedFloor = firstFloor;
+            _globalActiveFloor = firstFloor.FloorNumber;
+            _floorOpacity = firstFloor.Opacity;
+            await UpdateFloorOverlay();
+            await UpdateWalls();
+        }
+        else
+        {
+            _selectedFloorId = 0;
+            _selectedFloor = null;
+            await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
+        }
+
         EnsureGlobalFloorExists();
         await UpdateBackgroundWalls();
         await UpdateApMarkers();
