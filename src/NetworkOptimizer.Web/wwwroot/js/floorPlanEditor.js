@@ -863,7 +863,9 @@ window.fpEditor = {
 
         checkWalls(this._allWalls);
         checkWalls(this._bgWalls);
-        return bestVertexPt || bestSegPt;
+        var result = bestVertexPt || bestSegPt;
+        if (result) console.log('vertexSnap:', result.type, 'at', result.lat.toFixed(6), result.lng.toFixed(6));
+        return result;
     },
 
     // Check if drawing line from prev to snap point is within ±5° of perpendicular to the target wall.
@@ -980,7 +982,8 @@ window.fpEditor = {
             var bestDiff = 1.0; // snap threshold in meters
             var bestLen = null;
 
-            function checkPoints(pts) {
+            var bestSource = '';
+            function checkPoints(pts, source) {
                 if (!pts || pts.length < 2) return;
                 for (var j = 0; j < pts.length - 1; j++) {
                     var sCosLat = Math.cos(pts[j].lat * Math.PI / 180);
@@ -995,18 +998,20 @@ window.fpEditor = {
                     if (diff < bestDiff && diff > 0.01) {
                         bestDiff = diff;
                         bestLen = curLen * (segLen / curMeters);
+                        bestSource = source + ' seg' + j + ' (' + (segLen * 3.28084).toFixed(1) + "')";
                     }
                 }
             }
 
             // Check current wall being drawn
-            if (self._currentWall) checkPoints(self._currentWall.points);
+            if (self._currentWall) checkPoints(self._currentWall.points, 'currentWall');
             // Check all existing walls on this floor (same building only)
             if (self._allWalls) {
                 for (var wi = 0; wi < self._allWalls.length; wi++) {
-                    checkPoints(self._allWalls[wi].points);
+                    checkPoints(self._allWalls[wi].points, 'wall[' + wi + ']');
                 }
             }
+            if (bestLen !== null) console.log('lengthSnap:', bestSource, 'cur=' + (curMeters * 3.28084).toFixed(1) + "'");
             return bestLen;
         };
 
