@@ -185,7 +185,10 @@
         {
             <div class="fp-edit-hint fp-wall-hint">
                 <span>Click to place points. Shift = free-form.</span>
-                <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
+                @if (_isDrawingShape)
+                {
+                    <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
+                }
             </div>
         }
 
@@ -997,6 +1000,7 @@
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
     private string _wallMaterial = "drywall";
+    private bool _isDrawingShape;
     private double _floorOpacity = 0.7;
     private bool _showAddBuilding;
     private bool _showAddFloor;
@@ -1356,6 +1360,7 @@
     private async Task ToggleWallDrawMode()
     {
         _mode = _mode == "walls" ? "view" : "walls";
+        _isDrawingShape = false;
         if (_mode == "walls")
             await SetMapClickToPlaceMode(false);
 
@@ -1387,6 +1392,7 @@
     {
         if (_mode != "walls") return;
         var color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8");
+        if (!_isDrawingShape) { _isDrawingShape = true; StateHasChanged(); }
         await JS.InvokeVoidAsync("fpEditor.addWallPoint", lat, lng, _wallMaterial, color);
     }
 
@@ -1413,6 +1419,7 @@
     public async Task SaveWallsFromJs(string wallsJson)
     {
         if (_selectedFloor == null) return;
+        _isDrawingShape = false;
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
         // Re-render walls from saved state so they persist visually

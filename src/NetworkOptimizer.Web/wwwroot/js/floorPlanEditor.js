@@ -509,7 +509,7 @@ window.fpEditor = {
                 var color = colors[mat] || '#94a3b8';
                 L.polyline(
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
-                    { color: color, weight: 2, opacity: 0.3, pane: 'bgWallPane', interactive: false }
+                    { color: color, weight: 3, opacity: 0.5, pane: 'bgWallPane', interactive: false }
                 ).addTo(self._bgWallLayer);
             }
         });
