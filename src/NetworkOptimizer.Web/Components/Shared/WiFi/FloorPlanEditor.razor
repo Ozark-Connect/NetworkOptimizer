@@ -1364,15 +1364,35 @@
             catch { }
         }
 
-        // Shift all APs that were inside this building's PRE-MOVE bounds
+        // Shift APs that belong to this building (inside pre-move bounds and not
+        // inside a smaller overlapping building, to avoid stealing APs from neighbors)
+        var otherBuildingBounds = _buildings
+            .Where(b => b.Id != buildingId && b.Floors.Count > 0)
+            .Select(b => (
+                swLat: b.Floors.Min(f => f.SwLatitude),
+                swLng: b.Floors.Min(f => f.SwLongitude),
+                neLat: b.Floors.Max(f => f.NeLatitude),
+                neLng: b.Floors.Max(f => f.NeLongitude),
+                area: (b.Floors.Max(f => f.NeLatitude) - b.Floors.Min(f => f.SwLatitude)) *
+                      (b.Floors.Max(f => f.NeLongitude) - b.Floors.Min(f => f.SwLongitude))
+            )).ToList();
+        var thisArea = (preNeLat - preSwLat) * (preNeLng - preSwLng);
+
         foreach (var ap in _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue))
         {
             var apLat = ap.Latitude!.Value;
             var apLng = ap.Longitude!.Value;
-            if (apLat >= preSwLat && apLat <= preNeLat && apLng >= preSwLng && apLng <= preNeLng)
-            {
-                await ApMapSvc.SaveApLocationAsync(ap.Mac, apLat + dLat, apLng + dLng);
-            }
+            if (apLat < preSwLat || apLat > preNeLat || apLng < preSwLng || apLng > preNeLng)
+                continue; // AP not inside this building
+
+            // Skip if a smaller building also contains this AP (it belongs to them)
+            var insideSmallerBuilding = otherBuildingBounds.Any(ob =>
+                ob.area < thisArea &&
+                apLat >= ob.swLat && apLat <= ob.neLat &&
+                apLng >= ob.swLng && apLng <= ob.neLng);
+            if (insideSmallerBuilding) continue;
+
+            await ApMapSvc.SaveApLocationAsync(ap.Mac, apLat + dLat, apLng + dLng);
         }
 
         // Reload everything
