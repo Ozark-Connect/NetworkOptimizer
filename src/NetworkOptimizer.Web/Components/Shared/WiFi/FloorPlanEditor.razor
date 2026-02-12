@@ -196,6 +196,13 @@
                        @oninput="OnOpacityChange" class="fp-opacity-slider" />
             </div>
             <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete Floor</button>
+            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
+        </div>
+    }
+    else if (_selectedBuilding != null)
+    {
+        <div class="fp-bottom-bar">
+            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
     }
 </div>
@@ -242,6 +249,23 @@
             <div class="fp-dialog-actions">
                 <button class="fp-btn" @onclick="() => _showAddFloor = false">Cancel</button>
                 <button class="fp-btn fp-btn-primary" @onclick="CreateFloor">Create</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Building Confirmation -->
+@if (_showDeleteBuilding && _selectedBuilding != null)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showDeleteBuilding = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Delete Building</h3>
+            <p style="color: var(--text-muted, #aaa); margin: 8px 0 16px;">
+                Delete <strong>@_selectedBuilding.Name</strong> and all its floors? This cannot be undone.
+            </p>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showDeleteBuilding = false">Cancel</button>
+                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedBuilding">Delete</button>
             </div>
         </div>
     </div>
@@ -892,6 +916,7 @@
     private int _newFloorNumber;
     private string _newFloorLabel = "";
     private string _newFloorMaterial = "floor_wood";
+    private bool _showDeleteBuilding;
     private ApMapMarker? _selectedApForPlacement;
 
     private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
@@ -1168,14 +1193,21 @@
     {
         if (!_mapInitialized) return;
 
-        // Collect walls from all floors matching _globalActiveFloor, excluding the selected floor
+        // Collect walls from: same floor number in other buildings, plus adjacent floors (n-1, n+1) in the same building
         var bgWalls = new List<object>();
         foreach (var b in _buildings)
         {
-            foreach (var f in b.Floors.Where(f => f.FloorNumber == _globalActiveFloor))
+            foreach (var f in b.Floors)
             {
                 if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
                 if (string.IsNullOrEmpty(f.WallsJson)) continue;
+
+                // Include: same floor number (any building), or adjacent floors in same building
+                var sameFloor = f.FloorNumber == _globalActiveFloor;
+                var adjacentFloor = _selectedBuilding != null && b.Id == _selectedBuilding.Id &&
+                    Math.Abs(f.FloorNumber - _globalActiveFloor) == 1;
+                if (!sameFloor && !adjacentFloor) continue;
+
                 try
                 {
                     var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(f.WallsJson);
@@ -1249,7 +1281,9 @@
         if (_mode == "move") await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
         _mode = _mode == "position" ? "view" : "position";
         if (_mode == "position" && _selectedFloor != null)
-            await JS.InvokeVoidAsync("fpEditor.enterPositionMode");
+            await JS.InvokeVoidAsync("fpEditor.enterPositionMode",
+                _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
+                _selectedFloor.NeLatitude, _selectedFloor.NeLongitude);
         else
             await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
     }
@@ -1506,6 +1540,9 @@
         }
 
         await UpdateFloorOverlay();
+        await JS.InvokeVoidAsync("fpEditor.fitBounds",
+            _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
+            _selectedFloor.NeLatitude, _selectedFloor.NeLongitude);
         StateHasChanged();
     }
 
@@ -1594,6 +1631,16 @@
         _selectedFloor = null;
 
         await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
+        StateHasChanged();
+    }
+
+    private async Task DeleteSelectedBuilding()
+    {
+        if (_selectedBuilding == null) return;
+        _showDeleteBuilding = false;
+        await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
+        await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+        await LoadBuildings();
         StateHasChanged();
     }
 

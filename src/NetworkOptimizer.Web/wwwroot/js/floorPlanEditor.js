@@ -38,6 +38,7 @@ window.fpEditor = {
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
+    _bgWalls: [],
 
     // ── Map Initialization ───────────────────────────────────────────
 
@@ -224,7 +225,7 @@ window.fpEditor = {
 
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
-            this._map.fitBounds([[swLat, swLng], [neLat, neLng]], { padding: [30, 30] });
+            this._map.fitBounds([[swLat, swLng], [neLat, neLng]], { padding: [50, 50], maxZoom: 22 });
         }
     },
 
@@ -250,7 +251,6 @@ window.fpEditor = {
         this._overlay = L.imageOverlay(imageUrl, bounds, {
             opacity: opacity, interactive: false, pane: 'fpOverlayPane'
         }).addTo(m);
-        m.fitBounds(bounds, { padding: [20, 20] });
     },
 
     setFloorOpacity: function (opacity) {
@@ -459,6 +459,7 @@ window.fpEditor = {
 
         var walls = JSON.parse(wallsJson);
         var colors = JSON.parse(colorsJson);
+        this._bgWalls = walls;
 
         walls.forEach(function (wall) {
             for (var i = 0; i < wall.points.length - 1; i++) {
@@ -699,6 +700,35 @@ window.fpEditor = {
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 
+    // Snap to nearby vertices from existing walls and background walls (adjacent floors)
+    _snapToVertex: function (lat, lng, snapPixels) {
+        var m = this._map;
+        if (!m) return null;
+        var mousePixel = m.latLngToContainerPoint(L.latLng(lat, lng));
+        var bestDist = snapPixels;
+        var bestPt = null;
+
+        function checkWalls(walls) {
+            if (!walls) return;
+            for (var wi = 0; wi < walls.length; wi++) {
+                var pts = walls[wi].points;
+                if (!pts) continue;
+                for (var pi = 0; pi < pts.length; pi++) {
+                    var px = m.latLngToContainerPoint(L.latLng(pts[pi].lat, pts[pi].lng));
+                    var d = mousePixel.distanceTo(px);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        bestPt = { lat: pts[pi].lat, lng: pts[pi].lng };
+                    }
+                }
+            }
+        }
+
+        checkWalls(this._allWalls);
+        checkWalls(this._bgWalls);
+        return bestPt;
+    },
+
     // ── Wall Drawing Mode ────────────────────────────────────────────
 
     enterDrawMode: function (wallsJson) {
@@ -781,11 +811,24 @@ window.fpEditor = {
             }
 
             var lat = e.latlng.lat, lng = e.latlng.lng;
+
+            // Vertex snap: snap to nearby existing wall vertices (10px threshold)
+            if (!e.originalEvent.shiftKey) {
+                var vtxSnap = self._snapToVertex(lat, lng, 10);
+                if (vtxSnap) {
+                    lat = vtxSnap.lat;
+                    lng = vtxSnap.lng;
+                }
+            }
+
             if (!e.originalEvent.shiftKey && self._currentWall && self._currentWall.points.length > 0) {
                 var prev = self._currentWall.points[self._currentWall.points.length - 1];
-                var snapped = self._snapPoint(prev, lat, lng, false);
-                lat = snapped.lat;
-                lng = snapped.lng;
+                // Only apply angle snap if we didn't vertex-snap
+                if (!self._snapToVertex(e.latlng.lat, e.latlng.lng, 10)) {
+                    var snapped = self._snapPoint(prev, lat, lng, false);
+                    lat = snapped.lat;
+                    lng = snapped.lng;
+                }
                 // Set reference angle from first segment
                 if (self._refAngle === null && self._currentWall.points.length === 1) {
                     var cosLat2 = Math.cos(prev.lat * Math.PI / 180);
@@ -814,7 +857,24 @@ window.fpEditor = {
         this._snapIndicator = null;
 
         this._wallMoveHandler = function (e) {
-            if (!self._currentWall || self._currentWall.points.length === 0) return;
+            // Show vertex snap indicator even before first point is placed
+            if (!self._currentWall || self._currentWall.points.length === 0) {
+                var earlySnap = e.originalEvent.shiftKey ? null : self._snapToVertex(e.latlng.lat, e.latlng.lng, 10);
+                if (earlySnap) {
+                    if (!self._snapIndicator) {
+                        self._snapIndicator = L.marker([earlySnap.lat, earlySnap.lng], {
+                            icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
+                            interactive: false
+                        }).addTo(m);
+                    } else {
+                        self._snapIndicator.setLatLng([earlySnap.lat, earlySnap.lng]);
+                    }
+                } else if (self._snapIndicator) {
+                    m.removeLayer(self._snapIndicator);
+                    self._snapIndicator = null;
+                }
+                return;
+            }
             var prev = self._currentWall.points[self._currentWall.points.length - 1];
 
             // Close-shape snap: if 3+ points and cursor is within 15px of first point
@@ -841,6 +901,27 @@ window.fpEditor = {
                         icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
                         interactive: false
                     }).addTo(m);
+                }
+                return;
+            }
+
+            // Vertex snap: check for nearby existing wall vertices
+            var vtxSnap = e.originalEvent.shiftKey ? null : self._snapToVertex(e.latlng.lat, e.latlng.lng, 10);
+            if (vtxSnap) {
+                if (!self._previewLine) {
+                    self._previewLine = L.polyline([[prev.lat, prev.lng], [vtxSnap.lat, vtxSnap.lng]], {
+                        color: '#60a5fa', weight: 2, dashArray: '6,4', opacity: 0.8
+                    }).addTo(m);
+                } else {
+                    self._previewLine.setLatLngs([[prev.lat, prev.lng], [vtxSnap.lat, vtxSnap.lng]]);
+                }
+                if (!self._snapIndicator) {
+                    self._snapIndicator = L.marker([vtxSnap.lat, vtxSnap.lng], {
+                        icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
+                        interactive: false
+                    }).addTo(m);
+                } else {
+                    self._snapIndicator.setLatLng([vtxSnap.lat, vtxSnap.lng]);
                 }
                 return;
             }
@@ -963,13 +1044,13 @@ window.fpEditor = {
 
         if (!this._allWalls) this._allWalls = [];
 
-        // Auto-split: if drawing a door/window/glass with exactly 2 points near an existing wall,
-        // split the existing wall and insert the overlay segment
+        // Auto-split: if drawing a 2-point segment near an existing wall,
+        // split the existing wall and replace that section with the new material.
+        // Works for any material - allows replacing wall sections with doors, windows, or different wall types.
         var cw = this._currentWall;
         var didSplit = false;
-        var overlayMats = ['door_wood', 'door_metal', 'door_glass', 'window_1_pane', 'window_2_pane', 'window_3_pane', 'glass', 'glass_thin'];
 
-        if (cw && cw.points.length === 2 && overlayMats.indexOf(cw.material) >= 0) {
+        if (cw && cw.points.length === 2) {
             var snapDist = 2;
             var bestWi = -1, bestSi = -1, bestT1 = -1, bestT2 = -1, bestD = Infinity;
             var p1 = L.latLng(cw.points[0].lat, cw.points[0].lng);
@@ -1031,18 +1112,27 @@ window.fpEditor = {
 
     // ── Position Mode ────────────────────────────────────────────────
 
-    enterPositionMode: function () {
+    enterPositionMode: function (swLat, swLng, neLat, neLng) {
         var m = this._map;
-        if (!m || !this._overlay) return;
+        if (!m) return;
         var self = this;
 
         if (this._corners) {
             this._corners.forEach(function (c) { m.removeLayer(c); });
         }
 
-        var bounds = this._overlay.getBounds();
-        var sw = bounds.getSouthWest();
-        var ne = bounds.getNorthEast();
+        // Use provided bounds (from C#) so position mode works even without a floor plan image
+        var sw, ne;
+        if (swLat !== undefined && swLat !== null) {
+            sw = L.latLng(swLat, swLng);
+            ne = L.latLng(neLat, neLng);
+        } else if (this._overlay) {
+            var bounds = this._overlay.getBounds();
+            sw = bounds.getSouthWest();
+            ne = bounds.getNorthEast();
+        } else {
+            return;
+        }
         var ci = L.divIcon({ className: 'fp-corner-handle', iconSize: [14, 14], iconAnchor: [7, 7] });
         var swM = L.marker(sw, { icon: ci, draggable: true }).addTo(m);
         var neM = L.marker(ne, { icon: ci, draggable: true }).addTo(m);
@@ -1079,9 +1169,24 @@ window.fpEditor = {
         var self = this;
 
         this.exitMoveMode();
+        m.dragging.disable();
 
         var ci = L.divIcon({ className: 'fp-move-handle', html: '\u2725', iconSize: [28, 28], iconAnchor: [14, 14] });
         this._moveMarker = L.marker([centerLat, centerLng], { icon: ci, draggable: true }).addTo(m);
+        this._moveStartCenter = L.latLng(centerLat, centerLng);
+
+        // Live preview: move overlay and walls during drag
+        this._moveMarker.on('drag', function (e) {
+            if (!self._overlay || !self._moveStartCenter) return;
+            var pos = e.target.getLatLng();
+            var dLat = pos.lat - self._moveStartCenter.lat;
+            var dLng = pos.lng - self._moveStartCenter.lng;
+            var b = self._overlay.getBounds();
+            var sw = b.getSouthWest();
+            var ne = b.getNorthEast();
+            self._overlay.setBounds([[sw.lat + dLat, sw.lng + dLng], [ne.lat + dLat, ne.lng + dLng]]);
+            self._moveStartCenter = pos;
+        });
 
         this._moveMarker.on('dragend', function (e) {
             var pos = e.target.getLatLng();
@@ -1094,6 +1199,7 @@ window.fpEditor = {
             this._map.removeLayer(this._moveMarker);
             this._moveMarker = null;
         }
+        if (this._map) this._map.dragging.enable();
     },
 
     // ── Heatmap ──────────────────────────────────────────────────────
