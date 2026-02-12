@@ -201,6 +201,12 @@
     @if (_selectedFloor != null)
     {
         <div class="fp-bottom-bar">
+            @* TODO: Re-enable once floor plan image sizing/positioning is implemented
+            <label class="fp-upload-btn">
+                Upload Floor Plan
+                <InputFile OnChange="OnFloorPlanUpload" accept="image/*" style="display:none" />
+            </label>
+            *@
             <div class="fp-opacity-control">
                 <span>Floor:</span>
                 <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
