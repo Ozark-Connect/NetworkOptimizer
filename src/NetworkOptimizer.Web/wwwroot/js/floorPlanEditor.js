@@ -1059,10 +1059,8 @@ window.fpEditor = {
                 var perpAdj = (vtxSnap.type === 'segment') ? self._perpSnap(prev, vtxSnap) : null;
                 var snapTarget = perpAdj || vtxSnap;
 
-                // Preview line: solid green when locked perpendicular, dashed blue for vertex/non-perp segment
-                var lineStyle = perpAdj
-                    ? { color: '#22c55e', weight: 2, dashArray: null, opacity: 0.9 }
-                    : { color: '#60a5fa', weight: 2, dashArray: '6,4', opacity: 0.8 };
+                // Preview line: always dashed blue for snap (green right-angle marker is sufficient for perp feedback)
+                var lineStyle = { color: '#60a5fa', weight: 2, dashArray: '6,4', opacity: 0.8 };
                 if (!self._previewLine) {
                     self._previewLine = L.polyline([[prev.lat, prev.lng], [snapTarget.lat, snapTarget.lng]], lineStyle).addTo(m);
                 } else {
