@@ -719,6 +719,10 @@ window.onload = function() {
       }
     }
     originalDuration = dlDuration; // Capture after URL params but before extraTime inflation
+    // Recalculate averaging windows after URL params changed dlDuration/ulDuration
+    dlFinal = dlDuration * 0.6;
+    ulFinal = ulDuration * 0.6;
+    setFinal();
     var overheadClean = parseInt(getCommand.clean);
     var overheadCleanC = parseInt(getCommand.c);
     var customOverHeadValue = 1;
