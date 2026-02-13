@@ -599,6 +599,11 @@
     // Polling
     private System.Threading.Timer? _pollTimer;
 
+    // GPS
+    private double? _gpsLat;
+    private double? _gpsLng;
+    private int? _gpsAccuracy;
+
     // Time filter options
     private static readonly (int hours, string label)[] _timeFilters = new[]
     {
@@ -632,6 +637,9 @@
 
         // Identify client
         await IdentifyAndLoadAsync();
+
+        // Request GPS location (fire-and-forget, non-blocking)
+        _ = RequestGpsAsync();
 
         // Start polling every 5 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
@@ -711,7 +719,8 @@
 
         try
         {
-            _latestPoll = await DashboardService.PollSignalAsync(_clientIp);
+            _latestPoll = await DashboardService.PollSignalAsync(
+                _clientIp, _gpsLat, _gpsLng, _gpsAccuracy);
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
@@ -872,6 +881,40 @@
     private void DetectRoamingFromPoll()
     {
         // This will be populated from signal history on tab load
+    }
+
+    private async Task RequestGpsAsync()
+    {
+        try
+        {
+            // Wrap browser geolocation in a Promise for JS interop
+            var js = "new Promise((resolve) => { " +
+                "if (!navigator.geolocation) { resolve(null); return; } " +
+                "navigator.geolocation.getCurrentPosition(" +
+                "(pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }), " +
+                "() => resolve(null), " +
+                "{ enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }" +
+                "); })";
+            var result = await JS.InvokeAsync<GpsResult?>("eval", js);
+
+            if (result != null)
+            {
+                _gpsLat = result.Lat;
+                _gpsLng = result.Lng;
+                _gpsAccuracy = result.Acc;
+            }
+        }
+        catch
+        {
+            // GPS is optional - don't fail if browser denies permission
+        }
+    }
+
+    private class GpsResult
+    {
+        public double Lat { get; set; }
+        public double Lng { get; set; }
+        public int? Acc { get; set; }
     }
 
     // --- URL Construction ---
