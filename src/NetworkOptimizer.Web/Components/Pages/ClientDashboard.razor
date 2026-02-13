@@ -507,7 +507,7 @@
                                                     @if (row.IsRange)
                                                     {
                                                         @FormatSignalTime(entry.Timestamp)
-                                                        <span class="time-range-indicator">— @entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime)</span>
+                                                        <span class="time-range-indicator">— @(entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
                                                         <span class="row-count">(@row.Count)</span>
                                                     }
                                                     else
