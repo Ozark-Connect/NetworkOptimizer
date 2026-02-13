@@ -685,7 +685,7 @@ window.fpEditor = {
         this._sameBuildingWalls = wallsJson ? JSON.parse(wallsJson) : [];
     },
 
-    updateBackgroundWalls: function (wallsJson, colorsJson) {
+    updateBackgroundWalls: function (wallsJson, colorsJson, clickable) {
         var m = this._map;
         if (!m) return;
         var self = this;
@@ -697,15 +697,30 @@ window.fpEditor = {
         var colors = JSON.parse(colorsJson);
         this._bgWalls = walls;
 
+        // Enable pointer events on bg wall pane when buildings are clickable
+        var bgPaneEl = m.getPane('bgWallPane');
+        if (bgPaneEl) bgPaneEl.style.pointerEvents = clickable ? 'auto' : 'none';
+
         walls.forEach(function (wall) {
             var opacity = wall._opacity || 0.5;
+            var bldgId = wall._buildingId;
+            var interactive = !!clickable && !!bldgId;
             for (var i = 0; i < wall.points.length - 1; i++) {
                 var mat = (wall.materials && i < wall.materials.length) ? wall.materials[i] : wall.material;
                 var color = colors[mat] || '#94a3b8';
-                L.polyline(
+                var line = L.polyline(
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
-                    { color: color, weight: 3, opacity: opacity, pane: 'bgWallPane', interactive: false }
+                    { color: color, weight: interactive ? 5 : 3, opacity: opacity, pane: 'bgWallPane', interactive: interactive }
                 ).addTo(self._bgWallLayer);
+                if (interactive) {
+                    (function (id) {
+                        line.on('click', function () {
+                            if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', id);
+                        });
+                        line.on('mouseover', function () { line.setStyle({ weight: 7 }); });
+                        line.on('mouseout', function () { line.setStyle({ weight: 5 }); });
+                    })(bldgId);
+                }
             }
         });
     },

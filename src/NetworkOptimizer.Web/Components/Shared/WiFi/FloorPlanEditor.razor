@@ -1581,6 +1581,7 @@
                             var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(wall.GetRawText());
                             if (dict != null)
                             {
+                                dict["_buildingId"] = b.Id;
                                 var isSelectedBldg = _selectedBuilding != null && b.Id == _selectedBuilding.Id;
                                 // Selected building adjacent: 0.4, other bldg same floor: 0.25, other bldg adjacent: 0.15, no selection same floor: 0.5, no selection adjacent: 0.25
                                 if (_selectedBuilding != null)
@@ -1598,7 +1599,8 @@
 
         var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
         var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
-        await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson);
+        var clickable = _selectedBuilding == null;
+        await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson, clickable);
 
         // Same-building adjacent floor walls (for length snap when drawing first shape)
         var sameBldgWalls = new List<object>();
@@ -2240,6 +2242,13 @@
     {
         // Overlay image move was cancelled - no state to revert
         StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnBgBuildingClicked(int buildingId)
+    {
+        if (_selectedBuilding != null) return; // Only from global view
+        await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
     }
 
     private async Task ToggleFullscreen()
