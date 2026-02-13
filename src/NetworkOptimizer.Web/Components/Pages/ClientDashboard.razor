@@ -38,8 +38,8 @@
     }
     else if (_client == null)
     {
-        <div class="empty-state-card">
-            <div class="empty-state-icon">📡</div>
+        <div class="card empty-state">
+            <div class="empty-icon">📡</div>
             <h3>Device Not Found</h3>
             <p>Could not identify your device on the network. Make sure you're connected via Wi-Fi and the UniFi controller is reachable.</p>
             <button class="btn btn-primary" @onclick="RetryIdentify">Retry</button>
@@ -48,7 +48,7 @@
     else
     {
         @* Device Identity Hero *@
-        <div class="identity-hero">
+        <div class="card identity-hero">
             <div class="hero-main">
                 <div class="hero-device-info">
                     <h2 class="hero-device-name">@_client.DisplayName</h2>
@@ -78,7 +78,7 @@
                 {
                     <div class="hero-detail-item">
                         <span class="detail-label">Band</span>
-                        <span class="detail-value badge-band @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                        <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
                     </div>
                     <div class="hero-detail-item">
                         <span class="detail-label">Protocol</span>
@@ -134,7 +134,7 @@
                 <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
                         @onclick='() => SetActiveTab("connection")'>Connection</button>
             </div>
-            <div class="time-filter">
+            <div class="time-range-selector">
                 @foreach (var tf in _timeFilters)
                 {
                     <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
@@ -151,7 +151,7 @@
                 <div class="tab-pane">
                     @if (_latestSpeedResult != null)
                     {
-                        <div class="speed-hero">
+                        <div class="card speed-hero">
                             <div class="speed-hero-results">
                                 <div class="speed-metric download">
                                     <span class="speed-label">From Device</span>
@@ -188,7 +188,7 @@
                     }
                     else
                     {
-                        <div class="empty-state-inline">
+                        <div class="empty-state">
                             <p>No speed tests yet. Run a test to see results here.</p>
                         </div>
                     }
@@ -210,7 +210,7 @@
                     @* Speed History Chart *@
                     @if (_speedChartData.Count > 0)
                     {
-                        <div class="chart-card">
+                        <div class="card chart-card">
                             <h3>Speed History</h3>
                             <div class="chart-container">
                                 <ApexChart @ref="_speedChart" TItem="SpeedChartPoint"
@@ -238,7 +238,7 @@
                     @* Speed Results Table *@
                     @if (_speedResults.Count > 0)
                     {
-                        <div class="results-card">
+                        <div class="card results-card">
                             <h3>Test Results</h3>
                             <div class="results-table-container">
                                 <table class="results-table">
@@ -288,7 +288,7 @@
                 <div class="tab-pane">
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
-                        <div class="signal-hero-live">
+                        <div class="card signal-hero-live">
                             <div class="signal-main">
                                 <div class="signal-gauge-large @GetSignalClass(_client.SignalDbm.Value)">
                                     <span class="signal-value-large">@_client.SignalDbm</span>
@@ -305,7 +305,7 @@
                             <div class="signal-details-grid">
                                 <div class="signal-detail">
                                     <span class="detail-label">Band</span>
-                                    <span class="detail-value badge-band @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                                    <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
                                 </div>
                                 <div class="signal-detail">
                                     <span class="detail-label">AP</span>
@@ -363,7 +363,7 @@
                     }
                     else if (_client.IsWired)
                     {
-                        <div class="empty-state-inline">
+                        <div class="empty-state">
                             <p>Signal data is only available for wireless clients. This device is connected via Ethernet.</p>
                         </div>
                     }
@@ -371,7 +371,7 @@
                     @* Signal History Chart *@
                     @if (_signalChartData.Count > 0)
                     {
-                        <div class="chart-card">
+                        <div class="card chart-card">
                             <h3>Signal History</h3>
                             <div class="chart-container">
                                 <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
@@ -392,7 +392,7 @@
                     @* Signal History Table *@
                     @if (_signalHistory.Count > 0)
                     {
-                        <div class="results-card">
+                        <div class="card results-card">
                             <h3>Signal Log</h3>
                             <div class="results-table-container">
                                 <table class="results-table">
@@ -432,7 +432,7 @@
                 @* ===== CONNECTION TAB ===== *@
                 <div class="tab-pane">
                     @* Connection Hero *@
-                    <div class="connection-hero">
+                    <div class="card connection-hero">
                         <div class="connection-hero-grid">
                             <div class="connection-detail">
                                 <span class="detail-label">Current AP</span>
@@ -447,7 +447,7 @@
                             }
                             <div class="connection-detail">
                                 <span class="detail-label">Band</span>
-                                <span class="detail-value badge-band @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                                <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
                             </div>
                             <div class="connection-detail">
                                 <span class="detail-label">Channel</span>
@@ -473,7 +473,7 @@
                     @* Live L2 Trace *@
                     @if (_latestPoll?.PathAnalysis != null)
                     {
-                        <div class="trace-card">
+                        <div class="card trace-card">
                             <h3>Network Path</h3>
                             <SpeedTestDetails PathAnalysis="_latestPoll.PathAnalysis" />
                         </div>
@@ -482,7 +482,7 @@
                     @* Roaming History *@
                     @if (_roamingEvents.Count > 0)
                     {
-                        <div class="results-card">
+                        <div class="card results-card">
                             <h3>Roaming History</h3>
                             <div class="results-table-container">
                                 <table class="results-table">
@@ -513,7 +513,7 @@
                     }
                     else
                     {
-                        <div class="empty-state-inline">
+                        <div class="empty-state">
                             <p>No AP changes detected in the selected time window.</p>
                         </div>
                     }
@@ -521,7 +521,7 @@
                     @* Trace History *@
                     @if (_traceHistory.Count > 0)
                     {
-                        <div class="results-card">
+                        <div class="card results-card">
                             <h3>Trace Changes</h3>
                             <div class="results-table-container">
                                 <table class="results-table">
@@ -946,7 +946,7 @@
                     Min = 0
                 }
             },
-            Colors = new List<string> { "#00b894", "#0984e3" },
+            Colors = new List<string> { "#2ba89a", "#3b82f6" },
             Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
             Fill = new Fill { Opacity = new Opacity(0.15) },
             Grid = new Grid
@@ -995,7 +995,7 @@
                     Max = -20
                 }
             },
-            Colors = new List<string> { "#6c5ce7" },
+            Colors = new List<string> { "#3b82f6" },
             Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
             Grid = new Grid
             {
@@ -1015,16 +1015,17 @@
     private static string GetSignalClass(int dbm) => dbm switch
     {
         >= -55 => "signal-excellent",
-        >= -70 => "signal-good",
-        >= -80 => "signal-fair",
+        >= -67 => "signal-good",
+        >= -75 => "signal-fair",
+        >= -80 => "signal-weak",
         _ => "signal-poor"
     };
 
     private static string GetBandClass(string? band) => band switch
     {
-        "6e" => "band-6ghz",
-        "na" => "band-5ghz",
-        "ng" => "band-2ghz",
+        "6e" or "6g" => "band-6ghz",
+        "na" or "5g" => "band-5ghz",
+        "ng" or "2g" => "band-2ghz",
         _ => ""
     };
 
@@ -1113,6 +1114,9 @@
 }
 
 <style>
+    /* Page-specific layout (app.css provides .page-header, .page-description, .card, .btn*, .empty-state,
+       .signal-*, .band-badge.band-*, .time-range-selector, .time-btn, .detail-label, .detail-value) */
+
     .client-dashboard-page {
         max-width: 900px;
         margin: 0 auto;
@@ -1124,76 +1128,27 @@
         margin-bottom: 8px;
     }
     .back-link {
-        color: var(--text-muted, #888);
+        color: var(--text-secondary);
         text-decoration: none;
-        font-size: 14px;
+        font-size: 0.875rem;
     }
     .back-link:hover {
-        color: var(--text-primary, #fff);
+        color: var(--text-primary);
     }
     .back-arrow {
         margin-right: 4px;
     }
 
-    /* Page header */
-    .page-header {
-        margin-bottom: 20px;
-    }
-    .page-header h1 {
-        font-size: 24px;
-        margin: 0 0 4px;
-    }
-    .page-description {
-        color: var(--text-muted, #888);
-        font-size: 14px;
-        margin: 0;
-    }
-
     /* Loading */
     .loading-container {
         text-align: center;
-        padding: 60px 20px;
-        color: var(--text-muted, #888);
+        padding: 3rem 1rem;
+        color: var(--text-secondary);
     }
 
-    /* Empty state */
-    .empty-state-card {
-        text-align: center;
-        padding: 60px 20px;
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
-    }
-    .empty-state-icon {
-        font-size: 48px;
-        margin-bottom: 16px;
-    }
-    .empty-state-card h3 {
-        margin: 0 0 8px;
-    }
-    .empty-state-card p {
-        color: var(--text-muted, #888);
-        margin: 0 0 20px;
-        max-width: 400px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-    .empty-state-inline {
-        padding: 32px 20px;
-        text-align: center;
-        color: var(--text-muted, #888);
-    }
-    .empty-state-inline p {
-        margin: 0;
-    }
-
-    /* Identity Hero */
+    /* Identity Hero (.card provides bg/border/radius) */
     .identity-hero {
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
         padding: 20px;
-        margin-bottom: 16px;
     }
     .hero-main {
         display: flex;
@@ -1202,15 +1157,15 @@
         margin-bottom: 12px;
     }
     .hero-device-name {
-        font-size: 20px;
+        font-size: 1.25rem;
         margin: 0 0 4px;
     }
     .hero-meta {
         display: flex;
         align-items: center;
         gap: 6px;
-        color: var(--text-muted, #888);
-        font-size: 13px;
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
         font-family: monospace;
         flex-wrap: wrap;
     }
@@ -1226,15 +1181,15 @@
         gap: 2px;
         padding: 8px 14px;
         border-radius: 8px;
-        background: rgba(255,255,255,0.05);
+        background: var(--bg-tertiary);
     }
     .signal-value {
-        font-size: 28px;
+        font-size: 1.75rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
     }
     .signal-unit {
-        font-size: 13px;
+        font-size: 0.8125rem;
         opacity: 0.7;
     }
     .hero-details {
@@ -1247,15 +1202,6 @@
         flex-direction: column;
         gap: 2px;
     }
-    .detail-label {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--text-muted, #888);
-    }
-    .detail-value {
-        font-size: 14px;
-    }
     .hero-poll-indicator {
         display: flex;
         flex-direction: row;
@@ -1267,12 +1213,12 @@
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #00b894;
+        background: var(--success-color, #10b981);
         animation: pulse 2s ease-in-out infinite;
     }
     .poll-label {
-        color: #00b894;
-        font-size: 12px;
+        color: var(--success-color, #10b981);
+        font-size: 0.75rem;
     }
 
     @@keyframes pulse {
@@ -1280,35 +1226,20 @@
         50% { opacity: 0.4; }
     }
 
-    /* Signal colors */
-    .signal-excellent { color: #00b894; }
-    .signal-good { color: #fdcb6e; }
-    .signal-fair { color: #e17055; }
-    .signal-poor { color: #d63031; }
+    /* Speed colors (no signal-* needed - app.css provides those) */
+    .speed-excellent { color: #10b981; }
+    .speed-good { color: #3b82f6; }
+    .speed-fair { color: #f59e0b; }
+    .speed-poor { color: #ef5858; }
 
-    /* Speed colors */
-    .speed-excellent { color: #00b894; }
-    .speed-good { color: #0984e3; }
-    .speed-fair { color: #fdcb6e; }
-    .speed-poor { color: #e17055; }
-
-    /* Band badges */
-    .badge-band {
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    .band-6ghz { background: rgba(108, 92, 231, 0.2); color: #a29bfe; }
-    .band-5ghz { background: rgba(0, 184, 148, 0.2); color: #55efc4; }
-    .band-2ghz { background: rgba(9, 132, 227, 0.2); color: #74b9ff; }
+    /* MLO badge (not in app.css) */
     .badge-mlo {
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 600;
-        background: rgba(253, 203, 110, 0.2);
-        color: #ffeaa7;
+        padding: 0.125rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        background: rgba(251, 191, 36, 0.15);
+        color: #fbbf24;
     }
 
     /* Tabs + Time Filter */
@@ -1322,57 +1253,30 @@
     }
     .tab-bar {
         display: flex;
-        gap: 4px;
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 8px;
-        padding: 4px;
-        border: 1px solid var(--border-color, #2a2a3e);
+        gap: 0.25rem;
+        background: var(--bg-primary);
+        border-radius: 6px;
+        padding: 0.25rem;
     }
     .tab-btn {
-        padding: 10px 20px;
+        padding: 0.625rem 1.25rem;
         border: none;
         background: transparent;
-        color: var(--text-muted, #888);
+        color: var(--text-secondary);
         border-radius: 6px;
         cursor: pointer;
-        font-size: 14px;
+        font-size: 0.875rem;
         font-weight: 500;
         min-height: 44px;
-        transition: all 0.15s;
+        transition: all 0.15s ease;
     }
     .tab-btn:hover {
-        color: var(--text-primary, #fff);
-        background: rgba(255,255,255,0.05);
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
     }
     .tab-btn.active {
-        color: var(--text-primary, #fff);
-        background: rgba(255,255,255,0.1);
-    }
-    .time-filter {
-        display: flex;
-        gap: 2px;
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 8px;
-        padding: 4px;
-        border: 1px solid var(--border-color, #2a2a3e);
-    }
-    .time-btn {
-        padding: 6px 12px;
-        border: none;
-        background: transparent;
-        color: var(--text-muted, #888);
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        min-height: 32px;
-        transition: all 0.15s;
-    }
-    .time-btn:hover {
-        color: var(--text-primary, #fff);
-    }
-    .time-btn.active {
-        color: var(--text-primary, #fff);
-        background: rgba(255,255,255,0.1);
+        background: var(--primary-color);
+        color: white;
     }
 
     /* Tab content */
@@ -1382,14 +1286,11 @@
     .tab-pane {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 1rem;
     }
 
-    /* Speed Hero */
+    /* Speed Hero (.card provides bg/border/radius) */
     .speed-hero {
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
         padding: 24px;
     }
     .speed-hero-results {
@@ -1405,27 +1306,27 @@
         gap: 2px;
     }
     .speed-label {
-        font-size: 11px;
+        font-size: 0.6875rem;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: var(--text-muted, #888);
+        color: var(--text-secondary);
     }
     .speed-value {
-        font-size: 32px;
+        font-size: 2rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
     }
     .speed-unit {
-        font-size: 13px;
-        color: var(--text-muted, #888);
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
     }
     .speed-hero-meta {
         display: flex;
         justify-content: center;
         gap: 16px;
         margin-top: 12px;
-        font-size: 12px;
-        color: var(--text-muted, #888);
+        font-size: 0.75rem;
+        color: var(--text-secondary);
     }
 
     /* Speed Actions */
@@ -1434,76 +1335,36 @@
         gap: 12px;
         justify-content: center;
     }
-    .btn {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 500;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        min-height: 44px;
-        transition: all 0.15s;
-    }
-    .btn-primary {
-        background: #0984e3;
-        color: #fff;
-    }
-    .btn-primary:hover {
-        background: #0874c9;
-    }
-    .btn-secondary {
-        background: rgba(255,255,255,0.1);
-        color: var(--text-primary, #fff);
-    }
-    .btn-secondary:hover {
-        background: rgba(255,255,255,0.15);
-    }
-    .btn-lg {
-        padding: 14px 28px;
-        font-size: 15px;
-    }
 
-    /* Chart Card */
-    .chart-card {
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
+    /* Card content padding (.card provides bg/border/radius) */
+    .chart-card,
+    .results-card,
+    .trace-card {
         padding: 20px;
     }
-    .chart-card h3 {
+    .chart-card h3,
+    .results-card h3,
+    .trace-card h3 {
         margin: 0 0 12px;
-        font-size: 16px;
+        font-size: 1rem;
     }
 
-    /* Results Card + Table */
-    .results-card {
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
-        padding: 20px;
-    }
-    .results-card h3 {
-        margin: 0 0 12px;
-        font-size: 16px;
-    }
+    /* Results Table */
     .results-table-container {
         overflow-x: auto;
     }
     .results-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 13px;
+        font-size: 0.8125rem;
     }
     .results-table th {
         text-align: left;
         padding: 8px 12px;
-        border-bottom: 1px solid var(--border-color, #2a2a3e);
-        color: var(--text-muted, #888);
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
         font-weight: 500;
-        font-size: 11px;
+        font-size: 0.6875rem;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         white-space: nowrap;
@@ -1518,10 +1379,10 @@
         transition: background 0.15s;
     }
     .result-row:hover {
-        background: rgba(255,255,255,0.03);
+        background: var(--bg-hover);
     }
     .result-row.expanded {
-        background: rgba(255,255,255,0.05);
+        background: var(--bg-tertiary);
     }
     .result-details-row td {
         padding: 0;
@@ -1529,14 +1390,11 @@
     .result-details {
         padding: 16px;
         background: rgba(0,0,0,0.2);
-        border-bottom: 1px solid var(--border-color, #2a2a3e);
+        border-bottom: 1px solid var(--border-color);
     }
 
-    /* Signal Hero Live */
+    /* Signal Hero Live (.card provides bg/border/radius) */
     .signal-hero-live {
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
         padding: 24px;
     }
     .signal-main {
@@ -1552,12 +1410,12 @@
         gap: 4px;
     }
     .signal-value-large {
-        font-size: 48px;
+        font-size: 3rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
     }
     .signal-unit-large {
-        font-size: 16px;
+        font-size: 1rem;
         opacity: 0.7;
     }
     .signal-bars {
@@ -1577,49 +1435,27 @@
     .signal-bars .bar:nth-child(3) { height: 60%; }
     .signal-bars .bar:nth-child(4) { height: 80%; }
     .signal-bars .bar:nth-child(5) { height: 100%; }
-    .signal-bars.signal-excellent .bar.active { background: #00b894; }
-    .signal-bars.signal-good .bar.active { background: #fdcb6e; }
-    .signal-bars.signal-fair .bar.active { background: #e17055; }
-    .signal-bars.signal-poor .bar.active { background: #d63031; }
-    .signal-details-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 12px;
-    }
-    .signal-detail {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    /* Connection Hero */
-    .connection-hero {
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
-        padding: 20px;
-    }
+    .signal-bars.signal-excellent .bar.active { background: #10b981; }
+    .signal-bars.signal-good .bar.active { background: #22c55e; }
+    .signal-bars.signal-fair .bar.active { background: #eab308; }
+    .signal-bars.signal-weak .bar.active { background: #f97316; }
+    .signal-bars.signal-poor .bar.active { background: #ef4444; }
+    .signal-details-grid,
     .connection-hero-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
         gap: 12px;
     }
+    .signal-detail,
     .connection-detail {
         display: flex;
         flex-direction: column;
         gap: 2px;
     }
 
-    /* Trace Card */
-    .trace-card {
-        background: var(--card-bg, #1e1e2e);
-        border-radius: 12px;
-        border: 1px solid var(--border-color, #2a2a3e);
+    /* Connection Hero (.card provides bg/border/radius) */
+    .connection-hero {
         padding: 20px;
-    }
-    .trace-card h3 {
-        margin: 0 0 12px;
-        font-size: 16px;
     }
 
     /* Mobile responsive */
@@ -1637,9 +1473,6 @@
         .tab-btn {
             flex: 1;
             text-align: center;
-        }
-        .time-filter {
-            justify-content: center;
         }
         .hero-main {
             flex-direction: column;
