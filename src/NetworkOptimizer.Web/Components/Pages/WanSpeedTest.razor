@@ -756,12 +756,18 @@
         var timeFiltered = GetTimeFilteredResults();
 
         // Apply WAN badge filter (none selected or no series = show all)
-        // Failed results always pass through - they may lack WAN metadata
         var visibleWanKeys = _wanSeries.Where(w => IsWanVisible(w)).Select(w => w.Key).ToHashSet();
         _filteredHistory = visibleWanKeys.Count == 0
             ? timeFiltered.ToList()
             : timeFiltered
-                .Where(r => !r.Success || visibleWanKeys.Contains(GetWanKey(r)))
+                .Where(r =>
+                {
+                    // Failed results without WAN metadata: only show when no filter is active
+                    if (!r.Success && string.IsNullOrEmpty(r.WanNetworkGroup))
+                        return false;
+                    // Everything else (successful or failed with WAN metadata): filter by connection
+                    return visibleWanKeys.Contains(GetWanKey(r));
+                })
                 .ToList();
 
         // Update chart data for the active time window
