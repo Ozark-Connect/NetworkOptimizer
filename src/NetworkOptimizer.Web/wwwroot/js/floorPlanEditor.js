@@ -30,7 +30,6 @@ window.fpEditor = {
     _previewLine: null,
     _snapToClose: false,
     _snapIndicator: null,
-    _closedBySnap: false,
     _corners: null,
     _moveMarker: null,
     _heatmapOverlay: null,
@@ -47,7 +46,9 @@ window.fpEditor = {
     _snapAngleMarker: null,
     _previewLengthLabel: null,
     _edgePanHandler: null,
+    _edgePanTarget: null,
     _edgePanTimer: null,
+    _edgePanDelayTimer: null,
     _activeMoveHandlers: null, // { moveHandler, finishHandler } for cancellable moves
     _escHandler: null,
 
@@ -59,16 +60,26 @@ window.fpEditor = {
         if (!m || this._edgePanHandler) return;
         var edgeZone = 40; // pixels from edge to trigger pan
         var panSpeed = 4;  // pixels per frame at the very edge
+        var panDelay = 150; // ms delay before panning starts
         self._edgePanDx = 0;
         self._edgePanDy = 0;
 
+        // Listen on the editor wrapper so we get mousemove events over the toolbar too.
+        // Edge zones are still calculated relative to the map container.
         this._edgePanHandler = function (e) {
-            var container = m.getContainer();
-            var rect = container.getBoundingClientRect();
-            var x = e.clientX - rect.left;
-            var y = e.clientY - rect.top;
-            var w = rect.width;
-            var h = rect.height;
+            // Pause panning when hovering over any form input (select, button, etc.)
+            if (e.target && e.target.closest && (e.target.closest('select') || e.target.closest('input') || e.target.closest('button'))) {
+                self._edgePanDx = 0;
+                self._edgePanDy = 0;
+                self._stopEdgePanTimer();
+                return;
+            }
+
+            var mapRect = m.getContainer().getBoundingClientRect();
+            var x = e.clientX - mapRect.left;
+            var y = e.clientY - mapRect.top;
+            var w = mapRect.width;
+            var h = mapRect.height;
 
             var dx = 0, dy = 0;
             if (x < edgeZone) dx = -panSpeed * (1 - x / edgeZone);
@@ -80,19 +91,32 @@ window.fpEditor = {
             self._edgePanDy = dy;
 
             if (dx !== 0 || dy !== 0) {
-                if (!self._edgePanTimer) {
-                    self._edgePanTimer = setInterval(function () {
-                        m.panBy([self._edgePanDx, self._edgePanDy], { animate: false });
-                    }, 16);
+                // Start panning after a delay so users can move through edge zones to reach toolbar
+                if (!self._edgePanTimer && !self._edgePanDelayTimer) {
+                    self._edgePanDelayTimer = setTimeout(function () {
+                        self._edgePanDelayTimer = null;
+                        if (self._edgePanDx !== 0 || self._edgePanDy !== 0) {
+                            self._edgePanTimer = setInterval(function () {
+                                m.panBy([self._edgePanDx, self._edgePanDy], { animate: false });
+                            }, 16);
+                        }
+                    }, panDelay);
                 }
             } else {
                 self._stopEdgePanTimer();
             }
         };
-        m.getContainer().addEventListener('mousemove', this._edgePanHandler);
+
+        // Attach to the editor wrapper (parent of both toolbar and map)
+        this._edgePanTarget = m.getContainer().closest('.floor-plan-editor') || m.getContainer();
+        this._edgePanTarget.addEventListener('mousemove', this._edgePanHandler);
     },
 
     _stopEdgePanTimer: function () {
+        if (this._edgePanDelayTimer) {
+            clearTimeout(this._edgePanDelayTimer);
+            this._edgePanDelayTimer = null;
+        }
         if (this._edgePanTimer) {
             clearInterval(this._edgePanTimer);
             this._edgePanTimer = null;
@@ -100,9 +124,10 @@ window.fpEditor = {
     },
 
     _stopEdgePan: function () {
-        if (this._edgePanHandler && this._map) {
-            this._map.getContainer().removeEventListener('mousemove', this._edgePanHandler);
+        if (this._edgePanHandler && this._edgePanTarget) {
+            this._edgePanTarget.removeEventListener('mousemove', this._edgePanHandler);
             this._edgePanHandler = null;
+            this._edgePanTarget = null;
         }
         this._stopEdgePanTimer();
     },
@@ -143,9 +168,10 @@ window.fpEditor = {
                 return;
             }
 
-            // Priority 4: Finish current shape being drawn (keep placed points)
-            if (self._isDrawing && self._currentWall && self._currentWall.points.length >= 2) {
-                if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');
+            // Priority 4: Finish/cancel current shape being drawn (stay in draw mode)
+            if (self._isDrawing && self._currentWall) {
+                // >= 2 points: commit the wall; < 2 points: just cancel and clean up
+                self.commitCurrentWall();
                 return;
             }
 
@@ -957,22 +983,31 @@ window.fpEditor = {
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 
-    _isExteriorWall: function (wall) {
-        // Check if any segment has exterior material
-        if (wall.materials) {
-            for (var i = 0; i < wall.materials.length; i++) {
-                if (wall.materials[i] && wall.materials[i].indexOf('exterior') === 0) return true;
-            }
+    _wallArea: function (wall) {
+        // Shoelace formula for polygon area (implicitly closes the shape)
+        var pts = wall.points;
+        if (!pts || pts.length < 3) return 0;
+        var area = 0;
+        for (var i = 0; i < pts.length; i++) {
+            var j = (i + 1) % pts.length;
+            area += pts[i].lng * pts[j].lat;
+            area -= pts[j].lng * pts[i].lat;
         }
-        return wall.material && wall.material.indexOf('exterior') === 0;
+        return Math.abs(area) / 2;
     },
 
     moveWall: function (wi) {
         var wall = this._allWalls[wi];
         if (!wall) return;
 
-        // Exterior perimeter → building move (all floors, all APs, all bounds)
-        if (this._isExteriorWall(wall)) {
+        // If this shape covers the majority of the building's surface area,
+        // promote to building move (all floors, APs, bounds)
+        var wallArea = this._wallArea(wall);
+        var totalArea = 0;
+        for (var i = 0; i < this._allWalls.length; i++) {
+            totalArea += this._wallArea(this._allWalls[i]);
+        }
+        if (totalArea > 0 && wallArea / totalArea > 0.5) {
             this._moveBuildingByWall(wi);
             return;
         }
@@ -1416,8 +1451,7 @@ window.fpEditor = {
                                 { color: matInfo.color, weight: 4, opacity: 0.9 }).addTo(self._currentWallSegLines);
                         }
                     }
-                    self._closedBySnap = true;
-                    self._dotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');
+                    self.commitCurrentWall();
                 });
                 return;
             }
@@ -1488,7 +1522,12 @@ window.fpEditor = {
         this._wallDblClickHandler = function (e) {
             L.DomEvent.stopPropagation(e);
             L.DomEvent.preventDefault(e);
-            self._dotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');
+            // The second click of the double-click added an extra point via wallClickHandler - remove it
+            if (self._currentWall && self._currentWall.points.length > 2) {
+                self._currentWall.points.pop();
+                if (self._currentWall.materials) self._currentWall.materials.pop();
+            }
+            self.commitCurrentWall();
         };
 
         m.on('click', this._wallClickHandler);
@@ -1642,30 +1681,17 @@ window.fpEditor = {
         if (!m) return;
         this._isDrawing = false;
 
-        // Commit any in-progress wall before exiting draw mode
-        if (this._currentWall && this._currentWall.points.length >= 2) {
-            if (!this._allWalls) this._allWalls = [];
-            this._allWalls.push(this._currentWall);
-            this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
-        }
+        // Commit any in-progress wall (reuses same logic as Finish Shape)
+        this.commitCurrentWall();
 
+        // Tear down draw mode
         this._stopEdgePan();
         m.dragging.enable();
         m.getContainer().style.cursor = '';
         if (this._wallClickHandler) { m.off('click', this._wallClickHandler); this._wallClickHandler = null; }
         if (this._wallDblClickHandler) { m.off('dblclick', this._wallDblClickHandler); this._wallDblClickHandler = null; }
         if (this._wallMoveHandler) { m.off('mousemove', this._wallMoveHandler); this._wallMoveHandler = null; }
-        if (this._previewLine) { m.removeLayer(this._previewLine); this._previewLine = null; }
-        if (this._snapIndicator) { m.removeLayer(this._snapIndicator); this._snapIndicator = null; }
-        if (this._snapGuideLine) { m.removeLayer(this._snapGuideLine); this._snapGuideLine = null; }
-        if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
-        if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
         m.doubleClickZoom.enable();
-        this._currentWall = null;
-        this._refAngle = null;
-        if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
-        if (this._currentWallVertices) { m.removeLayer(this._currentWallVertices); this._currentWallVertices = null; }
-        if (this._currentWallLabels) { m.removeLayer(this._currentWallLabels); this._currentWallLabels = null; }
     },
 
     addWallPoint: function (lat, lng, material, color) {
@@ -1718,22 +1744,102 @@ window.fpEditor = {
         if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
     },
 
-    // calledFromButton: true when triggered by Finish Shape button (no extra dblclick point to remove)
-    finishWall: function (calledFromButton) {
+    // Commit the current wall and reset for a new one, staying in draw mode.
+    // Uses the same simple commit logic as exitDrawMode (Done Drawing) to avoid
+    // the point-manipulation issues that can create zero-length segments.
+    commitCurrentWall: function () {
         var m = this._map;
         if (!m) return;
-        if (!this._currentWall || this._currentWall.points.length < 2) {
-            // Nothing to finish - clean up and return
-            this._currentWall = null;
-            if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
-            if (this._currentWallVertices) { m.removeLayer(this._currentWallVertices); this._currentWallVertices = null; }
-            if (this._currentWallLabels) { m.removeLayer(this._currentWallLabels); this._currentWallLabels = null; }
-            if (this._previewLine) { m.removeLayer(this._previewLine); this._previewLine = null; }
-            if (this._snapIndicator) { m.removeLayer(this._snapIndicator); this._snapIndicator = null; }
-            return;
+
+        if (this._currentWall && this._currentWall.points.length >= 2) {
+            // Clean up per-segment materials: if all same, simplify
+            if (this._currentWall.materials && this._currentWall.materials.length > 0) {
+                var allSame = true;
+                var first = this._currentWall.materials[0];
+                for (var mi = 1; mi < this._currentWall.materials.length; mi++) {
+                    if (this._currentWall.materials[mi] !== first) { allSame = false; break; }
+                }
+                if (allSame) {
+                    this._currentWall.material = first;
+                    delete this._currentWall.materials;
+                }
+            }
+
+            if (!this._allWalls) this._allWalls = [];
+
+            // Auto-split: if drawing a 2-point segment near an existing wall,
+            // split the existing wall and replace that section with the new material.
+            // Works for any material - allows replacing wall sections with doors, windows, or different wall types.
+            var cw = this._currentWall;
+            var didSplit = false;
+
+            if (cw.points.length === 2) {
+                var snapDist = 0.15; // ~0.5 ft - both points must be essentially on the wall to trigger split
+                var bestWi = -1, bestSi = -1, bestT1 = -1, bestT2 = -1, bestD = Infinity;
+                var p1 = L.latLng(cw.points[0].lat, cw.points[0].lng);
+                var p2 = L.latLng(cw.points[1].lat, cw.points[1].lng);
+                console.log('[auto-split] Checking 2-point wall for split. p1:', p1, 'p2:', p2);
+
+                for (var wi = 0; wi < this._allWalls.length; wi++) {
+                    var wall = this._allWalls[wi];
+                    for (var si = 0; si < wall.points.length - 1; si++) {
+                        var a = L.latLng(wall.points[si].lat, wall.points[si].lng);
+                        var b = L.latLng(wall.points[si + 1].lat, wall.points[si + 1].lng);
+                        var dx = b.lng - a.lng, dy = b.lat - a.lat;
+                        var len2 = dx * dx + dy * dy;
+                        if (len2 < 1e-20) continue;
+                        var t1 = ((p1.lng - a.lng) * dx + (p1.lat - a.lat) * dy) / len2;
+                        var t2 = ((p2.lng - a.lng) * dx + (p2.lat - a.lat) * dy) / len2;
+                        if (t1 < -0.05 || t1 > 1.05 || t2 < -0.05 || t2 > 1.05) continue;
+                        t1 = Math.max(0, Math.min(1, t1));
+                        t2 = Math.max(0, Math.min(1, t2));
+                        var proj1 = L.latLng(a.lat + t1 * dy, a.lng + t1 * dx);
+                        var proj2 = L.latLng(a.lat + t2 * dy, a.lng + t2 * dx);
+                        var d1 = m.distance(p1, proj1);
+                        var d2 = m.distance(p2, proj2);
+                        var maxD = Math.max(d1, d2);
+                        console.log('[auto-split] wall[' + wi + '] seg[' + si + ']: d1=' + d1.toFixed(2) + 'm, d2=' + d2.toFixed(2) + 'm, maxD=' + maxD.toFixed(2) + 'm (threshold=' + snapDist + 'm)');
+                        if (maxD < snapDist && maxD < bestD) {
+                            bestD = maxD; bestWi = wi; bestSi = si; bestT1 = t1; bestT2 = t2;
+                        }
+                    }
+                }
+
+                if (bestWi >= 0) {
+                    console.log('[auto-split] SPLITTING wall[' + bestWi + '] seg[' + bestSi + '] bestD=' + bestD.toFixed(2) + 'm');
+                    var tMin = Math.min(bestT1, bestT2);
+                    var tMax = Math.max(bestT1, bestT2);
+                    var targetWall = this._allWalls[bestWi];
+                    var targetSi = bestSi;
+                    var aP = targetWall.points[targetSi];
+                    var bP = targetWall.points[targetSi + 1];
+                    var splitPt1 = { lat: aP.lat + tMin * (bP.lat - aP.lat), lng: aP.lng + tMin * (bP.lng - aP.lng) };
+                    var splitPt2 = { lat: aP.lat + tMax * (bP.lat - aP.lat), lng: aP.lng + tMax * (bP.lng - aP.lng) };
+                    targetWall.points.splice(targetSi + 1, 0, splitPt1, splitPt2);
+                    if (!targetWall.materials) {
+                        targetWall.materials = [];
+                        for (var j = 0; j < targetWall.points.length - 3; j++) targetWall.materials.push(targetWall.material);
+                    } else {
+                        targetWall.materials.splice(targetSi, 0, targetWall.materials[targetSi] || targetWall.material);
+                    }
+                    targetWall.materials[targetSi + 1] = cw.material;
+                    didSplit = true;
+                }
+            }
+
+            if (!didSplit) {
+                console.log('[auto-split] No split - adding as new wall (' + cw.points.length + ' points)');
+                this._allWalls.push(cw);
+            }
         }
 
-        // Clean up drawing aids
+        // Always notify C# to save walls and reset _isDrawingShape
+        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls || []));
+
+        // Clean up current wall visual state (but stay in draw mode)
+        this._currentWall = null;
+        this._refAngle = null;
+        if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
         if (this._currentWallVertices) { m.removeLayer(this._currentWallVertices); this._currentWallVertices = null; }
         if (this._currentWallLabels) { m.removeLayer(this._currentWallLabels); this._currentWallLabels = null; }
         if (this._previewLine) { m.removeLayer(this._previewLine); this._previewLine = null; }
@@ -1741,104 +1847,6 @@ window.fpEditor = {
         if (this._snapGuideLine) { m.removeLayer(this._snapGuideLine); this._snapGuideLine = null; }
         if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
         if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
-
-        // Remove the extra point added by the second click of the double-click
-        // (but NOT when closed via snap or triggered by button - no extra point in those cases)
-        if (!this._closedBySnap && !calledFromButton && this._currentWall.points.length > 2) {
-            this._currentWall.points.pop();
-            if (this._currentWall.materials) this._currentWall.materials.pop();
-        }
-        this._closedBySnap = false;
-
-        // Validate wall (need at least 2 points)
-        if (!this._currentWall || this._currentWall.points.length < 2) {
-            this._currentWall = null;
-            if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
-            return;
-        }
-
-        // Clean up per-segment materials: if all same, simplify
-        if (this._currentWall.materials && this._currentWall.materials.length > 0) {
-            var allSame = true;
-            var first = this._currentWall.materials[0];
-            for (var mi = 1; mi < this._currentWall.materials.length; mi++) {
-                if (this._currentWall.materials[mi] !== first) { allSame = false; break; }
-            }
-            if (allSame) {
-                this._currentWall.material = first;
-                delete this._currentWall.materials;
-            }
-        }
-
-        // Remove the drawn segments (updateWalls will re-render)
-        if (this._currentWallSegLines) { this._currentWallSegLines.remove(); this._currentWallSegLines = null; }
-
-        if (!this._allWalls) this._allWalls = [];
-
-        // Auto-split: if drawing a 2-point segment near an existing wall,
-        // split the existing wall and replace that section with the new material.
-        // Works for any material - allows replacing wall sections with doors, windows, or different wall types.
-        var cw = this._currentWall;
-        var didSplit = false;
-
-        if (cw && cw.points.length === 2) {
-            var snapDist = 2;
-            var bestWi = -1, bestSi = -1, bestT1 = -1, bestT2 = -1, bestD = Infinity;
-            var p1 = L.latLng(cw.points[0].lat, cw.points[0].lng);
-            var p2 = L.latLng(cw.points[1].lat, cw.points[1].lng);
-
-            for (var wi = 0; wi < this._allWalls.length; wi++) {
-                var wall = this._allWalls[wi];
-                for (var si = 0; si < wall.points.length - 1; si++) {
-                    var a = L.latLng(wall.points[si].lat, wall.points[si].lng);
-                    var b = L.latLng(wall.points[si + 1].lat, wall.points[si + 1].lng);
-                    var dx = b.lng - a.lng, dy = b.lat - a.lat;
-                    var len2 = dx * dx + dy * dy;
-                    if (len2 < 1e-20) continue;
-                    var t1 = ((p1.lng - a.lng) * dx + (p1.lat - a.lat) * dy) / len2;
-                    var t2 = ((p2.lng - a.lng) * dx + (p2.lat - a.lat) * dy) / len2;
-                    if (t1 < -0.05 || t1 > 1.05 || t2 < -0.05 || t2 > 1.05) continue;
-                    t1 = Math.max(0, Math.min(1, t1));
-                    t2 = Math.max(0, Math.min(1, t2));
-                    var proj1 = L.latLng(a.lat + t1 * dy, a.lng + t1 * dx);
-                    var proj2 = L.latLng(a.lat + t2 * dy, a.lng + t2 * dx);
-                    var d1 = m.distance(p1, proj1);
-                    var d2 = m.distance(p2, proj2);
-                    var maxD = Math.max(d1, d2);
-                    if (maxD < snapDist && maxD < bestD) {
-                        bestD = maxD; bestWi = wi; bestSi = si; bestT1 = t1; bestT2 = t2;
-                    }
-                }
-            }
-
-            if (bestWi >= 0) {
-                var tMin = Math.min(bestT1, bestT2);
-                var tMax = Math.max(bestT1, bestT2);
-                var targetWall = this._allWalls[bestWi];
-                var targetSi = bestSi;
-                var aP = targetWall.points[targetSi];
-                var bP = targetWall.points[targetSi + 1];
-                var splitPt1 = { lat: aP.lat + tMin * (bP.lat - aP.lat), lng: aP.lng + tMin * (bP.lng - aP.lng) };
-                var splitPt2 = { lat: aP.lat + tMax * (bP.lat - aP.lat), lng: aP.lng + tMax * (bP.lng - aP.lng) };
-                targetWall.points.splice(targetSi + 1, 0, splitPt1, splitPt2);
-                if (!targetWall.materials) {
-                    targetWall.materials = [];
-                    for (var j = 0; j < targetWall.points.length - 3; j++) targetWall.materials.push(targetWall.material);
-                } else {
-                    targetWall.materials.splice(targetSi, 0, targetWall.materials[targetSi] || targetWall.material);
-                }
-                targetWall.materials[targetSi + 1] = cw.material;
-                didSplit = true;
-            }
-        }
-
-        if (!didSplit) {
-            this._allWalls.push(cw);
-        }
-
-        this._currentWall = null;
-        this._refAngle = null;
-        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 
     // ── Position Mode ────────────────────────────────────────────────

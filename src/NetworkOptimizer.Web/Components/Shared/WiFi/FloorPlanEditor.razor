@@ -1728,13 +1728,13 @@
     public async Task OnMapDblClickFinishWall()
     {
         if (_mode != "walls" || _selectedFloor == null) return;
-        await JS.InvokeVoidAsync("fpEditor.finishWall");
+        await JS.InvokeVoidAsync("fpEditor.commitCurrentWall");
     }
 
     private async Task FinishCurrentWall()
     {
         if (_mode != "walls" || _selectedFloor == null) return;
-        await JS.InvokeVoidAsync("fpEditor.finishWall", true);
+        await JS.InvokeVoidAsync("fpEditor.commitCurrentWall");
     }
 
     [JSInvokable]
@@ -2358,12 +2358,10 @@
 
     private async Task OnEditorKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Escape" && _isFullscreen)
+        if (e.Key == "Escape" && _mode == "walls" && _isDrawingShape)
         {
-            _isFullscreen = false;
-            StateHasChanged();
-            await Task.Delay(50);
-            await JS.InvokeVoidAsync("fpEditor.invalidateSize");
+            // Same as Finish Shape - commit current wall and stay in draw mode
+            await JS.InvokeVoidAsync("fpEditor.commitCurrentWall");
         }
     }
 
