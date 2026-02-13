@@ -310,27 +310,6 @@
 </div>
 
 @code {
-    // JS formatters for browser-local timezone display
-    private const string LocalTimeAxisFormatter = @"function(value, timestamp, opts) {
-        var d = new Date(value);
-        var range = opts.w.globals.maxX - opts.w.globals.minX;
-        var h = d.getHours().toString().padStart(2,'0');
-        var m = d.getMinutes().toString().padStart(2,'0');
-        if (range > 172800000) {
-            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            return months[d.getMonth()] + ' ' + d.getDate().toString().padStart(2,'0');
-        }
-        return h + ':' + m;
-    }";
-
-    private const string LocalTimeTooltipFormatter = @"function(value) {
-        var d = new Date(value);
-        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        var h = d.getHours().toString().padStart(2,'0');
-        var m = d.getMinutes().toString().padStart(2,'0');
-        return months[d.getMonth()] + ' ' + d.getDate().toString().padStart(2,'0') + ' ' + h + ':' + m;
-    }";
-
     [Parameter] public string? InitialClientMac { get; set; }
 
     private bool _loading = false;
@@ -404,7 +383,8 @@
                 Labels = new XAxisLabels
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    Formatter = LocalTimeAxisFormatter
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
                 }
             },
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
@@ -413,7 +393,7 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Formatter = LocalTimeTooltipFormatter }
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
             }
         };
 
