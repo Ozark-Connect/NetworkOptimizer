@@ -671,12 +671,10 @@ public class ClientDashboardService
                     r.Radio != null && r.Radio.Equals(identity.Band, StringComparison.OrdinalIgnoreCase));
 
                 if (radioStats != null)
+                {
                     identity.ApTxPower = radioStats.TxPower;
-
-                // Total clients across all radios on this AP
-                identity.ApClientCount = ap.RadioTableStats
-                    .Where(r => r.NumSta.HasValue)
-                    .Sum(r => r.NumSta!.Value);
+                    identity.ApClientCount = radioStats.NumSta;
+                }
             }
         }
         catch (Exception ex)
