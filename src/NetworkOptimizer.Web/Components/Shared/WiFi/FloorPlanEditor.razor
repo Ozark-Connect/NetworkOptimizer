@@ -27,11 +27,11 @@
             </select>
             @if (_selectedBuilding != null)
             {
-                <button class="fp-btn fp-btn-sm" @onclick="DeselectBuilding">Done Editing</button>
+                <button class="fp-btn" @onclick="DeselectBuilding">Done Editing</button>
             }
             else
             {
-                <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
+                <button class="fp-btn" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
             }
 
             @if (_selectedBuilding != null)
@@ -69,7 +69,7 @@
             {
                 @* ── Walls group ── *@
                 <div class="fp-toolbar-group">
-                    <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "")" @onclick="ToggleWallDrawMode">
+                    <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "fp-btn-primary")" @onclick="ToggleWallDrawMode">
                         @(_mode == "walls" ? "Done Drawing" : "Draw Layout")
                     </button>
                     @if (_mode == "walls")
@@ -195,6 +195,11 @@
                     Drag APs to adjust their locations
                 </div>
             }
+        }
+
+        @if (_selectedBuilding != null && _mode != "walls" && _mode != "aps")
+        {
+            <div class="fp-edit-hint fp-wall-hint"><!--!--><span>Click Draw Layout to draw walls, windows, doors, etc.</span></div>
         }
 
         @if (_mode == "walls")
@@ -463,7 +468,8 @@
     .fp-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
     .fp-btn.active { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
     .fp-btn-sm { padding: 2px 8px; }
-    .fp-btn-primary { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-btn-primary { background: var(--primary-color, #0559C9); border-color: var(--primary-color, #0559C9); }
+    .fp-btn-primary:hover { background: var(--primary-hover, #3385d6); border-color: var(--primary-hover, #3385d6); }
     .fp-btn-warning { background: rgba(234, 179, 8, 0.85); border-color: rgba(234, 179, 8, 0.85); color: #1e293b; font-weight: 600; }
     .fp-btn-warning:hover { background: rgba(234, 179, 8, 1); }
     .fp-btn-danger { background: #dc2626; border-color: #dc2626; }
@@ -1815,6 +1821,7 @@
     {
         if (_selectedFloor == null) return;
         _isDrawingShape = false;
+        StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
 

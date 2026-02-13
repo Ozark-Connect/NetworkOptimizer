@@ -1598,16 +1598,36 @@ window.fpEditor = {
             self._dotNetRef.invokeMethodAsync('OnMapClickForWall', lat, lng);
         };
 
-        // Double-click handler
+        // Double-click finishes the current shape (stays in draw mode).
+        // The second click already queued an addWallPoint via async C# interop,
+        // so we delay briefly to let that point arrive before committing.
         this._wallDblClickHandler = function (e) {
             L.DomEvent.stopPropagation(e);
             L.DomEvent.preventDefault(e);
-            // The second click of the double-click added an extra point via wallClickHandler - remove it
-            if (self._currentWall && self._currentWall.points.length > 2) {
-                self._currentWall.points.pop();
-                if (self._currentWall.materials) self._currentWall.materials.pop();
-            }
-            self.commitCurrentWall();
+            // The dblclick includes two click events that each add a point.
+            // The second click's point is a duplicate - wait for it to arrive
+            // from C# interop, pop it, then commit.
+            setTimeout(function () {
+                if (self._currentWall && self._currentWall.points.length > 1) {
+                    self._currentWall.points.pop();
+                    if (self._currentWall.materials && self._currentWall.materials.length > 0)
+                        self._currentWall.materials.pop();
+                    // Remove the duplicate vertex dot and segment line
+                    if (self._currentWallVertices) {
+                        var layers = self._currentWallVertices.getLayers();
+                        if (layers.length > 0) self._currentWallVertices.removeLayer(layers[layers.length - 1]);
+                    }
+                    if (self._currentWallSegLines) {
+                        var segs = self._currentWallSegLines.getLayers();
+                        if (segs.length > 0) self._currentWallSegLines.removeLayer(segs[segs.length - 1]);
+                    }
+                    if (self._currentWallLabels) {
+                        var labels = self._currentWallLabels.getLayers();
+                        if (labels.length > 0) self._currentWallLabels.removeLayer(labels[labels.length - 1]);
+                    }
+                }
+                self.commitCurrentWall();
+            }, 80);
         };
 
         m.on('click', this._wallClickHandler);
@@ -1805,6 +1825,7 @@ window.fpEditor = {
         if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
         if (this._snapGuideLine) { m.removeLayer(this._snapGuideLine); this._snapGuideLine = null; }
         if (this._snapAngleMarker) { m.removeLayer(this._snapAngleMarker); this._snapAngleMarker = null; }
+
     },
 
     // Commit the current wall and reset for a new one, staying in draw mode.
