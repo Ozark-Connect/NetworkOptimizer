@@ -332,9 +332,9 @@
                                             <th>Time</th>
                                             <th>From Device</th>
                                             <th>To Device</th>
-                                            <th>Ping</th>
                                             <th data-tooltip="AP receive rate (from device)">RX Rate</th>
                                             <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                            <th>Ping</th>
                                             <th>Type</th>
                                         </tr>
                                     </thead>
@@ -346,9 +346,9 @@
                                                 <td>@r.TestTime.ToLocalTime().ToString("g")</td>
                                                 <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
                                                 <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
-                                                <td>@(r.PingMs?.ToString("F1") ?? "-") ms</td>
                                                 <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
                                                 <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                <td>@(r.PingMs?.ToString("F1") ?? "-") ms</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
@@ -439,8 +439,15 @@
                                 @if (_client.ApTxPower.HasValue)
                                 {
                                     <div class="signal-detail">
-                                        <span class="detail-label">AP TX Power</span>
-                                        <span class="detail-value">@_client.ApTxPower dBm</span>
+                                        <span class="detail-label" data-tooltip="Transmit power at the AP radio">AP TX Power</span>
+                                        <span class="detail-value">@_client.ApTxPower dBm@(_client.ApEirp.HasValue ? $" ({_client.ApEirp} EIRP)" : "")</span>
+                                    </div>
+                                }
+                                @if (_client.ApClientCount.HasValue)
+                                {
+                                    <div class="signal-detail">
+                                        <span class="detail-label" data-tooltip="Total clients connected to this AP across all radios">AP Clients</span>
+                                        <span class="detail-value">@_client.ApClientCount</span>
                                     </div>
                                 }
                             </div>

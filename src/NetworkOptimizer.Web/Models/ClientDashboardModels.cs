@@ -30,6 +30,7 @@ public class ClientIdentity
     public string? ApModel { get; set; }
     public int? ApChannel { get; set; }
     public int? ApTxPower { get; set; }
+    public int? ApEirp { get; set; }
     public int? ApClientCount { get; set; }
     public string? ApRadioBand { get; set; }
 
