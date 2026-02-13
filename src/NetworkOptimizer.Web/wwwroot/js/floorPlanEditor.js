@@ -138,6 +138,17 @@ window.fpEditor = {
         var self = this;
         if (this._escHandler) return;
         this._escHandler = function (e) {
+            // Delete/Backspace: delete selected wall or segment
+            if ((e.key === 'Delete' || e.key === 'Backspace') && self._wallSelection && self._wallSelection.wallIdx !== null) {
+                e.preventDefault();
+                if (self._wallSelection.segIdx !== null) {
+                    self.deleteSeg(self._wallSelection.wallIdx, self._wallSelection.segIdx);
+                } else {
+                    self.deleteWall(self._wallSelection.wallIdx);
+                }
+                return;
+            }
+
             if (e.key !== 'Escape') return;
             var m = self._map;
             if (!m) return;
