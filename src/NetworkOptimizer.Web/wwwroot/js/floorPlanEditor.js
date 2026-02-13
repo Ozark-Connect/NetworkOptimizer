@@ -1420,16 +1420,16 @@ window.fpEditor = {
                 }
             }
 
-            if (!e.originalEvent.shiftKey && self._currentWall && self._currentWall.points.length > 0) {
+            if (self._currentWall && self._currentWall.points.length > 0) {
                 var prev = self._currentWall.points[self._currentWall.points.length - 1];
-                // Only apply angle snap if we didn't snap to an existing wall
-                if (!didSnapToWall) {
+                // Only apply angle snap if we didn't snap to an existing wall and shift isn't held
+                if (!didSnapToWall && !e.originalEvent.shiftKey) {
                     var snapped = self._snapPoint(prev, lat, lng, false);
                     lat = snapped.lat;
                     lng = snapped.lng;
                 }
-                // Set reference angle from first segment (if not already set from wall snap)
-                if (self._refAngle === null && self._currentWall.points.length === 1) {
+                // Set reference angle from first segment; shift overrides any angle inherited from wall snap
+                if ((self._refAngle === null || e.originalEvent.shiftKey) && self._currentWall.points.length === 1) {
                     var cosLat2 = Math.cos(prev.lat * Math.PI / 180);
                     var dx2 = (lng - prev.lng) * cosLat2;
                     var dy2 = lat - prev.lat;
