@@ -48,6 +48,8 @@ window.fpEditor = {
     _previewLengthLabel: null,
     _edgePanHandler: null,
     _edgePanTimer: null,
+    _activeMoveHandlers: null, // { moveHandler, finishHandler } for cancellable moves
+    _escHandler: null,
 
     // ── Edge Pan ──────────────────────────────────────────────────────
 
@@ -103,6 +105,70 @@ window.fpEditor = {
             this._edgePanHandler = null;
         }
         this._stopEdgePanTimer();
+    },
+
+    // ── Escape Key ────────────────────────────────────────────────────
+
+    _initEscapeHandler: function () {
+        var self = this;
+        if (this._escHandler) return;
+        this._escHandler = function (e) {
+            if (e.key !== 'Escape') return;
+            var m = self._map;
+            if (!m) return;
+
+            // Priority 1: Cancel active move (shape move, building move)
+            if (self._activeMoveHandlers) {
+                m.off('mousemove', self._activeMoveHandlers.moveHandler);
+                m.off('click', self._activeMoveHandlers.finishHandler);
+                self._stopEdgePan();
+                m.dragging.enable();
+                m.getContainer().style.cursor = '';
+                if (self._wallHighlightLayer) self._wallHighlightLayer.clearLayers();
+                self._wallSelection = { wallIdx: null, segIdx: null };
+                self._activeMoveHandlers = null;
+                return;
+            }
+
+            // Priority 2: Cancel overlay image move
+            if (self._moveMarker) {
+                self.exitMoveMode();
+                if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnEscapeMoveMode');
+                return;
+            }
+
+            // Priority 3: Close open popup
+            if (m._popup && m._popup.isOpen()) {
+                m.closePopup();
+                return;
+            }
+
+            // Priority 4: Finish current shape being drawn (keep placed points)
+            if (self._isDrawing && self._currentWall && self._currentWall.points.length >= 2) {
+                if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnMapDblClickFinishWall');
+                return;
+            }
+
+            // Priority 5: Deselect wall segment/shape
+            if (self._wallSelection && (self._wallSelection.wallIdx !== null || self._wallSelection.segIdx !== null)) {
+                self._wallSelection = { wallIdx: null, segIdx: null };
+                if (self._wallHighlightLayer) self._wallHighlightLayer.clearLayers();
+                return;
+            }
+
+            // Priority 6: Exit draw mode or AP mode (back to view)
+            if (self._isDrawing || self._dotNetRef) {
+                if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnEscapeToView');
+            }
+        };
+        document.addEventListener('keydown', this._escHandler);
+    },
+
+    _removeEscapeHandler: function () {
+        if (this._escHandler) {
+            document.removeEventListener('keydown', this._escHandler);
+            this._escHandler = null;
+        }
     },
 
     // ── Map Initialization ───────────────────────────────────────────
@@ -301,6 +367,7 @@ window.fpEditor = {
 
     setDotNetRef: function (ref) {
         this._dotNetRef = ref;
+        this._initEscapeHandler();
     },
 
     // ── View ─────────────────────────────────────────────────────────
@@ -928,6 +995,7 @@ window.fpEditor = {
         var finishMove = function (e) {
             m.off('mousemove', moveHandler);
             m.off('click', finishMove);
+            self._activeMoveHandlers = null;
             self._stopEdgePan();
             m.dragging.enable();
             m.getContainer().style.cursor = '';
@@ -942,6 +1010,7 @@ window.fpEditor = {
             self._wallSelection = { wallIdx: null, segIdx: null };
             self._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(self._allWalls));
         };
+        self._activeMoveHandlers = { moveHandler: moveHandler, finishHandler: finishMove };
         m.on('mousemove', moveHandler);
         m.on('click', finishMove);
     },
@@ -997,6 +1066,7 @@ window.fpEditor = {
         var finishMove = function (e) {
             m.off('mousemove', moveHandler);
             m.off('click', finishMove);
+            self._activeMoveHandlers = null;
             self._stopEdgePan();
             m.dragging.enable();
             m.getContainer().style.cursor = '';
@@ -1018,6 +1088,7 @@ window.fpEditor = {
             self._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(self._allWalls));
             self._dotNetRef.invokeMethodAsync('OnBuildingMoveFromJs', dLat, dLng);
         };
+        self._activeMoveHandlers = { moveHandler: moveHandler, finishHandler: finishMove };
         m.on('mousemove', moveHandler);
         m.on('click', finishMove);
     },
@@ -2086,6 +2157,8 @@ window.fpEditor = {
     },
 
     destroy: function () {
+        this._removeEscapeHandler();
+        this._stopEdgePan();
         if (this._map) { this._map.remove(); this._map = null; }
         this._dotNetRef = null;
         this._overlay = null;

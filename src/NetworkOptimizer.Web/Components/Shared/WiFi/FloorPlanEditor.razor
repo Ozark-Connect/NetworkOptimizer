@@ -2193,6 +2193,23 @@
             await OnClientClick.InvokeAsync(mac);
     }
 
+    [JSInvokable]
+    public async Task OnEscapeToView()
+    {
+        if (_mode == "walls")
+            await ToggleWallDrawMode();
+        else if (_mode == "aps")
+            await ToggleApEditMode();
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnEscapeMoveMode()
+    {
+        // Overlay image move was cancelled - no state to revert
+        StateHasChanged();
+    }
+
     private async Task ToggleFullscreen()
     {
         _isFullscreen = !_isFullscreen;
