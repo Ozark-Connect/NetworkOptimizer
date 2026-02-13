@@ -205,12 +205,12 @@
                             <div class="speed-hero-results">
                                 <div class="speed-metric download">
                                     <span class="speed-label">From Device</span>
-                                    <span class="speed-value @GetSpeedClass(_latestSpeedResult.DownloadMbps)">@_latestSpeedResult.DownloadMbps.ToString("F1")</span>
+                                    <span class="speed-value speed-down">@_latestSpeedResult.DownloadMbps.ToString("F1")</span>
                                     <span class="speed-unit">Mbps</span>
                                 </div>
                                 <div class="speed-metric upload">
                                     <span class="speed-label">To Device</span>
-                                    <span class="speed-value @GetSpeedClass(_latestSpeedResult.UploadMbps)">@_latestSpeedResult.UploadMbps.ToString("F1")</span>
+                                    <span class="speed-value speed-up">@_latestSpeedResult.UploadMbps.ToString("F1")</span>
                                     <span class="speed-unit">Mbps</span>
                                 </div>
                                 @if (_latestSpeedResult.PingMs.HasValue)
@@ -271,7 +271,7 @@
                         <div class="card chart-card">
                             <h3>Speed History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" @ref="_speedChart" TItem="SpeedChartPoint"
+                                <ApexChart @key="_chartKey" TItem="SpeedChartPoint"
                                            Options="_speedChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
@@ -299,7 +299,7 @@
                         <div class="card chart-card">
                             <h3>Latency History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" @ref="_latencyChart" TItem="SpeedChartPoint"
+                                <ApexChart @key="_chartKey" TItem="SpeedChartPoint"
                                            Options="_latencyChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
@@ -344,8 +344,8 @@
                                             <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
                                                 <td>@r.TestTime.ToLocalTime().ToString("g")</td>
-                                                <td class="@GetSpeedClass(r.DownloadMbps)">@r.DownloadMbps.ToString("F1") Mbps</td>
-                                                <td class="@GetSpeedClass(r.UploadMbps)">@r.UploadMbps.ToString("F1") Mbps</td>
+                                                <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
+                                                <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
                                                 <td>@(r.PingMs?.ToString("F1") ?? "—") ms</td>
                                                 <td>@r.DurationSeconds s</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
@@ -465,7 +465,7 @@
                         <div class="card chart-card">
                             <h3>Signal History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" @ref="_signalChart" TItem="SignalChartPoint"
+                                <ApexChart @key="_chartKey" TItem="SignalChartPoint"
                                            Options="_signalChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SignalChartPoint"
@@ -585,7 +585,7 @@
                         <div class="card chart-card">
                             <h3>Connection History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" @ref="_connectionChart" TItem="ConnectionChartPoint"
+                                <ApexChart @key="_chartKey" TItem="ConnectionChartPoint"
                                            Options="_connectionChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="ConnectionChartPoint"
@@ -745,10 +745,8 @@
     private List<Iperf3Result> _speedResults = new();
     private Iperf3Result? _latestSpeedResult;
     private List<SpeedChartPoint> _speedChartData = new();
-    private ApexChart<SpeedChartPoint>? _speedChart;
     private ApexChartOptions<SpeedChartPoint> _speedChartOptions = new();
     private List<SpeedChartPoint> _latencyChartData = new();
-    private ApexChart<SpeedChartPoint>? _latencyChart;
     private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
     private int? _expandedResultId;
     private string? _openSpeedTestUrl;
@@ -756,7 +754,6 @@
     // Signal tab
     private List<SignalHistoryEntry> _signalHistory = new();
     private List<SignalChartPoint> _signalChartData = new();
-    private ApexChart<SignalChartPoint>? _signalChart;
     private ApexChartOptions<SignalChartPoint> _signalChartOptions = new();
 
     // Signal table sorting
@@ -768,7 +765,6 @@
     private List<ClientConnectionEvent> _connectionEvents = new();
     private DateTime? _expandedTraceTimestamp;
     private List<ConnectionChartPoint> _connectionChartData = new();
-    private ApexChart<ConnectionChartPoint>? _connectionChart;
     private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
 
     // Chart re-render key (incremented on time filter change to force chart recreation)
@@ -913,7 +909,7 @@
                 if (_pollCount % 6 == 0)
                 {
                     await LoadTabDataAsync();
-                    await UpdateChartsAsync();
+                    _chartKey++;
                 }
 
                 // Add to live signal chart data
@@ -926,8 +922,7 @@
                     if (_signalChartData.Count > 360)
                         _signalChartData.RemoveAt(0);
 
-                    if (_signalChart != null)
-                        await _signalChart.UpdateSeriesAsync();
+                    _chartKey++;
                 }
 
                 // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
@@ -935,8 +930,7 @@
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
-                    if (_connectionChart != null)
-                        await _connectionChart.UpdateSeriesAsync();
+                    _chartKey++;
                 }
             }
         }
@@ -1106,18 +1100,6 @@
             _tabLoading = false;
             StateHasChanged();
         });
-    }
-
-    private async Task UpdateChartsAsync()
-    {
-        try
-        {
-            if (_speedChart != null) await _speedChart.UpdateSeriesAsync();
-            if (_latencyChart != null) await _latencyChart.UpdateSeriesAsync();
-            if (_signalChart != null) await _signalChart.UpdateSeriesAsync();
-            if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync();
-        }
-        catch { /* Chart may not be rendered yet */ }
     }
 
     private (DateTime from, DateTime to) GetTimeRange()
