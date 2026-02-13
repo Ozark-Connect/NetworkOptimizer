@@ -2096,6 +2096,17 @@
     {
         if (_selectedFloor == null) return;
         _showDeleteFloor = false;
+        // Exit draw/AP mode before deleting
+        if (_mode == "walls")
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            _mode = "view";
+        }
+        else if (_mode == "aps")
+        {
+            _mode = "view";
+            _selectedApForPlacement = null;
+        }
         await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
         await LoadBuildings();
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
@@ -2130,6 +2141,17 @@
     {
         if (_selectedBuilding == null) return;
         _showDeleteBuilding = false;
+        // Exit draw/AP mode before deleting
+        if (_mode == "walls")
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            _mode = "view";
+        }
+        else if (_mode == "aps")
+        {
+            _mode = "view";
+            _selectedApForPlacement = null;
+        }
         await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
         await LoadBuildings();
         EnsureGlobalFloorExists();
