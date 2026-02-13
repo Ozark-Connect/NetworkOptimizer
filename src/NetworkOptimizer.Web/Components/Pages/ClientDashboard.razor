@@ -334,7 +334,8 @@
                                             <th>From Device</th>
                                             <th>To Device</th>
                                             <th>Ping</th>
-                                            <th>Duration</th>
+                                            <th>TX Rate</th>
+                                            <th>RX Rate</th>
                                             <th>Type</th>
                                         </tr>
                                     </thead>
@@ -347,13 +348,14 @@
                                                 <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
                                                 <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
                                                 <td>@(r.PingMs?.ToString("F1") ?? "—") ms</td>
-                                                <td>@r.DurationSeconds s</td>
+                                                <td class="wifi-speed-tx">@FormatRate(r.WifiTxRateKbps)</td>
+                                                <td class="wifi-speed-rx">@FormatRate(r.WifiRxRateKbps)</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
                                             {
                                                 <tr class="result-details-row">
-                                                    <td colspan="6">
+                                                    <td colspan="7">
                                                         <div class="result-details">
                                                             <SpeedTestDetails Result="r" />
                                                         </div>
