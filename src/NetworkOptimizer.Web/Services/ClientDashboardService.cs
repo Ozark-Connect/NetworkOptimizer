@@ -97,6 +97,12 @@ public class ClientDashboardService
         double? gpsLng = null,
         int? gpsAccuracy = null)
     {
+        // Seed trace hashes from DB on first use (survives restarts)
+        if (!_traceHashesSeeded)
+        {
+            await SeedTraceHashesAsync();
+        }
+
         var identity = await IdentifyClientAsync(clientIp);
         if (identity == null)
             return null;
@@ -121,12 +127,6 @@ public class ClientDashboardService
 
                 // Compute trace hash for dedup (structural path only, not dynamic data)
                 result.TraceHash = ComputeTraceHash(path);
-
-                // Seed trace hashes from DB on first use (survives restarts)
-                if (!_traceHashesSeeded)
-                {
-                    await SeedTraceHashesAsync();
-                }
 
                 // Check if trace changed
                 lock (_traceHashLock)

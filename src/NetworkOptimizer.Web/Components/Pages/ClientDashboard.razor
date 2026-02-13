@@ -908,8 +908,8 @@
                         _signalChartData.RemoveAt(0);
                 }
 
-                // Refresh connection events when on connection tab (every 12 polls = ~60s)
-                if (_activeTab == "connection" && _pollCount % 12 == 0)
+                // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
+                if (_activeTab == "connection" && (_latestPoll.TraceChanged || _pollCount % 12 == 0))
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
