@@ -709,35 +709,27 @@ window.fpEditor = {
             }
         });
 
-        // Clickable building hit areas in global view
+        // Clickable building hit areas in global view (convex hull of wall points)
         if (clickable) {
-            var bounds = {};
+            var pts = {};
             walls.forEach(function (wall) {
                 var id = wall._buildingId;
                 if (!id) return;
-                if (!bounds[id]) bounds[id] = { minLat: Infinity, minLng: Infinity, maxLat: -Infinity, maxLng: -Infinity };
-                var b = bounds[id];
-                wall.points.forEach(function (p) {
-                    if (p.lat < b.minLat) b.minLat = p.lat;
-                    if (p.lat > b.maxLat) b.maxLat = p.lat;
-                    if (p.lng < b.minLng) b.minLng = p.lng;
-                    if (p.lng > b.maxLng) b.maxLng = p.lng;
-                });
+                if (!pts[id]) pts[id] = [];
+                wall.points.forEach(function (p) { pts[id].push([p.lat, p.lng]); });
             });
-            Object.keys(bounds).forEach(function (id) {
-                var b = bounds[id];
-                var pad = (b.maxLat - b.minLat) * 0.05;
-                var padLng = (b.maxLng - b.minLng) * 0.05;
-                var rect = L.rectangle(
-                    [[b.minLat - pad, b.minLng - padLng], [b.maxLat + pad, b.maxLng + padLng]],
-                    { color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane' }
-                ).addTo(self._bgWallLayer);
+            Object.keys(pts).forEach(function (id) {
+                var hull = self._convexHull(pts[id]);
+                if (hull.length < 3) return;
+                var poly = L.polygon(hull, {
+                    color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
+                }).addTo(self._bgWallLayer);
                 var bldgId = parseInt(id);
-                rect.on('click', function () {
+                poly.on('click', function () {
                     if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
                 });
-                rect.on('mouseover', function () { rect.setStyle({ fillOpacity: 0.15 }); });
-                rect.on('mouseout', function () { rect.setStyle({ fillOpacity: 0 }); });
+                poly.on('mouseover', function () { poly.setStyle({ fillOpacity: 0.15 }); });
+                poly.on('mouseout', function () { poly.setStyle({ fillOpacity: 0 }); });
             });
             var bgPaneEl = m.getPane('bgWallPane');
             if (bgPaneEl) bgPaneEl.style.pointerEvents = 'auto';
@@ -1138,6 +1130,31 @@ window.fpEditor = {
 
     // Snap to nearby vertices from existing walls and background walls (adjacent floors)
     // Snap to nearby wall vertices (priority) or perpendicular projection onto wall segments.
+    // Convex hull (Andrew's monotone chain). Input: [[lat,lng],...]. Returns hull points.
+    _convexHull: function (points) {
+        if (points.length < 3) return points.slice();
+        var sorted = points.slice().sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+        // Remove duplicates
+        var unique = [sorted[0]];
+        for (var i = 1; i < sorted.length; i++) {
+            if (sorted[i][0] !== sorted[i - 1][0] || sorted[i][1] !== sorted[i - 1][1]) unique.push(sorted[i]);
+        }
+        if (unique.length < 3) return unique;
+        function cross(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }
+        var lower = [];
+        for (var i = 0; i < unique.length; i++) {
+            while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], unique[i]) <= 0) lower.pop();
+            lower.push(unique[i]);
+        }
+        var upper = [];
+        for (var i = unique.length - 1; i >= 0; i--) {
+            while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], unique[i]) <= 0) upper.pop();
+            upper.push(unique[i]);
+        }
+        lower.pop(); upper.pop();
+        return lower.concat(upper);
+    },
+
     // Returns { lat, lng, type: 'vertex'|'segment', segA, segB } or null.
     // segA/segB are the segment endpoints (only for type='segment').
     _snapToVertex: function (lat, lng, snapPixels, bgMaxMeters) {
