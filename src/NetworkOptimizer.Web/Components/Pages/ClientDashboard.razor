@@ -259,7 +259,7 @@
                                 Run Speed Test
                             </a>
                             <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" class="btn btn-secondary btn-lg"
-                               data-tooltip="5-second quick test (~15s total)">
+                               data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
                                 Quick Test
                             </a>
                         </div>
@@ -532,37 +532,40 @@
                     <div class="card connection-hero">
                         <div class="connection-hero-grid">
                             <div class="connection-detail">
-                                <span class="detail-label">Current AP</span>
+                                <span class="detail-label">@(_client.IsWired ? "Switch / Gateway" : "Current AP")</span>
                                 <span class="detail-value">@(_client.ApName ?? "—")</span>
                             </div>
                             @if (_client.ApModel != null)
                             {
                                 <div class="connection-detail">
-                                    <span class="detail-label">AP Model</span>
+                                    <span class="detail-label">@(_client.IsWired ? "Model" : "AP Model")</span>
                                     <span class="detail-value">@_client.ApModel</span>
                                 </div>
                             }
-                            <div class="connection-detail">
-                                <span class="detail-label">Band</span>
-                                <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
-                            </div>
-                            <div class="connection-detail">
-                                <span class="detail-label">Channel</span>
-                                <span class="detail-value">@(_client.Channel?.ToString() ?? "—")</span>
-                            </div>
-                            @if (_client.SignalDbm.HasValue)
+                            @if (!_client.IsWired)
                             {
                                 <div class="connection-detail">
-                                    <span class="detail-label">Signal</span>
-                                    <span class="detail-value @GetSignalClass(_client.SignalDbm.Value)">@_client.SignalDbm dBm</span>
+                                    <span class="detail-label">Band</span>
+                                    <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
                                 </div>
-                            }
-                            @if (_client.TxRateKbps.HasValue)
-                            {
                                 <div class="connection-detail">
-                                    <span class="detail-label">TX / RX</span>
-                                    <span class="detail-value">@FormatRate(_client.TxRateKbps) / @FormatRate(_client.RxRateKbps)</span>
+                                    <span class="detail-label">Channel</span>
+                                    <span class="detail-value">@(_client.Channel?.ToString() ?? "—")</span>
                                 </div>
+                                @if (_client.SignalDbm.HasValue)
+                                {
+                                    <div class="connection-detail">
+                                        <span class="detail-label">Signal</span>
+                                        <span class="detail-value @GetSignalClass(_client.SignalDbm.Value)">@_client.SignalDbm dBm</span>
+                                    </div>
+                                }
+                                @if (_client.TxRateKbps.HasValue)
+                                {
+                                    <div class="connection-detail">
+                                        <span class="detail-label">TX / RX</span>
+                                        <span class="detail-value">@FormatRate(_client.TxRateKbps) / @FormatRate(_client.RxRateKbps)</span>
+                                    </div>
+                                }
                             }
                         </div>
                     </div>
@@ -608,9 +611,12 @@
                                         <tr>
                                             <th>Time</th>
                                             <th>Event</th>
-                                            <th>AP</th>
-                                            <th>Band</th>
-                                            <th>Signal</th>
+                                            <th>@(_client?.IsWired == true ? "Switch / Gateway" : "AP")</th>
+                                            @if (!(_client?.IsWired == true))
+                                            {
+                                                <th>Band</th>
+                                                <th>Signal</th>
+                                            }
                                             <th>Details</th>
                                         </tr>
                                     </thead>
@@ -634,8 +640,11 @@
                                                         @(evt.ApName ?? "—")
                                                     }
                                                 </td>
-                                                <td>@(evt.GetRadioBandDisplay() ?? "—")</td>
-                                                <td class="@GetSignalClass(evt.Signal ?? 0)">@(evt.Signal?.ToString() ?? "—") dBm</td>
+                                                @if (!(_client?.IsWired == true))
+                                                {
+                                                    <td>@(evt.GetRadioBandDisplay() ?? "—")</td>
+                                                    <td class="@GetSignalClass(evt.Signal ?? 0)">@(evt.Signal?.ToString() ?? "—") dBm</td>
+                                                }
                                                 <td class="event-details-cell">
                                                     @if (evt.Type == ClientConnectionEventType.Roamed && evt.PreviousSignal.HasValue)
                                                     {
@@ -1265,7 +1274,8 @@
             Chart = new Chart
             {
                 Background = "transparent",
-                Toolbar = new Toolbar { Show = false }
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false }
             },
             Theme = new Theme { Mode = Mode.Dark },
             Xaxis = new XAxis
@@ -1311,7 +1321,8 @@
             Chart = new Chart
             {
                 Background = "transparent",
-                Toolbar = new Toolbar { Show = false }
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false }
             },
             Theme = new Theme { Mode = Mode.Dark },
             Xaxis = new XAxis
@@ -1345,7 +1356,8 @@
             Chart = new Chart
             {
                 Background = "transparent",
-                Toolbar = new Toolbar { Show = false }
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false }
             },
             Theme = new Theme { Mode = Mode.Dark },
             Xaxis = new XAxis
@@ -1543,7 +1555,7 @@
         // Configure chart with AP names as Y categories
         _connectionChartOptions = new ApexChartOptions<ConnectionChartPoint>
         {
-            Chart = new Chart { Background = "transparent", Toolbar = new Toolbar { Show = false } },
+            Chart = new Chart { Background = "transparent", Toolbar = new Toolbar { Show = false }, Zoom = new Zoom { Enabled = false } },
             Theme = new Theme { Mode = Mode.Dark },
             Xaxis = new XAxis
             {
