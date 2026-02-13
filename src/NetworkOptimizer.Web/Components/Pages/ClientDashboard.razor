@@ -911,6 +911,7 @@
                 if (_pollCount % 6 == 0)
                 {
                     await LoadTabDataAsync();
+                    _chartKey++; // Force chart re-creation with new data
                 }
 
                 // Add to live signal chart data
@@ -929,6 +930,7 @@
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
+                    _chartKey++;
                 }
             }
         }
