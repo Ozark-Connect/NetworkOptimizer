@@ -2218,7 +2218,11 @@
     [JSInvokable]
     public async Task OnEscapeToView()
     {
-        if (_showAddBuilding)
+        if (_showDeleteBuilding)
+            _showDeleteBuilding = false;
+        else if (_showDeleteFloor)
+            _showDeleteFloor = false;
+        else if (_showAddBuilding)
             _showAddBuilding = false;
         else if (_showAddFloor)
             _showAddFloor = false;
