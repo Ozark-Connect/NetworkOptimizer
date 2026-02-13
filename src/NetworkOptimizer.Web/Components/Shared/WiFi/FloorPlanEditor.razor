@@ -1582,9 +1582,9 @@
                             if (dict != null)
                             {
                                 var isSelectedBldg = _selectedBuilding != null && b.Id == _selectedBuilding.Id;
-                                // Selected building adjacent: 0.4, everything else when building selected: 0.2, no selection same floor: 0.5, no selection adjacent: 0.25
+                                // Selected building adjacent: 0.4, other bldg same floor: 0.25, other bldg adjacent: 0.15, no selection same floor: 0.5, no selection adjacent: 0.25
                                 if (_selectedBuilding != null)
-                                    dict["_opacity"] = isSelectedBldg && !sameFloor ? 0.4 : 0.2;
+                                    dict["_opacity"] = isSelectedBldg && !sameFloor ? 0.4 : (sameFloor ? 0.25 : 0.15);
                                 else
                                     dict["_opacity"] = sameFloor ? 0.5 : 0.25;
                                 bgWalls.Add(dict);
