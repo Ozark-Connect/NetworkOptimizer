@@ -211,10 +211,27 @@
             </div>
         }
 
-        @if (_selectedBuilding != null)
+        @if (_selectedBuilding != null || _mode == "aps" || _showSignalData)
         {
-            <div class="fp-editing-chip" @onclick="DeselectBuilding">
-                Editing @_selectedBuilding.Name <span>&times;</span>
+            <div class="fp-chip-stack">
+                @if (_selectedBuilding != null)
+                {
+                    <div class="fp-editing-chip" @onclick="DeselectBuilding">
+                        Editing @_selectedBuilding.Name <span>&times;</span>
+                    </div>
+                }
+                @if (_mode == "aps")
+                {
+                    <div class="fp-editing-chip" @onclick="ToggleApEditMode">
+                        Editing APs <span>&times;</span>
+                    </div>
+                }
+                @if (_showSignalData)
+                {
+                    <div class="fp-editing-chip" @onclick="ToggleSignalData">
+                        Signal Data <span>&times;</span>
+                    </div>
+                }
             </div>
         }
 
@@ -742,12 +759,18 @@
         filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.8));
     }
 
-    /* Editing building chip (bottom-left of map) */
-    .fp-editing-chip {
+    /* Chip stack (bottom-left of map) */
+    .fp-chip-stack {
         position: absolute;
         bottom: 10px;
         left: 10px;
         z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .fp-editing-chip {
         background: var(--primary-color);
         color: white;
         padding: 0.35rem 0.75rem;
@@ -758,6 +781,7 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        white-space: nowrap;
     }
 
     .fp-editing-chip:hover {
