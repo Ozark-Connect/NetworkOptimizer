@@ -577,7 +577,7 @@ window.onload = function() {
     } else {
       userAgentString = "Not Found";
     }
-    var originalDuration = dlDuration; // Capture before extraTime inflation
+    var originalDuration; // Set after URL params modify dlDuration
     var ulFinal = ulDuration * 0.6;
     var dlFinal = dlDuration * 0.6;
     function setFinal() {
@@ -718,6 +718,7 @@ window.onload = function() {
         ulDuration = runStressCustom;
       }
     }
+    originalDuration = dlDuration; // Capture after URL params but before extraTime inflation
     var overheadClean = parseInt(getCommand.clean);
     var overheadCleanC = parseInt(getCommand.c);
     var customOverHeadValue = 1;
