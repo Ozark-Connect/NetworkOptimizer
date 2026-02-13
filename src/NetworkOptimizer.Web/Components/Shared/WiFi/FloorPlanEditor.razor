@@ -211,6 +211,13 @@
             </div>
         }
 
+        @if (_selectedBuilding != null && (_mode == "walls" || _mode == "aps"))
+        {
+            <div class="fp-editing-chip" @onclick="DeselectBuilding">
+                Editing @_selectedBuilding.Name <span>&times;</span>
+            </div>
+        }
+
         @if (_showHeatmap)
         {
             <div class="fp-heatmap-legend">
@@ -733,6 +740,28 @@
         border-right: 5px solid transparent;
         border-bottom: 10px solid #60a5fa;
         filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.8));
+    }
+
+    /* Editing building chip (bottom-left of map) */
+    .fp-editing-chip {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        z-index: 1000;
+        background: var(--primary-color);
+        color: white;
+        padding: 0.35rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .fp-editing-chip:hover {
+        background: var(--primary-hover);
     }
 
     /* Draw-mode warning toast */
@@ -2060,8 +2089,9 @@
         if (_mode == "walls")
         {
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
-            _mode = "view";
         }
+        _mode = "view";
+        _selectedApForPlacement = null;
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
     }
 
