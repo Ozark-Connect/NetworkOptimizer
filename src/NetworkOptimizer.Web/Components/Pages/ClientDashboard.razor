@@ -140,7 +140,7 @@
                     {
                         <div class="hero-detail-item">
                             <span class="detail-label">TX / RX</span>
-                            <span class="detail-value"><span class="wifi-speed-tx">@FormatRate(_client.TxRateKbps)</span> / <span class="wifi-speed-rx">@FormatRate(_client.RxRateKbps)</span></span>
+                            <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx") / @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
                         </div>
                     }
                     @if (_client.IsMlo)
@@ -348,8 +348,8 @@
                                                 <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
                                                 <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
                                                 <td>@(r.PingMs?.ToString("F1") ?? "—") ms</td>
-                                                <td class="wifi-speed-tx">@FormatRate(r.WifiTxRateKbps)</td>
-                                                <td class="wifi-speed-rx">@FormatRate(r.WifiRxRateKbps)</td>
+                                                <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
@@ -419,11 +419,11 @@
                                 {
                                     <div class="signal-detail">
                                         <span class="detail-label">TX Rate</span>
-                                        <span class="detail-value wifi-speed-tx">@FormatRate(_client.TxRateKbps)</span>
+                                        <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                                     </div>
                                     <div class="signal-detail">
                                         <span class="detail-label">RX Rate</span>
-                                        <span class="detail-value wifi-speed-rx">@FormatRate(_client.RxRateKbps)</span>
+                                        <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
                                     </div>
                                 }
                                 @if (_client.NoiseDbm.HasValue)
@@ -525,8 +525,8 @@
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "—")</td>
                                                 <td>@(entry.Channel?.ToString() ?? "—")</td>
-                                                <td class="wifi-speed-tx">@FormatRate(entry.TxRateKbps)</td>
-                                                <td class="wifi-speed-rx">@FormatRate(entry.RxRateKbps)</td>
+                                                <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
+                                                <td>@RenderRate(entry.RxRateKbps, "wifi-speed-rx")</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -575,7 +575,7 @@
                                 {
                                     <div class="connection-detail">
                                         <span class="detail-label">TX / RX</span>
-                                        <span class="detail-value"><span class="wifi-speed-tx">@FormatRate(_client.TxRateKbps)</span> / <span class="wifi-speed-rx">@FormatRate(_client.RxRateKbps)</span></span>
+                                        <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx") / @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
                                     </div>
                                 }
                             }
@@ -1538,10 +1538,12 @@
             : local.ToString("MMM dd HH:mm:ss");
     }
 
-    private static string FormatRate(long? rateKbps)
+    private static MarkupString RenderRate(long? rateKbps, string colorClass)
     {
-        if (!rateKbps.HasValue || rateKbps == 0) return "—";
-        return $"{rateKbps.Value / 1000.0:F0} Mbps";
+        if (!rateKbps.HasValue || rateKbps == 0)
+            return new MarkupString("-");
+        var value = $"{rateKbps.Value / 1000.0:F0}";
+        return new MarkupString($"<span class=\"{colorClass}\">{value}</span> Mbps");
     }
 
     private static string FormatBand(string? band) => band switch
