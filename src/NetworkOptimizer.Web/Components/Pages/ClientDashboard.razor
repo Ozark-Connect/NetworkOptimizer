@@ -189,6 +189,12 @@
 
         @* Tab Content *@
         <div class="tab-content">
+            @if (_tabLoading)
+            {
+                <div class="tab-loading">
+                    <span class="spinner"></span>
+                </div>
+            }
             @if (_activeTab == "speed")
             {
                 @* ===== SPEED TAB ===== *@
@@ -718,6 +724,7 @@
 
     // State
     private bool _loading = true;
+    private bool _tabLoading;
     private ClientIdentity? _client;
     private SignalPollResult? _latestPoll;
     private string _activeTab = "speed";
@@ -1059,7 +1066,10 @@
         // Load data for the new tab
         _ = InvokeAsync(async () =>
         {
+            _tabLoading = true;
+            StateHasChanged();
             await LoadTabDataAsync();
+            _tabLoading = false;
             StateHasChanged();
         });
     }
@@ -1073,7 +1083,10 @@
         // Reload data for all tabs with new time range
         _ = InvokeAsync(async () =>
         {
+            _tabLoading = true;
+            StateHasChanged();
             await LoadTabDataAsync();
+            _tabLoading = false;
             StateHasChanged();
         });
     }
@@ -1740,6 +1753,12 @@
     /* Tab content */
     .tab-content {
         min-height: 200px;
+        position: relative;
+    }
+    .tab-loading {
+        display: flex;
+        justify-content: center;
+        padding: 2rem 0;
     }
     .tab-pane {
         display: flex;
