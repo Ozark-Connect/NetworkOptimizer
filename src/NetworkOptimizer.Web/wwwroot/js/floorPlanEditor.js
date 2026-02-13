@@ -1589,7 +1589,7 @@ window.fpEditor = {
                 var nearestM = self._nearestWallDistanceM(lat, lng);
                 if (nearestM > 6.1) { // ~20 ft
                     self._distanceWarnShown = true;
-                    self._showDrawWarning('This point is far from existing walls. Finish the current building first if you want to start a new one.');
+                    self._showDrawWarning('This point is far from existing walls. Click "Done Editing" to finish the current building before starting a new one.');
                 }
             }
 
