@@ -274,8 +274,14 @@ public class ClientDashboardService
     public async Task<List<SignalHistoryEntry>> GetMergedSignalHistoryAsync(
         string mac, DateTime from, DateTime to)
     {
+        // Scale the fetch limit to the time range. At 5s poll intervals:
+        // 1h=720, 6h=4320, 24h=17280. Cap at 20k to keep memory reasonable;
+        // the UI downsamples for display anyway.
+        var spanHours = (to - from).TotalHours;
+        var take = Math.Min((int)(spanHours * 720) + 100, 20_000);
+
         // Get local data first (high resolution, 5s intervals)
-        var localEntries = await GetSignalHistoryAsync(mac, from, to);
+        var localEntries = await GetSignalHistoryAsync(mac, from, to, take: take);
 
         // Try to augment with UniFi controller metrics (5-minute resolution)
         try
