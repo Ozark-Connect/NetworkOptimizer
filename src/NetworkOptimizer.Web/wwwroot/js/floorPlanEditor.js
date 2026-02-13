@@ -523,7 +523,18 @@ window.fpEditor = {
             if (draggable && ap.sameFloor) {
                 (function (gm) {
                     marker.on('drag', function (e) {
-                        gm.setLatLng(e.target.getLatLng());
+                        var pos = e.target.getLatLng();
+                        gm.setLatLng(pos);
+                        // Edge pan while dragging AP
+                        var container = m.getContainer();
+                        var rect = container.getBoundingClientRect();
+                        var px = m.latLngToContainerPoint(pos);
+                        var ez = 40, ps = 4, dx = 0, dy = 0;
+                        if (px.x < ez) dx = -ps * (1 - px.x / ez);
+                        else if (px.x > rect.width - ez) dx = ps * (1 - (rect.width - px.x) / ez);
+                        if (px.y < ez) dy = -ps * (1 - px.y / ez);
+                        else if (px.y > rect.height - ez) dy = ps * (1 - (rect.height - px.y) / ez);
+                        if (dx !== 0 || dy !== 0) m.panBy([dx, dy], { animate: false });
                     });
                     marker.on('dragend', function (e) {
                         var pos = e.target.getLatLng();
@@ -1780,7 +1791,7 @@ window.fpEditor = {
         this._moveMarker = L.marker([centerLat, centerLng], { icon: ci, draggable: true }).addTo(m);
         this._moveStartCenter = L.latLng(centerLat, centerLng);
 
-        // Live preview: move overlay and walls during drag
+        // Live preview: move overlay and walls during drag + edge pan
         this._moveMarker.on('drag', function (e) {
             if (!self._overlay || !self._moveStartCenter) return;
             var pos = e.target.getLatLng();
@@ -1791,6 +1802,18 @@ window.fpEditor = {
             var ne = b.getNorthEast();
             self._overlay.setBounds([[sw.lat + dLat, sw.lng + dLng], [ne.lat + dLat, ne.lng + dLng]]);
             self._moveStartCenter = pos;
+
+            // Edge pan during marker drag
+            var container = m.getContainer();
+            var rect = container.getBoundingClientRect();
+            var markerPx = m.latLngToContainerPoint(pos);
+            var edgeZone = 40, panSpeed = 4;
+            var dx = 0, dy = 0;
+            if (markerPx.x < edgeZone) dx = -panSpeed * (1 - markerPx.x / edgeZone);
+            else if (markerPx.x > rect.width - edgeZone) dx = panSpeed * (1 - (rect.width - markerPx.x) / edgeZone);
+            if (markerPx.y < edgeZone) dy = -panSpeed * (1 - markerPx.y / edgeZone);
+            else if (markerPx.y > rect.height - edgeZone) dy = panSpeed * (1 - (rect.height - markerPx.y) / edgeZone);
+            if (dx !== 0 || dy !== 0) m.panBy([dx, dy], { animate: false });
         });
 
         this._moveMarker.on('dragend', function (e) {
