@@ -300,6 +300,17 @@ public class ClientDashboardService
             var localTimestamps = new HashSet<long>(
                 localEntries.Select(e => e.Timestamp.Ticks / TimeSpan.TicksPerMinute));
 
+            // Resolve AP names from device list for UniFi entries
+            Dictionary<string, string>? apNameCache = null;
+            try
+            {
+                var devices = await _connectionService.GetDiscoveredDevicesAsync();
+                apNameCache = devices
+                    .Where(d => !string.IsNullOrEmpty(d.Name))
+                    .ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name, StringComparer.OrdinalIgnoreCase);
+            }
+            catch { /* Best-effort AP name resolution */ }
+
             // Add UniFi entries that don't overlap with local data
             foreach (var m in unifiMetrics)
             {
@@ -308,19 +319,30 @@ public class ClientDashboardService
 
                 if (!localTimestamps.Contains(minuteKey) && m.Signal.HasValue)
                 {
+                    var bandStr = m.Band switch
+                    {
+                        RadioBand.Band2_4GHz => "ng",
+                        RadioBand.Band5GHz => "na",
+                        RadioBand.Band6GHz => "6e",
+                        _ => null
+                    };
+
+                    string? apName = null;
+                    if (m.ApMac != null && apNameCache != null)
+                        apNameCache.TryGetValue(m.ApMac, out apName);
+
                     localEntries.Add(new SignalHistoryEntry
                     {
                         Timestamp = ts,
                         SignalDbm = m.Signal,
                         Channel = m.Channel,
-                        Band = m.Band switch
-                        {
-                            RadioBand.Band2_4GHz => "ng",
-                            RadioBand.Band5GHz => "na",
-                            RadioBand.Band6GHz => "6e",
-                            _ => null
-                        },
+                        ChannelWidth = m.ChannelWidth,
+                        Band = bandStr,
+                        Protocol = m.Protocol,
+                        TxRateKbps = m.TxRateKbps,
+                        RxRateKbps = m.RxRateKbps,
                         ApMac = m.ApMac,
+                        ApName = apName,
                         DataSource = SignalDataSource.UniFiController
                     });
                 }
