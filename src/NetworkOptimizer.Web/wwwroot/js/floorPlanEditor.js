@@ -42,6 +42,7 @@ window.fpEditor = {
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
     _bgWalls: [],
+    _sameBuildingWalls: [],
     _snapGuideLine: null,
     _snapAngleMarker: null,
     _previewLengthLabel: null,
@@ -543,6 +544,10 @@ window.fpEditor = {
     },
 
     // ── Background Walls (faded, non-interactive) ─────────────────────
+
+    updateSameBuildingWalls: function (wallsJson) {
+        this._sameBuildingWalls = wallsJson ? JSON.parse(wallsJson) : [];
+    },
 
     updateBackgroundWalls: function (wallsJson, colorsJson) {
         var m = this._map;
@@ -1192,6 +1197,12 @@ window.fpEditor = {
                     var w = self._allWalls[wi];
                     var wLabel = 'wall[' + wi + '](' + (w.material || '?') + ' @' + (w.points[0].lat).toFixed(5) + ',' + (w.points[0].lng).toFixed(5) + ')';
                     checkPoints(w.points, wLabel);
+                }
+            }
+            // First shape on empty floor: also match same-building adjacent floor segment lengths
+            if ((!self._allWalls || self._allWalls.length === 0) && self._sameBuildingWalls) {
+                for (var bwi = 0; bwi < self._sameBuildingWalls.length; bwi++) {
+                    checkPoints(self._sameBuildingWalls[bwi].points, 'sameBldg[' + bwi + ']');
                 }
             }
             // if (bestLen !== null) console.log('lengthSnap:', bestSource, 'cur=' + (curMeters * 3.28084).toFixed(1) + "'");

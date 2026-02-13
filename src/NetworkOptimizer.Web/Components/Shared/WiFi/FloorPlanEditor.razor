@@ -1583,6 +1583,26 @@
         var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
         var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
         await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson);
+
+        // Same-building adjacent floor walls (for length snap when drawing first shape)
+        var sameBldgWalls = new List<object>();
+        if (_selectedBuilding != null)
+        {
+            foreach (var f in _selectedBuilding.Floors)
+            {
+                if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
+                if (string.IsNullOrEmpty(f.WallsJson)) continue;
+                if (Math.Abs(f.FloorNumber - _globalActiveFloor) > 1) continue;
+                try
+                {
+                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(f.WallsJson);
+                    if (parsed != null) sameBldgWalls.AddRange(parsed);
+                }
+                catch { }
+            }
+        }
+        await JS.InvokeVoidAsync("fpEditor.updateSameBuildingWalls",
+            System.Text.Json.JsonSerializer.Serialize(sameBldgWalls));
     }
 
     private async Task ToggleWallDrawMode()
@@ -1972,6 +1992,12 @@
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == building.Id);
         _floors = _selectedBuilding?.Floors ?? new();
         StateHasChanged();
+
+        // Auto-create first floor and enter draw mode
+        _newFloorNumber = 1;
+        _newFloorLabel = GetDefaultFloorLabel(1);
+        _newFloorMaterial = "floor_wood";
+        await CreateFloor();
     }
 
     private async Task StartBuildingMove()
