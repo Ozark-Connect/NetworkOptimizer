@@ -697,32 +697,54 @@ window.fpEditor = {
         var colors = JSON.parse(colorsJson);
         this._bgWalls = walls;
 
-        // Enable pointer events on bg wall pane when buildings are clickable
-        var bgPaneEl = m.getPane('bgWallPane');
-        if (bgPaneEl) bgPaneEl.style.pointerEvents = clickable ? 'auto' : 'none';
-
         walls.forEach(function (wall) {
             var opacity = wall._opacity || 0.5;
-            var bldgId = wall._buildingId;
-            var interactive = !!clickable && !!bldgId;
             for (var i = 0; i < wall.points.length - 1; i++) {
                 var mat = (wall.materials && i < wall.materials.length) ? wall.materials[i] : wall.material;
                 var color = colors[mat] || '#94a3b8';
-                var line = L.polyline(
+                L.polyline(
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
-                    { color: color, weight: interactive ? 5 : 3, opacity: opacity, pane: 'bgWallPane', interactive: interactive }
+                    { color: color, weight: 3, opacity: opacity, pane: 'bgWallPane', interactive: false }
                 ).addTo(self._bgWallLayer);
-                if (interactive) {
-                    (function (id) {
-                        line.on('click', function () {
-                            if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', id);
-                        });
-                        line.on('mouseover', function () { line.setStyle({ weight: 7 }); });
-                        line.on('mouseout', function () { line.setStyle({ weight: 5 }); });
-                    })(bldgId);
-                }
             }
         });
+
+        // Clickable building hit areas in global view
+        if (clickable) {
+            var bounds = {};
+            walls.forEach(function (wall) {
+                var id = wall._buildingId;
+                if (!id) return;
+                if (!bounds[id]) bounds[id] = { minLat: Infinity, minLng: Infinity, maxLat: -Infinity, maxLng: -Infinity };
+                var b = bounds[id];
+                wall.points.forEach(function (p) {
+                    if (p.lat < b.minLat) b.minLat = p.lat;
+                    if (p.lat > b.maxLat) b.maxLat = p.lat;
+                    if (p.lng < b.minLng) b.minLng = p.lng;
+                    if (p.lng > b.maxLng) b.maxLng = p.lng;
+                });
+            });
+            Object.keys(bounds).forEach(function (id) {
+                var b = bounds[id];
+                var pad = (b.maxLat - b.minLat) * 0.05;
+                var padLng = (b.maxLng - b.minLng) * 0.05;
+                var rect = L.rectangle(
+                    [[b.minLat - pad, b.minLng - padLng], [b.maxLat + pad, b.maxLng + padLng]],
+                    { color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane' }
+                ).addTo(self._bgWallLayer);
+                var bldgId = parseInt(id);
+                rect.on('click', function () {
+                    if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
+                });
+                rect.on('mouseover', function () { rect.setStyle({ fillOpacity: 0.15 }); });
+                rect.on('mouseout', function () { rect.setStyle({ fillOpacity: 0 }); });
+            });
+            var bgPaneEl = m.getPane('bgWallPane');
+            if (bgPaneEl) bgPaneEl.style.pointerEvents = 'auto';
+        } else {
+            var bgPaneEl = m.getPane('bgWallPane');
+            if (bgPaneEl) bgPaneEl.style.pointerEvents = 'none';
+        }
     },
 
     // ── Wall Rendering ───────────────────────────────────────────────
