@@ -234,3 +234,7 @@ For commercial licensing inquiries, contact tj@ozarkconnect.net.
 
 - Issues: [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues)
 - Documentation: See component READMEs in `src/` and `docker/`
+
+---
+
+<sub>Network Optimizer for UniFi is an independent project by Ozark Connect and is not affiliated with, endorsed by, or sponsored by Ubiquiti Inc. UniFi, UniFi OS, UDM, UCG, UDR, and related product names are trademarks or registered trademarks of Ubiquiti Inc. All other trademarks are the property of their respective owners.</sub>
