@@ -1584,8 +1584,10 @@ window.fpEditor = {
                     self._refAngle = Math.atan2(dy2, dx2);
                 }
             }
-            // Warn once if drawing far from existing walls (possible new building)
-            if (!self._distanceWarnShown && self._allWalls && self._allWalls.length > 0) {
+            // Warn once if starting a new unconnected wall far from existing walls
+            var isFirstPoint = !self._currentWall || self._currentWall.points.length === 0;
+            if (isFirstPoint && !didSnapToWall && !self._distanceWarnShown &&
+                self._allWalls && self._allWalls.length > 0) {
                 var nearestM = self._nearestWallDistanceM(lat, lng);
                 if (nearestM > 6.1) { // ~20 ft
                     self._distanceWarnShown = true;
