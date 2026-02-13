@@ -266,23 +266,23 @@
                     }
 
                     @* Speed History Chart *@
-                    @if (_speedChartData.Count > 0)
+                    @if (_speedDownloadData.Count > 0)
                     {
                         <div class="card chart-card">
                             <h3>Speed History</h3>
                             <div class="chart-container">
-                                <ApexChart TItem="SpeedChartPoint"
+                                <ApexChart @ref="_speedChart" TItem="SpeedChartPoint"
                                            Options="_speedChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
-                                                     Items="SpeedDownloadData"
+                                                     Items="_speedDownloadData"
                                                      Name="From Device"
                                                      SeriesType="SeriesType.Area"
                                                      XValue="e => e.Timestamp"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SpeedChartPoint"
-                                                     Items="SpeedUploadData"
+                                                     Items="_speedUploadData"
                                                      Name="To Device"
                                                      SeriesType="SeriesType.Area"
                                                      XValue="e => e.Timestamp"
@@ -294,23 +294,23 @@
                     }
 
                     @* Latency History Chart *@
-                    @if (_latencyChartData.Count > 0)
+                    @if (_latencyPingData.Count > 0)
                     {
                         <div class="card chart-card">
                             <h3>Latency History</h3>
                             <div class="chart-container">
-                                <ApexChart TItem="SpeedChartPoint"
+                                <ApexChart @ref="_latencyChart" TItem="SpeedChartPoint"
                                            Options="_latencyChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
-                                                     Items="LatencyPingData"
+                                                     Items="_latencyPingData"
                                                      Name="Ping"
                                                      SeriesType="SeriesType.Line"
                                                      XValue="e => e.Timestamp"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SpeedChartPoint"
-                                                     Items="LatencyJitterData"
+                                                     Items="_latencyJitterData"
                                                      Name="Jitter"
                                                      SeriesType="SeriesType.Line"
                                                      XValue="e => e.Timestamp"
@@ -465,7 +465,7 @@
                         <div class="card chart-card">
                             <h3>Signal History</h3>
                             <div class="chart-container">
-                                <ApexChart TItem="SignalChartPoint"
+                                <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
                                            Options="_signalChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SignalChartPoint"
@@ -585,7 +585,7 @@
                         <div class="card chart-card">
                             <h3>Connection History</h3>
                             <div class="chart-container">
-                                <ApexChart TItem="ConnectionChartPoint"
+                                <ApexChart @ref="_connectionChart" TItem="ConnectionChartPoint"
                                            Options="_connectionChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="ConnectionChartPoint"
@@ -744,9 +744,13 @@
     // Speed tab
     private List<Iperf3Result> _speedResults = new();
     private Iperf3Result? _latestSpeedResult;
-    private List<SpeedChartPoint> _speedChartData = new();
+    private List<SpeedChartPoint> _speedDownloadData = new();
+    private List<SpeedChartPoint> _speedUploadData = new();
+    private ApexChart<SpeedChartPoint>? _speedChart;
     private ApexChartOptions<SpeedChartPoint> _speedChartOptions = new();
-    private List<SpeedChartPoint> _latencyChartData = new();
+    private List<SpeedChartPoint> _latencyPingData = new();
+    private List<SpeedChartPoint> _latencyJitterData = new();
+    private ApexChart<SpeedChartPoint>? _latencyChart;
     private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
     private int? _expandedResultId;
     private string? _openSpeedTestUrl;
@@ -754,6 +758,7 @@
     // Signal tab
     private List<SignalHistoryEntry> _signalHistory = new();
     private List<SignalChartPoint> _signalChartData = new();
+    private ApexChart<SignalChartPoint>? _signalChart;
     private ApexChartOptions<SignalChartPoint> _signalChartOptions = new();
 
     // Signal table sorting
@@ -765,6 +770,7 @@
     private List<ClientConnectionEvent> _connectionEvents = new();
     private DateTime? _expandedTraceTimestamp;
     private List<ConnectionChartPoint> _connectionChartData = new();
+    private ApexChart<ConnectionChartPoint>? _connectionChart;
     private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
 
     // Polling
@@ -906,17 +912,20 @@
                 if (_pollCount % 6 == 0)
                 {
                     await LoadTabDataAsync();
+                    await UpdateActiveChartsAsync();
                 }
 
                 // Add to live signal chart data
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
                 {
                     _signalChartData.Add(new SignalChartPoint(
-                        _latestPoll.Timestamp, (decimal)_client.SignalDbm.Value));
+                        _latestPoll.Timestamp.ToLocalTime(), (decimal)_client.SignalDbm.Value));
 
                     // Keep last 360 points (30 min at 5s interval)
                     if (_signalChartData.Count > 360)
                         _signalChartData.RemoveAt(0);
+
+                    try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
                 }
 
                 // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
@@ -924,6 +933,7 @@
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
+                    try { if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true); } catch { }
                 }
             }
         }
@@ -958,19 +968,26 @@
         _speedResults = await DashboardService.GetSpeedResultsAsync(_client!.Mac, from, to);
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
-        // Build chart data
-        _speedChartData.Clear();
-        _latencyChartData.Clear();
+        // Build chart data (local time for display)
+        var dlPoints = new List<SpeedChartPoint>();
+        var ulPoints = new List<SpeedChartPoint>();
+        var pingPoints = new List<SpeedChartPoint>();
+        var jitterPoints = new List<SpeedChartPoint>();
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
-            _speedChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
-            _speedChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+            var localTime = r.TestTime.ToLocalTime();
+            dlPoints.Add(new SpeedChartPoint(localTime, (decimal)r.DownloadMbps, "download"));
+            ulPoints.Add(new SpeedChartPoint(localTime, (decimal)r.UploadMbps, "upload"));
 
             if (r.PingMs.HasValue)
-                _latencyChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+                pingPoints.Add(new SpeedChartPoint(localTime, (decimal)r.PingMs.Value, "ping"));
             if (r.JitterMs.HasValue)
-                _latencyChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+                jitterPoints.Add(new SpeedChartPoint(localTime, (decimal)r.JitterMs.Value, "jitter"));
         }
+        _speedDownloadData = dlPoints;
+        _speedUploadData = ulPoints;
+        _latencyPingData = pingPoints;
+        _latencyJitterData = jitterPoints;
     }
 
     private async Task LoadSignalDataAsync(DateTime from, DateTime to)
@@ -978,10 +995,10 @@
         // Use merged history (local high-res + UniFi controller data)
         _signalHistory = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
 
-        // Build chart data from history
+        // Build chart data from history (local time for display)
         _signalChartData = _signalHistory
             .Where(h => h.SignalDbm.HasValue)
-            .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value))
+            .Select(h => new SignalChartPoint(h.Timestamp.ToLocalTime(), (decimal)h.SignalDbm!.Value))
             .ToList();
 
         // Build chart annotations for band/AP changes
@@ -996,7 +1013,7 @@
 
         foreach (var entry in _signalHistory)
         {
-            var ts = new DateTimeOffset(entry.Timestamp).ToUnixTimeMilliseconds();
+            var ts = new DateTimeOffset(entry.Timestamp.ToLocalTime()).ToUnixTimeMilliseconds();
 
             // Detect band change
             if (prevBand != null && entry.Band != null && entry.Band != prevBand)
@@ -1074,6 +1091,7 @@
             await LoadTabDataAsync();
             _tabLoading = false;
             StateHasChanged();
+            await UpdateActiveChartsAsync();
         });
     }
 
@@ -1090,7 +1108,29 @@
             await LoadTabDataAsync();
             _tabLoading = false;
             StateHasChanged();
+            await UpdateActiveChartsAsync();
         });
+    }
+
+    private async Task UpdateActiveChartsAsync()
+    {
+        try
+        {
+            switch (_activeTab)
+            {
+                case "speed":
+                    if (_speedChart != null) await _speedChart.UpdateSeriesAsync(true);
+                    if (_latencyChart != null) await _latencyChart.UpdateSeriesAsync(true);
+                    break;
+                case "signal":
+                    if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true);
+                    break;
+                case "connection":
+                    if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true);
+                    break;
+            }
+        }
+        catch { /* Chart may not be mounted yet */ }
     }
 
     private (DateTime from, DateTime to) GetTimeRange()
@@ -1440,20 +1480,6 @@
         _ => band ?? "—"
     };
 
-    // --- Computed Chart Data ---
-
-    private List<SpeedChartPoint> SpeedDownloadData =>
-        _speedChartData.Where(p => p.Series == "download").ToList();
-
-    private List<SpeedChartPoint> SpeedUploadData =>
-        _speedChartData.Where(p => p.Series == "upload").ToList();
-
-    private List<SpeedChartPoint> LatencyPingData =>
-        _latencyChartData.Where(p => p.Series == "ping").ToList();
-
-    private List<SpeedChartPoint> LatencyJitterData =>
-        _latencyChartData.Where(p => p.Series == "jitter").ToList();
-
     // --- Chart Data Classes ---
 
     private class SpeedChartPoint
@@ -1541,7 +1567,7 @@
             if (apIndex.TryGetValue(ap, out var idx))
             {
                 _connectionChartData.Add(new ConnectionChartPoint(
-                    evt.Timestamp.UtcDateTime, idx, ap));
+                    evt.Timestamp.LocalDateTime, idx, ap));
             }
         }
 
