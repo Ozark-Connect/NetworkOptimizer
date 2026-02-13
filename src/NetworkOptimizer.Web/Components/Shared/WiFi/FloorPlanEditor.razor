@@ -6,11 +6,12 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
+@using Microsoft.JSInterop
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
 @inject NavigationManager Nav
 @inject IJSRuntime JS
-@implements IDisposable
+@implements IAsyncDisposable
 
 <div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
     <!-- Toolbar -->
@@ -1289,7 +1290,7 @@
     {
         if (_selectedFloor == null || !_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
-        var imageUrl = _selectedFloor.HasImage ? baseUrl + "/api/floors/" + _selectedFloor.Id + "/image" : "";
+        var imageUrl = _selectedFloor.HasImage ? baseUrl + "/api/floor-plan/floors/" + _selectedFloor.Id + "/image" : "";
         await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", imageUrl,
             _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
             _selectedFloor.NeLatitude, _selectedFloor.NeLongitude, _floorOpacity);
@@ -1816,7 +1817,7 @@
             html += "<div class='wifi-tooltip-link-signal'>";
             if (!string.IsNullOrEmpty(result.WifiRadio))
             {
-                var radio = result.WifiRadio.ToLowerInvariant();
+                var radio = System.Net.WebUtility.HtmlEncode(result.WifiRadio.ToLowerInvariant());
                 html += $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span> ";
             }
             if (result.WifiSignalDbm.HasValue)
@@ -1971,10 +1972,18 @@
     {
         if (n <= -1) return "Basement " + Math.Abs(n);
         if (n == 0) return "Ground Floor";
-        if (n == 1) return "1st Floor";
-        if (n == 2) return "2nd Floor";
-        if (n == 3) return "3rd Floor";
-        return n + "th Floor";
+        var suffix = (n % 100) switch
+        {
+            11 or 12 or 13 => "th",
+            _ => (n % 10) switch
+            {
+                1 => "st",
+                2 => "nd",
+                3 => "rd",
+                _ => "th"
+            }
+        };
+        return n + suffix + " Floor";
     }
 
     private async Task CreateFloor()
@@ -2137,7 +2146,7 @@
         }
 
         // Priority 2: Fit to placed APs
-        var placedAps = _apMarkers.Where(a => a.Latitude.HasValue).ToList();
+        var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToList();
         if (placedAps.Count > 0)
         {
             var swLat = placedAps.Min(a => a.Latitude!.Value);
@@ -2221,9 +2230,10 @@
         catch { }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _ = JS.InvokeVoidAsync("fpEditor.destroy");
+        try { await JS.InvokeVoidAsync("fpEditor.destroy"); }
+        catch (JSDisconnectedException) { }
         _dotNetRef?.Dispose();
     }
 

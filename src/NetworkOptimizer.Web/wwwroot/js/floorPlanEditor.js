@@ -1626,7 +1626,7 @@ window.fpEditor = {
         this._corners = [swM, neM];
 
         function upd() {
-            self._overlay.setBounds([swM.getLatLng(), neM.getLatLng()]);
+            if (self._overlay) self._overlay.setBounds([swM.getLatLng(), neM.getLatLng()]);
         }
         swM.on('drag', upd);
         neM.on('drag', upd);
@@ -1730,12 +1730,12 @@ window.fpEditor = {
             body.txPowerOverrides = filteredOverrides;
         }
 
-        fetch(baseUrl + '/api/heatmap/compute', {
+        fetch(baseUrl + '/api/floor-plan/heatmap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         })
-        .then(function (r) { return r.json(); })
+        .then(function (r) { if (!r.ok) throw new Error('Heatmap request failed: ' + r.status); return r.json(); })
         .then(function (data) {
             if (!data || !data.data) return;
 
@@ -1865,11 +1865,11 @@ window.fpEditor = {
     },
 
     clearHeatmap: function () {
-        if (this._heatmapOverlay) {
+        if (this._heatmapOverlay && this._map) {
             this._map.removeLayer(this._heatmapOverlay);
             this._heatmapOverlay = null;
         }
-        if (this._contourLayer) {
+        if (this._contourLayer && this._map) {
             this._map.removeLayer(this._contourLayer);
             this._contourLayer = null;
         }

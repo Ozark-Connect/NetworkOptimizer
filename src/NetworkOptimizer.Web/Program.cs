@@ -928,7 +928,7 @@ app.MapDelete("/api/ap-locations/{mac}", async (string mac, NetworkOptimizerDbCo
 
 // --- Building & Floor Plan API ---
 
-app.MapGet("/api/buildings", async (FloorPlanService svc) =>
+app.MapGet("/api/floor-plan/buildings", async (FloorPlanService svc) =>
 {
     var buildings = await svc.GetBuildingsAsync();
     return Results.Ok(buildings.Select(b => new
@@ -943,7 +943,7 @@ app.MapGet("/api/buildings", async (FloorPlanService svc) =>
     }));
 });
 
-app.MapPost("/api/buildings", async (HttpContext context, FloorPlanService svc) =>
+app.MapPost("/api/floor-plan/buildings", async (HttpContext context, FloorPlanService svc) =>
 {
     var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
@@ -951,7 +951,7 @@ app.MapPost("/api/buildings", async (HttpContext context, FloorPlanService svc) 
     return Results.Ok(new { building.Id, building.Name, building.CenterLatitude, building.CenterLongitude });
 });
 
-app.MapPut("/api/buildings/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
+app.MapPut("/api/floor-plan/buildings/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
 {
     var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
@@ -959,12 +959,12 @@ app.MapPut("/api/buildings/{id:int}", async (int id, HttpContext context, FloorP
     return building != null ? Results.Ok(new { success = true }) : Results.NotFound();
 });
 
-app.MapDelete("/api/buildings/{id:int}", async (int id, FloorPlanService svc) =>
+app.MapDelete("/api/floor-plan/buildings/{id:int}", async (int id, FloorPlanService svc) =>
 {
     return await svc.DeleteBuildingAsync(id) ? Results.NoContent() : Results.NotFound();
 });
 
-app.MapGet("/api/buildings/{id:int}/floors", async (int id, FloorPlanService svc) =>
+app.MapGet("/api/floor-plan/buildings/{id:int}/floors", async (int id, FloorPlanService svc) =>
 {
     var floors = await svc.GetFloorsAsync(id);
     return Results.Ok(floors.Select(f => new
@@ -975,7 +975,7 @@ app.MapGet("/api/buildings/{id:int}/floors", async (int id, FloorPlanService svc
     }));
 });
 
-app.MapPost("/api/buildings/{id:int}/floors", async (int id, HttpContext context, FloorPlanService svc) =>
+app.MapPost("/api/floor-plan/buildings/{id:int}/floors", async (int id, HttpContext context, FloorPlanService svc) =>
 {
     var request = await context.Request.ReadFromJsonAsync<FloorRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
@@ -984,7 +984,7 @@ app.MapPost("/api/buildings/{id:int}/floors", async (int id, HttpContext context
     return Results.Ok(new { floor.Id, floor.BuildingId, floor.FloorNumber, floor.Label });
 });
 
-app.MapPut("/api/floors/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
+app.MapPut("/api/floor-plan/floors/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
 {
     var request = await context.Request.ReadFromJsonAsync<FloorUpdateRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
@@ -994,12 +994,12 @@ app.MapPut("/api/floors/{id:int}", async (int id, HttpContext context, FloorPlan
     return floor != null ? Results.Ok(new { success = true }) : Results.NotFound();
 });
 
-app.MapDelete("/api/floors/{id:int}", async (int id, FloorPlanService svc) =>
+app.MapDelete("/api/floor-plan/floors/{id:int}", async (int id, FloorPlanService svc) =>
 {
     return await svc.DeleteFloorAsync(id) ? Results.NoContent() : Results.NotFound();
 });
 
-app.MapGet("/api/floors/{id:int}/image", async (int id, FloorPlanService svc) =>
+app.MapGet("/api/floor-plan/floors/{id:int}/image", async (int id, FloorPlanService svc) =>
 {
     var floor = await svc.GetFloorAsync(id);
     if (floor == null) return Results.NotFound();
@@ -1008,7 +1008,7 @@ app.MapGet("/api/floors/{id:int}/image", async (int id, FloorPlanService svc) =>
     return Results.File(imagePath, "image/png");
 });
 
-app.MapPost("/api/floors/{id:int}/image", async (int id, HttpContext context, FloorPlanService svc) =>
+app.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext context, FloorPlanService svc) =>
 {
     var form = await context.Request.ReadFormAsync();
     var file = form.Files.GetFile("image");
@@ -1020,7 +1020,7 @@ app.MapPost("/api/floors/{id:int}/image", async (int id, HttpContext context, Fl
     return Results.Ok(new { success = true });
 });
 
-app.MapPost("/api/heatmap/compute", async (HttpContext context,
+app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     FloorPlanService floorSvc, ApMapService apMapSvc,
     NetworkOptimizer.WiFi.Services.PropagationService propagationSvc) =>
 {
