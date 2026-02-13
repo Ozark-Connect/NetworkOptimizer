@@ -7,6 +7,8 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Models;
+using NetworkOptimizer.WiFi;
+using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -22,10 +24,14 @@ public class ClientDashboardService
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly ClientSpeedTestService _speedTestService;
     private readonly IConfiguration _configuration;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     // Track last trace hash per client MAC to detect changes
     private readonly Dictionary<string, string> _lastTraceHashes = new();
     private readonly object _traceHashLock = new();
+
+    // Cleanup tracking
+    private DateTime _lastCleanup = DateTime.MinValue;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -39,7 +45,8 @@ public class ClientDashboardService
         UniFiConnectionService connectionService,
         INetworkPathAnalyzer pathAnalyzer,
         ClientSpeedTestService speedTestService,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _dbFactory = dbFactory;
@@ -47,6 +54,7 @@ public class ClientDashboardService
         _pathAnalyzer = pathAnalyzer;
         _speedTestService = speedTestService;
         _configuration = configuration;
+        _scopeFactory = scopeFactory;
     }
 
     /// <summary>
@@ -237,6 +245,107 @@ public class ClientDashboardService
                       && r.TestTime <= to)
             .OrderByDescending(r => r.TestTime)
             .ToListAsync();
+    }
+
+    /// <summary>
+    /// Get merged signal history: local high-res data augmented with UniFi controller metrics
+    /// for time ranges where local data is sparse.
+    /// </summary>
+    public async Task<List<SignalHistoryEntry>> GetMergedSignalHistoryAsync(
+        string mac, DateTime from, DateTime to)
+    {
+        // Get local data first (high resolution, 5s intervals)
+        var localEntries = await GetSignalHistoryAsync(mac, from, to);
+
+        // Try to augment with UniFi controller metrics (5-minute resolution)
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var wifiService = scope.ServiceProvider.GetRequiredService<WiFiOptimizerService>();
+
+            var granularity = (to - from).TotalHours > 48
+                ? MetricGranularity.Hourly
+                : MetricGranularity.FiveMinutes;
+
+            var unifiMetrics = await wifiService.GetClientMetricsAsync(
+                mac,
+                new DateTimeOffset(from, TimeSpan.Zero),
+                new DateTimeOffset(to, TimeSpan.Zero),
+                granularity);
+
+            if (unifiMetrics.Count == 0)
+                return localEntries;
+
+            // Build a set of local timestamps (rounded to minute) for dedup
+            var localTimestamps = new HashSet<long>(
+                localEntries.Select(e => e.Timestamp.Ticks / TimeSpan.TicksPerMinute));
+
+            // Add UniFi entries that don't overlap with local data
+            foreach (var m in unifiMetrics)
+            {
+                var ts = m.Timestamp.UtcDateTime;
+                var minuteKey = ts.Ticks / TimeSpan.TicksPerMinute;
+
+                if (!localTimestamps.Contains(minuteKey) && m.Signal.HasValue)
+                {
+                    localEntries.Add(new SignalHistoryEntry
+                    {
+                        Timestamp = ts,
+                        SignalDbm = m.Signal,
+                        Channel = m.Channel,
+                        Band = m.Band switch
+                        {
+                            RadioBand.Band2_4GHz => "ng",
+                            RadioBand.Band5GHz => "na",
+                            RadioBand.Band6GHz => "6e",
+                            _ => null
+                        },
+                        ApMac = m.ApMac,
+                        DataSource = SignalDataSource.UniFiController
+                    });
+                }
+            }
+
+            // Re-sort by timestamp
+            localEntries.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to augment signal history with UniFi data for {Mac}", mac);
+        }
+
+        return localEntries;
+    }
+
+    /// <summary>
+    /// Get client connection events (connects, disconnects, roams) from UniFi controller.
+    /// </summary>
+    public async Task<List<ClientConnectionEvent>> GetConnectionEventsAsync(
+        string mac, int limit = 200)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var wifiService = scope.ServiceProvider.GetRequiredService<WiFiOptimizerService>();
+            return await wifiService.GetClientConnectionEventsAsync(mac, limit);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get connection events for {Mac}", mac);
+            return new List<ClientConnectionEvent>();
+        }
+    }
+
+    /// <summary>
+    /// Run daily cleanup if needed (called from polling timer).
+    /// </summary>
+    public async Task TryCleanupAsync()
+    {
+        if ((DateTime.UtcNow - _lastCleanup).TotalHours < 24)
+            return;
+
+        _lastCleanup = DateTime.UtcNow;
+        await CleanupOldLogsAsync();
     }
 
     /// <summary>

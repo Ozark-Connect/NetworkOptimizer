@@ -6,6 +6,7 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.WiFi.Models
 @using Microsoft.AspNetCore.Http
 @using ApexCharts
 @inject ClientDashboardService DashboardService
@@ -29,6 +30,32 @@
         <h1>Client Dashboard</h1>
         <p class="page-description">Real-time signal quality, speed performance, and connection history for your device.</p>
     </div>
+
+    @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Not Connected</strong>
+                    <span>Unable to reach the UniFi controller. Signal polling is paused.</span>
+                </div>
+                <a href="/settings" class="btn btn-primary btn-sm">Check Settings</a>
+            </div>
+        </div>
+    }
+    else if (_consecutiveFailures >= 3)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Polling Interrupted</strong>
+                    <span>@_consecutiveFailures consecutive polls failed. Retrying...</span>
+                </div>
+            </div>
+        </div>
+    }
 
     @if (_loading)
     {
@@ -408,10 +435,16 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var entry in _signalHistory.Take(100))
+                                        @foreach (var entry in _signalHistory.AsEnumerable().Reverse().Take(100))
                                         {
-                                            <tr>
-                                                <td>@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
+                                            <tr class="@(entry.DataSource == SignalDataSource.UniFiController ? "unifi-source-row" : "")">
+                                                <td>
+                                                    @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                                                    @if (entry.DataSource == SignalDataSource.UniFiController)
+                                                    {
+                                                        <span class="source-dot" data-tooltip="UniFi controller data"></span>
+                                                    }
+                                                </td>
                                                 <td class="@GetSignalClass(entry.SignalDbm ?? 0)">@(entry.SignalDbm?.ToString() ?? "—") dBm</td>
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "—")</td>
@@ -479,31 +512,55 @@
                         </div>
                     }
 
-                    @* Roaming History *@
-                    @if (_roamingEvents.Count > 0)
+                    @* Connection Events (from UniFi controller) *@
+                    @if (_connectionEvents.Count > 0)
                     {
                         <div class="card results-card">
-                            <h3>Roaming History</h3>
+                            <h3>Connection Events</h3>
                             <div class="results-table-container">
                                 <table class="results-table">
                                     <thead>
                                         <tr>
                                             <th>Time</th>
-                                            <th>From AP</th>
-                                            <th>To AP</th>
+                                            <th>Event</th>
+                                            <th>AP</th>
                                             <th>Band</th>
                                             <th>Signal</th>
+                                            <th>Details</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var roam in _roamingEvents)
+                                        @foreach (var evt in _connectionEvents)
                                         {
-                                            <tr>
-                                                <td>@roam.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
-                                                <td>@(roam.FromAp ?? "—")</td>
-                                                <td>@(roam.ToAp ?? "—")</td>
-                                                <td>@FormatBand(roam.Band)</td>
-                                                <td class="@GetSignalClass(roam.SignalDbm ?? 0)">@(roam.SignalDbm?.ToString() ?? "—") dBm</td>
+                                            <tr class="@GetEventRowClass(evt.Type)">
+                                                <td>@evt.Timestamp.ToLocalTime().ToString("g")</td>
+                                                <td>
+                                                    <span class="event-badge @GetEventBadgeClass(evt.Type)">
+                                                        @FormatEventType(evt.Type)
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    @if (evt.Type == ClientConnectionEventType.Roamed)
+                                                    {
+                                                        <span>@(evt.FromApName ?? "?") → @(evt.ToApName ?? evt.ApName ?? "?")</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        @(evt.ApName ?? "—")
+                                                    }
+                                                </td>
+                                                <td>@(evt.GetRadioBandDisplay() ?? "—")</td>
+                                                <td class="@GetSignalClass(evt.Signal ?? 0)">@(evt.Signal?.ToString() ?? "—") dBm</td>
+                                                <td class="event-details-cell">
+                                                    @if (evt.Type == ClientConnectionEventType.Roamed && evt.PreviousSignal.HasValue)
+                                                    {
+                                                        <span data-tooltip="Signal before roam">@evt.PreviousSignal dBm → @evt.Signal dBm</span>
+                                                    }
+                                                    else if (evt.Type == ClientConnectionEventType.Disconnected && evt.Duration != null)
+                                                    {
+                                                        <span data-tooltip="Session duration">@evt.Duration</span>
+                                                    }
+                                                </td>
                                             </tr>
                                         }
                                     </tbody>
@@ -514,7 +571,7 @@
                     else
                     {
                         <div class="empty-state">
-                            <p>No AP changes detected in the selected time window.</p>
+                            <p>No connection events found in the selected time window.</p>
                         </div>
                     }
 
@@ -593,7 +650,7 @@
 
     // Connection tab
     private List<TraceChangeEntry> _traceHistory = new();
-    private List<RoamingEvent> _roamingEvents = new();
+    private List<ClientConnectionEvent> _connectionEvents = new();
     private DateTime? _expandedTraceTimestamp;
 
     // Polling
@@ -652,10 +709,14 @@
                     StateHasChanged();
                 });
                 _consecutiveFailures = 0;
+
+                // Run daily cleanup check (non-blocking)
+                _ = DashboardService.TryCleanupAsync();
             }
             catch
             {
                 _consecutiveFailures++;
+                try { await InvokeAsync(StateHasChanged); } catch { }
             }
         }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
@@ -743,8 +804,12 @@
                         _signalChartData.RemoveAt(0);
                 }
 
-                // Detect roaming events
-                DetectRoamingFromPoll();
+                // Refresh connection events when on connection tab (every 12 polls = ~60s)
+                if (_activeTab == "connection" && _pollCount % 12 == 0)
+                {
+                    var (f, t) = GetTimeRange();
+                    await LoadConnectionDataAsync(f, t);
+                }
             }
         }
         catch (Exception ex)
@@ -789,7 +854,8 @@
 
     private async Task LoadSignalDataAsync(DateTime from, DateTime to)
     {
-        _signalHistory = await DashboardService.GetSignalHistoryAsync(_client!.Mac, from, to);
+        // Use merged history (local high-res + UniFi controller data)
+        _signalHistory = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
 
         // Build chart data from history
         _signalChartData = _signalHistory
@@ -800,27 +866,19 @@
 
     private async Task LoadConnectionDataAsync(DateTime from, DateTime to)
     {
-        _traceHistory = await DashboardService.GetTraceHistoryAsync(_client!.Mac, from, to);
+        // Load trace history and UniFi connection events in parallel
+        var traceTask = DashboardService.GetTraceHistoryAsync(_client!.Mac, from, to);
+        var eventsTask = DashboardService.GetConnectionEventsAsync(_client.Mac);
 
-        // Build roaming events from signal history
-        var history = await DashboardService.GetSignalHistoryAsync(_client.Mac, from, to);
-        _roamingEvents.Clear();
-        string? lastAp = null;
-        foreach (var entry in history)
-        {
-            if (lastAp != null && entry.ApName != lastAp)
-            {
-                _roamingEvents.Add(new RoamingEvent
-                {
-                    Timestamp = entry.Timestamp,
-                    FromAp = lastAp,
-                    ToAp = entry.ApName,
-                    Band = entry.Band,
-                    SignalDbm = entry.SignalDbm
-                });
-            }
-            lastAp = entry.ApName;
-        }
+        await Task.WhenAll(traceTask, eventsTask);
+
+        _traceHistory = traceTask.Result;
+
+        // Filter connection events to the selected time range
+        _connectionEvents = eventsTask.Result
+            .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+            .OrderByDescending(e => e.Timestamp)
+            .ToList();
     }
 
     private void SetActiveTab(string tab)
@@ -878,10 +936,29 @@
         _expandedTraceTimestamp = _expandedTraceTimestamp == timestamp ? null : timestamp;
     }
 
-    private void DetectRoamingFromPoll()
+    // --- Connection Event Helpers ---
+
+    private static string GetEventBadgeClass(ClientConnectionEventType type) => type switch
     {
-        // This will be populated from signal history on tab load
-    }
+        ClientConnectionEventType.Connected => "event-connected",
+        ClientConnectionEventType.Disconnected => "event-disconnected",
+        ClientConnectionEventType.Roamed => "event-roamed",
+        _ => ""
+    };
+
+    private static string GetEventRowClass(ClientConnectionEventType type) => type switch
+    {
+        ClientConnectionEventType.Disconnected => "event-row-disconnect",
+        _ => ""
+    };
+
+    private static string FormatEventType(ClientConnectionEventType type) => type switch
+    {
+        ClientConnectionEventType.Connected => "Connected",
+        ClientConnectionEventType.Disconnected => "Disconnected",
+        ClientConnectionEventType.Roamed => "Roamed",
+        _ => "Unknown"
+    };
 
     private async Task RequestGpsAsync()
     {
@@ -965,7 +1042,7 @@
             Chart = new Chart
             {
                 Background = "transparent",
-                Toolbar = new Toolbar { Show = false },
+                Toolbar = new Toolbar { Show = true, Tools = new Tools { Zoom = "true", Pan = "true", Reset = "true" } },
                 Zoom = new Zoom { Enabled = true }
             },
             Theme = new Theme { Mode = Mode.Dark },
@@ -1012,7 +1089,7 @@
             Chart = new Chart
             {
                 Background = "transparent",
-                Toolbar = new Toolbar { Show = false },
+                Toolbar = new Toolbar { Show = true, Tools = new Tools { Zoom = "true", Pan = "true", Reset = "true" } },
                 Zoom = new Zoom { Enabled = true }
             },
             Theme = new Theme { Mode = Mode.Dark },
@@ -1139,15 +1216,6 @@
             Timestamp = timestamp;
             Value = value;
         }
-    }
-
-    private class RoamingEvent
-    {
-        public DateTime Timestamp { get; set; }
-        public string? FromAp { get; set; }
-        public string? ToAp { get; set; }
-        public string? Band { get; set; }
-        public int? SignalDbm { get; set; }
     }
 
     public void Dispose()
@@ -1499,6 +1567,48 @@
     /* Connection Hero (.card provides bg/border/radius) */
     .connection-hero {
         padding: 20px;
+    }
+
+    /* Connection Event badges */
+    .event-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 0.6875rem;
+        font-weight: 500;
+    }
+    .event-connected {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+    }
+    .event-disconnected {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+    }
+    .event-roamed {
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+    }
+    .event-row-disconnect {
+        opacity: 0.7;
+    }
+    .event-details-cell {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    /* UniFi data source indicator */
+    .source-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #a78bfa;
+        margin-left: 4px;
+        vertical-align: middle;
+    }
+    .unifi-source-row {
+        opacity: 0.8;
     }
 
     /* Mobile responsive */
