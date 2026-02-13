@@ -530,7 +530,7 @@
     {
         public DateTime Timestamp { get; set; }
         public decimal Value { get; set; }
-        public long X => new DateTimeOffset(Timestamp).ToUnixTimeMilliseconds();
+        public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
         public ChartDataPoint(DateTime timestamp, double value)
         {
