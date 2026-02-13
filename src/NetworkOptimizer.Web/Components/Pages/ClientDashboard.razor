@@ -299,7 +299,7 @@
                         <div class="card chart-card">
                             <h3>Latency History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" TItem="SpeedChartPoint"
+                                <ApexChart @key="_chartKey" @ref="_latencyChart" TItem="SpeedChartPoint"
                                            Options="_latencyChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
@@ -585,7 +585,7 @@
                         <div class="card chart-card">
                             <h3>Connection History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" TItem="ConnectionChartPoint"
+                                <ApexChart @key="_chartKey" @ref="_connectionChart" TItem="ConnectionChartPoint"
                                            Options="_connectionChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="ConnectionChartPoint"
@@ -748,6 +748,7 @@
     private ApexChart<SpeedChartPoint>? _speedChart;
     private ApexChartOptions<SpeedChartPoint> _speedChartOptions = new();
     private List<SpeedChartPoint> _latencyChartData = new();
+    private ApexChart<SpeedChartPoint>? _latencyChart;
     private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
     private int? _expandedResultId;
     private string? _openSpeedTestUrl;
@@ -767,6 +768,7 @@
     private List<ClientConnectionEvent> _connectionEvents = new();
     private DateTime? _expandedTraceTimestamp;
     private List<ConnectionChartPoint> _connectionChartData = new();
+    private ApexChart<ConnectionChartPoint>? _connectionChart;
     private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
 
     // Chart re-render key (incremented on time filter change to force chart recreation)
@@ -911,7 +913,7 @@
                 if (_pollCount % 6 == 0)
                 {
                     await LoadTabDataAsync();
-                    _chartKey++; // Force chart re-creation with new data
+                    await UpdateChartsAsync();
                 }
 
                 // Add to live signal chart data
@@ -924,7 +926,8 @@
                     if (_signalChartData.Count > 360)
                         _signalChartData.RemoveAt(0);
 
-                    _chartKey++; // Live-update signal chart every poll
+                    if (_signalChart != null)
+                        await _signalChart.UpdateSeriesAsync();
                 }
 
                 // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
@@ -932,7 +935,8 @@
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
-                    _chartKey++;
+                    if (_connectionChart != null)
+                        await _connectionChart.UpdateSeriesAsync();
                 }
             }
         }
@@ -1102,6 +1106,18 @@
             _tabLoading = false;
             StateHasChanged();
         });
+    }
+
+    private async Task UpdateChartsAsync()
+    {
+        try
+        {
+            if (_speedChart != null) await _speedChart.UpdateSeriesAsync();
+            if (_latencyChart != null) await _latencyChart.UpdateSeriesAsync();
+            if (_signalChart != null) await _signalChart.UpdateSeriesAsync();
+            if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync();
+        }
+        catch { /* Chart may not be rendered yet */ }
     }
 
     private (DateTime from, DateTime to) GetTimeRange()
