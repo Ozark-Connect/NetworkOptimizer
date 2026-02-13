@@ -479,10 +479,13 @@ window.fpEditor = {
         var reopenMarker = null;
 
         aps.forEach(function (ap) {
+            var isPlanned = ap.isPlanned;
+
             // Glow layer (behind icons)
+            var glowClass = 'fp-ap-glow-dot' + (ap.sameFloor ? '' : ' other-floor') + (isPlanned ? ' planned' : '');
             var glowIcon = L.divIcon({
                 className: 'fp-ap-glow-container',
-                html: '<div class="fp-ap-glow-dot' + (ap.sameFloor ? '' : ' other-floor') + '"></div>',
+                html: '<div class="' + glowClass + '"></div>',
                 iconSize: [48, 48], iconAnchor: [24, 24]
             });
             var glowMarker = L.marker([ap.lat, ap.lng], {
@@ -490,13 +493,17 @@ window.fpEditor = {
             }).addTo(self._apGlowLayer);
 
             // Icon layer with orientation arrow
-            var opacity = ap.online ? (ap.sameFloor ? 1.0 : 0.35) : (ap.sameFloor ? 0.4 : 0.2);
+            var opacity = isPlanned
+                ? (ap.sameFloor ? 1.0 : 0.35)
+                : (ap.online ? (ap.sameFloor ? 1.0 : 0.35) : (ap.sameFloor ? 0.4 : 0.2));
             var arrowHtml = ap.sameFloor
                 ? '<div class="fp-ap-direction" style="transform:rotate(' + ap.orientation + 'deg)"><div class="fp-ap-arrow"></div></div>'
                 : '';
+            var badgeHtml = isPlanned ? '<div class="fp-ap-planned-badge">P</div>' : '';
+            var containerClass = 'fp-ap-marker-container' + (isPlanned ? ' planned' : '');
             var icon = L.divIcon({
-                className: 'fp-ap-marker-container',
-                html: arrowHtml + '<img src="' + ap.iconUrl + '" class="fp-ap-marker-icon" style="opacity:' + opacity + '" />',
+                className: containerClass,
+                html: arrowHtml + '<img src="' + ap.iconUrl + '" class="fp-ap-marker-icon" style="opacity:' + opacity + '" />' + badgeHtml,
                 iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -16]
             });
             var marker = L.marker([ap.lat, ap.lng], {
@@ -525,99 +532,171 @@ window.fpEditor = {
             var activeRadioCode = bandMap[self._heatmapBand] || 'na';
             var activeRadio = (ap.radios || []).find(function (r) { return r.radioCode === activeRadioCode; });
 
-            // TX power slider section (keyed by mac:band for band independence)
+            // TX power slider section - different for planned vs real APs
             var txPowerHtml = '';
-            if (activeRadio && activeRadio.txPowerDbm != null) {
-                var macKey = ap.mac.toLowerCase();
-                var overrideKey = macKey + ':' + self._heatmapBand;
-                var currentPower = (self._txPowerOverrides[overrideKey] != null) ? self._txPowerOverrides[overrideKey] : activeRadio.txPowerDbm;
-                var minPower = activeRadio.minTxPower || 1;
-                var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
-                var isOverridden = self._txPowerOverrides[overrideKey] != null;
-                var safeKey = esc(overrideKey);
-                var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
-                var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
-                var eirpText = currentEirp != null ? ' / ' + currentEirp + ' dBm EIRP' : '';
-                txPowerHtml =
-                    '<div class="fp-ap-popup-divider"></div>' +
-                    '<div class="fp-ap-popup-section-label">Simulate</div>' +
-                    '<div class="fp-ap-popup-row"><label>TX Power</label>' +
-                    '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
-                    (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
-                    'oninput="fpEditor._updateTxPowerLabel(this)" ' +
-                    'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
-                    '</div>' +
-                    '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
+            if (isPlanned) {
+                // Planned APs: TX power changes persist directly to DB
+                if (activeRadio && activeRadio.txPowerDbm != null) {
+                    var currentPower = activeRadio.txPowerDbm;
+                    var minPower = activeRadio.minTxPower || 1;
+                    var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
+                    var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
+                    var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
+                    var eirpText = currentEirp != null ? ' / ' + currentEirp + ' dBm EIRP' : '';
+                    txPowerHtml =
+                        '<div class="fp-ap-popup-divider"></div>' +
+                        '<div class="fp-ap-popup-row"><label>TX Power</label>' +
+                        '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
+                        (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
+                        'oninput="fpEditor._updateTxPowerLabel(this)" ' +
+                        'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApTxPowerChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
+                        '</div>' +
+                        '<div class="fp-ap-popup-tx-info">' + currentPower + ' dBm TX' + eirpText + '</div>';
+                }
+            } else {
+                // Real APs: TX power uses simulation overrides (ephemeral)
+                if (activeRadio && activeRadio.txPowerDbm != null) {
+                    var macKey = ap.mac.toLowerCase();
+                    var overrideKey = macKey + ':' + self._heatmapBand;
+                    var currentPower = (self._txPowerOverrides[overrideKey] != null) ? self._txPowerOverrides[overrideKey] : activeRadio.txPowerDbm;
+                    var minPower = activeRadio.minTxPower || 1;
+                    var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
+                    var isOverridden = self._txPowerOverrides[overrideKey] != null;
+                    var safeKey = esc(overrideKey);
+                    var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
+                    var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
+                    var eirpText = currentEirp != null ? ' / ' + currentEirp + ' dBm EIRP' : '';
+                    txPowerHtml =
+                        '<div class="fp-ap-popup-divider"></div>' +
+                        '<div class="fp-ap-popup-section-label">Simulate</div>' +
+                        '<div class="fp-ap-popup-row"><label>TX Power</label>' +
+                        '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
+                        (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
+                        'oninput="fpEditor._updateTxPowerLabel(this)" ' +
+                        'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
+                        '</div>' +
+                        '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
+                }
             }
 
             // Antenna mode toggle for APs with switchable modes (e.g., Internal/Omni)
-            // Keyed by MAC only (not per-band) since antenna mode is a physical all-bands switch
             var antennaModeHtml = '';
-            if (activeRadio && activeRadio.antennaMode) {
-                var modeOverrideKey = ap.mac.toLowerCase();
-                var currentMode = self._antennaModeOverrides[modeOverrideKey] || activeRadio.antennaMode;
-                var isOmni = currentMode.toUpperCase() === 'OMNI';
-                var safeModeKey = esc(modeOverrideKey);
-                var modeIsOverridden = self._antennaModeOverrides[modeOverrideKey] != null;
-                // If there's no TX power section, add the Simulate header
-                var modeHeader = txPowerHtml ? '' :
-                    '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
-                antennaModeHtml = modeHeader +
-                    '<div class="fp-ap-popup-row"><label>Antenna</label>' +
-                    '<div class="fp-mode-toggle' + (modeIsOverridden ? ' overridden' : '') + '" ' +
-                    'onclick="fpEditor._toggleAntennaMode(\'' + safeModeKey + '\',\'' + esc(activeRadio.antennaMode) + '\')">' +
-                    '<span class="fp-mode-opt' + (isOmni ? '' : ' active') + '">Directional</span>' +
-                    '<span class="fp-mode-opt' + (isOmni ? ' active' : '') + '">Omni</span>' +
-                    '</div></div>';
+            if (isPlanned) {
+                // Planned APs: antenna mode persists directly
+                if (activeRadio && activeRadio.antennaMode) {
+                    var currentMode = activeRadio.antennaMode;
+                    var isOmni = currentMode && currentMode.toUpperCase() === 'OMNI';
+                    antennaModeHtml =
+                        '<div class="fp-ap-popup-row"><label>Antenna</label>' +
+                        '<div class="fp-mode-toggle" ' +
+                        'onclick="fpEditor._togglePlannedAntennaMode(' + ap.plannedId + ',\'' + esc(currentMode || 'Internal') + '\')">' +
+                        '<span class="fp-mode-opt' + (isOmni ? '' : ' active') + '">Directional</span>' +
+                        '<span class="fp-mode-opt' + (isOmni ? ' active' : '') + '">Omni</span>' +
+                        '</div></div>';
+                }
+            } else {
+                // Real APs: antenna mode uses simulation overrides
+                if (activeRadio && activeRadio.antennaMode) {
+                    var modeOverrideKey = ap.mac.toLowerCase();
+                    var currentMode = self._antennaModeOverrides[modeOverrideKey] || activeRadio.antennaMode;
+                    var isOmni = currentMode.toUpperCase() === 'OMNI';
+                    var safeModeKey = esc(modeOverrideKey);
+                    var modeIsOverridden = self._antennaModeOverrides[modeOverrideKey] != null;
+                    var modeHeader = txPowerHtml ? '' :
+                        '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
+                    antennaModeHtml = modeHeader +
+                        '<div class="fp-ap-popup-row"><label>Antenna</label>' +
+                        '<div class="fp-mode-toggle' + (modeIsOverridden ? ' overridden' : '') + '" ' +
+                        'onclick="fpEditor._toggleAntennaMode(\'' + safeModeKey + '\',\'' + esc(activeRadio.antennaMode) + '\')">' +
+                        '<span class="fp-mode-opt' + (isOmni ? '' : ' active') + '">Directional</span>' +
+                        '<span class="fp-mode-opt' + (isOmni ? ' active' : '') + '">Omni</span>' +
+                        '</div></div>';
+                }
             }
 
             var safeMac = esc(ap.mac);
-            marker.bindPopup(
-                '<div class="fp-ap-popup">' +
-                '<div class="fp-ap-popup-name">' + esc(ap.name || ap.mac) + '</div>' +
-                '<div class="fp-ap-popup-model">' + esc(ap.model) + ' \u00b7 ' + ap.clients + ' client' + (ap.clients !== 1 ? 's' : '') + '</div>' +
-                '<div class="fp-ap-popup-rows">' +
-                '<div class="fp-ap-popup-row"><label>Floor</label>' +
-                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApFloorChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))">' +
-                floorOpts + '</select></div>' +
-                '<div class="fp-ap-popup-row"><label>Mount</label>' +
-                '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApMountTypeChangedFromJs\',\'' + safeMac + '\',this.value)">' +
-                mountOpts + '</select></div>' +
-                '<div class="fp-ap-popup-row"><label>Facing</label>' +
-                '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
-                'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
-                'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
-                '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
-                txPowerHtml +
-                antennaModeHtml +
-                '</div></div>'
-            );
 
-            // Sync slider with current override each time popup opens
-            (function (macAddr) {
-                marker.on('popupopen', function () {
-                    var key = macAddr.toLowerCase() + ':' + self._heatmapBand;
-                    var override = self._txPowerOverrides[key];
-                    if (override == null) return;
-                    var el = marker.getPopup() && marker.getPopup().getElement();
-                    if (!el) return;
-                    var slider = el.querySelector('[data-tx-slider]');
-                    if (!slider) return;
-                    slider.value = override;
-                    var label = slider.nextElementSibling;
-                    if (label) {
-                        label.textContent = override + ' dBm';
-                        label.classList.add('overridden');
-                    }
-                });
-            })(ap.mac);
+            if (isPlanned) {
+                // Planned AP popup: direct editing + delete button
+                var plannedTag = '<span class="fp-ap-popup-planned-tag">Planned</span>';
+                var nameInput = '<input type="text" class="fp-ap-popup-name-input" value="' + esc(ap.name || ap.model) + '" ' +
+                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApNameChangedFromJs\',' + ap.plannedId + ',this.value)" />';
+                var deleteBtn = '<div class="fp-ap-popup-divider"></div>' +
+                    '<button class="fp-ap-popup-delete" onclick="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApDeleteFromJs\',' + ap.plannedId + ')">Remove Planned AP</button>';
+
+                marker.bindPopup(
+                    '<div class="fp-ap-popup">' +
+                    '<div class="fp-ap-popup-header">' + nameInput + plannedTag + '</div>' +
+                    '<div class="fp-ap-popup-model">' + esc(ap.model) + '</div>' +
+                    '<div class="fp-ap-popup-rows">' +
+                    '<div class="fp-ap-popup-row"><label>Floor</label>' +
+                    '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApFloorChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))">' +
+                    floorOpts + '</select></div>' +
+                    '<div class="fp-ap-popup-row"><label>Mount</label>' +
+                    '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApMountTypeChangedFromJs\',' + ap.plannedId + ',this.value)">' +
+                    mountOpts + '</select></div>' +
+                    '<div class="fp-ap-popup-row"><label>Facing</label>' +
+                    '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
+                    'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
+                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
+                    '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                    txPowerHtml +
+                    antennaModeHtml +
+                    deleteBtn +
+                    '</div></div>',
+                    { maxWidth: 280 }
+                );
+            } else {
+                // Real AP popup (existing behavior)
+                marker.bindPopup(
+                    '<div class="fp-ap-popup">' +
+                    '<div class="fp-ap-popup-name">' + esc(ap.name || ap.mac) + '</div>' +
+                    '<div class="fp-ap-popup-model">' + esc(ap.model) + ' \u00b7 ' + ap.clients + ' client' + (ap.clients !== 1 ? 's' : '') + '</div>' +
+                    '<div class="fp-ap-popup-rows">' +
+                    '<div class="fp-ap-popup-row"><label>Floor</label>' +
+                    '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApFloorChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))">' +
+                    floorOpts + '</select></div>' +
+                    '<div class="fp-ap-popup-row"><label>Mount</label>' +
+                    '<select onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApMountTypeChangedFromJs\',\'' + safeMac + '\',this.value)">' +
+                    mountOpts + '</select></div>' +
+                    '<div class="fp-ap-popup-row"><label>Facing</label>' +
+                    '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
+                    'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
+                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
+                    '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                    txPowerHtml +
+                    antennaModeHtml +
+                    '</div></div>'
+                );
+            }
+
+            // Sync slider with current override each time popup opens (real APs only)
+            if (!isPlanned) {
+                (function (macAddr) {
+                    marker.on('popupopen', function () {
+                        var key = macAddr.toLowerCase() + ':' + self._heatmapBand;
+                        var override = self._txPowerOverrides[key];
+                        if (override == null) return;
+                        var el = marker.getPopup() && marker.getPopup().getElement();
+                        if (!el) return;
+                        var slider = el.querySelector('[data-tx-slider]');
+                        if (!slider) return;
+                        slider.value = override;
+                        var label = slider.nextElementSibling;
+                        if (label) {
+                            label.textContent = override + ' dBm';
+                            label.classList.add('overridden');
+                        }
+                    });
+                })(ap.mac);
+            }
 
             if (openPopupMac === ap.mac) {
                 reopenMarker = marker;
             }
 
             if (draggable && ap.sameFloor) {
-                (function (gm) {
+                (function (gm, apData) {
                     marker.on('drag', function (e) {
                         var pos = e.target.getLatLng();
                         gm.setLatLng(pos);
@@ -635,9 +714,13 @@ window.fpEditor = {
                     marker.on('dragend', function (e) {
                         var pos = e.target.getLatLng();
                         gm.setLatLng(pos);
-                        self._dotNetRef.invokeMethodAsync('OnApDragEndFromJs', ap.mac, pos.lat, pos.lng);
+                        if (apData.isPlanned) {
+                            self._dotNetRef.invokeMethodAsync('OnPlannedApDragEndFromJs', apData.plannedId, pos.lat, pos.lng);
+                        } else {
+                            self._dotNetRef.invokeMethodAsync('OnApDragEndFromJs', apData.mac, pos.lat, pos.lng);
+                        }
                     });
-                })(glowMarker);
+                })(glowMarker, ap);
             }
         });
 
@@ -668,6 +751,11 @@ window.fpEditor = {
                 if (dir) dir.style.transform = 'rotate(' + deg + 'deg)';
             }
         });
+    },
+
+    _togglePlannedAntennaMode: function (plannedId, currentMode) {
+        var next = currentMode.toUpperCase() === 'OMNI' ? null : 'OMNI';
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnPlannedApAntennaModeChangedFromJs', plannedId, next);
     },
 
     _toggleAntennaMode: function (key, originalMode) {

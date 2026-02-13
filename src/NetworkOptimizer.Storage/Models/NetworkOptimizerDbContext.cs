@@ -30,6 +30,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ApLocation> ApLocations { get; set; }
     public DbSet<Building> Buildings { get; set; }
     public DbSet<FloorPlan> FloorPlans { get; set; }
+    public DbSet<PlannedAp> PlannedAps { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -176,6 +177,12 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("FloorPlans");
             entity.HasIndex(e => e.BuildingId);
+        });
+
+        // PlannedAp configuration
+        modelBuilder.Entity<PlannedAp>(entity =>
+        {
+            entity.ToTable("PlannedAps");
         });
     }
 }

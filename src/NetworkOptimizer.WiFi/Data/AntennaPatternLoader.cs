@@ -119,6 +119,39 @@ public class AntennaPatternLoader
         return pattern.Elevation[index];
     }
 
+    /// <summary>
+    /// Get all base model names from the antenna pattern file, excluding variant suffixes (e.g., ":omni").
+    /// </summary>
+    public List<string> GetAllBaseModelNames()
+    {
+        EnsureLoaded();
+        if (_patterns == null) return new List<string>();
+
+        return _patterns.Keys
+            .Where(k => !k.Contains(':'))
+            .OrderBy(k => k)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Get the bands supported by a model based on its antenna pattern entries.
+    /// Returns band strings like "2.4", "5", "6".
+    /// </summary>
+    public List<string> GetSupportedBands(string model)
+    {
+        EnsureLoaded();
+        if (_patterns == null) return new List<string>();
+
+        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            ? model[..^2]
+            : model;
+
+        if (!_patterns.TryGetValue(patternName, out var bands))
+            return new List<string>();
+
+        return bands.Keys.OrderBy(b => b).ToList();
+    }
+
     private void EnsureLoaded()
     {
         if (_patterns != null) return;
