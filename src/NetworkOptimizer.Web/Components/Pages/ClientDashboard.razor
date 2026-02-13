@@ -271,7 +271,7 @@
                         <div class="card chart-card">
                             <h3>Speed History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" TItem="SpeedChartPoint"
+                                <ApexChart TItem="SpeedChartPoint"
                                            Options="_speedChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
@@ -299,7 +299,7 @@
                         <div class="card chart-card">
                             <h3>Latency History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" TItem="SpeedChartPoint"
+                                <ApexChart TItem="SpeedChartPoint"
                                            Options="_latencyChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
@@ -465,7 +465,7 @@
                         <div class="card chart-card">
                             <h3>Signal History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" TItem="SignalChartPoint"
+                                <ApexChart TItem="SignalChartPoint"
                                            Options="_signalChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SignalChartPoint"
@@ -585,7 +585,7 @@
                         <div class="card chart-card">
                             <h3>Connection History</h3>
                             <div class="chart-container">
-                                <ApexChart @key="_chartKey" TItem="ConnectionChartPoint"
+                                <ApexChart TItem="ConnectionChartPoint"
                                            Options="_connectionChartOptions"
                                            Height="@("200px")">
                                     <ApexPointSeries TItem="ConnectionChartPoint"
@@ -767,9 +767,6 @@
     private List<ConnectionChartPoint> _connectionChartData = new();
     private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
 
-    // Chart re-render key (incremented on time filter change to force chart recreation)
-    private int _chartKey;
-
     // Polling
     private System.Threading.Timer? _pollTimer;
 
@@ -909,7 +906,6 @@
                 if (_pollCount % 6 == 0)
                 {
                     await LoadTabDataAsync();
-                    _chartKey++;
                 }
 
                 // Add to live signal chart data
@@ -921,8 +917,6 @@
                     // Keep last 360 points (30 min at 5s interval)
                     if (_signalChartData.Count > 360)
                         _signalChartData.RemoveAt(0);
-
-                    _chartKey++;
                 }
 
                 // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
@@ -930,7 +924,6 @@
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
-                    _chartKey++;
                 }
             }
         }
@@ -1068,7 +1061,6 @@
     {
         if (_activeTab == tab) return;
         _activeTab = tab;
-        _chartKey++; // Force chart recreation for new tab
 
         // Update URL without navigation
         var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
@@ -1089,7 +1081,6 @@
     {
         if (_selectedTimeFilter == hours) return;
         _selectedTimeFilter = hours;
-        _chartKey++; // Force chart recreation with new data
 
         // Reload data for all tabs with new time range
         _ = InvokeAsync(async () =>
