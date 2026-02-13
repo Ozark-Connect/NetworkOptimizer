@@ -709,27 +709,30 @@ window.fpEditor = {
             }
         });
 
-        // Clickable building hit areas in global view (convex hull of wall points)
+        // Clickable building hit areas in global view (actual wall shape outlines)
         if (clickable) {
-            var pts = {};
+            var bldgGroups = {};
             walls.forEach(function (wall) {
                 var id = wall._buildingId;
-                if (!id) return;
-                if (!pts[id]) pts[id] = [];
-                wall.points.forEach(function (p) { pts[id].push([p.lat, p.lng]); });
+                if (!id || wall.points.length < 3) return;
+                if (!bldgGroups[id]) bldgGroups[id] = [];
+                var latlngs = wall.points.map(function (p) { return [p.lat, p.lng]; });
+                bldgGroups[id].push(latlngs);
             });
-            Object.keys(pts).forEach(function (id) {
-                var hull = self._convexHull(pts[id]);
-                if (hull.length < 3) return;
-                var poly = L.polygon(hull, {
-                    color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
-                }).addTo(self._bgWallLayer);
+            Object.keys(bldgGroups).forEach(function (id) {
+                var shapes = bldgGroups[id];
+                var group = L.featureGroup().addTo(self._bgWallLayer);
+                shapes.forEach(function (latlngs) {
+                    L.polygon(latlngs, {
+                        color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
+                    }).addTo(group);
+                });
                 var bldgId = parseInt(id);
-                poly.on('click', function () {
+                group.on('click', function () {
                     if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
                 });
-                poly.on('mouseover', function () { poly.setStyle({ fillOpacity: 0.15 }); });
-                poly.on('mouseout', function () { poly.setStyle({ fillOpacity: 0 }); });
+                group.on('mouseover', function () { group.setStyle({ fillOpacity: 0.15 }); });
+                group.on('mouseout', function () { group.setStyle({ fillOpacity: 0 }); });
             });
             var bgPaneEl = m.getPane('bgWallPane');
             if (bgPaneEl) bgPaneEl.style.pointerEvents = 'auto';
