@@ -561,26 +561,17 @@ window.fpEditor = {
         var colors = JSON.parse(colorsJson);
         this._bgWalls = walls;
 
-        this._bgAdjacentLines = [];
         walls.forEach(function (wall) {
-            var opacity = wall._adjacent ? 0.25 : 0.5;
+            var opacity = wall._opacity || 0.5;
             for (var i = 0; i < wall.points.length - 1; i++) {
                 var mat = (wall.materials && i < wall.materials.length) ? wall.materials[i] : wall.material;
                 var color = colors[mat] || '#94a3b8';
-                var line = L.polyline(
+                L.polyline(
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
                     { color: color, weight: 3, opacity: opacity, pane: 'bgWallPane', interactive: false }
                 ).addTo(self._bgWallLayer);
-                if (wall._adjacent) self._bgAdjacentLines.push(line);
             }
         });
-    },
-
-    setBgAdjacentOpacity: function (opacity) {
-        if (!this._bgAdjacentLines) return;
-        for (var i = 0; i < this._bgAdjacentLines.length; i++) {
-            this._bgAdjacentLines[i].setStyle({ opacity: opacity });
-        }
     },
 
     // ── Wall Rendering ───────────────────────────────────────────────

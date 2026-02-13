@@ -1581,7 +1581,12 @@
                             var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(wall.GetRawText());
                             if (dict != null)
                             {
-                                dict["_adjacent"] = !sameFloor;
+                                var isSelectedBldg = _selectedBuilding != null && b.Id == _selectedBuilding.Id;
+                                // Selected building adjacent: 0.4, everything else when building selected: 0.2, no selection same floor: 0.5, no selection adjacent: 0.25
+                                if (_selectedBuilding != null)
+                                    dict["_opacity"] = isSelectedBldg && !sameFloor ? 0.4 : 0.2;
+                                else
+                                    dict["_opacity"] = sameFloor ? 0.5 : 0.25;
                                 bgWalls.Add(dict);
                             }
                         }
@@ -1634,14 +1639,10 @@
             // Temporarily hide heatmap while drawing walls
             if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
-            // Brighten adjacent floor outlines for snapping visibility
-            await JS.InvokeVoidAsync("fpEditor.setBgAdjacentOpacity", 0.5);
         }
         else
         {
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
-            // Fade adjacent floor outlines back
-            await JS.InvokeVoidAsync("fpEditor.setBgAdjacentOpacity", 0.25);
             // Re-render walls from DB state after exiting draw mode
             if (_selectedFloor != null) await UpdateWalls();
             // Restore heatmap if it was on
