@@ -441,6 +441,27 @@
     // Poll timer for tracking in-progress test state
     private System.Threading.Timer? _pollTimer;
 
+    // JS formatters for browser-local timezone display
+    private const string LocalTimeAxisFormatter = @"function(value, timestamp, opts) {
+        var d = new Date(value);
+        var range = opts.w.globals.maxX - opts.w.globals.minX;
+        var h = d.getHours().toString().padStart(2,'0');
+        var m = d.getMinutes().toString().padStart(2,'0');
+        if (range > 172800000) {
+            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return months[d.getMonth()] + ' ' + d.getDate().toString().padStart(2,'0');
+        }
+        return h + ':' + m;
+    }";
+
+    private const string LocalTimeTooltipFormatter = @"function(value) {
+        var d = new Date(value);
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        var h = d.getHours().toString().padStart(2,'0');
+        var m = d.getMinutes().toString().padStart(2,'0');
+        return months[d.getMonth()] + ' ' + d.getDate().toString().padStart(2,'0') + ' ' + h + ':' + m;
+    }";
+
     // Chart state
     private ApexChart<WanChartDataPoint>? _chart;
     private ApexChartOptions<WanChartDataPoint> _chartOptions = new();
@@ -607,12 +628,7 @@
                 Labels = new XAxisLabels
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeFormatter = new DatetimeFormatter
-                    {
-                        Hour = "HH:mm",
-                        Day = "MMM dd",
-                        Month = "MMM"
-                    }
+                    Formatter = LocalTimeAxisFormatter
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -643,7 +659,7 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Formatter = LocalTimeTooltipFormatter }
             },
             Markers = new Markers
             {
@@ -738,11 +754,11 @@
         {
             wan.DownloadData = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
-                .Select(r => new WanChartDataPoint(r.TestTime.ToLocalTime(), r.DownloadMbps, r.Id))
+                .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
                 .ToList();
             wan.UploadData = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
-                .Select(r => new WanChartDataPoint(r.TestTime.ToLocalTime(), r.UploadMbps, r.Id))
+                .Select(r => new WanChartDataPoint(r.TestTime, r.UploadMbps, r.Id))
                 .ToList();
         }
     }
