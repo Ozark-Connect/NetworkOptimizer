@@ -1485,7 +1485,7 @@
 
         public SpeedChartPoint(DateTime timestamp, decimal value, string series)
         {
-            Timestamp = timestamp;
+            Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
             Value = value;
             Series = series;
         }
@@ -1499,7 +1499,7 @@
 
         public SignalChartPoint(DateTime timestamp, decimal value)
         {
-            Timestamp = timestamp;
+            Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
             Value = value;
         }
     }
@@ -1531,7 +1531,7 @@
 
         public ConnectionChartPoint(DateTime ts, decimal apIndex, string apName)
         {
-            Timestamp = ts;
+            Timestamp = DateTime.SpecifyKind(ts, DateTimeKind.Utc);
             ApIndex = apIndex;
             ApName = apName;
         }
@@ -1613,6 +1613,10 @@
 <style>
     /* Page-specific layout (app.css provides .page-header, .page-description, .card, .btn*, .empty-state,
        .signal-*, .band-badge.band-*, .time-range-selector, .time-btn, .detail-label, .detail-value) */
+
+    .apexcharts-legend-marker {
+        margin-right: 0.3rem;
+    }
 
     .client-dashboard-page {
         max-width: 1200px;
