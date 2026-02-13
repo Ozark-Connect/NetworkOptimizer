@@ -1565,16 +1565,27 @@
                 if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
                 if (string.IsNullOrEmpty(f.WallsJson)) continue;
 
-                // Include: same floor number (any building), or adjacent floors in same building
+                // Include: same floor number, or adjacent floors (n-1, n+1) in any building
                 var sameFloor = f.FloorNumber == _globalActiveFloor;
-                var adjacentFloor = _selectedBuilding != null && b.Id == _selectedBuilding.Id &&
-                    Math.Abs(f.FloorNumber - _globalActiveFloor) == 1;
+                var adjacentFloor = Math.Abs(f.FloorNumber - _globalActiveFloor) == 1;
                 if (!sameFloor && !adjacentFloor) continue;
 
                 try
                 {
-                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(f.WallsJson);
-                    if (parsed != null) bgWalls.AddRange(parsed);
+                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(f.WallsJson);
+                    if (parsed != null)
+                    {
+                        foreach (var wall in parsed)
+                        {
+                            // Clone wall and tag with whether it's same floor or adjacent
+                            var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(wall.GetRawText());
+                            if (dict != null)
+                            {
+                                dict["_adjacent"] = !sameFloor;
+                                bgWalls.Add(dict);
+                            }
+                        }
+                    }
                 }
                 catch { }
             }

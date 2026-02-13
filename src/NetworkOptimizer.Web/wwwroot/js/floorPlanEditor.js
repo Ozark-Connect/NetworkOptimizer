@@ -562,12 +562,13 @@ window.fpEditor = {
         this._bgWalls = walls;
 
         walls.forEach(function (wall) {
+            var opacity = wall._adjacent ? 0.25 : 0.5;
             for (var i = 0; i < wall.points.length - 1; i++) {
                 var mat = (wall.materials && i < wall.materials.length) ? wall.materials[i] : wall.material;
                 var color = colors[mat] || '#94a3b8';
                 L.polyline(
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
-                    { color: color, weight: 3, opacity: 0.5, pane: 'bgWallPane', interactive: false }
+                    { color: color, weight: 3, opacity: opacity, pane: 'bgWallPane', interactive: false }
                 ).addTo(self._bgWallLayer);
             }
         });
