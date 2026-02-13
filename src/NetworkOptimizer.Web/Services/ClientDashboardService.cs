@@ -29,6 +29,7 @@ public class ClientDashboardService
     // Track last trace hash per client MAC to detect changes
     private readonly Dictionary<string, string> _lastTraceHashes = new();
     private readonly object _traceHashLock = new();
+    private bool _traceHashesSeeded;
 
     // Cleanup tracking
     private DateTime _lastCleanup = DateTime.MinValue;
@@ -121,6 +122,12 @@ public class ClientDashboardService
                 // Compute trace hash for dedup (structural path only, not dynamic data)
                 result.TraceHash = ComputeTraceHash(path);
 
+                // Seed trace hashes from DB on first use (survives restarts)
+                if (!_traceHashesSeeded)
+                {
+                    await SeedTraceHashesAsync();
+                }
+
                 // Check if trace changed
                 lock (_traceHashLock)
                 {
@@ -130,7 +137,7 @@ public class ClientDashboardService
                     }
                     else
                     {
-                        result.TraceChanged = true; // First poll
+                        result.TraceChanged = true; // First poll for this client
                     }
                     _lastTraceHashes[identity.Mac] = result.TraceHash;
                 }
@@ -632,6 +639,44 @@ public class ClientDashboardService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to enrich AP info for {ApMac}", apMac);
+        }
+    }
+
+    /// <summary>
+    /// Seed the in-memory trace hash dictionary from the DB so restarts don't
+    /// cause false "path changed" entries.
+    /// </summary>
+    private async Task SeedTraceHashesAsync()
+    {
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var latestHashes = await db.ClientSignalLogs
+                .Where(l => l.TraceHash != null)
+                .GroupBy(l => l.ClientMac)
+                .Select(g => new
+                {
+                    Mac = g.Key,
+                    TraceHash = g.OrderByDescending(l => l.Timestamp).First().TraceHash
+                })
+                .ToListAsync();
+
+            lock (_traceHashLock)
+            {
+                foreach (var entry in latestHashes)
+                {
+                    if (entry.TraceHash != null)
+                        _lastTraceHashes.TryAdd(entry.Mac, entry.TraceHash);
+                }
+                _traceHashesSeeded = true;
+            }
+
+            _logger.LogDebug("Seeded trace hashes for {Count} clients from DB", latestHashes.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to seed trace hashes from DB");
+            _traceHashesSeeded = true; // Don't retry on failure
         }
     }
 
