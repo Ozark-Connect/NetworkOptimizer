@@ -499,11 +499,21 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var entry in GetSortedSignalHistory())
+                                        @foreach (var row in GetSortedSignalHistory())
                                         {
+                                            var entry = row.Entry;
                                             <tr class="@(entry.DataSource == SignalDataSource.UniFiController ? "unifi-source-row" : "")">
                                                 <td>
-                                                    @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                                                    @if (row.IsRange)
+                                                    {
+                                                        @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                                                        <span class="time-range-indicator">— @row.EndTime.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                        <span class="row-count">(@row.Count)</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                                                    }
                                                     @if (entry.DataSource == SignalDataSource.UniFiController)
                                                     {
                                                         <span class="source-dot" data-tooltip="UniFi controller data"></span>
@@ -1182,8 +1192,9 @@
         return _signalSortAsc ? "\u25B2" : "\u25BC";
     }
 
-    private IEnumerable<SignalHistoryEntry> GetSortedSignalHistory()
+    private List<CollapsedSignalRow> GetSortedSignalHistory()
     {
+        // Sort the data
         var data = _signalHistory.AsEnumerable();
         data = _signalSortCol switch
         {
@@ -1203,7 +1214,50 @@
                 ? data.OrderBy(e => e.Timestamp)
                 : data.OrderByDescending(e => e.Timestamp)
         };
-        return data.Take(100);
+
+        // Collapse consecutive identical rows into ranges
+        var collapsed = new List<CollapsedSignalRow>();
+        CollapsedSignalRow? current = null;
+
+        foreach (var entry in data)
+        {
+            if (current != null && current.IsSameAs(entry))
+            {
+                current.EndTime = entry.Timestamp;
+                current.Count++;
+            }
+            else
+            {
+                current = new CollapsedSignalRow(entry);
+                collapsed.Add(current);
+            }
+        }
+
+        return collapsed;
+    }
+
+    private class CollapsedSignalRow
+    {
+        public SignalHistoryEntry Entry { get; }
+        public DateTime EndTime { get; set; }
+        public int Count { get; set; } = 1;
+
+        public bool IsRange => Count > 1;
+
+        public CollapsedSignalRow(SignalHistoryEntry entry)
+        {
+            Entry = entry;
+            EndTime = entry.Timestamp;
+        }
+
+        public bool IsSameAs(SignalHistoryEntry other) =>
+            Entry.SignalDbm == other.SignalDbm &&
+            Entry.Band == other.Band &&
+            Entry.ApName == other.ApName &&
+            Entry.Channel == other.Channel &&
+            Entry.TxRateKbps == other.TxRateKbps &&
+            Entry.RxRateKbps == other.RxRateKbps &&
+            Entry.DataSource == other.DataSource;
     }
 
     // --- Connection Event Helpers ---
@@ -2019,6 +2073,15 @@
     }
     .unifi-source-row {
         opacity: 0.8;
+    }
+
+    .time-range-indicator {
+        color: var(--text-muted);
+    }
+    .row-count {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        margin-left: 4px;
     }
 
     /* Skeleton loaders */
