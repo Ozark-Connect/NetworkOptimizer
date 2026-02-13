@@ -2196,10 +2196,16 @@
     [JSInvokable]
     public async Task OnEscapeToView()
     {
-        if (_mode == "walls")
+        if (_showAddBuilding)
+            _showAddBuilding = false;
+        else if (_showAddFloor)
+            _showAddFloor = false;
+        else if (_mode == "walls")
             await ToggleWallDrawMode();
         else if (_mode == "aps")
             await ToggleApEditMode();
+        else if (_selectedBuilding != null)
+            await DeselectBuilding();
         StateHasChanged();
     }
 
