@@ -118,9 +118,8 @@ public class ClientDashboardService
                 var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, 0, 0);
                 result.PathAnalysis = analysis;
 
-                // Compute trace hash for dedup
-                var traceJson = JsonSerializer.Serialize(analysis, JsonOptions);
-                result.TraceHash = ComputeTraceHash(traceJson);
+                // Compute trace hash for dedup (structural path only, not dynamic data)
+                result.TraceHash = ComputeTraceHash(path);
 
                 // Check if trace changed
                 lock (_traceHashLock)
@@ -445,6 +444,63 @@ public class ClientDashboardService
             await db.SaveChangesAsync();
             _logger.LogInformation("Downsampled {Count} signal log entries older than 24h", toDelete.Count);
         }
+
+        // Deduplicate trace JSON: keep only the first entry per consecutive TraceHash group
+        await DeduplicateTraceJsonAsync(db);
+    }
+
+    /// <summary>
+    /// Remove duplicate TraceJson entries where consecutive polls have the same TraceHash.
+    /// Keeps only the first entry per consecutive hash group.
+    /// </summary>
+    private async Task DeduplicateTraceJsonAsync(NetworkOptimizerDbContext db)
+    {
+        var traceEntries = await db.ClientSignalLogs
+            .Where(l => l.TraceJson != null)
+            .OrderBy(l => l.ClientMac)
+            .ThenBy(l => l.Timestamp)
+            .Select(l => new { l.Id, l.ClientMac, l.TraceHash })
+            .ToListAsync();
+
+        if (traceEntries.Count == 0) return;
+
+        var idsToNullify = new List<int>();
+        string? prevMac = null;
+        string? prevHash = null;
+
+        foreach (var entry in traceEntries)
+        {
+            if (entry.ClientMac != prevMac)
+            {
+                // New client - keep this entry as the first trace
+                prevMac = entry.ClientMac;
+                prevHash = entry.TraceHash;
+                continue;
+            }
+
+            if (entry.TraceHash == prevHash)
+            {
+                // Same hash as previous - this is a duplicate
+                idsToNullify.Add(entry.Id);
+            }
+            else
+            {
+                // Hash changed - keep this entry
+                prevHash = entry.TraceHash;
+            }
+        }
+
+        if (idsToNullify.Count > 0)
+        {
+            // Null out TraceJson in batches
+            foreach (var batch in idsToNullify.Chunk(500))
+            {
+                await db.ClientSignalLogs
+                    .Where(l => batch.Contains(l.Id))
+                    .ExecuteUpdateAsync(s => s.SetProperty(l => l.TraceJson, (string?)null));
+            }
+            _logger.LogInformation("Deduplicated {Count} trace entries with same consecutive hash", idsToNullify.Count);
+        }
     }
 
     private async Task StoreSignalLogAsync(
@@ -579,9 +635,26 @@ public class ClientDashboardService
         }
     }
 
-    private static string ComputeTraceHash(string traceJson)
+    /// <summary>
+    /// Compute a hash of the structural path identity (device order, MACs, types, ports).
+    /// Excludes dynamic data like signal strength, TX/RX rates, timestamps, and firmware.
+    /// </summary>
+    private static string ComputeTraceHash(NetworkPath path)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(traceJson));
+        var sb = new StringBuilder();
+        sb.Append(path.SourceMac).Append('|').Append(path.DestinationMac).Append('|');
+        sb.Append(path.RequiresRouting).Append('|');
+        foreach (var hop in path.Hops)
+        {
+            sb.Append(hop.Order).Append(',');
+            sb.Append(hop.Type).Append(',');
+            sb.Append(hop.DeviceMac).Append(',');
+            sb.Append(hop.IngressPort).Append(',');
+            sb.Append(hop.EgressPort).Append(',');
+            sb.Append(hop.IsWirelessIngress).Append(',');
+            sb.Append(hop.IsWirelessEgress).Append('|');
+        }
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexStringLower(bytes);
     }
 }
