@@ -456,8 +456,8 @@
                         </div>
                     }
 
-                    @* Signal History Chart *@
-                    @if (_signalChartData.Count > 0)
+                    @* Signal History Chart (wireless only) *@
+                    @if (_signalChartData.Count > 0 && !(_client?.IsWired == true))
                     {
                         <div class="card chart-card">
                             <h3>Signal History</h3>
@@ -477,8 +477,8 @@
                         </div>
                     }
 
-                    @* Signal History Table *@
-                    @if (_signalHistory.Count > 0)
+                    @* Signal History Table (wireless only) *@
+                    @if (_signalHistory.Count > 0 && !(_client?.IsWired == true))
                     {
                         <div class="card results-card">
                             <h3>Signal Log</h3>
