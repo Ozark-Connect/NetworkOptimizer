@@ -1145,15 +1145,25 @@
         await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
         _mapInitialized = true;
 
-        // If no APs but buildings exist, fit to all building bounds after init
-        if (firstAp == null && _buildings.Count > 0)
+        // Fit to content after init
+        if (firstAp != null)
         {
-            var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
-            if (allFloors.Count > 0)
+            // Fit to all placed APs
+            var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToList();
+            if (placedAps.Count > 0)
             {
-                var (swLat, swLng, neLat, neLng) = ComputeAllBuildingBounds();
+                var swLat = placedAps.Min(a => a.Latitude!.Value);
+                var swLng = placedAps.Min(a => a.Longitude!.Value);
+                var neLat = placedAps.Max(a => a.Latitude!.Value);
+                var neLng = placedAps.Max(a => a.Longitude!.Value);
                 await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
             }
+        }
+        else if (_buildings.Count > 0)
+        {
+            var (swLat, swLng, neLat, neLng) = ComputeAllBuildingBounds();
+            if (swLat < double.MaxValue)
+                await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
         }
     }
 
