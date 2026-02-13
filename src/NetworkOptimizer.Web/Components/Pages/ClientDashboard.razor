@@ -140,7 +140,7 @@
                     {
                         <div class="hero-detail-item">
                             <span class="detail-label">TX / RX</span>
-                            <span class="detail-value">@FormatRate(_client.TxRateKbps) / @FormatRate(_client.RxRateKbps)</span>
+                            <span class="detail-value"><span class="wifi-speed-tx">@FormatRate(_client.TxRateKbps)</span> / <span class="wifi-speed-rx">@FormatRate(_client.RxRateKbps)</span></span>
                         </div>
                     }
                     @if (_client.IsMlo)
@@ -417,11 +417,11 @@
                                 {
                                     <div class="signal-detail">
                                         <span class="detail-label">TX Rate</span>
-                                        <span class="detail-value">@FormatRate(_client.TxRateKbps)</span>
+                                        <span class="detail-value wifi-speed-tx">@FormatRate(_client.TxRateKbps)</span>
                                     </div>
                                     <div class="signal-detail">
                                         <span class="detail-label">RX Rate</span>
-                                        <span class="detail-value">@FormatRate(_client.RxRateKbps)</span>
+                                        <span class="detail-value wifi-speed-rx">@FormatRate(_client.RxRateKbps)</span>
                                     </div>
                                 }
                                 @if (_client.NoiseDbm.HasValue)
@@ -523,8 +523,8 @@
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "—")</td>
                                                 <td>@(entry.Channel?.ToString() ?? "—")</td>
-                                                <td>@FormatRate(entry.TxRateKbps)</td>
-                                                <td>@FormatRate(entry.RxRateKbps)</td>
+                                                <td class="wifi-speed-tx">@FormatRate(entry.TxRateKbps)</td>
+                                                <td class="wifi-speed-rx">@FormatRate(entry.RxRateKbps)</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -573,7 +573,7 @@
                                 {
                                     <div class="connection-detail">
                                         <span class="detail-label">TX / RX</span>
-                                        <span class="detail-value">@FormatRate(_client.TxRateKbps) / @FormatRate(_client.RxRateKbps)</span>
+                                        <span class="detail-value"><span class="wifi-speed-tx">@FormatRate(_client.TxRateKbps)</span> / <span class="wifi-speed-rx">@FormatRate(_client.RxRateKbps)</span></span>
                                     </div>
                                 }
                             }
