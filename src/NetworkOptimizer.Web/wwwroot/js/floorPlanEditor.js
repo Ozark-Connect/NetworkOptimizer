@@ -46,6 +46,64 @@ window.fpEditor = {
     _snapGuideLine: null,
     _snapAngleMarker: null,
     _previewLengthLabel: null,
+    _edgePanHandler: null,
+    _edgePanTimer: null,
+
+    // ── Edge Pan ──────────────────────────────────────────────────────
+
+    _startEdgePan: function () {
+        var self = this;
+        var m = this._map;
+        if (!m || this._edgePanHandler) return;
+        var edgeZone = 40; // pixels from edge to trigger pan
+        var panSpeed = 4;  // pixels per frame at the very edge
+        self._edgePanDx = 0;
+        self._edgePanDy = 0;
+
+        this._edgePanHandler = function (e) {
+            var container = m.getContainer();
+            var rect = container.getBoundingClientRect();
+            var x = e.clientX - rect.left;
+            var y = e.clientY - rect.top;
+            var w = rect.width;
+            var h = rect.height;
+
+            var dx = 0, dy = 0;
+            if (x < edgeZone) dx = -panSpeed * (1 - x / edgeZone);
+            else if (x > w - edgeZone) dx = panSpeed * (1 - (w - x) / edgeZone);
+            if (y < edgeZone) dy = -panSpeed * (1 - y / edgeZone);
+            else if (y > h - edgeZone) dy = panSpeed * (1 - (h - y) / edgeZone);
+
+            self._edgePanDx = dx;
+            self._edgePanDy = dy;
+
+            if (dx !== 0 || dy !== 0) {
+                if (!self._edgePanTimer) {
+                    self._edgePanTimer = setInterval(function () {
+                        m.panBy([self._edgePanDx, self._edgePanDy], { animate: false });
+                    }, 16);
+                }
+            } else {
+                self._stopEdgePanTimer();
+            }
+        };
+        m.getContainer().addEventListener('mousemove', this._edgePanHandler);
+    },
+
+    _stopEdgePanTimer: function () {
+        if (this._edgePanTimer) {
+            clearInterval(this._edgePanTimer);
+            this._edgePanTimer = null;
+        }
+    },
+
+    _stopEdgePan: function () {
+        if (this._edgePanHandler && this._map) {
+            this._map.getContainer().removeEventListener('mousemove', this._edgePanHandler);
+            this._edgePanHandler = null;
+        }
+        this._stopEdgePanTimer();
+    },
 
     // ── Map Initialization ───────────────────────────────────────────
 
@@ -826,6 +884,7 @@ window.fpEditor = {
         m.closePopup();
         if (this._wallHighlightLayer) this._wallHighlightLayer.clearLayers();
         m.dragging.disable();
+        this._startEdgePan();
         m.getContainer().style.cursor = 'move';
 
         // Compute centroid as drag anchor
@@ -858,6 +917,7 @@ window.fpEditor = {
         var finishMove = function (e) {
             m.off('mousemove', moveHandler);
             m.off('click', finishMove);
+            self._stopEdgePan();
             m.dragging.enable();
             m.getContainer().style.cursor = '';
             // Apply delta to all points
@@ -886,6 +946,7 @@ window.fpEditor = {
         m.closePopup();
         if (this._wallHighlightLayer) this._wallHighlightLayer.clearLayers();
         m.dragging.disable();
+        this._startEdgePan();
         m.getContainer().style.cursor = 'move';
 
         // Compute centroid from all walls as drag anchor
@@ -925,6 +986,7 @@ window.fpEditor = {
         var finishMove = function (e) {
             m.off('mousemove', moveHandler);
             m.off('click', finishMove);
+            self._stopEdgePan();
             m.dragging.enable();
             m.getContainer().style.cursor = '';
             self._wallHighlightLayer.clearLayers();
@@ -1123,6 +1185,7 @@ window.fpEditor = {
         this._isDrawing = true;
         this._allWalls = JSON.parse(wallsJson);
         m.dragging.disable();
+        this._startEdgePan();
         m.getContainer().style.cursor = 'crosshair';
 
         this._refAngle = null;
@@ -1459,6 +1522,7 @@ window.fpEditor = {
             this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
         }
 
+        this._stopEdgePan();
         m.dragging.enable();
         m.getContainer().style.cursor = '';
         if (this._wallClickHandler) { m.off('click', this._wallClickHandler); this._wallClickHandler = null; }
@@ -1710,6 +1774,7 @@ window.fpEditor = {
 
         this.exitMoveMode();
         m.dragging.disable();
+        this._startEdgePan();
 
         var ci = L.divIcon({ className: 'fp-move-handle', html: '\u2725', iconSize: [28, 28], iconAnchor: [14, 14] });
         this._moveMarker = L.marker([centerLat, centerLng], { icon: ci, draggable: true }).addTo(m);
@@ -1735,6 +1800,7 @@ window.fpEditor = {
     },
 
     exitMoveMode: function () {
+        this._stopEdgePan();
         if (this._moveMarker && this._map) {
             this._map.removeLayer(this._moveMarker);
             this._moveMarker = null;
