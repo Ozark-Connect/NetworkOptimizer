@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Configure timezone from TZ env var (default: UTC)
+# .NET reads /etc/localtime for TimeZoneInfo.Local, the TZ env alone isn't sufficient
+if [ -n "$TZ" ] && [ -f "/usr/share/zoneinfo/$TZ" ]; then
+    ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+    echo "$TZ" > /etc/timezone
+fi
+
 # Fix ownership of mounted volumes (they may be created as root by Docker)
 # This runs as root before dropping to the app user
 chown -R app:app /app/data /app/logs /app/ssh-keys 2>/dev/null || true
