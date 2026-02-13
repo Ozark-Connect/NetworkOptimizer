@@ -374,17 +374,8 @@ window.fpEditor = {
 
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
-            var bounds = [[swLat, swLng], [neLat, neLng]];
-            var latSpanM = (neLat - swLat) * 111320;
-            var lngSpanM = (neLng - swLng) * 111320 * Math.cos((swLat + neLat) / 2 * Math.PI / 180);
-            var sz = this._map.getSize();
-            // Bypass zoomSnap for precise fit: temporarily set snap to 0
-            var origSnap = this._map.options.zoomSnap;
-            this._map.options.zoomSnap = 0;
-            var zoom = this._map.getBoundsZoom(L.latLngBounds(bounds), false);
-            this._map.options.zoomSnap = origSnap;
-            zoom = Math.min(zoom, 24);
-            this._map.setView(L.latLngBounds(bounds).getCenter(), zoom, { animate: false });
+            var bounds = L.latLngBounds([[swLat, swLng], [neLat, neLng]]);
+            this._map.fitBounds(bounds, { padding: [40, 40], animate: false, maxZoom: 24 });
         }
     },
 

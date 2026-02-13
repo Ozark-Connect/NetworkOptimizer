@@ -31,7 +31,7 @@
             }
             else
             {
-                <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building">+ Building</button>
+                <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
             }
 
             @if (_selectedBuilding != null)
@@ -41,12 +41,12 @@
                     {
                         <button class="fp-floor-btn @(f.Id == _selectedFloorId ? "active" : "")"
                                 @onclick="() => SelectFloor(f.Id)"
-                                data-tooltip="@f.Label"
+                                data-tooltip="@f.Label" data-tooltip-hover-only
                                 disabled="@(_mode == "walls")">
                             @GetFloorLabel(f.FloorNumber)
                         </button>
                     }
-                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor"
+                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor" data-tooltip-hover-only
                             disabled="@(_mode == "walls")">+ Floor</button>
                 </div>
             }
@@ -57,7 +57,7 @@
                     {
                         <button class="fp-floor-btn @(fn == _globalActiveFloor ? "active" : "")"
                                 @onclick="() => SetGlobalFloor(fn)"
-                                data-tooltip="@GetFloorLabel(fn) Floor">
+                                data-tooltip="@GetFloorLabel(fn) Floor" data-tooltip-hover-only>
                             @GetFloorLabel(fn)
                         </button>
                     }
@@ -86,7 +86,7 @@
                     else
                     {
                         <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
-                                data-tooltip="Delete last wall">Undo Wall</button>
+                                data-tooltip="Delete last wall" data-tooltip-hover-only>Undo Wall</button>
                     }
                 </div>
                 <span class="fp-toolbar-sep"></span>
@@ -122,7 +122,7 @@
                     Signal Data
                 </button>
                 <button class="fp-btn" @onclick="FitMapToContent"
-                        data-tooltip="Fit to view"
+                        data-tooltip="Fit to view" data-tooltip-hover-only
                         style="padding: 4px 6px; line-height: 0;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M15 3h6v6"></path>
@@ -132,7 +132,7 @@
                     </svg>
                 </button>
                 <button class="fp-btn @(_isFullscreen ? "fp-btn-warning" : "")" @onclick="ToggleFullscreen"
-                        data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")"
+                        data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")" data-tooltip-hover-only
                         style="padding: 4px 6px; line-height: 0;">
                     @if (_isFullscreen)
                     {
@@ -1151,14 +1151,8 @@
             var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
             if (allFloors.Count > 0)
             {
-                var swLat = allFloors.Min(f => f.SwLatitude);
-                var swLng = allFloors.Min(f => f.SwLongitude);
-                var neLat = allFloors.Max(f => f.NeLatitude);
-                var neLng = allFloors.Max(f => f.NeLongitude);
-                var bufLat = (neLat - swLat) * 0.15;
-                var bufLng = (neLng - swLng) * 0.15;
-                await JS.InvokeVoidAsync("fpEditor.fitBounds",
-                    swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
+                var (swLat, swLng, neLat, neLng) = ComputeAllBuildingBounds();
+                await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
             }
         }
     }
@@ -1212,10 +1206,7 @@
             if (BuildingHasWalls())
             {
                 var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
-                var bufferLat = (neLat - swLat) * 0.15;
-                var bufferLng = (neLng - swLng) * 0.15;
-                await JS.InvokeVoidAsync("fpEditor.fitBounds",
-                    swLat - bufferLat, swLng - bufferLng, neLat + bufferLat, neLng + bufferLng);
+                await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
             }
             // No walls yet - stay at current view
         }
@@ -1285,6 +1276,52 @@
             swLng = _floors.Min(f => f.SwLongitude);
             neLat = _floors.Max(f => f.NeLatitude);
             neLng = _floors.Max(f => f.NeLongitude);
+        }
+
+        return (swLat, swLng, neLat, neLng);
+    }
+
+    private (double swLat, double swLng, double neLat, double neLng) ComputeAllBuildingBounds()
+    {
+        double swLat = double.MaxValue, swLng = double.MaxValue;
+        double neLat = double.MinValue, neLng = double.MinValue;
+        bool hasData = false;
+
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        foreach (var b in _buildings)
+        {
+            foreach (var floor in b.Floors)
+            {
+                if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+                try
+                {
+                    var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                    if (walls == null) continue;
+                    foreach (var wall in walls)
+                        foreach (var pt in wall.Points)
+                        {
+                            swLat = Math.Min(swLat, pt.Lat);
+                            swLng = Math.Min(swLng, pt.Lng);
+                            neLat = Math.Max(neLat, pt.Lat);
+                            neLng = Math.Max(neLng, pt.Lng);
+                            hasData = true;
+                        }
+                }
+                catch { }
+            }
+        }
+
+        if (!hasData)
+        {
+            // Fall back to floor record bounds
+            var allFloors = _buildings.SelectMany(b2 => b2.Floors).ToList();
+            if (allFloors.Count > 0)
+            {
+                swLat = allFloors.Min(f => f.SwLatitude);
+                swLng = allFloors.Min(f => f.SwLongitude);
+                neLat = allFloors.Max(f => f.NeLatitude);
+                neLng = allFloors.Max(f => f.NeLongitude);
+            }
         }
 
         return (swLat, swLng, neLat, neLng);
@@ -2268,10 +2305,7 @@
         if (_selectedBuilding != null && _floors.Count > 0 && BuildingHasWalls())
         {
             var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
-            var bufLat = (neLat - swLat) * 0.15;
-            var bufLng = (neLng - swLng) * 0.15;
-            await JS.InvokeVoidAsync("fpEditor.fitBounds",
-                swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
+            await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
             return;
         }
 
@@ -2283,26 +2317,14 @@
             var swLng = placedAps.Min(a => a.Longitude!.Value);
             var neLat = placedAps.Max(a => a.Latitude!.Value);
             var neLng = placedAps.Max(a => a.Longitude!.Value);
-            var bufLat = Math.Max((neLat - swLat) * 0.15, 0.0005);
-            var bufLng = Math.Max((neLng - swLng) * 0.15, 0.0005);
-            await JS.InvokeVoidAsync("fpEditor.fitBounds",
-                swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
+            await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
             return;
         }
 
-        // Priority 3: Fit to all building floor bounds
-        var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
-        if (allFloors.Count > 0)
-        {
-            var swLat = allFloors.Min(f => f.SwLatitude);
-            var swLng = allFloors.Min(f => f.SwLongitude);
-            var neLat = allFloors.Max(f => f.NeLatitude);
-            var neLng = allFloors.Max(f => f.NeLongitude);
-            var bufLat = (neLat - swLat) * 0.15;
-            var bufLng = (neLng - swLng) * 0.15;
-            await JS.InvokeVoidAsync("fpEditor.fitBounds",
-                swLat - bufLat, swLng - bufLng, neLat + bufLat, neLng + bufLng);
-        }
+        // Priority 3: Fit to all building wall bounds
+        var (allSwLat, allSwLng, allNeLat, allNeLng) = ComputeAllBuildingBounds();
+        if (allSwLat < double.MaxValue)
+            await JS.InvokeVoidAsync("fpEditor.fitBounds", allSwLat, allSwLng, allNeLat, allNeLng);
     }
 
     private async Task OnEditorKeyDown(KeyboardEventArgs e)
