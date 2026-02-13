@@ -1572,14 +1572,6 @@ window.fpEditor = {
                 } else {
                     self._previewLine.setLatLngs([[prev.lat, prev.lng], [fp3.lat, fp3.lng]]);
                 }
-                if (!self._snapIndicator) {
-                    self._snapIndicator = L.marker([fp3.lat, fp3.lng], {
-                        icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
-                        interactive: false
-                    }).addTo(m);
-                } else {
-                    self._snapIndicator.setLatLng([fp3.lat, fp3.lng]);
-                }
                 if (self._snapGuideLine) { m.removeLayer(self._snapGuideLine); self._snapGuideLine = null; }
                 if (self._snapAngleMarker) { m.removeLayer(self._snapAngleMarker); self._snapAngleMarker = null; }
                 return;
@@ -1599,15 +1591,6 @@ window.fpEditor = {
                 } else {
                     self._previewLine.setLatLngs([[prev.lat, prev.lng], [snapTarget.lat, snapTarget.lng]]);
                     self._previewLine.setStyle(lineStyle);
-                }
-                // Snap indicator dot at the actual snap target
-                if (!self._snapIndicator) {
-                    self._snapIndicator = L.marker([snapTarget.lat, snapTarget.lng], {
-                        icon: L.divIcon({ className: 'fp-snap-indicator', iconSize: [20, 20], iconAnchor: [10, 10] }),
-                        interactive: false
-                    }).addTo(m);
-                } else {
-                    self._snapIndicator.setLatLng([snapTarget.lat, snapTarget.lng]);
                 }
                 // Show guide line along target wall for any segment snap
                 if (vtxSnap.type === 'segment' && vtxSnap.segA && vtxSnap.segB) {
@@ -1774,11 +1757,10 @@ window.fpEditor = {
             var didSplit = false;
 
             if (cw.points.length === 2) {
-                var snapDist = 0.15; // ~0.5 ft - both points must be essentially on the wall to trigger split
+                var splitTolerance = 0.15; // ~0.5 ft - both points must be essentially on the wall to trigger split
                 var bestWi = -1, bestSi = -1, bestT1 = -1, bestT2 = -1, bestD = Infinity;
                 var p1 = L.latLng(cw.points[0].lat, cw.points[0].lng);
                 var p2 = L.latLng(cw.points[1].lat, cw.points[1].lng);
-                console.log('[auto-split] Checking 2-point wall for split. p1:', p1, 'p2:', p2);
 
                 for (var wi = 0; wi < this._allWalls.length; wi++) {
                     var wall = this._allWalls[wi];
@@ -1798,15 +1780,13 @@ window.fpEditor = {
                         var d1 = m.distance(p1, proj1);
                         var d2 = m.distance(p2, proj2);
                         var maxD = Math.max(d1, d2);
-                        console.log('[auto-split] wall[' + wi + '] seg[' + si + ']: d1=' + d1.toFixed(2) + 'm, d2=' + d2.toFixed(2) + 'm, maxD=' + maxD.toFixed(2) + 'm (threshold=' + snapDist + 'm)');
-                        if (maxD < snapDist && maxD < bestD) {
+                        if (maxD < splitTolerance && maxD < bestD) {
                             bestD = maxD; bestWi = wi; bestSi = si; bestT1 = t1; bestT2 = t2;
                         }
                     }
                 }
 
                 if (bestWi >= 0) {
-                    console.log('[auto-split] SPLITTING wall[' + bestWi + '] seg[' + bestSi + '] bestD=' + bestD.toFixed(2) + 'm');
                     var tMin = Math.min(bestT1, bestT2);
                     var tMax = Math.max(bestT1, bestT2);
                     var targetWall = this._allWalls[bestWi];
@@ -1828,7 +1808,6 @@ window.fpEditor = {
             }
 
             if (!didSplit) {
-                console.log('[auto-split] No split - adding as new wall (' + cw.points.length + ' points)');
                 this._allWalls.push(cw);
             }
         }
