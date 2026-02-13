@@ -360,13 +360,10 @@
                             </div>
                         </div>
                     }
-                    @* Speed Map *@
-                    @if (_speedResults.Any(r => r.Latitude.HasValue))
+                    @* Speed Map (wireless clients only) *@
+                    @if (!(_client?.IsWired == true) && _speedResults.Any(r => r.Latitude.HasValue))
                     {
-                        <div class="card chart-card">
-                            <h3>Speed Map</h3>
-                            <SpeedTestMap Results="_speedResults" MapHeight="400px" />
-                        </div>
+                        <SpeedTestMap Results="_speedResults" MapHeight="400px" />
                     }
                 </div>
             }
