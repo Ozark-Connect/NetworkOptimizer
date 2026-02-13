@@ -44,7 +44,7 @@ public class CoverageGapRule : IWiFiOptimizerRule
 
             if (weakPct >= WeakSignalPctThreshold)
             {
-                coverageGapAps.Add((ap, apClients.Count, weakCount, weakPct));
+                coverageGapAps.Add((ap, clientsWithSignal.Count, weakCount, weakPct));
             }
         }
 
