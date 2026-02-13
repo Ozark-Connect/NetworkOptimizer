@@ -388,7 +388,7 @@
                                 <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value)">
                                     @for (int i = 0; i < 5; i++)
                                     {
-                                        var barThreshold = new[] { -90, -80, -70, -60, -55 }[i];
+                                        var barThreshold = new[] { -90, -82, -75, -70, -60 }[i];
                                         <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
                                     }
                                 </div>
