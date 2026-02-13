@@ -747,8 +747,7 @@ window.fpEditor = {
                 wall.points.forEach(function (p) { allPts[id].push(p); });
             });
             Object.keys(allPts).forEach(function (id) {
-                var asArrays = allPts[id].map(function (p) { return [p.lat, p.lng]; });
-                var latlngs = self._convexHull(asArrays);
+                var latlngs = self._convexHull(allPts[id]);
                 if (latlngs.length < 3) return;
                 var poly = L.polygon(latlngs, {
                     color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
@@ -1169,16 +1168,16 @@ window.fpEditor = {
     // Snap to nearby vertices from existing walls and background walls (adjacent floors)
     // Snap to nearby wall vertices (priority) or perpendicular projection onto wall segments.
     // Convex hull (Andrew's monotone chain). Input: [[lat,lng],...]. Returns hull points.
+    // Monotone chain convex hull. Accepts [{lat,lng}, ...], returns [[lat,lng], ...] for Leaflet.
     _convexHull: function (points) {
-        if (points.length < 3) return points.slice();
-        var sorted = points.slice().sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
-        // Remove duplicates
+        if (!points || points.length < 3) return points ? points.map(function (p) { return [p.lat, p.lng]; }) : [];
+        var sorted = points.slice().sort(function (a, b) { return a.lat - b.lat || a.lng - b.lng; });
         var unique = [sorted[0]];
         for (var i = 1; i < sorted.length; i++) {
-            if (sorted[i][0] !== sorted[i - 1][0] || sorted[i][1] !== sorted[i - 1][1]) unique.push(sorted[i]);
+            if (sorted[i].lat !== sorted[i - 1].lat || sorted[i].lng !== sorted[i - 1].lng) unique.push(sorted[i]);
         }
-        if (unique.length < 3) return unique;
-        function cross(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }
+        if (unique.length < 3) return unique.map(function (p) { return [p.lat, p.lng]; });
+        function cross(o, a, b) { return (a.lat - o.lat) * (b.lng - o.lng) - (a.lng - o.lng) * (b.lat - o.lat); }
         var lower = [];
         for (var i = 0; i < unique.length; i++) {
             while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], unique[i]) <= 0) lower.pop();
@@ -1190,7 +1189,7 @@ window.fpEditor = {
             upper.push(unique[i]);
         }
         lower.pop(); upper.pop();
-        return lower.concat(upper);
+        return lower.concat(upper).map(function (p) { return [p.lat, p.lng]; });
     },
 
     // Returns { lat, lng, type: 'vertex'|'segment', segA, segB } or null.
