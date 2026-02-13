@@ -500,7 +500,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var row in GetSortedSignalHistory())
+                                        @foreach (var row in GetPagedSignalHistory())
                                         {
                                             var entry = row.Entry;
                                             <tr class="@(entry.DataSource == SignalDataSource.UniFiController ? "unifi-source-row" : "")">
@@ -508,7 +508,7 @@
                                                     @if (row.IsRange)
                                                     {
                                                         @FormatSignalTime(entry.Timestamp)
-                                                        <span class="time-range-indicator">— @(entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
+                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
                                                         <span class="row-count">(@row.Count)</span>
                                                     }
                                                     else
@@ -520,10 +520,10 @@
                                                         <span class="source-dot" data-tooltip="UniFi controller data"></span>
                                                     }
                                                 </td>
-                                                <td class="@GetSignalClass(entry.SignalDbm ?? 0)">@(entry.SignalDbm?.ToString() ?? "—") dBm</td>
+                                                <td class="@GetSignalClass(entry.SignalDbm ?? 0)">@(entry.SignalDbm?.ToString() ?? "-") dBm</td>
                                                 <td>@FormatBand(entry.Band)</td>
-                                                <td>@(entry.ApName ?? "—")</td>
-                                                <td>@(entry.Channel?.ToString() ?? "—")</td>
+                                                <td>@(entry.ApName ?? "-")</td>
+                                                <td>@(entry.Channel?.ToString() ?? "-")</td>
                                                 <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
                                                 <td>@RenderRate(entry.RxRateKbps, "wifi-speed-rx")</td>
                                             </tr>
@@ -531,6 +531,14 @@
                                     </tbody>
                                 </table>
                             </div>
+                            @if (SignalTotalPages > 1)
+                            {
+                                <div class="pagination">
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage <= 1)" @onclick="() => ChangeSignalPage(-1)">Prev</button>
+                                    <span class="pagination-info">Page @_signalPage of @SignalTotalPages (@_cachedCollapsed.Count rows)</span>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage >= SignalTotalPages)" @onclick="() => ChangeSignalPage(1)">Next</button>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -775,9 +783,11 @@
     private ApexChart<SignalChartPoint>? _signalChart;
     private ApexChartOptions<SignalChartPoint> _signalChartOptions = new();
 
-    // Signal table sorting
+    // Signal table sorting & pagination
     private string _signalSortCol = "time";
     private bool _signalSortAsc = false;
+    private int _signalPage = 1;
+    private const int SignalPageSize = 50;
 
     // Connection tab
     private List<TraceChangeEntry> _traceHistory = new();
@@ -1115,6 +1125,7 @@
     {
         if (_selectedTimeFilter == hours) return;
         _selectedTimeFilter = hours;
+        _signalPage = 1;
 
         // Reload data for all tabs with new time range
         _ = InvokeAsync(async () =>
@@ -1185,6 +1196,7 @@
             _signalSortCol = col;
             _signalSortAsc = col == "time" ? false : true; // default: time desc, others asc
         }
+        _signalPage = 1;
     }
 
     private string SortIndicator(string col)
@@ -1193,10 +1205,14 @@
         return _signalSortAsc ? "\u25B2" : "\u25BC";
     }
 
+    private List<CollapsedSignalRow> _cachedCollapsed = new();
+
     private List<CollapsedSignalRow> GetSortedSignalHistory()
     {
+        // Downsample based on selected time range
+        var data = DownsampleForDisplay(_signalHistory);
+
         // Sort the data
-        var data = _signalHistory.AsEnumerable();
         data = _signalSortCol switch
         {
             "signal" => _signalSortAsc
@@ -1234,7 +1250,80 @@
             }
         }
 
+        _cachedCollapsed = collapsed;
         return collapsed;
+    }
+
+    private int SignalTotalPages => Math.Max(1, (int)Math.Ceiling(_cachedCollapsed.Count / (double)SignalPageSize));
+
+    private IEnumerable<CollapsedSignalRow> GetPagedSignalHistory()
+    {
+        var collapsed = GetSortedSignalHistory();
+        return collapsed.Skip((_signalPage - 1) * SignalPageSize).Take(SignalPageSize);
+    }
+
+    private void ChangeSignalPage(int delta)
+    {
+        _signalPage = Math.Clamp(_signalPage + delta, 1, SignalTotalPages);
+    }
+
+    /// <summary>
+    /// Downsample signal history entries to match the display granularity for the selected time range.
+    /// 1h: raw (5s), 6h: 1-min buckets, 24h: 5-min, 7d: 30-min, 30d+: 1-hour.
+    /// </summary>
+    private IEnumerable<SignalHistoryEntry> DownsampleForDisplay(List<SignalHistoryEntry> entries)
+    {
+        var bucketMinutes = _selectedTimeFilter switch
+        {
+            1 => 0,     // raw
+            6 => 1,     // 1-minute buckets
+            24 => 5,    // 5-minute buckets
+            168 => 30,  // 30-minute buckets
+            _ => 60     // 1-hour buckets (30d, All)
+        };
+
+        if (bucketMinutes == 0)
+            return entries;
+
+        return entries
+            .GroupBy(e => new
+            {
+                Bucket = new DateTime(
+                    e.Timestamp.Ticks - (e.Timestamp.Ticks % (TimeSpan.TicksPerMinute * bucketMinutes)),
+                    DateTimeKind.Utc),
+                e.DataSource
+            })
+            .Select(g =>
+            {
+                var items = g.ToList();
+                var first = items[0];
+                return new SignalHistoryEntry
+                {
+                    Timestamp = g.Key.Bucket,
+                    SignalDbm = items.Any(i => i.SignalDbm.HasValue)
+                        ? (int?)Math.Round(items.Where(i => i.SignalDbm.HasValue).Average(i => (double)i.SignalDbm!.Value))
+                        : null,
+                    NoiseDbm = items.LastOrDefault(i => i.NoiseDbm.HasValue)?.NoiseDbm ?? first.NoiseDbm,
+                    Band = items.GroupBy(i => i.Band).OrderByDescending(bg => bg.Count()).First().Key,
+                    ApName = items.GroupBy(i => i.ApName).OrderByDescending(bg => bg.Count()).First().Key,
+                    ApMac = items.GroupBy(i => i.ApMac).OrderByDescending(bg => bg.Count()).First().Key,
+                    Channel = items.GroupBy(i => i.Channel).OrderByDescending(bg => bg.Count()).First().Key,
+                    ChannelWidth = items.LastOrDefault(i => i.ChannelWidth.HasValue)?.ChannelWidth ?? first.ChannelWidth,
+                    Protocol = items.GroupBy(i => i.Protocol).OrderByDescending(bg => bg.Count()).First().Key,
+                    TxRateKbps = items.Any(i => i.TxRateKbps.HasValue && i.TxRateKbps > 0)
+                        ? items.Where(i => i.TxRateKbps.HasValue && i.TxRateKbps > 0).Max(i => i.TxRateKbps)
+                        : null,
+                    RxRateKbps = items.Any(i => i.RxRateKbps.HasValue && i.RxRateKbps > 0)
+                        ? items.Where(i => i.RxRateKbps.HasValue && i.RxRateKbps > 0).Max(i => i.RxRateKbps)
+                        : null,
+                    HopCount = items.LastOrDefault(i => i.HopCount.HasValue)?.HopCount ?? first.HopCount,
+                    BottleneckLinkSpeedMbps = items.LastOrDefault(i => i.BottleneckLinkSpeedMbps.HasValue)?.BottleneckLinkSpeedMbps ?? first.BottleneckLinkSpeedMbps,
+                    Latitude = items.LastOrDefault(i => i.Latitude.HasValue)?.Latitude ?? first.Latitude,
+                    Longitude = items.LastOrDefault(i => i.Longitude.HasValue)?.Longitude ?? first.Longitude,
+                    DataSource = g.Key.DataSource
+                };
+            })
+            .OrderBy(e => e.Timestamp);
     }
 
     private class CollapsedSignalRow
