@@ -717,7 +717,7 @@ window.fpEditor = {
         walls.forEach(function (wall) {
             var opacity = wall._opacity || 0.5;
             for (var i = 0; i < wall.points.length - 1; i++) {
-                var mat = (wall.materials && i < wall.materials.length) ? wall.materials[i] : wall.material;
+                var mat = (wall.materials && i < wall.materials.length && wall.materials[i]) ? wall.materials[i] : wall.material;
                 var color = colors[mat] || '#94a3b8';
                 L.polyline(
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
@@ -782,7 +782,7 @@ window.fpEditor = {
         // Per-segment rendering
         walls.forEach(function (wall, wi) {
             for (var i = 0; i < wall.points.length - 1; i++) {
-                var mat = (wall.materials && i < wall.materials.length) ? wall.materials[i] : wall.material;
+                var mat = (wall.materials && i < wall.materials.length && wall.materials[i]) ? wall.materials[i] : wall.material;
                 var color = colors[mat] || '#94a3b8';
                 var seg = L.polyline(
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
@@ -874,7 +874,7 @@ window.fpEditor = {
         this._wallSelection = { wallIdx: wi, segIdx: si };
 
         // Build material dropdown options
-        var segMat = (wall.materials && si < wall.materials.length) ? wall.materials[si] : wall.material;
+        var segMat = (wall.materials && si < wall.materials.length && wall.materials[si]) ? wall.materials[si] : wall.material;
         var opts = '';
         for (var k in labels) {
             opts += '<option value="' + k + '"' + (k === segMat ? ' selected' : '') + '>' + labels[k] + '</option>';

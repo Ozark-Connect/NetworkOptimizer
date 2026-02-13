@@ -291,7 +291,7 @@ public class PropagationService
         {
             for (int i = 0; i < wall.Points.Count - 1; i++)
             {
-                var material = wall.Materials != null && i < wall.Materials.Count
+                var material = wall.Materials != null && i < wall.Materials.Count && wall.Materials[i] != null
                     ? wall.Materials[i]
                     : wall.Material;
 
