@@ -731,6 +731,9 @@
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "ip")]
+    public string? IpParam { get; set; }
+
     // State
     private bool _loading = true;
     private bool _tabLoading;
@@ -871,6 +874,12 @@
 
     private async Task<ClientIdentity?> GetClientIdentityAsync()
     {
+        // Use ?ip= query param if provided (for testing/linking to specific clients)
+        if (string.IsNullOrEmpty(_clientIp) && !string.IsNullOrEmpty(IpParam))
+        {
+            _clientIp = IpParam;
+        }
+
         // In Blazor Server, HttpContext is only available during the initial HTTP request.
         // OnInitializedAsync runs during that first request, so we capture the IP here.
         if (string.IsNullOrEmpty(_clientIp))
