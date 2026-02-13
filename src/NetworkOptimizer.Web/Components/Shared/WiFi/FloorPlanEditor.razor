@@ -1634,10 +1634,14 @@
             // Temporarily hide heatmap while drawing walls
             if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
+            // Brighten adjacent floor outlines for snapping visibility
+            await JS.InvokeVoidAsync("fpEditor.setBgAdjacentOpacity", 0.5);
         }
         else
         {
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            // Fade adjacent floor outlines back
+            await JS.InvokeVoidAsync("fpEditor.setBgAdjacentOpacity", 0.25);
             // Re-render walls from DB state after exiting draw mode
             if (_selectedFloor != null) await UpdateWalls();
             // Restore heatmap if it was on
