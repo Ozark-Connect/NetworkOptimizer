@@ -51,6 +51,7 @@ window.fpEditor = {
     _edgePanDelayTimer: null,
     _activeMoveHandlers: null, // { moveHandler, finishHandler } for cancellable moves
     _escHandler: null,
+    _distanceWarnShown: false,
 
     // ── Edge Pan ──────────────────────────────────────────────────────
 
@@ -584,7 +585,7 @@ window.fpEditor = {
                 mountOpts + '</select></div>' +
                 '<div class="fp-ap-popup-row"><label>Facing</label>' +
                 '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
-                'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\'" ' +
+                'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
                 'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
                 '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
                 txPowerHtml +
@@ -654,6 +655,19 @@ window.fpEditor = {
         var eirpText = gain != null ? ' / ' + (tx + parseInt(gain)) + ' dBm EIRP' : '';
         info.textContent = tx + ' dBm TX' + eirpText;
         info.classList.add('overridden');
+    },
+
+    // Rotate AP direction arrow in realtime (called from facing slider oninput)
+    _rotateApArrow: function (mac, deg) {
+        if (!this._apLayer) return;
+        this._apLayer.eachLayer(function (layer) {
+            if (layer._apMac === mac) {
+                var el = layer.getElement && layer.getElement();
+                if (!el) return;
+                var dir = el.querySelector('.fp-ap-direction');
+                if (dir) dir.style.transform = 'rotate(' + deg + 'deg)';
+            }
+        });
     },
 
     _toggleAntennaMode: function (key, originalMode) {
@@ -1192,6 +1206,49 @@ window.fpEditor = {
         return lower.concat(upper).map(function (p) { return [p.lat, p.lng]; });
     },
 
+    // Distance from point to line segment (returns meters)
+    _pointToSegmentDistanceM: function (m, lat, lng, a, b) {
+        var cosLat = Math.cos(lat * Math.PI / 180);
+        var ax = (a.lng - lng) * cosLat, ay = a.lat - lat;
+        var bx = (b.lng - lng) * cosLat, by = b.lat - lat;
+        var dx = bx - ax, dy = by - ay;
+        var lenSq = dx * dx + dy * dy;
+        if (lenSq < 1e-10) return m.distance(L.latLng(lat, lng), L.latLng(a.lat, a.lng));
+        var t = Math.max(0, Math.min(1, ((-ax) * dx + (-ay) * dy) / lenSq));
+        var closestLat = a.lat + t * (b.lat - a.lat);
+        var closestLng = a.lng + t * (b.lng - a.lng);
+        return m.distance(L.latLng(lat, lng), L.latLng(closestLat, closestLng));
+    },
+
+    // Min distance (meters) from point to any wall segment in _allWalls
+    _nearestWallDistanceM: function (lat, lng) {
+        var m = this._map;
+        if (!m || !this._allWalls || this._allWalls.length === 0) return Infinity;
+        var minDist = Infinity;
+        for (var wi = 0; wi < this._allWalls.length; wi++) {
+            var pts = this._allWalls[wi].points;
+            for (var pi = 0; pi < pts.length - 1; pi++) {
+                var d = this._pointToSegmentDistanceM(m, lat, lng, pts[pi], pts[pi + 1]);
+                if (d < minDist) minDist = d;
+            }
+        }
+        return minDist;
+    },
+
+    // Show a temporary warning toast overlaying the map
+    _showDrawWarning: function (msg) {
+        var container = this._map && this._map.getContainer();
+        if (!container) return;
+        var toast = document.createElement('div');
+        toast.className = 'fp-draw-warning';
+        toast.textContent = msg;
+        container.appendChild(toast);
+        setTimeout(function () {
+            toast.style.opacity = '0';
+            setTimeout(function () { if (toast.parentNode) toast.remove(); }, 500);
+        }, 6000);
+    },
+
     // Returns { lat, lng, type: 'vertex'|'segment', segA, segB } or null.
     // segA/segB are the segment endpoints (only for type='segment').
     _snapToVertex: function (lat, lng, snapPixels, bgMaxMeters) {
@@ -1357,6 +1414,7 @@ window.fpEditor = {
 
         this._isDrawing = true;
         this._allWalls = JSON.parse(wallsJson);
+        this._distanceWarnShown = false;
         m.dragging.disable();
         this._startEdgePan();
         m.getContainer().style.cursor = 'crosshair';
@@ -1526,6 +1584,15 @@ window.fpEditor = {
                     self._refAngle = Math.atan2(dy2, dx2);
                 }
             }
+            // Warn once if drawing far from existing walls (possible new building)
+            if (!self._distanceWarnShown && self._allWalls && self._allWalls.length > 0) {
+                var nearestM = self._nearestWallDistanceM(lat, lng);
+                if (nearestM > 6.1) { // ~20 ft
+                    self._distanceWarnShown = true;
+                    self._showDrawWarning('This point is far from existing walls. Finish the current building first if you want to start a new one.');
+                }
+            }
+
             self._dotNetRef.invokeMethodAsync('OnMapClickForWall', lat, lng);
         };
 

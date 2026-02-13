@@ -735,6 +735,26 @@
         filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.8));
     }
 
+    /* Draw-mode warning toast */
+    .fp-draw-warning {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2000;
+        background: rgba(234, 179, 8, 0.95);
+        color: #1a1a1a;
+        padding: 10px 18px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        max-width: 360px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        pointer-events: none;
+        transition: opacity 0.5s;
+    }
+
     /* Wall length labels */
     .fp-wall-length {
         font-size: 11px;
