@@ -211,7 +211,7 @@
             </div>
         }
 
-        @if (_selectedBuilding != null && _mode == "walls")
+        @if (_selectedBuilding != null)
         {
             <div class="fp-editing-chip" @onclick="DeselectBuilding">
                 Editing @_selectedBuilding.Name <span>&times;</span>
