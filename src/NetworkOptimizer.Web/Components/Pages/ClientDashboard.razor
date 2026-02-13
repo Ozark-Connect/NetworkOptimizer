@@ -436,13 +436,6 @@
                                         <span class="detail-value">@(_client.SignalDbm - _client.NoiseDbm) dB</span>
                                     </div>
                                 }
-                                @if (_client.ApClientCount.HasValue)
-                                {
-                                    <div class="signal-detail">
-                                        <span class="detail-label">AP Clients</span>
-                                        <span class="detail-value">@_client.ApClientCount</span>
-                                    </div>
-                                }
                                 @if (_client.ApTxPower.HasValue)
                                 {
                                     <div class="signal-detail">
