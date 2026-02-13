@@ -388,7 +388,7 @@
                                 <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value)">
                                     @for (int i = 0; i < 5; i++)
                                     {
-                                        var barThreshold = -80 + (i * 10); // -80, -70, -60, -50, -40
+                                        var barThreshold = new[] { -90, -80, -70, -60, -55 }[i];
                                         <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
                                     }
                                 </div>
@@ -506,13 +506,13 @@
                                                 <td>
                                                     @if (row.IsRange)
                                                     {
-                                                        @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
-                                                        <span class="time-range-indicator">— @row.EndTime.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                        @FormatSignalTime(entry.Timestamp)
+                                                        <span class="time-range-indicator">— @entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime)</span>
                                                         <span class="row-count">(@row.Count)</span>
                                                     }
                                                     else
                                                     {
-                                                        @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                                                        @FormatSignalTime(entry.Timestamp)
                                                     }
                                                     @if (entry.DataSource == SignalDataSource.UniFiController)
                                                     {
@@ -1527,6 +1527,14 @@
         "n" => "Wi-Fi 4 (N)",
         _ => proto ?? "—"
     };
+
+    private static string FormatSignalTime(DateTime utcTimestamp)
+    {
+        var local = utcTimestamp.ToLocalTime();
+        return local.Date == DateTime.Now.Date
+            ? local.ToString("HH:mm:ss")
+            : local.ToString("MMM dd HH:mm:ss");
+    }
 
     private static string FormatRate(long? rateKbps)
     {
