@@ -134,8 +134,10 @@ The following were implemented in the WiFi Optimizer feature:
 - Currently limited to two WAN connections
 - Should dynamically detect and configure all available WAN interfaces
 
-### ✅ ~~GRE/PPP Tunnel Support~~ (done)
-- PPPoE fully supported in SqmService (uses physical interface for lookup, tunnel interface for SQM)
+### GRE Tunnel Support (Cellular WAN)
+- Support GRE tunnel connections from cellular modems (U5G-Max, U-LTE)
+- These create GRE tunnels that should be treated as valid WAN interfaces for SQM
+- ✅ ~~PPPoE support~~ (done - uses physical interface for lookup, tunnel interface for SQM)
 
 ## Multi-Tenant / Multi-Site Support
 
