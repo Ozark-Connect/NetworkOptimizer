@@ -382,6 +382,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
+                    DatetimeUTC = false,
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
                     DatetimeFormatter = new DatetimeFormatter
                     {
@@ -514,7 +515,7 @@
 
         foreach (var metric in _clientMetrics.OrderBy(m => m.Timestamp))
         {
-            var ts = metric.Timestamp.ToLocalTime().DateTime;
+            var ts = metric.Timestamp.UtcDateTime;
 
             if (metric.Signal.HasValue)
             {
