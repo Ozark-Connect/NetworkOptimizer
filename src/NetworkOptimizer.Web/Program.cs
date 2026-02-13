@@ -696,11 +696,14 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
     double? longitude = double.TryParse(GetValue("lng"), out var lng) ? lng : null;
     int? locationAccuracy = int.TryParse(GetValue("acc"), out var acc) ? acc : null;
 
+    // Test duration per direction (seconds)
+    int? duration = int.TryParse(GetValue("dur"), out var dur) ? dur : null;
+
     var clientIp = GetClientIp(context);
 
     var result = await service.RecordOpenSpeedTestResultAsync(
         clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
-        latitude, longitude, locationAccuracy);
+        latitude, longitude, locationAccuracy, duration);
 
     return Results.Ok(new
     {

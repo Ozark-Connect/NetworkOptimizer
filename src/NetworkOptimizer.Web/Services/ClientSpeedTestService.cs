@@ -48,7 +48,8 @@ public class ClientSpeedTestService
         string? userAgent,
         double? latitude = null,
         double? longitude = null,
-        int? locationAccuracy = null)
+        int? locationAccuracy = null,
+        int? durationSeconds = null)
     {
         // Get server's local IP for path analysis
         var serverIp = _configuration["HOST_IP"];
@@ -70,6 +71,7 @@ public class ClientSpeedTestService
             UserAgent = userAgent,
             TestTime = DateTime.UtcNow,
             Success = true,
+            DurationSeconds = durationSeconds ?? 12,  // Default 12s matches OpenSpeedTest default
             ParallelStreams = 6,  // OpenSpeedTest default: 6 parallel HTTP connections
             // Geolocation (if provided)
             Latitude = latitude,
