@@ -170,7 +170,7 @@ public class PropagationService
         // The offset is the difference between the actual mount and the pattern's native orientation.
         // Outdoor APs in omni mode have patterns measured wall-mounted, but directional (non-omni)
         // patterns are measured flat (ceiling orientation), so we adjust accordingly.
-        var patternNativeMount = GetPatternNativeMount(ap.Model, ap.AntennaMode);
+        var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
         var patternMountOffset = patternNativeMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
         var actualMountOffset = ap.MountType switch { "wall" => -90, "desktop" => 180, _ => 0 };
         var elevationOffset = actualMountOffset - patternMountOffset;
@@ -369,16 +369,30 @@ public class PropagationService
     /// APs with switchable antenna modes (those with an omni variant in the pattern
     /// data) have their directional patterns measured flat (ceiling orientation),
     /// while their omni patterns are measured wall-mounted.
+    /// When the requested variant doesn't exist for the band (e.g., U7-Pro-Outdoor
+    /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
+    /// so we must also fall back to the base pattern's native mount.
     /// </summary>
-    private string GetPatternNativeMount(string model, string? antennaMode)
+    private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
         var isOmni = !string.IsNullOrEmpty(antennaMode) &&
                      antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
 
-        if (!isOmni && _antennaLoader.HasOmniVariant(model))
-            return "ceiling";
+        if (!_antennaLoader.HasOmniVariant(model))
+            return MountTypeHelper.GetDefaultMountType(model);
 
-        return MountTypeHelper.GetDefaultMountType(model);
+        if (isOmni)
+        {
+            // Check if the omni variant actually has this band. If not, the pattern
+            // loader fell back to the base directional pattern, so use ceiling mount.
+            var omniPattern = _antennaLoader.GetPattern(model, band, "OMNI");
+            var basePattern = _antennaLoader.GetPattern(model, band);
+            if (omniPattern == basePattern || omniPattern == null)
+                return "ceiling"; // fell back to directional base
+            return MountTypeHelper.GetDefaultMountType(model); // true omni pattern loaded
+        }
+
+        return "ceiling"; // directional mode on a switchable AP
     }
 
     /// <summary>
