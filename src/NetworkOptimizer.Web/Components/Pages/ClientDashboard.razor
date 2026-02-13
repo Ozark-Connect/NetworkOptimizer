@@ -138,8 +138,8 @@
                     @if (_client.TxRateKbps.HasValue)
                     {
                         <div class="hero-detail-item">
-                            <span class="detail-label">TX / RX</span>
-                            <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx") / @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                            <span class="detail-label" data-tooltip="AP perspective: RX = from device, TX = to device">RX / TX</span>
+                            <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx") / @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                         </div>
                     }
                     @if (_client.IsMlo)
@@ -333,8 +333,8 @@
                                             <th>From Device</th>
                                             <th>To Device</th>
                                             <th>Ping</th>
-                                            <th>TX Rate</th>
-                                            <th>RX Rate</th>
+                                            <th data-tooltip="AP receive rate (from device)">RX Rate</th>
+                                            <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
                                             <th>Type</th>
                                         </tr>
                                     </thead>
@@ -346,9 +346,9 @@
                                                 <td>@r.TestTime.ToLocalTime().ToString("g")</td>
                                                 <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
                                                 <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
-                                                <td>@(r.PingMs?.ToString("F1") ?? "—") ms</td>
-                                                <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                <td>@(r.PingMs?.ToString("F1") ?? "-") ms</td>
                                                 <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
+                                                <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
@@ -417,12 +417,12 @@
                                 @if (_client.TxRateKbps.HasValue)
                                 {
                                     <div class="signal-detail">
-                                        <span class="detail-label">TX Rate</span>
-                                        <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
+                                        <span class="detail-label" data-tooltip="AP receive rate (from device)">RX Rate</span>
+                                        <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
                                     </div>
                                     <div class="signal-detail">
-                                        <span class="detail-label">RX Rate</span>
-                                        <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                                        <span class="detail-label" data-tooltip="AP transmit rate (to device)">TX Rate</span>
+                                        <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                                     </div>
                                 }
                                 @if (_client.NoiseDbm.HasValue)
@@ -495,8 +495,8 @@
                                             <th class="sortable @(_signalSortCol == "band" ? "sorted" : "")" @onclick='() => ToggleSignalSort("band")'>Band @SortIndicator("band")</th>
                                             <th class="sortable @(_signalSortCol == "ap" ? "sorted" : "")" @onclick='() => ToggleSignalSort("ap")'>AP @SortIndicator("ap")</th>
                                             <th class="sortable @(_signalSortCol == "channel" ? "sorted" : "")" @onclick='() => ToggleSignalSort("channel")'>Channel @SortIndicator("channel")</th>
-                                            <th>TX Rate</th>
-                                            <th>RX Rate</th>
+                                            <th data-tooltip="AP receive rate (from device)">RX Rate</th>
+                                            <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -524,8 +524,8 @@
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "-")</td>
                                                 <td>@(entry.Channel?.ToString() ?? "-")</td>
-                                                <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
                                                 <td>@RenderRate(entry.RxRateKbps, "wifi-speed-rx")</td>
+                                                <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -581,8 +581,8 @@
                                 @if (_client.TxRateKbps.HasValue)
                                 {
                                     <div class="connection-detail">
-                                        <span class="detail-label">TX / RX</span>
-                                        <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx") / @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                                        <span class="detail-label" data-tooltip="AP perspective: RX = from device, TX = to device">RX / TX</span>
+                                        <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx") / @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                                     </div>
                                 }
                             }
