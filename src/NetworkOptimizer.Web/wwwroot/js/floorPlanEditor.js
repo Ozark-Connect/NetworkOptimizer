@@ -993,7 +993,7 @@ window.fpEditor = {
                     var len2 = dx * dx + dy * dy;
                     if (len2 < 1) continue;
                     var t = ((mousePixel.x - aPx.x) * dx + (mousePixel.y - aPx.y) * dy) / len2;
-                    if (t < 0.01 || t > 0.99) continue;
+                    if (t < -0.02 || t > 1.02) continue;
                     var projPx = L.point(aPx.x + t * dx, aPx.y + t * dy);
                     var dist = mousePixel.distanceTo(projPx);
                     if (dist < bestSegDist) {
@@ -1194,7 +1194,7 @@ window.fpEditor = {
                     checkPoints(w.points, wLabel);
                 }
             }
-            if (bestLen !== null) console.log('lengthSnap:', bestSource, 'cur=' + (curMeters * 3.28084).toFixed(1) + "'");
+            // if (bestLen !== null) console.log('lengthSnap:', bestSource, 'cur=' + (curMeters * 3.28084).toFixed(1) + "'");
             return bestLen;
         };
 
