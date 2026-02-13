@@ -715,9 +715,9 @@ window.fpEditor = {
             walls.forEach(function (wall) {
                 var id = wall._buildingId;
                 if (!id || wall.points.length < 3) return;
-                // Only use exterior wall shapes for building click areas
+                // Skip interior-only wall shapes (drywall is always interior)
                 var mat = (wall.material || '').toLowerCase();
-                if (mat.indexOf('exterior') !== 0) return;
+                if (mat === 'drywall') return;
                 if (!bldgGroups[id]) bldgGroups[id] = [];
                 var latlngs = wall.points.map(function (p) { return [p.lat, p.lng]; });
                 bldgGroups[id].push(latlngs);
