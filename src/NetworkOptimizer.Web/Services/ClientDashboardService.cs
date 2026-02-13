@@ -160,13 +160,17 @@ public class ClientDashboardService
     /// Fills forward TraceJson for entries that didn't store it (dedup optimization).
     /// </summary>
     public async Task<List<SignalHistoryEntry>> GetSignalHistoryAsync(
-        string mac, DateTime from, DateTime to)
+        string mac, DateTime from, DateTime to, int skip = 0, int take = 500)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
 
-        var logs = await db.ClientSignalLogs
+        var query = db.ClientSignalLogs
             .Where(l => l.ClientMac == mac && l.Timestamp >= from && l.Timestamp <= to)
-            .OrderBy(l => l.Timestamp)
+            .OrderBy(l => l.Timestamp);
+
+        var logs = await query
+            .Skip(skip)
+            .Take(take)
             .ToListAsync();
 
         return logs.Select(l => new SignalHistoryEntry

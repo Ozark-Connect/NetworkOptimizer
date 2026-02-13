@@ -1152,11 +1152,11 @@ app.MapPost("/api/client-dashboard/signal-log", async (HttpContext context, Clie
 });
 
 app.MapGet("/api/client-dashboard/signal-history", async (ClientDashboardService service,
-    string mac, DateTime? from = null, DateTime? to = null) =>
+    string mac, DateTime? from = null, DateTime? to = null, int? skip = null, int? take = null) =>
 {
     var fromDate = from ?? DateTime.UtcNow.AddHours(-24);
     var toDate = to ?? DateTime.UtcNow;
-    var history = await service.GetSignalHistoryAsync(mac, fromDate, toDate);
+    var history = await service.GetSignalHistoryAsync(mac, fromDate, toDate, skip ?? 0, take ?? 500);
     return Results.Ok(history);
 });
 

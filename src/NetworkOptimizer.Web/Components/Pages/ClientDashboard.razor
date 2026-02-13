@@ -1,4 +1,4 @@
-@page "/wifi-optimizer/client-dashboard"
+@page "/client-dashboard"
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -20,8 +20,8 @@
 <div class="client-dashboard-page">
     @* Back Link *@
     <div class="page-back-link">
-        <a href="/wifi-optimizer" class="back-link">
-            <span class="back-arrow">←</span> Wi-Fi Optimizer
+        <a href="/" class="back-link">
+            <span class="back-arrow">←</span> Home
         </a>
     </div>
 
@@ -59,8 +59,25 @@
 
     @if (_loading)
     {
-        <div class="loading-container">
-            <span class="spinner-sm"></span> Identifying your device...
+        <div class="skeleton-hero card">
+            <div class="skeleton-row">
+                <div class="skeleton-block skeleton-title"></div>
+                <div class="skeleton-block skeleton-gauge"></div>
+            </div>
+            <div class="skeleton-row">
+                <div class="skeleton-block skeleton-detail"></div>
+                <div class="skeleton-block skeleton-detail"></div>
+                <div class="skeleton-block skeleton-detail"></div>
+                <div class="skeleton-block skeleton-detail"></div>
+            </div>
+        </div>
+        <div class="skeleton-tabs">
+            <div class="skeleton-block skeleton-tab"></div>
+            <div class="skeleton-block skeleton-tab"></div>
+            <div class="skeleton-block skeleton-tab"></div>
+        </div>
+        <div class="skeleton-chart card">
+            <div class="skeleton-block skeleton-chart-area"></div>
         </div>
     }
     else if (_client == null)
@@ -206,6 +223,14 @@
                                         <span class="speed-unit">ms</span>
                                     </div>
                                 }
+                                @if (_latestSpeedResult.DownloadLatencyMs.HasValue || _latestSpeedResult.UploadLatencyMs.HasValue)
+                                {
+                                    <div class="speed-metric loaded-latency">
+                                        <span class="speed-label">Loaded Latency</span>
+                                        <span class="speed-value">@((_latestSpeedResult.DownloadLatencyMs ?? _latestSpeedResult.UploadLatencyMs)?.ToString("F1"))</span>
+                                        <span class="speed-unit">ms</span>
+                                    </div>
+                                }
                             </div>
                             <div class="speed-hero-meta">
                                 <span>@_latestSpeedResult.TestTime.ToLocalTime().ToString("g")</span>
@@ -240,7 +265,7 @@
                         <div class="card chart-card">
                             <h3>Speed History</h3>
                             <div class="chart-container">
-                                <ApexChart @ref="_speedChart" TItem="SpeedChartPoint"
+                                <ApexChart @key="_chartKey" @ref="_speedChart" TItem="SpeedChartPoint"
                                            Options="_speedChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SpeedChartPoint"
@@ -254,6 +279,34 @@
                                                      Items="SpeedUploadData"
                                                      Name="To Device"
                                                      SeriesType="SeriesType.Area"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                </ApexChart>
+                            </div>
+                        </div>
+                    }
+
+                    @* Latency History Chart *@
+                    @if (_latencyChartData.Count > 0)
+                    {
+                        <div class="card chart-card">
+                            <h3>Latency History</h3>
+                            <div class="chart-container">
+                                <ApexChart @key="_chartKey" TItem="SpeedChartPoint"
+                                           Options="_latencyChartOptions"
+                                           Height="@("200px")">
+                                    <ApexPointSeries TItem="SpeedChartPoint"
+                                                     Items="LatencyPingData"
+                                                     Name="Ping"
+                                                     SeriesType="SeriesType.Line"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                    <ApexPointSeries TItem="SpeedChartPoint"
+                                                     Items="LatencyJitterData"
+                                                     Name="Jitter"
+                                                     SeriesType="SeriesType.Line"
                                                      XValue="e => e.Timestamp"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
@@ -305,6 +358,14 @@
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+                    }
+                    @* Speed Map *@
+                    @if (_speedResults.Any(r => r.Latitude.HasValue))
+                    {
+                        <div class="card chart-card">
+                            <h3>Speed Map</h3>
+                            <SpeedTestMap Results="_speedResults" MapHeight="400px" />
                         </div>
                     }
                 </div>
@@ -401,7 +462,7 @@
                         <div class="card chart-card">
                             <h3>Signal History</h3>
                             <div class="chart-container">
-                                <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
+                                <ApexChart @key="_chartKey" @ref="_signalChart" TItem="SignalChartPoint"
                                            Options="_signalChartOptions"
                                            Height="@("250px")">
                                     <ApexPointSeries TItem="SignalChartPoint"
@@ -425,17 +486,17 @@
                                 <table class="results-table">
                                     <thead>
                                         <tr>
-                                            <th>Time</th>
-                                            <th>Signal</th>
-                                            <th>Band</th>
-                                            <th>AP</th>
-                                            <th>Channel</th>
+                                            <th class="sortable @(_signalSortCol == "time" ? "sorted" : "")" @onclick='() => ToggleSignalSort("time")'>Time @SortIndicator("time")</th>
+                                            <th class="sortable @(_signalSortCol == "signal" ? "sorted" : "")" @onclick='() => ToggleSignalSort("signal")'>Signal @SortIndicator("signal")</th>
+                                            <th class="sortable @(_signalSortCol == "band" ? "sorted" : "")" @onclick='() => ToggleSignalSort("band")'>Band @SortIndicator("band")</th>
+                                            <th class="sortable @(_signalSortCol == "ap" ? "sorted" : "")" @onclick='() => ToggleSignalSort("ap")'>AP @SortIndicator("ap")</th>
+                                            <th class="sortable @(_signalSortCol == "channel" ? "sorted" : "")" @onclick='() => ToggleSignalSort("channel")'>Channel @SortIndicator("channel")</th>
                                             <th>TX Rate</th>
                                             <th>RX Rate</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var entry in _signalHistory.AsEnumerable().Reverse().Take(100))
+                                        @foreach (var entry in GetSortedSignalHistory())
                                         {
                                             <tr class="@(entry.DataSource == SignalDataSource.UniFiController ? "unifi-source-row" : "")">
                                                 <td>
@@ -509,6 +570,27 @@
                         <div class="card trace-card">
                             <h3>Network Path</h3>
                             <SpeedTestDetails PathAnalysis="_latestPoll.PathAnalysis" />
+                        </div>
+                    }
+
+                    @* Connection History Graph *@
+                    @if (_connectionEvents.Count > 1)
+                    {
+                        <div class="card chart-card">
+                            <h3>Connection History</h3>
+                            <div class="chart-container">
+                                <ApexChart @key="_chartKey" TItem="ConnectionChartPoint"
+                                           Options="_connectionChartOptions"
+                                           Height="@("200px")">
+                                    <ApexPointSeries TItem="ConnectionChartPoint"
+                                                     Items="_connectionChartData"
+                                                     Name="AP"
+                                                     SeriesType="SeriesType.Scatter"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.ApIndex"
+                                                     OrderBy="e => e.X" />
+                                </ApexChart>
+                            </div>
                         </div>
                     }
 
@@ -587,21 +669,34 @@
                                             <th>Time</th>
                                             <th>Hops</th>
                                             <th>Bottleneck</th>
+                                            <th>Change</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var trace in _traceHistory)
+                                        @for (int i = 0; i < _traceHistory.Count; i++)
                                         {
+                                            var trace = _traceHistory[i];
+                                            var prev = i < _traceHistory.Count - 1 ? _traceHistory[i + 1] : null;
                                             <tr class="result-row @(_expandedTraceTimestamp == trace.Timestamp ? "expanded" : "")"
                                                 @onclick="() => ToggleTraceExpand(trace.Timestamp)">
                                                 <td>@trace.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
                                                 <td>@(trace.HopCount?.ToString() ?? "—")</td>
                                                 <td>@(trace.BottleneckLinkSpeedMbps?.ToString("F0") ?? "—") Mbps</td>
+                                                <td class="trace-change-cell">
+                                                    @if (prev != null)
+                                                    {
+                                                        @FormatTraceChange(prev, trace)
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="trace-initial">Initial</span>
+                                                    }
+                                                </td>
                                             </tr>
                                             @if (_expandedTraceTimestamp == trace.Timestamp && trace.PathAnalysis != null)
                                             {
                                                 <tr class="result-details-row">
-                                                    <td colspan="3">
+                                                    <td colspan="4">
                                                         <div class="result-details">
                                                             <SpeedTestDetails PathAnalysis="trace.PathAnalysis" />
                                                         </div>
@@ -639,6 +734,8 @@
     private List<SpeedChartPoint> _speedChartData = new();
     private ApexChart<SpeedChartPoint>? _speedChart;
     private ApexChartOptions<SpeedChartPoint> _speedChartOptions = new();
+    private List<SpeedChartPoint> _latencyChartData = new();
+    private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
     private int? _expandedResultId;
     private string? _openSpeedTestUrl;
 
@@ -648,10 +745,19 @@
     private ApexChart<SignalChartPoint>? _signalChart;
     private ApexChartOptions<SignalChartPoint> _signalChartOptions = new();
 
+    // Signal table sorting
+    private string _signalSortCol = "time";
+    private bool _signalSortAsc = false;
+
     // Connection tab
     private List<TraceChangeEntry> _traceHistory = new();
     private List<ClientConnectionEvent> _connectionEvents = new();
     private DateTime? _expandedTraceTimestamp;
+    private List<ConnectionChartPoint> _connectionChartData = new();
+    private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
+
+    // Chart re-render key (incremented on time filter change to force chart recreation)
+    private int _chartKey;
 
     // Polling
     private System.Threading.Timer? _pollTimer;
@@ -690,6 +796,7 @@
 
         // Configure charts
         ConfigureSpeedChart();
+        ConfigureLatencyChart();
         ConfigureSignalChart();
 
         // Identify client
@@ -845,10 +952,16 @@
 
         // Build chart data
         _speedChartData.Clear();
+        _latencyChartData.Clear();
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
             _speedChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
             _speedChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+
+            if (r.PingMs.HasValue)
+                _latencyChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+            if (r.JitterMs.HasValue)
+                _latencyChartData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
         }
     }
 
@@ -862,6 +975,58 @@
             .Where(h => h.SignalDbm.HasValue)
             .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value))
             .ToList();
+
+        // Build chart annotations for band/AP changes
+        BuildSignalAnnotations();
+    }
+
+    private void BuildSignalAnnotations()
+    {
+        var annotations = new List<AnnotationsXAxis>();
+        string? prevBand = null;
+        string? prevAp = null;
+
+        foreach (var entry in _signalHistory)
+        {
+            var ts = new DateTimeOffset(entry.Timestamp).ToUnixTimeMilliseconds();
+
+            // Detect band change
+            if (prevBand != null && entry.Band != null && entry.Band != prevBand)
+            {
+                annotations.Add(new AnnotationsXAxis
+                {
+                    X = ts,
+                    BorderColor = "#a78bfa",
+                    Label = new Label
+                    {
+                        Text = FormatBand(entry.Band),
+                        Style = new Style { Background = "#a78bfa", Color = "#fff", FontSize = "10px" },
+                        Orientation = Orientation.Horizontal
+                    }
+                });
+            }
+
+            // Detect AP roam
+            if (prevAp != null && entry.ApName != null && entry.ApName != prevAp)
+            {
+                annotations.Add(new AnnotationsXAxis
+                {
+                    X = ts,
+                    BorderColor = "#3b82f6",
+                    Label = new Label
+                    {
+                        Text = entry.ApName,
+                        Style = new Style { Background = "#3b82f6", Color = "#fff", FontSize = "10px" },
+                        Orientation = Orientation.Horizontal
+                    }
+                });
+            }
+
+            if (entry.Band != null) prevBand = entry.Band;
+            if (entry.ApName != null) prevAp = entry.ApName;
+        }
+
+        _signalChartOptions.Annotations = new Annotations { Xaxis = annotations };
     }
 
     private async Task LoadConnectionDataAsync(DateTime from, DateTime to)
@@ -879,12 +1044,16 @@
             .Where(e => e.Timestamp >= from && e.Timestamp <= to)
             .OrderByDescending(e => e.Timestamp)
             .ToList();
+
+        // Build connection history chart data
+        BuildConnectionChartData();
     }
 
     private void SetActiveTab(string tab)
     {
         if (_activeTab == tab) return;
         _activeTab = tab;
+        _chartKey++; // Force chart recreation for new tab
 
         // Update URL without navigation
         var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
@@ -902,6 +1071,7 @@
     {
         if (_selectedTimeFilter == hours) return;
         _selectedTimeFilter = hours;
+        _chartKey++; // Force chart recreation with new data
 
         // Reload data for all tabs with new time range
         _ = InvokeAsync(async () =>
@@ -934,6 +1104,49 @@
     private void ToggleTraceExpand(DateTime timestamp)
     {
         _expandedTraceTimestamp = _expandedTraceTimestamp == timestamp ? null : timestamp;
+    }
+
+    // --- Signal Table Sorting ---
+
+    private void ToggleSignalSort(string col)
+    {
+        if (_signalSortCol == col)
+            _signalSortAsc = !_signalSortAsc;
+        else
+        {
+            _signalSortCol = col;
+            _signalSortAsc = col == "time" ? false : true; // default: time desc, others asc
+        }
+    }
+
+    private string SortIndicator(string col)
+    {
+        if (_signalSortCol != col) return "";
+        return _signalSortAsc ? "\u25B2" : "\u25BC";
+    }
+
+    private IEnumerable<SignalHistoryEntry> GetSortedSignalHistory()
+    {
+        var data = _signalHistory.AsEnumerable();
+        data = _signalSortCol switch
+        {
+            "signal" => _signalSortAsc
+                ? data.OrderBy(e => e.SignalDbm ?? int.MinValue)
+                : data.OrderByDescending(e => e.SignalDbm ?? int.MinValue),
+            "band" => _signalSortAsc
+                ? data.OrderBy(e => e.Band ?? "")
+                : data.OrderByDescending(e => e.Band ?? ""),
+            "ap" => _signalSortAsc
+                ? data.OrderBy(e => e.ApName ?? "")
+                : data.OrderByDescending(e => e.ApName ?? ""),
+            "channel" => _signalSortAsc
+                ? data.OrderBy(e => e.Channel ?? 0)
+                : data.OrderByDescending(e => e.Channel ?? 0),
+            _ => _signalSortAsc
+                ? data.OrderBy(e => e.Timestamp)
+                : data.OrderByDescending(e => e.Timestamp)
+        };
+        return data.Take(100);
     }
 
     // --- Connection Event Helpers ---
@@ -1082,6 +1295,40 @@
         };
     }
 
+    private void ConfigureLatencyChart()
+    {
+        _latencyChartOptions = new ApexChartOptions<SpeedChartPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false }
+            },
+            Theme = new Theme { Mode = Mode.Dark },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis { Title = new AxisTitle { Text = "ms" }, Min = 0 }
+            },
+            Colors = new List<string> { "#f59e0b", "#a78bfa" },
+            Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "MMM dd HH:mm" }
+            },
+            Legend = new Legend { Show = true, Position = LegendPosition.Top }
+        };
+    }
+
     private void ConfigureSignalChart()
     {
         _signalChartOptions = new ApexChartOptions<SignalChartPoint>
@@ -1188,6 +1435,12 @@
     private List<SpeedChartPoint> SpeedUploadData =>
         _speedChartData.Where(p => p.Series == "upload").ToList();
 
+    private List<SpeedChartPoint> LatencyPingData =>
+        _latencyChartData.Where(p => p.Series == "ping").ToList();
+
+    private List<SpeedChartPoint> LatencyJitterData =>
+        _latencyChartData.Where(p => p.Series == "jitter").ToList();
+
     // --- Chart Data Classes ---
 
     private class SpeedChartPoint
@@ -1218,6 +1471,105 @@
         }
     }
 
+    // --- Trace Change Summary ---
+
+    private static string FormatTraceChange(TraceChangeEntry prev, TraceChangeEntry curr)
+    {
+        var parts = new List<string>();
+
+        if (prev.HopCount.HasValue && curr.HopCount.HasValue && prev.HopCount != curr.HopCount)
+            parts.Add($"{prev.HopCount}\u2192{curr.HopCount} hops");
+
+        if (prev.BottleneckLinkSpeedMbps.HasValue && curr.BottleneckLinkSpeedMbps.HasValue
+            && Math.Abs(prev.BottleneckLinkSpeedMbps.Value - curr.BottleneckLinkSpeedMbps.Value) > 0.5)
+            parts.Add($"{prev.BottleneckLinkSpeedMbps:F0}\u2192{curr.BottleneckLinkSpeedMbps:F0} Mbps");
+
+        return parts.Count > 0 ? string.Join(", ", parts) : "Path changed";
+    }
+
+    // --- Connection Chart ---
+
+    private class ConnectionChartPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal ApIndex { get; set; }
+        public string ApName { get; set; } = "";
+        public long X => new DateTimeOffset(Timestamp).ToUnixTimeMilliseconds();
+
+        public ConnectionChartPoint(DateTime ts, decimal apIndex, string apName)
+        {
+            Timestamp = ts;
+            ApIndex = apIndex;
+            ApName = apName;
+        }
+    }
+
+    private void BuildConnectionChartData()
+    {
+        _connectionChartData.Clear();
+
+        // Build AP name → index mapping from events
+        var apNames = _connectionEvents
+            .Select(e => e.ApName ?? e.ToApName ?? "Unknown")
+            .Where(n => n != "Unknown")
+            .Distinct()
+            .OrderBy(n => n)
+            .ToList();
+
+        if (apNames.Count == 0) return;
+
+        var apIndex = new Dictionary<string, int>();
+        for (int i = 0; i < apNames.Count; i++)
+            apIndex[apNames[i]] = i;
+
+        foreach (var evt in _connectionEvents.OrderBy(e => e.Timestamp))
+        {
+            var ap = evt.ApName ?? evt.ToApName ?? "Unknown";
+            if (apIndex.TryGetValue(ap, out var idx))
+            {
+                _connectionChartData.Add(new ConnectionChartPoint(
+                    evt.Timestamp.UtcDateTime, idx, ap));
+            }
+        }
+
+        // Configure chart with AP names as Y categories
+        _connectionChartOptions = new ApexChartOptions<ConnectionChartPoint>
+        {
+            Chart = new Chart { Background = "transparent", Toolbar = new Toolbar { Show = false } },
+            Theme = new Theme { Mode = Mode.Dark },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = -0.5m,
+                    Max = apNames.Count - 0.5m,
+                    TickAmount = apNames.Count > 1 ? apNames.Count - 1 : 1,
+                    Labels = new YAxisLabels
+                    {
+                        Formatter = @"function(val) {
+                            var names = [" + string.Join(",", apNames.Select(n => "'" + n.Replace("'", "\\'") + "'")) + @"];
+                            var idx = Math.round(val);
+                            return idx >= 0 && idx < names.length ? names[idx] : '';
+                        }"
+                    }
+                }
+            },
+            Colors = new List<string> { "#3b82f6" },
+            Markers = new Markers { Size = 8 },
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
+            Tooltip = new Tooltip { Theme = Mode.Dark },
+            Legend = new Legend { Show = false }
+        };
+    }
+
     public void Dispose()
     {
         _pollTimer?.Dispose();
@@ -1229,7 +1581,7 @@
        .signal-*, .band-badge.band-*, .time-range-selector, .time-btn, .detail-label, .detail-value) */
 
     .client-dashboard-page {
-        max-width: 900px;
+        max-width: 1200px;
         margin: 0 auto;
         padding: 0 16px 32px;
     }
@@ -1609,6 +1961,71 @@
     }
     .unifi-source-row {
         opacity: 0.8;
+    }
+
+    /* Skeleton loaders */
+    .skeleton-hero {
+        padding: 20px;
+        margin-bottom: 16px;
+    }
+    .skeleton-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .skeleton-chart {
+        padding: 20px;
+    }
+    .skeleton-row {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 12px;
+        align-items: center;
+    }
+    .skeleton-block {
+        background: linear-gradient(90deg, var(--bg-tertiary) 25%, rgba(255,255,255,0.06) 50%, var(--bg-tertiary) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+        border-radius: 4px;
+    }
+    .skeleton-title { width: 200px; height: 28px; }
+    .skeleton-gauge { width: 90px; height: 48px; border-radius: 8px; margin-left: auto; }
+    .skeleton-detail { width: 100px; height: 36px; }
+    .skeleton-tab { width: 80px; height: 44px; border-radius: 6px; }
+    .skeleton-chart-area { width: 100%; height: 200px; border-radius: 4px; }
+
+    @@keyframes skeleton-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
+    /* Sticky heroes */
+    .identity-hero {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    /* Sortable table headers */
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+    }
+    .sortable:hover {
+        color: var(--text-primary);
+    }
+    .sortable.sorted {
+        color: var(--primary-color);
+    }
+
+    /* Trace change cell */
+    .trace-change-cell {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    .trace-initial {
+        color: var(--text-secondary);
+        font-style: italic;
     }
 
     /* Mobile responsive */
