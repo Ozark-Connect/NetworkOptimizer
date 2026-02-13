@@ -190,14 +190,14 @@
                             <ApexPointSeries TItem="WanChartDataPoint"
                                              Items="@(IsWanVisible(wan) ? wan.DownloadData : _emptyChartData)"
                                              Name="@($"{wan.DisplayName} ↓")"
-                                             SeriesType="SeriesType.Line"
+                                             SeriesType="SeriesType.Area"
                                              XValue="e => e.Timestamp"
                                              YValue="e => e.Value"
                                              OrderBy="e => e.X" />
                             <ApexPointSeries TItem="WanChartDataPoint"
                                              Items="@(IsWanVisible(wan) ? wan.UploadData : _emptyChartData)"
                                              Name="@($"{wan.DisplayName} ↑")"
-                                             SeriesType="SeriesType.Line"
+                                             SeriesType="SeriesType.Area"
                                              XValue="e => e.Timestamp"
                                              YValue="e => e.Value"
                                              OrderBy="e => e.X" />
@@ -444,6 +444,7 @@
     // Chart state
     private ApexChart<WanChartDataPoint>? _chart;
     private ApexChartOptions<WanChartDataPoint> _chartOptions = new();
+    private bool _jsReady;
     private List<WanSeriesInfo> _wanSeries = new();
     private List<WanChartDataPoint> _emptyChartData = new();
 
@@ -583,12 +584,24 @@
         GatewayWanTestService.OnPathAnalysisComplete += OnPathAnalysisComplete;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsReady = true;
+            // Delay to let Blazor-ApexCharts finish its own OnAfterRenderAsync
+            await Task.Delay(500);
+            await OverrideChartMarkersAsync();
+        }
+    }
+
     private void InitializeChartOptions()
     {
         _chartOptions = new ApexChartOptions<WanChartDataPoint>
         {
             Chart = new Chart
             {
+                Id = "wan-speed-chart",
                 Background = "transparent",
                 Toolbar = new Toolbar { Show = false },
                 Zoom = new Zoom { Enabled = false },
@@ -645,29 +658,47 @@
                 Theme = Mode.Dark,
                 X = new TooltipX { Format = "MMM dd, HH:mm" }
             },
-            Markers = new Markers
+            Fill = new Fill
             {
-                Size = 3,
-                Hover = new MarkersHover { SizeOffset = 3 }
+                Type = new List<FillType> { FillType.Gradient },
+                Gradient = new FillGradient
+                {
+                    ShadeIntensity = 0.3,
+                    OpacityFrom = 0.4,
+                    OpacityTo = 0.05
+                }
             }
         };
     }
 
     private void UpdateChartOptions()
     {
-        // Rebuild Colors and DashArray to match current series order (2 series per WAN: download + upload)
+        // Rebuild Colors, DashArray, and Fill to match current series order (2 series per WAN: download + upload)
         var colors = new List<string>();
         var dashArray = new List<int>();
+        var fillTypes = new List<FillType>();
         foreach (var wan in _wanSeries)
         {
             colors.Add(wan.Color);   // download
             colors.Add(wan.Color);   // upload
             dashArray.Add(0);        // download = solid
             dashArray.Add(5);        // upload = dashed
+            fillTypes.Add(FillType.Gradient); // download area fill
+            fillTypes.Add(FillType.Gradient); // upload area fill
         }
         _chartOptions.Colors = colors;
         if (_chartOptions.Stroke != null)
             _chartOptions.Stroke.DashArray = dashArray;
+        _chartOptions.Fill = new Fill
+        {
+            Type = fillTypes,
+            Gradient = new FillGradient
+            {
+                ShadeIntensity = 0.3,
+                OpacityFrom = 0.4,
+                OpacityTo = 0.05
+            }
+        };
     }
 
     private void TransformChartData()
@@ -829,6 +860,53 @@
                 await _chart.RenderAsync();
         }
         catch { /* Chart may not be mounted yet */ }
+
+        // Blazor-ApexCharts' FixLineDataSelection() forces Markers.Size=5,
+        // Tooltip.Intersect=true, Tooltip.Shared=false when OnDataPointSelection
+        // is bound. Override via direct JS interop to bypass the C# pipeline.
+        await OverrideChartMarkersAsync();
+    }
+
+    private async Task OverrideChartMarkersAsync()
+    {
+        if (!_jsReady) return;
+        try
+        {
+            await JS.InvokeVoidAsync("eval", @"
+                (function() {
+                    var chart = ApexCharts.getChartByID('wan-speed-chart');
+                    if (!chart) return;
+                    chart.updateOptions({
+                        chart: {
+                            events: {
+                                click: function(event, chartContext, config) {
+                                    if (config.seriesIndex >= 0 && config.dataPointIndex >= 0) {
+                                        var handler = chartContext.w.config.chart.events.dataPointSelection;
+                                        if (handler) {
+                                            handler(event, chartContext, {
+                                                selectedDataPoints: [[config.dataPointIndex]],
+                                                seriesIndex: config.seriesIndex,
+                                                dataPointIndex: config.dataPointIndex,
+                                                w: chartContext.w
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        markers: {
+                            size: 0,
+                            hover: { sizeOffset: 5 }
+                        },
+                        tooltip: {
+                            intersect: false,
+                            shared: true
+                        }
+                    }, false, false);
+                })();
+            ");
+        }
+        catch { /* Non-critical visual enhancement - falls back to default markers */ }
     }
 
     private async Task OnChartDataPointSelected(SelectedData<WanChartDataPoint> data)
