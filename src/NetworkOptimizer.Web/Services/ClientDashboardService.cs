@@ -125,6 +125,16 @@ public class ClientDashboardService
                 var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, 0, 0);
                 result.PathAnalysis = analysis;
 
+                // For wired clients, populate ApName/ApModel from the first hop (switch/gateway)
+                if (identity.IsWired && string.IsNullOrEmpty(identity.ApName) && path.Hops.Count > 0)
+                {
+                    var firstHop = path.Hops[0];
+                    if (!string.IsNullOrEmpty(firstHop.DeviceName))
+                        identity.ApName = firstHop.DeviceName;
+                    if (!string.IsNullOrEmpty(firstHop.DeviceModel))
+                        identity.ApModel = firstHop.DeviceModel;
+                }
+
                 // Compute trace hash for dedup (structural path only, not dynamic data)
                 result.TraceHash = ComputeTraceHash(path);
 
