@@ -1796,11 +1796,14 @@ window.fpEditor = {
                     var splitPt1 = { lat: aP.lat + tMin * (bP.lat - aP.lat), lng: aP.lng + tMin * (bP.lng - aP.lng) };
                     var splitPt2 = { lat: aP.lat + tMax * (bP.lat - aP.lat), lng: aP.lng + tMax * (bP.lng - aP.lng) };
                     targetWall.points.splice(targetSi + 1, 0, splitPt1, splitPt2);
+                    var origMat;
                     if (!targetWall.materials) {
+                        origMat = targetWall.material;
                         targetWall.materials = [];
-                        for (var j = 0; j < targetWall.points.length - 3; j++) targetWall.materials.push(targetWall.material);
+                        for (var j = 0; j < targetWall.points.length - 1; j++) targetWall.materials.push(origMat);
                     } else {
-                        targetWall.materials.splice(targetSi, 0, targetWall.materials[targetSi] || targetWall.material);
+                        origMat = targetWall.materials[targetSi] || targetWall.material;
+                        targetWall.materials.splice(targetSi, 0, origMat, origMat);
                     }
                     targetWall.materials[targetSi + 1] = cw.material;
                     didSplit = true;
