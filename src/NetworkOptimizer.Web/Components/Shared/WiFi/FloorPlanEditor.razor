@@ -1,0 +1,2458 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Models
+@using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.WiFi.Data
+@using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi
+@using NetworkOptimizer.UniFi.Models
+@using Microsoft.JSInterop
+@inject FloorPlanService FloorPlanSvc
+@inject ApMapService ApMapSvc
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
+    <!-- Toolbar -->
+    <div class="fp-toolbar">
+        <div class="fp-toolbar-left">
+            <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged"
+                    disabled="@(_mode == "walls")">
+                <option value="0">Select Building...</option>
+                @foreach (var b in _buildings)
+                {
+                    <option value="@b.Id">@b.Name</option>
+                }
+            </select>
+            @if (_selectedBuilding != null)
+            {
+                <button class="fp-btn fp-btn-sm" @onclick="DeselectBuilding">Done Editing</button>
+            }
+            else
+            {
+                <button class="fp-btn fp-btn-sm" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
+            }
+
+            @if (_selectedBuilding != null)
+            {
+                <div class="fp-floor-picker">
+                    @foreach (var f in _floors.OrderByDescending(f => f.FloorNumber))
+                    {
+                        <button class="fp-floor-btn @(f.Id == _selectedFloorId ? "active" : "")"
+                                @onclick="() => SelectFloor(f.Id)"
+                                data-tooltip="@f.Label" data-tooltip-hover-only
+                                disabled="@(_mode == "walls")">
+                            @GetFloorLabel(f.FloorNumber)
+                        </button>
+                    }
+                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor" data-tooltip-hover-only
+                            disabled="@(_mode == "walls")">+ Floor</button>
+                </div>
+            }
+            else if (AllFloorNumbers.Any())
+            {
+                <div class="fp-floor-picker">
+                    @foreach (var fn in AllFloorNumbers)
+                    {
+                        <button class="fp-floor-btn @(fn == _globalActiveFloor ? "active" : "")"
+                                @onclick="() => SetGlobalFloor(fn)"
+                                data-tooltip="@GetFloorLabel(fn) Floor" data-tooltip-hover-only>
+                            @GetFloorLabel(fn)
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+        <div class="fp-toolbar-right">
+            @if (_selectedFloor != null)
+            {
+                @* ── Walls group ── *@
+                <div class="fp-toolbar-group">
+                    <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "")" @onclick="ToggleWallDrawMode">
+                        @(_mode == "walls" ? "Done Drawing" : "Draw Walls")
+                    </button>
+                    @if (_mode == "walls")
+                    {
+                        <select class="fp-select fp-select-sm fp-wall-select" @bind="_wallMaterial">
+                            @foreach (var mat in MaterialAttenuation.MaterialLabels
+                                .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior"))
+                            {
+                                var db = MaterialAttenuation.GetAttenuation(mat.Key, "5");
+                                <option value="@mat.Key">@mat.Value (@db dB)</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
+                                data-tooltip="Delete last wall" data-tooltip-hover-only>Undo Wall</button>
+                    }
+                </div>
+                <span class="fp-toolbar-sep"></span>
+            }
+
+            @* ── APs group ── *@
+            <div class="fp-toolbar-group">
+                <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
+                    @(_mode == "aps" ? "Done" : "Edit APs")
+                </button>
+            </div>
+
+            <span class="fp-toolbar-sep"></span>
+
+            @* ── View group ── *@
+            <div class="fp-toolbar-group">
+                <button class="fp-btn @(_showHeatmap ? "active" : "")" @onclick="ToggleHeatmap">
+                    Heatmap
+                </button>
+                <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged"
+                        disabled="@(!_showHeatmap)">
+                    <option value="2.4">2.4 GHz</option>
+                    <option value="5">5 GHz</option>
+                    <option value="6">6 GHz</option>
+                </select>
+                @if (_showHeatmap)
+                {
+                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
+                        Reset Sim
+                    </button>
+                }
+                <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
+                    Signal Data
+                </button>
+                <button class="fp-btn" @onclick="FitMapToContent"
+                        data-tooltip="Fit to view" data-tooltip-hover-only
+                        style="padding: 4px 6px; line-height: 0;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h6v6"></path>
+                        <path d="M9 21H3v-6"></path>
+                        <path d="M21 3l-7 7"></path>
+                        <path d="M3 21l7-7"></path>
+                    </svg>
+                </button>
+                <button class="fp-btn @(_isFullscreen ? "fp-btn-warning" : "")" @onclick="ToggleFullscreen"
+                        data-tooltip="@(_isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen")" data-tooltip-hover-only
+                        style="padding: 4px 6px; line-height: 0;">
+                    @if (_isFullscreen)
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="4 10 10 10 10 4"></polyline>
+                            <polyline points="14 4 14 10 20 10"></polyline>
+                            <polyline points="20 14 14 14 14 20"></polyline>
+                            <polyline points="10 20 10 14 4 14"></polyline>
+                        </svg>
+                    }
+                    else
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 8 3 3 8 3"></polyline>
+                            <polyline points="16 3 21 3 21 8"></polyline>
+                            <polyline points="21 16 21 21 16 21"></polyline>
+                            <polyline points="8 21 3 21 3 16"></polyline>
+                        </svg>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div class="fp-map-container" style="position: relative;">
+        <div id="@_mapId" class="fp-map" style="height: @(_isFullscreen ? "100%" : MapHeight);"></div>
+
+        @if (_mode == "aps")
+        {
+            @if (UnplacedAps.Any())
+            {
+                <div class="fp-ap-panel">
+                    <div class="fp-ap-panel-header">
+                        @if (_selectedApForPlacement != null)
+                        {
+                            <span>Click the map to place <strong>@_selectedApForPlacement.Name</strong></span>
+                        }
+                        else
+                        {
+                            <span>Select an AP to place on the map</span>
+                        }
+                    </div>
+                    <div class="fp-ap-panel-list">
+                        @foreach (var ap in UnplacedAps)
+                        {
+                            <button class="fp-ap-item @(_selectedApForPlacement?.Mac == ap.Mac ? "selected" : "")"
+                                    @onclick="() => SelectApForPlacement(ap)">
+                                <img src="@(DeviceIcon.GetIconPath(ap.Model) ?? "/images/devices/default-ap.png")"
+                                     alt="@ap.Model" class="fp-ap-item-icon" />
+                                <span class="fp-ap-item-name">@ap.Name</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="fp-edit-hint">
+                    Drag APs to adjust their locations
+                </div>
+            }
+        }
+
+        @if (_mode == "walls")
+        {
+            <div class="fp-edit-hint fp-wall-hint">
+                <span>Click to place points · Shift = free-form</span>
+                @if (_isDrawingShape)
+                {
+                    <br/>
+                    <span>Double-click or</span>
+                    <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
+                    <span>to complete</span>
+                }
+            </div>
+        }
+
+        @if (_showHeatmap)
+        {
+            <div class="fp-heatmap-legend">
+                <div class="fp-legend-title">Signal (dBm)</div>
+                <div class="fp-legend-bar"></div>
+                <div class="fp-legend-labels">
+                    <span>-30</span>
+                    <span>-55</span>
+                    <span>-65</span>
+                    <span>-80</span>
+                    <span>-90</span>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Bottom bar -->
+    @if (_selectedFloor != null)
+    {
+        <div class="fp-bottom-bar">
+            @* TODO: Re-enable once floor plan image sizing/positioning is implemented
+            <label class="fp-upload-btn">
+                Upload Floor Plan
+                <InputFile OnChange="OnFloorPlanUpload" accept="image/*" style="display:none" />
+            </label>
+            *@
+            <div class="fp-opacity-control">
+                <span>Floor:</span>
+                <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
+                    <option value="floor_wood">Wood Frame</option>
+                    <option value="floor_concrete">Concrete Slab</option>
+                </select>
+            </div>
+            @* TODO: Re-enable alongside floor plan image upload
+            <div class="fp-opacity-control">
+                <span>Opacity:</span>
+                <input type="range" min="0" max="100" value="@((int)(_floorOpacity * 100))"
+                       @oninput="OnOpacityChange" class="fp-opacity-slider" />
+            </div>
+            *@
+            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
+            <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
+            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
+        </div>
+    }
+    else if (_selectedBuilding != null)
+    {
+        <div class="fp-bottom-bar">
+            <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
+            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
+        </div>
+    }
+</div>
+
+<!-- Add Building Dialog -->
+@if (_showAddBuilding)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showAddBuilding = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Add Building</h3>
+            <div class="fp-form-group">
+                <label>Name</label>
+                <input type="text" @bind="_newBuildingName" class="fp-input" placeholder="e.g. Main House" />
+            </div>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showAddBuilding = false">Cancel</button>
+                <button class="fp-btn fp-btn-primary" @onclick="CreateBuilding">Create</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Add Floor Dialog -->
+@if (_showAddFloor)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showAddFloor = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Add Floor</h3>
+            <div class="fp-form-group">
+                <label>Floor Number</label>
+                <input type="number" @bind="_newFloorNumber" class="fp-input" />
+            </div>
+            <div class="fp-form-group">
+                <label>Label</label>
+                <input type="text" @bind="_newFloorLabel" class="fp-input" placeholder="e.g. Ground Floor" />
+            </div>
+            <div class="fp-form-group">
+                <label>Floor Construction</label>
+                <select class="fp-input" @bind="_newFloorMaterial">
+                    <option value="floor_wood">Wood Frame (Residential)</option>
+                    <option value="floor_concrete">Concrete Slab (Commercial)</option>
+                </select>
+            </div>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showAddFloor = false">Cancel</button>
+                <button class="fp-btn fp-btn-primary" @onclick="CreateFloor">Create</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Floor Confirmation -->
+@if (_showDeleteFloor && _selectedFloor != null)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showDeleteFloor = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Delete Floor</h3>
+            <p style="color: var(--text-muted, #aaa); margin: 8px 0 16px;">
+                Delete <strong>@(_selectedFloor.Label ?? $"Floor {_selectedFloor.FloorNumber}")</strong> and all its walls? This cannot be undone.
+            </p>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showDeleteFloor = false">Cancel</button>
+                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Building Confirmation -->
+@if (_showDeleteBuilding && _selectedBuilding != null)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showDeleteBuilding = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Delete Building</h3>
+            <p style="color: var(--text-muted, #aaa); margin: 8px 0 16px;">
+                Delete <strong>@_selectedBuilding.Name</strong> and all its floors? This cannot be undone.
+            </p>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showDeleteBuilding = false">Cancel</button>
+                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedBuilding">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .floor-plan-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        background: var(--card-bg, #1a1a2e);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .floor-plan-editor.fp-fullscreen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 9999;
+        border-radius: 0;
+    }
+
+    .fp-fullscreen .fp-toolbar {
+        position: relative;
+        z-index: 10000;
+        flex-shrink: 0;
+    }
+
+    .fp-fullscreen .fp-map-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        position: relative;
+    }
+
+    .fp-fullscreen .fp-map {
+        flex: 1;
+        min-height: 0;
+        height: 100% !important;
+    }
+
+    .fp-fullscreen .fp-bottom-bar {
+        position: relative;
+        z-index: 10000;
+        flex-shrink: 0;
+    }
+
+    .fp-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: var(--card-header-bg, #16162a);
+        border-bottom: 1px solid var(--border-color, #2d2d4a);
+        flex-wrap: wrap;
+        gap: 8px;
+        position: relative;
+        z-index: 2;
+        flex-shrink: 0;
+    }
+
+    .fp-toolbar-left, .fp-toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .fp-select {
+        background: var(--input-bg, #0d0d1a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 13px;
+    }
+
+    .fp-select-sm { max-width: 100px; }
+    .fp-wall-select { max-width: 200px !important; }
+
+    .fp-btn {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .fp-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
+    .fp-btn.active { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-btn-sm { padding: 2px 8px; }
+    .fp-btn-primary { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-btn-warning { background: rgba(234, 179, 8, 0.85); border-color: rgba(234, 179, 8, 0.85); color: #1e293b; font-weight: 600; }
+    .fp-btn-warning:hover { background: rgba(234, 179, 8, 1); }
+    .fp-btn-danger { background: #dc2626; border-color: #dc2626; }
+    .fp-btn-danger:hover { background: #ef4444; }
+    .fp-btn-danger-sm { background: transparent; border-color: #dc2626; color: #f87171; padding: 3px 8px; font-size: 12px; }
+    .fp-btn-danger-sm:hover { background: #dc2626; color: #fff; }
+
+    .fp-floor-picker { display: flex; gap: 2px; }
+
+    .fp-floor-btn {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        min-width: 28px;
+        text-align: center;
+    }
+
+    .fp-floor-btn.active { background: var(--accent-color, #4f46e5); border-color: var(--accent-color, #4f46e5); }
+    .fp-floor-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
+    .fp-floor-add { font-weight: bold; }
+
+    .fp-toolbar-group { display: flex; align-items: center; gap: 4px; }
+    .fp-toolbar-sep { width: 1px; height: 20px; background: var(--border-color, #2d2d4a); flex-shrink: 0; }
+
+    .fp-map-container { position: relative; z-index: 1; }
+
+    .fp-map {
+        width: 100%;
+        min-height: 400px;
+        background: #0d0d1a;
+    }
+
+    .fp-bottom-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        background: var(--card-header-bg, #16162a);
+        border-top: 1px solid var(--border-color, #2d2d4a);
+        position: relative;
+        z-index: 2;
+        flex-shrink: 0;
+    }
+
+    .fp-upload-btn {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    .fp-upload-btn:hover { background: var(--btn-hover-bg, #3d3d5c); }
+
+    .fp-opacity-control {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--text-muted, #8888aa);
+    }
+
+    .fp-opacity-slider { width: 100px; accent-color: var(--accent-color, #4f46e5); }
+
+    .fp-dialog-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    }
+
+    .fp-dialog {
+        background: var(--card-bg, #1a1a2e);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 8px;
+        padding: 20px;
+        min-width: 300px;
+    }
+
+    .fp-dialog h3 { margin: 0 0 16px; color: var(--text-color, #e0e0e0); font-size: 16px; }
+
+    .fp-form-group { margin-bottom: 12px; }
+
+    .fp-form-group label {
+        display: block;
+        font-size: 13px;
+        color: var(--text-muted, #8888aa);
+        margin-bottom: 4px;
+    }
+
+    .fp-input {
+        width: 100%;
+        background: var(--input-bg, #0d0d1a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 4px;
+        padding: 6px 10px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .fp-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+    }
+
+    /* AP placement panel */
+    .fp-ap-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.95);
+        border: 1px solid var(--border-color, #2d2d4a);
+        border-radius: 6px;
+        padding: 0.75rem;
+        max-width: 220px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .fp-ap-panel-header {
+        font-size: 0.8rem;
+        color: var(--text-muted, #8888aa);
+        margin-bottom: 0.5rem;
+        line-height: 1.4;
+    }
+
+    .fp-ap-panel-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .fp-ap-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        background: var(--btn-bg, #2d2d4a);
+        border: 1px solid transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-color, #e0e0e0);
+        font-size: 0.8rem;
+        text-align: left;
+        transition: all 0.15s ease;
+    }
+
+    .fp-ap-item:hover {
+        background: var(--btn-hover-bg, #3d3d5c);
+        border-color: var(--border-color, #2d2d4a);
+    }
+
+    .fp-ap-item.selected {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: #3b82f6;
+    }
+
+    .fp-ap-item-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+
+    .fp-ap-item-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Mode hints */
+    .fp-edit-hint {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        background: rgba(234, 179, 8, 0.9);
+        color: #1e293b;
+        padding: 0.35rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        pointer-events: none;
+        white-space: nowrap;
+    }
+
+    .fp-wall-hint { white-space: normal; text-align: center; pointer-events: auto; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center; }
+    .fp-hint-btn {
+        background: #1e293b; color: #e0e0e0; border: 1px solid #475569; border-radius: 3px;
+        padding: 1px 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    .fp-hint-btn:hover { background: #334155; }
+
+    .fp-heatmap-legend {
+        position: absolute;
+        bottom: 30px;
+        right: 10px;
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(100, 116, 139, 0.4);
+        border-radius: 6px;
+        padding: 8px 10px;
+        pointer-events: none;
+    }
+
+    .fp-legend-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: #94a3b8;
+        margin-bottom: 4px;
+        text-align: center;
+    }
+
+    .fp-legend-bar {
+        width: 140px;
+        height: 12px;
+        border-radius: 2px;
+        background: linear-gradient(to right, #00dc00, #22c55e, #b4dc28, #facc15, #fb923c, #ef4444, #6b7280);
+    }
+
+    .fp-legend-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 10px;
+        color: #64748b;
+        margin-top: 2px;
+    }
+
+    /* AP markers - match Coverage Map (no :global() - that only works in .razor.css files) */
+    .fp-ap-marker-container {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .fp-ap-marker-icon {
+        width: 32px;
+        height: 32px;
+        transform: scale(var(--fp-ap-scale, 1));
+    }
+
+    .fp-ap-glow-container {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .fp-ap-glow-dot {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.55) 0%, rgba(59, 130, 246, 0.12) 55%, transparent 100%);
+        filter: blur(3px);
+        transform: scale(var(--fp-ap-scale, 1));
+    }
+
+    .fp-ap-glow-dot.other-floor {
+        background: radial-gradient(circle, rgba(100, 100, 140, 0.3) 0%, transparent 55%);
+    }
+
+    /* AP direction indicator */
+    .fp-ap-direction {
+        position: absolute;
+        width: 32px;
+        height: 32px;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .fp-ap-arrow {
+        position: absolute;
+        top: -10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 10px solid #60a5fa;
+        filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.8));
+    }
+
+    /* Wall length labels */
+    .fp-wall-length {
+        font-size: 11px;
+        font-weight: 700;
+        color: #1e293b;
+        background: rgba(255, 255, 255, 0.92) !important;
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid rgba(0, 0, 0, 0.25) !important;
+        white-space: nowrap;
+        text-align: center;
+        pointer-events: none;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .fp-wall-length-live {
+        background: rgba(129, 140, 248, 0.95) !important;
+        color: #fff;
+        border-color: rgba(99, 102, 241, 0.6) !important;
+    }
+
+    /* Wall vertex dots during drawing */
+    .fp-wall-vertex {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Floor plan corner handles */
+    .fp-corner-handle {
+        width: 14px;
+        height: 14px;
+        background: #4f46e5;
+        border: 2px solid #fff;
+        border-radius: 3px;
+        cursor: move;
+    }
+
+    /* Building move handle */
+    .fp-move-handle {
+        width: 28px;
+        height: 28px;
+        background: #f59e0b;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        cursor: move;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        color: #fff;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+    }
+
+    /* Contour line labels */
+    .fp-contour-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.6) !important;
+        padding: 1px 4px;
+        border-radius: 2px;
+        white-space: nowrap;
+        text-align: center;
+        pointer-events: none;
+        border: none !important;
+    }
+
+    /* Close-shape snap indicator */
+    .fp-snap-indicator {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 3px solid #60a5fa;
+        background: rgba(96, 165, 250, 0.25);
+        animation: fp-snap-pulse 0.8s ease-in-out infinite;
+    }
+
+    @@keyframes fp-snap-pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.4); opacity: 0.6; }
+    }
+
+    /* Dark theme for Leaflet popups (matches Speed Map) */
+    .leaflet-popup-content-wrapper {
+        background: #1e293b;
+        color: #f1f5f9;
+        border-radius: 6px;
+        font-family: var(--font-sans);
+    }
+
+    .leaflet-popup-tip {
+        background: #1e293b;
+    }
+
+    .leaflet-popup-content {
+        margin: 10px 12px;
+    }
+
+    .leaflet-container a.leaflet-popup-close-button {
+        color: #94a3b8;
+    }
+
+    .leaflet-container a.leaflet-popup-close-button:hover {
+        color: #f1f5f9;
+    }
+
+    /* Signal data popup styles (matches Speed Map) */
+    .map-popup {
+        min-width: 200px;
+    }
+
+    .map-popup-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+    }
+
+    .map-popup-time {
+        color: #64748b;
+    }
+
+    .map-tooltip-ap {
+        padding-left: 0.3rem;
+        margin-bottom: 0.35rem;
+    }
+
+    /* AP popup styling */
+    .fp-ap-popup {
+        min-width: 180px;
+    }
+
+    .fp-ap-popup-name {
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 2px;
+    }
+
+    .fp-ap-popup-model {
+        font-size: 12px;
+        color: #94a3b8;
+        margin-bottom: 8px;
+    }
+
+    .fp-ap-popup-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .fp-ap-popup-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .fp-ap-popup-row label {
+        font-size: 12px;
+        color: #94a3b8;
+        min-width: 42px;
+        flex-shrink: 0;
+    }
+
+    .fp-ap-popup-row select {
+        padding: 2px 4px;
+        background: #1e293b;
+        color: #e0e0e0;
+        border: 1px solid #475569;
+        border-radius: 3px;
+        font-size: 12px;
+    }
+
+    .fp-ap-popup-row input[type="range"] {
+        width: 100px;
+        vertical-align: middle;
+    }
+
+    .fp-ap-popup-deg {
+        font-size: 12px;
+        color: #e0e0e0;
+        min-width: 30px;
+    }
+
+    .fp-ap-popup-divider {
+        border-top: 1px solid #334155;
+        margin: 6px 0 2px;
+    }
+
+    .fp-ap-popup-section-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        margin-bottom: 2px;
+    }
+
+    .fp-ap-popup-power {
+        font-size: 12px;
+        color: #e0e0e0;
+        min-width: 48px;
+    }
+
+    .fp-ap-popup-power.overridden {
+        color: #38bdf8;
+    }
+
+    .fp-ap-popup-tx-info {
+        font-size: 11px;
+        color: #9ca3af;
+        text-align: center;
+        margin-top: 2px;
+    }
+
+    .fp-ap-popup-tx-info.overridden {
+        color: #38bdf8;
+    }
+
+    .fp-mode-toggle {
+        display: inline-flex;
+        border: 1px solid #4b5563;
+        border-radius: 4px;
+        overflow: hidden;
+        cursor: pointer;
+        font-size: 11px;
+    }
+    .fp-mode-toggle.overridden { border-color: #38bdf8; }
+    .fp-mode-opt {
+        padding: 2px 8px;
+        color: #9ca3af;
+        transition: background 0.15s, color 0.15s;
+    }
+    .fp-mode-opt.active {
+        background: #374151;
+        color: #e5e7eb;
+    }
+    .fp-mode-toggle.overridden .fp-mode-opt.active {
+        background: rgba(56, 189, 248, 0.15);
+        color: #38bdf8;
+    }
+
+    .fp-btn-reset-sim {
+        background: transparent;
+        border-color: #f97316;
+        color: #fb923c;
+    }
+    .fp-btn-reset-sim:hover {
+        background: #f97316;
+        color: #fff;
+    }
+
+    /* Signal-colored cluster icons */
+    .speed-cluster {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 12px;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .speed-cluster-icon {
+        background: transparent !important;
+    }
+
+    /* Dark theme for marker clusters */
+    .marker-cluster-small {
+        background-color: rgba(59, 130, 246, 0.6);
+    }
+    .marker-cluster-small div {
+        background-color: rgba(59, 130, 246, 0.9);
+    }
+    .marker-cluster-medium {
+        background-color: rgba(234, 179, 8, 0.6);
+    }
+    .marker-cluster-medium div {
+        background-color: rgba(234, 179, 8, 0.9);
+    }
+    .marker-cluster-large {
+        background-color: rgba(239, 68, 68, 0.6);
+    }
+    .marker-cluster-large div {
+        background-color: rgba(239, 68, 68, 0.9);
+    }
+    .marker-cluster {
+        background-clip: padding-box;
+        border-radius: 20px;
+    }
+    .marker-cluster div {
+        width: 30px;
+        height: 30px;
+        margin-left: 5px;
+        margin-top: 5px;
+        text-align: center;
+        border-radius: 15px;
+        font: 12px "Helvetica Neue", Arial, Helvetica, sans-serif;
+        font-weight: bold;
+        color: #fff;
+        line-height: 30px;
+    }
+
+    @@media (max-width: 768px) {
+        .fp-toolbar { flex-direction: column; align-items: flex-start; }
+        .fp-toolbar-left { width: 100%; }
+        .fp-toolbar-right { width: 100%; justify-content: flex-end; }
+        .fp-edit-hint {
+            top: auto;
+            bottom: 110px;
+            width: 95%;
+            white-space: normal;
+            text-align: center;
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public string MapHeight { get; set; } = "600px";
+    [Parameter] public List<Iperf3Result> SpeedTestResults { get; set; } = new();
+    [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
+    private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
+    private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
+    private bool _mapInitialized;
+
+    private List<BuildingDto> _buildings = new();
+    private List<FloorDto> _floors = new();
+    private List<ApMapMarker> _apMarkers = new();
+    private int _selectedBuildingId;
+    private int _selectedFloorId;
+    private BuildingDto? _selectedBuilding;
+    private FloorDto? _selectedFloor;
+
+    private string _mode = "view";
+    private bool _showHeatmap = true;
+    private bool _showSignalData;
+    private int _globalActiveFloor = 1;
+    private string _heatmapBand = "5";
+    private string _wallMaterial = "drywall";
+    private bool _isDrawingShape;
+    private double _floorOpacity = 0.7;
+    private bool _showAddBuilding;
+    private bool _showAddFloor;
+    private string _newBuildingName = "";
+    private int _newFloorNumber;
+    private string _newFloorLabel = "";
+    private string _newFloorMaterial = "floor_wood";
+    private bool _showDeleteBuilding;
+    private bool _showDeleteFloor;
+    private bool _isFullscreen;
+    private ApMapMarker? _selectedApForPlacement;
+
+    private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await LoadBuildings();
+            await LoadApMarkers();
+            await InitializeMap();
+            // Show placed APs immediately on map load (no floor selection needed)
+            await UpdateApMarkers();
+            await UpdateBackgroundWalls();
+            if (_showHeatmap) await ComputeHeatmap();
+            StateHasChanged();
+        }
+    }
+
+    private async Task InitializeMap()
+    {
+        var centerLat = 38.0;
+        var centerLng = -92.0;
+        var zoom = 4;
+        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue);
+        if (firstAp != null)
+        {
+            centerLat = firstAp.Latitude!.Value;
+            centerLng = firstAp.Longitude!.Value;
+            zoom = 19;
+        }
+        else if (_buildings.Count > 0)
+        {
+            // No placed APs - fit to all buildings
+            var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
+            if (allFloors.Count > 0)
+            {
+                centerLat = allFloors.Average(f => (f.SwLatitude + f.NeLatitude) / 2);
+                centerLng = allFloors.Average(f => (f.SwLongitude + f.NeLongitude) / 2);
+                zoom = 19;
+            }
+            else
+            {
+                centerLat = _buildings.Average(b => b.CenterLatitude);
+                centerLng = _buildings.Average(b => b.CenterLongitude);
+                zoom = 19;
+            }
+        }
+
+        await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom);
+        await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
+        _mapInitialized = true;
+
+        // Fit to all content (APs + buildings combined)
+        {
+            double swLat = double.MaxValue, swLng = double.MaxValue;
+            double neLat = double.MinValue, neLng = double.MinValue;
+
+            var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToList();
+            foreach (var ap in placedAps)
+            {
+                swLat = Math.Min(swLat, ap.Latitude!.Value);
+                swLng = Math.Min(swLng, ap.Longitude!.Value);
+                neLat = Math.Max(neLat, ap.Latitude!.Value);
+                neLng = Math.Max(neLng, ap.Longitude!.Value);
+            }
+
+            if (_buildings.Count > 0)
+            {
+                var (bSwLat, bSwLng, bNeLat, bNeLng) = ComputeAllBuildingBounds();
+                if (bSwLat < double.MaxValue)
+                {
+                    swLat = Math.Min(swLat, bSwLat);
+                    swLng = Math.Min(swLng, bSwLng);
+                    neLat = Math.Max(neLat, bNeLat);
+                    neLng = Math.Max(neLng, bNeLng);
+                }
+            }
+
+            if (swLat < double.MaxValue)
+                await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
+        }
+    }
+
+    private async Task LoadBuildings()
+    {
+        try
+        {
+            var buildings = await FloorPlanSvc.GetBuildingsAsync();
+            _buildings = buildings.Select(b => new BuildingDto
+            {
+                Id = b.Id, Name = b.Name,
+                CenterLatitude = b.CenterLatitude, CenterLongitude = b.CenterLongitude,
+                Floors = b.Floors.Select(f => new FloorDto
+                {
+                    Id = f.Id, BuildingId = f.BuildingId, FloorNumber = f.FloorNumber, Label = f.Label,
+                    SwLatitude = f.SwLatitude, SwLongitude = f.SwLongitude,
+                    NeLatitude = f.NeLatitude, NeLongitude = f.NeLongitude,
+                    Opacity = f.Opacity, WallsJson = f.WallsJson,
+                    HasImage = !string.IsNullOrEmpty(f.ImagePath),
+                    FloorMaterial = f.FloorMaterial
+                }).ToList()
+            }).ToList();
+        }
+        catch { }
+    }
+
+    private async Task LoadApMarkers()
+    {
+        try { _apMarkers = await ApMapSvc.GetApMapMarkersAsync(); }
+        catch { }
+    }
+
+    // ── Building / Floor management ──────────────────────────────────
+
+    private async Task OnBuildingChanged(ChangeEventArgs e)
+    {
+        _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+        _selectedFloorId = 0;
+        _selectedFloor = null;
+        _mode = "view";
+
+        if (_selectedBuilding != null && _floors.Count > 0)
+        {
+            // Preserve the current global floor if this building has it; otherwise pick first available
+            var matchingFloor = _floors.FirstOrDefault(f => f.FloorNumber == _globalActiveFloor)
+                                ?? _floors.First();
+            await SelectFloor(matchingFloor.Id);
+            if (BuildingHasWalls())
+            {
+                var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
+                await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
+            }
+            // No walls yet - stay at current view
+        }
+        else if (_selectedBuilding != null)
+        {
+            // No floors yet - stay at current view
+        }
+        else
+        {
+            // Deselected: clear floor overlay, active walls, and move/position modes
+            await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", "", 0, 0, 0, 0, 0);
+            await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+            await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
+            if (_mapInitialized)
+            {
+                // Clear active wall layer (walls will show as background instead)
+                await JS.InvokeVoidAsync("fpEditor.updateWalls", "[]",
+                    System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors),
+                    System.Text.Json.JsonSerializer.Serialize(
+                        MaterialAttenuation.MaterialLabels
+                            .Where(m => !m.Key.StartsWith("floor_"))
+                            .ToDictionary(m => m.Key, m => m.Value)));
+            }
+        }
+
+        await UpdateApMarkers();
+        await UpdateBackgroundWalls();
+        StateHasChanged();
+    }
+
+    private bool BuildingHasWalls() =>
+        _floors.Any(f => !string.IsNullOrEmpty(f.WallsJson) && f.WallsJson != "[]");
+
+    /// Compute building bounds from wall vertices (tight fit), falling back to floor plan bounds.
+    private (double swLat, double swLng, double neLat, double neLng) ComputeBuildingBounds()
+    {
+        double swLat = double.MaxValue, swLng = double.MaxValue;
+        double neLat = double.MinValue, neLng = double.MinValue;
+        bool hasWallData = false;
+
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        foreach (var floor in _floors)
+        {
+            if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+            try
+            {
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                if (walls == null) continue;
+                foreach (var wall in walls)
+                {
+                    foreach (var pt in wall.Points)
+                    {
+                        swLat = Math.Min(swLat, pt.Lat);
+                        swLng = Math.Min(swLng, pt.Lng);
+                        neLat = Math.Max(neLat, pt.Lat);
+                        neLng = Math.Max(neLng, pt.Lng);
+                        hasWallData = true;
+                    }
+                }
+            }
+            catch { /* malformed JSON - skip */ }
+        }
+
+        if (!hasWallData)
+        {
+            swLat = _floors.Min(f => f.SwLatitude);
+            swLng = _floors.Min(f => f.SwLongitude);
+            neLat = _floors.Max(f => f.NeLatitude);
+            neLng = _floors.Max(f => f.NeLongitude);
+        }
+
+        return (swLat, swLng, neLat, neLng);
+    }
+
+    private (double swLat, double swLng, double neLat, double neLng) ComputeAllBuildingBounds()
+    {
+        double swLat = double.MaxValue, swLng = double.MaxValue;
+        double neLat = double.MinValue, neLng = double.MinValue;
+        bool hasData = false;
+
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        foreach (var b in _buildings)
+        {
+            foreach (var floor in b.Floors)
+            {
+                if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+                try
+                {
+                    var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                    if (walls == null) continue;
+                    foreach (var wall in walls)
+                        foreach (var pt in wall.Points)
+                        {
+                            swLat = Math.Min(swLat, pt.Lat);
+                            swLng = Math.Min(swLng, pt.Lng);
+                            neLat = Math.Max(neLat, pt.Lat);
+                            neLng = Math.Max(neLng, pt.Lng);
+                            hasData = true;
+                        }
+                }
+                catch { }
+            }
+        }
+
+        if (!hasData)
+        {
+            // Fall back to floor record bounds
+            var allFloors = _buildings.SelectMany(b2 => b2.Floors).ToList();
+            if (allFloors.Count > 0)
+            {
+                swLat = allFloors.Min(f => f.SwLatitude);
+                swLng = allFloors.Min(f => f.SwLongitude);
+                neLat = allFloors.Max(f => f.NeLatitude);
+                neLng = allFloors.Max(f => f.NeLongitude);
+            }
+        }
+
+        return (swLat, swLng, neLat, neLng);
+    }
+
+    private async Task SelectFloor(int floorId)
+    {
+        _selectedFloorId = floorId;
+        _selectedFloor = _floors.FirstOrDefault(f => f.Id == floorId);
+        if (_selectedFloor != null)
+        {
+            _globalActiveFloor = _selectedFloor.FloorNumber;
+            _floorOpacity = _selectedFloor.Opacity;
+            await UpdateFloorOverlay();
+            await UpdateApMarkers();
+            await UpdateWalls();
+            await UpdateBackgroundWalls();
+            if (_showHeatmap) await ComputeHeatmap();
+        }
+        StateHasChanged();
+    }
+
+    // ── Floor plan overlay ───────────────────────────────────────────
+
+    private async Task UpdateFloorOverlay()
+    {
+        if (_selectedFloor == null || !_mapInitialized) return;
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        var imageUrl = _selectedFloor.HasImage ? baseUrl + "/api/floor-plan/floors/" + _selectedFloor.Id + "/image" : "";
+        await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", imageUrl,
+            _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
+            _selectedFloor.NeLatitude, _selectedFloor.NeLongitude, _floorOpacity);
+    }
+
+    // ── AP markers (match Coverage Map) ──────────────────────────────
+
+    private async Task UpdateApMarkers()
+    {
+        if (!_mapInitialized) return;
+
+        var placedAps = _apMarkers
+            .Where(a => a.Latitude.HasValue && a.Longitude.HasValue);
+
+        var markersJson = System.Text.Json.JsonSerializer.Serialize(placedAps.Select(a => new
+        {
+            mac = a.Mac, name = a.Name, model = a.Model,
+            lat = a.Latitude, lng = a.Longitude, floor = a.Floor ?? 1,
+            orientation = a.OrientationDeg, mountType = a.MountType,
+            online = a.IsOnline, clients = a.TotalClients,
+            iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
+            sameFloor = (a.Floor ?? 1) == _globalActiveFloor,
+            radios = a.Radios.Select(r => new
+            {
+                band = r.Band,
+                radioCode = r.RadioCode,
+                txPowerDbm = r.TxPowerDbm,
+                minTxPower = r.MinTxPowerDbm,
+                maxTxPower = r.MaxTxPowerDbm,
+                eirp = r.Eirp,
+                antennaMode = r.AntennaMode
+            })
+        }));
+
+        await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps", _heatmapBand);
+    }
+
+    [JSInvokable]
+    public async Task OnApDragEndFromJs(string mac, double lat, double lng)
+    {
+        await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        await LoadApMarkers();
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    [JSInvokable]
+    public async Task OnBuildingMoveFromJs(double dLat, double dLng)
+    {
+        if (_selectedBuilding == null) return;
+        var buildingId = _selectedBuilding.Id;
+
+        // Capture pre-move bounds for AP detection BEFORE shifting anything
+        var buildingFloors = _floors.Where(f => f.BuildingId == buildingId).ToList();
+        if (buildingFloors.Count == 0) return;
+        var preSwLat = buildingFloors.Min(f => f.SwLatitude);
+        var preSwLng = buildingFloors.Min(f => f.SwLongitude);
+        var preNeLat = buildingFloors.Max(f => f.NeLatitude);
+        var preNeLng = buildingFloors.Max(f => f.NeLongitude);
+
+        // Update building center
+        await FloorPlanSvc.UpdateBuildingAsync(buildingId, _selectedBuilding.Name,
+            _selectedBuilding.CenterLatitude + dLat, _selectedBuilding.CenterLongitude + dLng);
+
+        // Shift ALL floors of this building: walls, bounds
+        foreach (var floor in buildingFloors)
+        {
+            // Shift floor bounds
+            await FloorPlanSvc.UpdateFloorAsync(floor.Id,
+                swLat: floor.SwLatitude + dLat, swLng: floor.SwLongitude + dLng,
+                neLat: floor.NeLatitude + dLat, neLng: floor.NeLongitude + dLng);
+
+            // Shift walls on other floors (current floor already shifted by JS)
+            if (floor.Id == _selectedFloorId) continue;
+            if (string.IsNullOrEmpty(floor.WallsJson) || floor.WallsJson == "[]") continue;
+            try
+            {
+                var jsonOpts = new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+                };
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(floor.WallsJson, jsonOpts);
+                if (walls != null)
+                {
+                    foreach (var w in walls)
+                        foreach (var p in w.Points)
+                        {
+                            p.Lat += dLat;
+                            p.Lng += dLng;
+                        }
+                    await FloorPlanSvc.UpdateFloorAsync(floor.Id,
+                        wallsJson: System.Text.Json.JsonSerializer.Serialize(walls, jsonOpts));
+                }
+            }
+            catch { }
+        }
+
+        // Shift APs that belong to this building (inside pre-move bounds and not
+        // inside a smaller overlapping building, to avoid stealing APs from neighbors)
+        var otherBuildingBounds = _buildings
+            .Where(b => b.Id != buildingId && b.Floors.Count > 0)
+            .Select(b => (
+                swLat: b.Floors.Min(f => f.SwLatitude),
+                swLng: b.Floors.Min(f => f.SwLongitude),
+                neLat: b.Floors.Max(f => f.NeLatitude),
+                neLng: b.Floors.Max(f => f.NeLongitude),
+                area: (b.Floors.Max(f => f.NeLatitude) - b.Floors.Min(f => f.SwLatitude)) *
+                      (b.Floors.Max(f => f.NeLongitude) - b.Floors.Min(f => f.SwLongitude))
+            )).ToList();
+        var thisArea = (preNeLat - preSwLat) * (preNeLng - preSwLng);
+
+        foreach (var ap in _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue))
+        {
+            var apLat = ap.Latitude!.Value;
+            var apLng = ap.Longitude!.Value;
+            if (apLat < preSwLat || apLat > preNeLat || apLng < preSwLng || apLng > preNeLng)
+                continue; // AP not inside this building
+
+            // Skip if a smaller building also contains this AP (it belongs to them)
+            var insideSmallerBuilding = otherBuildingBounds.Any(ob =>
+                ob.area < thisArea &&
+                apLat >= ob.swLat && apLat <= ob.neLat &&
+                apLng >= ob.swLng && apLng <= ob.neLng);
+            if (insideSmallerBuilding) continue;
+
+            await ApMapSvc.SaveApLocationAsync(ap.Mac, apLat + dLat, apLng + dLng);
+        }
+
+        // Reload everything
+        await LoadBuildings();
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == buildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+        if (_selectedFloor != null)
+            _selectedFloor = _floors.FirstOrDefault(f => f.Id == _selectedFloorId);
+        await LoadApMarkers();
+        await UpdateWalls();
+        await UpdateBackgroundWalls();
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnApFloorChangedFromJs(string mac, int floor)
+    {
+        await ApMapSvc.SaveApFloorAsync(mac, floor);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnApOrientationChangedFromJs(string mac, int orientationDeg)
+    {
+        await ApMapSvc.SaveApOrientationAsync(mac, orientationDeg);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnApMountTypeChangedFromJs(string mac, string mountType)
+    {
+        await ApMapSvc.SaveApMountTypeAsync(mac, mountType);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnSimulationChanged()
+    {
+        await InvokeAsync(async () => await UpdateApMarkers());
+    }
+
+    private async Task ToggleApEditMode()
+    {
+        _mode = _mode == "aps" ? "view" : "aps";
+        _selectedApForPlacement = null;
+        await UpdateApMarkers();
+        await SetMapClickToPlaceMode(_mode == "aps");
+    }
+
+    private void SelectApForPlacement(ApMapMarker ap)
+    {
+        _selectedApForPlacement = _selectedApForPlacement?.Mac == ap.Mac ? null : ap;
+    }
+
+    private async Task SetMapClickToPlaceMode(bool enabled)
+    {
+        if (!_mapInitialized) return;
+        await JS.InvokeVoidAsync("fpEditor.setPlacementMode", enabled);
+    }
+
+    [JSInvokable]
+    public async Task OnMapClickForPlacement(double lat, double lng)
+    {
+        if (_selectedApForPlacement == null) return;
+        var mac = _selectedApForPlacement.Mac;
+        _selectedApForPlacement = null;
+
+        await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (_mapInitialized)
+                await UpdateApMarkers();
+        });
+    }
+
+    // ── Wall drawing system ──────────────────────────────────────────
+
+    private async Task UpdateWalls()
+    {
+        if (!_mapInitialized || _selectedFloor == null) return;
+        var wallsJson = _selectedFloor.WallsJson ?? "[]";
+        var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
+        var labelsJson = System.Text.Json.JsonSerializer.Serialize(
+            MaterialAttenuation.MaterialLabels
+                .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior")
+                .ToDictionary(m => m.Key, m => m.Value));
+        await JS.InvokeVoidAsync("fpEditor.updateWalls", wallsJson, colorsJson, labelsJson);
+    }
+
+    private async Task UpdateBackgroundWalls()
+    {
+        if (!_mapInitialized) return;
+
+        // Collect walls from: same floor number in other buildings, plus adjacent floors (n-1, n+1) in the same building
+        var bgWalls = new List<object>();
+        foreach (var b in _buildings)
+        {
+            foreach (var f in b.Floors)
+            {
+                if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
+                if (string.IsNullOrEmpty(f.WallsJson)) continue;
+
+                // Include: same floor number, or adjacent floors (n-1, n+1) in any building
+                var sameFloor = f.FloorNumber == _globalActiveFloor;
+                var adjacentFloor = Math.Abs(f.FloorNumber - _globalActiveFloor) == 1;
+                if (!sameFloor && !adjacentFloor) continue;
+
+                try
+                {
+                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(f.WallsJson);
+                    if (parsed != null)
+                    {
+                        foreach (var wall in parsed)
+                        {
+                            // Clone wall and tag with whether it's same floor or adjacent
+                            var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(wall.GetRawText());
+                            if (dict != null)
+                            {
+                                dict["_buildingId"] = b.Id;
+                                var isSelectedBldg = _selectedBuilding != null && b.Id == _selectedBuilding.Id;
+                                // Selected building adjacent: 0.4, other bldg same floor: 0.25, other bldg adjacent: 0.15, no selection same floor: 0.5, no selection adjacent: 0.25
+                                if (_selectedBuilding != null)
+                                    dict["_opacity"] = isSelectedBldg && !sameFloor ? 0.4 : (sameFloor ? 0.25 : 0.15);
+                                else
+                                    dict["_opacity"] = sameFloor ? 0.5 : 0.25;
+                                bgWalls.Add(dict);
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
+        var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
+        var clickable = _selectedBuilding == null;
+        await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson, clickable);
+
+        // Same-building adjacent floor walls (for length snap when drawing first shape)
+        var sameBldgWalls = new List<object>();
+        if (_selectedBuilding != null)
+        {
+            foreach (var f in _selectedBuilding.Floors)
+            {
+                if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
+                if (string.IsNullOrEmpty(f.WallsJson)) continue;
+                if (Math.Abs(f.FloorNumber - _globalActiveFloor) > 1) continue;
+                try
+                {
+                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(f.WallsJson);
+                    if (parsed != null) sameBldgWalls.AddRange(parsed);
+                }
+                catch { }
+            }
+        }
+        await JS.InvokeVoidAsync("fpEditor.updateSameBuildingWalls",
+            System.Text.Json.JsonSerializer.Serialize(sameBldgWalls));
+    }
+
+    private async Task ToggleWallDrawMode()
+    {
+        _mode = _mode == "walls" ? "view" : "walls";
+        _isDrawingShape = false;
+        if (_mode == "walls")
+            await SetMapClickToPlaceMode(false);
+
+        if (_mode == "walls")
+        {
+            var initWalls = _selectedFloor?.WallsJson ?? "[]";
+            // Default to exterior_residential for empty floors (saves a click when drawing the building outline)
+            // Otherwise reset to drywall (first material)
+            _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
+                ? "exterior_residential"
+                : "drywall";
+            // Temporarily hide heatmap while drawing walls
+            if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+            await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            // Re-render walls from DB state after exiting draw mode
+            if (_selectedFloor != null) await UpdateWalls();
+            // Restore heatmap if it was on
+            if (_showHeatmap) await ComputeHeatmap();
+        }
+        await UpdateApMarkers();
+    }
+
+    [JSInvokable]
+    public async Task OnMapClickForWall(double lat, double lng)
+    {
+        if (_mode != "walls") return;
+        var color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8");
+        if (!_isDrawingShape) { _isDrawingShape = true; StateHasChanged(); }
+        await JS.InvokeVoidAsync("fpEditor.addWallPoint", lat, lng, _wallMaterial, color);
+    }
+
+    [JSInvokable]
+    public object GetCurrentWallMaterial()
+    {
+        return new { material = _wallMaterial, color = MaterialAttenuation.MaterialColors.GetValueOrDefault(_wallMaterial, "#94a3b8") };
+    }
+
+    [JSInvokable]
+    public async Task OnMapDblClickFinishWall()
+    {
+        if (_mode != "walls" || _selectedFloor == null) return;
+        await JS.InvokeVoidAsync("fpEditor.finishWall");
+    }
+
+    private async Task FinishCurrentWall()
+    {
+        if (_mode != "walls" || _selectedFloor == null) return;
+        await JS.InvokeVoidAsync("fpEditor.finishWall", true);
+    }
+
+    [JSInvokable]
+    public async Task SaveWallsFromJs(string wallsJson)
+    {
+        if (_selectedFloor == null) return;
+        _isDrawingShape = false;
+        _selectedFloor.WallsJson = wallsJson;
+        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+
+        // Auto-update floor bounds and building center from wall extents
+        await RecalcBoundsFromWalls(_selectedFloor, wallsJson);
+
+        // Re-render walls from saved state so they persist visually
+        await UpdateWalls();
+        // Only recompute heatmap if not still in draw mode (Done Drawing will restore it)
+        if (_showHeatmap && _mode != "walls") await ComputeHeatmap();
+    }
+
+    private async Task DeleteLastWall()
+    {
+        if (_selectedFloor == null) return;
+        await JS.InvokeVoidAsync("fpEditor.deleteLastWall");
+    }
+
+    // ── Floor plan positioning ───────────────────────────────────────
+
+    private async Task TogglePositionMode()
+    {
+        if (_mode == "move") await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
+        _mode = _mode == "position" ? "view" : "position";
+        if (_mode == "position" && _selectedFloor != null)
+            await JS.InvokeVoidAsync("fpEditor.enterPositionMode",
+                _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
+                _selectedFloor.NeLatitude, _selectedFloor.NeLongitude);
+        else
+            await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+    }
+
+    [JSInvokable]
+    public async Task OnBoundsChangedFromJs(double swLat, double swLng, double neLat, double neLng)
+    {
+        if (_selectedFloor == null) return;
+        _selectedFloor.SwLatitude = swLat;
+        _selectedFloor.SwLongitude = swLng;
+        _selectedFloor.NeLatitude = neLat;
+        _selectedFloor.NeLongitude = neLng;
+        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, swLat, swLng, neLat, neLng);
+    }
+
+    // ── Building move mode ───────────────────────────────────────────
+
+    private async Task ToggleMoveMode()
+    {
+        if (_mode == "position") await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        _mode = _mode == "move" ? "view" : "move";
+        if (_mode == "move" && _selectedBuilding != null)
+            await JS.InvokeVoidAsync("fpEditor.enterMoveMode",
+                _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude);
+        else
+            await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
+    }
+
+    [JSInvokable]
+    public async Task OnBuildingMovedFromJs(double newLat, double newLng)
+    {
+        if (_selectedBuilding == null) return;
+
+        var deltaLat = newLat - _selectedBuilding.CenterLatitude;
+        var deltaLng = newLng - _selectedBuilding.CenterLongitude;
+
+        // Move all floor plan bounds by the same delta
+        foreach (var f in _floors)
+        {
+            f.SwLatitude += deltaLat;
+            f.SwLongitude += deltaLng;
+            f.NeLatitude += deltaLat;
+            f.NeLongitude += deltaLng;
+            await FloorPlanSvc.UpdateFloorAsync(f.Id, f.SwLatitude, f.SwLongitude, f.NeLatitude, f.NeLongitude);
+        }
+
+        // Update building center
+        _selectedBuilding.CenterLatitude = newLat;
+        _selectedBuilding.CenterLongitude = newLng;
+        await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, newLat, newLng);
+
+        // Refresh visuals
+        if (_selectedFloor != null) await UpdateFloorOverlay();
+        await UpdateWalls();
+        await UpdateBackgroundWalls();
+        if (_showHeatmap) await ComputeHeatmap();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ── Heatmap ──────────────────────────────────────────────────────
+
+    private async Task ToggleHeatmap()
+    {
+        _showHeatmap = !_showHeatmap;
+        if (_showHeatmap)
+            await ComputeHeatmap();
+        else
+            await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+    }
+
+    private async Task OnBandChanged(ChangeEventArgs e)
+    {
+        _heatmapBand = e.Value?.ToString() ?? "5";
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task ResetSimulation()
+    {
+        await JS.InvokeVoidAsync("fpEditor.resetSimulation");
+        await UpdateApMarkers();
+    }
+
+    private async Task ComputeHeatmap()
+    {
+        if (!_mapInitialized) return;
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand);
+    }
+
+    // ── Signal Data Overlay ────────────────────────────────────────
+
+    private async Task ToggleSignalData()
+    {
+        _showSignalData = !_showSignalData;
+        if (_showSignalData)
+            await UpdateSignalDataMarkers();
+        else
+            await JS.InvokeVoidAsync("fpEditor.clearSignalData");
+    }
+
+    private async Task UpdateSignalDataMarkers()
+    {
+        if (!_mapInitialized || !_showSignalData) return;
+
+        var filtered = SpeedTestResults
+            .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
+            .ToList();
+
+        var markersJson = System.Text.Json.JsonSerializer.Serialize(filtered.Select(r => new
+        {
+            lat = r.Latitude!.Value,
+            lng = r.Longitude!.Value,
+            color = GetSignalColor(r.WifiSignalDbm!.Value),
+            signalDbm = r.WifiSignalDbm!.Value,
+            popup = BuildSignalPopup(r)
+        }));
+
+        await JS.InvokeVoidAsync("fpEditor.updateSignalData", markersJson);
+    }
+
+    private static string GetSignalColor(int dbm)
+    {
+        // Same gradient stops as heatmap lerpColor
+        (int s, int r, int g, int b)[] stops =
+        [
+            (-30, 0, 220, 0),
+            (-45, 34, 197, 94),
+            (-55, 180, 220, 40),
+            (-65, 250, 204, 21),
+            (-72, 251, 146, 60),
+            (-80, 239, 68, 68),
+            (-90, 107, 114, 128)
+        ];
+
+        if (dbm >= stops[0].s) return $"rgb({stops[0].r},{stops[0].g},{stops[0].b})";
+        if (dbm <= stops[^1].s) return $"rgb({stops[^1].r},{stops[^1].g},{stops[^1].b})";
+
+        for (int i = 0; i < stops.Length - 1; i++)
+        {
+            if (dbm <= stops[i].s && dbm >= stops[i + 1].s)
+            {
+                var t = (double)(dbm - stops[i + 1].s) / (stops[i].s - stops[i + 1].s);
+                var cr = (int)(stops[i].r * t + stops[i + 1].r * (1 - t));
+                var cg = (int)(stops[i].g * t + stops[i + 1].g * (1 - t));
+                var cb = (int)(stops[i].b * t + stops[i + 1].b * (1 - t));
+                return $"rgb({cr},{cg},{cb})";
+            }
+        }
+        return $"rgb({stops[^1].r},{stops[^1].g},{stops[^1].b})";
+    }
+
+    private string BuildSignalPopup(Iperf3Result result)
+    {
+        var deviceName = System.Net.WebUtility.HtmlEncode(
+            (result.DeviceName ?? result.DeviceHost) ?? "Unknown");
+        var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+
+        var apHop = result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.AccessPoint);
+        var apName = apHop?.DeviceName != null ? System.Net.WebUtility.HtmlEncode(apHop.DeviceName) : null;
+
+        var html = "<div class='map-popup'>";
+        html += $"<div class='wifi-tooltip-header'>{deviceName}</div>";
+
+        // Band and signal first
+        if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio))
+        {
+            html += "<div class='wifi-tooltip-link-signal'>";
+            if (!string.IsNullOrEmpty(result.WifiRadio))
+            {
+                var radio = System.Net.WebUtility.HtmlEncode(result.WifiRadio.ToLowerInvariant());
+                html += $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span> ";
+            }
+            if (result.WifiSignalDbm.HasValue)
+                html += $"{result.WifiSignalDbm} dBm";
+            html += "</div>";
+        }
+
+        if (!string.IsNullOrEmpty(apName))
+            html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
+
+        // Speed row
+        html += "<div class='wifi-tooltip-row wifi-tooltip-speed'>";
+        html += $"<span class='wifi-speed-rx'>\u2193 {result.DownloadMbps:F0}</span> \u00b7 ";
+        html += $"<span class='wifi-speed-tx'>\u2191 {result.UploadMbps:F0}</span> Mbps";
+        html += "</div>";
+
+        // Footer with time and client details link
+        html += "<div class='wifi-tooltip-divider'></div>";
+        html += "<div class='map-popup-footer'>";
+        html += $"<span class='map-popup-time'>{time}</span>";
+        var clientMac = result.ClientMac ?? result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
+        if (OnClientClick.HasDelegate && !string.IsNullOrEmpty(clientMac))
+        {
+            var jsMac = clientMac.Replace("'", "\\'");
+            var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client details \u2192</a>";
+        }
+        html += "</div>";
+
+        html += "</div>";
+        return html;
+    }
+
+    // ── Floor plan management ────────────────────────────────────────
+
+    private async Task OnFloorMaterialChange(ChangeEventArgs e)
+    {
+        if (_selectedFloor == null) return;
+        var material = e.Value?.ToString() ?? "floor_wood";
+        _selectedFloor.FloorMaterial = material;
+        await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, floorMaterial: material);
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task OnOpacityChange(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var pct))
+        {
+            _floorOpacity = pct / 100.0;
+            if (_selectedFloor != null)
+            {
+                _selectedFloor.Opacity = _floorOpacity;
+                await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, opacity: _floorOpacity);
+                await JS.InvokeVoidAsync("fpEditor.setFloorOpacity", _floorOpacity);
+            }
+        }
+    }
+
+    private async Task OnFloorPlanUpload(InputFileChangeEventArgs e)
+    {
+        if (_selectedFloor == null) return;
+        var file = e.File;
+        if (file.Size > 20 * 1024 * 1024) return;
+
+        using var stream = file.OpenReadStream(20 * 1024 * 1024);
+        await FloorPlanSvc.SaveFloorImageAsync(_selectedFloor.Id, stream);
+        _selectedFloor.HasImage = true;
+
+        if (_selectedFloor.SwLatitude == 0 && _selectedFloor.NeLatitude == 0 && _selectedBuilding != null)
+        {
+            var centerLat = _selectedBuilding.CenterLatitude;
+            var centerLng = _selectedBuilding.CenterLongitude;
+            if (centerLat == 0 && centerLng == 0) { centerLat = 38.0; centerLng = -92.0; }
+            var latOffset = 25.0 / 111320.0;
+            var lngOffset = 25.0 / (111320.0 * Math.Cos(centerLat * Math.PI / 180));
+            _selectedFloor.SwLatitude = centerLat - latOffset;
+            _selectedFloor.SwLongitude = centerLng - lngOffset;
+            _selectedFloor.NeLatitude = centerLat + latOffset;
+            _selectedFloor.NeLongitude = centerLng + lngOffset;
+            await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id,
+                _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
+                _selectedFloor.NeLatitude, _selectedFloor.NeLongitude);
+        }
+
+        await UpdateFloorOverlay();
+        await JS.InvokeVoidAsync("fpEditor.fitBounds",
+            _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
+            _selectedFloor.NeLatitude, _selectedFloor.NeLongitude);
+        StateHasChanged();
+    }
+
+    private async Task DeselectBuilding()
+    {
+        // If currently drawing walls, exit draw mode first (commits in-progress shapes)
+        if (_mode == "walls")
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            _mode = "view";
+        }
+        await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+    }
+
+    private void ShowAddBuildingDialog()
+    {
+        _newBuildingName = "";
+        _showAddBuilding = true;
+    }
+
+    private async Task CreateBuilding()
+    {
+        if (string.IsNullOrWhiteSpace(_newBuildingName)) return;
+        var lat = 38.0;
+        var lng = -92.0;
+        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue);
+        if (firstAp != null) { lat = firstAp.Latitude!.Value; lng = firstAp.Longitude!.Value; }
+
+        var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
+        _showAddBuilding = false;
+        await LoadBuildings();
+        _selectedBuildingId = building.Id;
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == building.Id);
+        _floors = _selectedBuilding?.Floors ?? new();
+        StateHasChanged();
+
+        // Auto-create first floor and enter draw mode
+        _newFloorNumber = 1;
+        _newFloorLabel = GetDefaultFloorLabel(1);
+        _newFloorMaterial = "floor_wood";
+        await CreateFloor();
+    }
+
+    private async Task StartBuildingMove()
+    {
+        if (_selectedBuilding == null || !_mapInitialized) return;
+        // Ensure walls are loaded for the move preview
+        if (_selectedFloor != null)
+            await UpdateWalls();
+        await JS.InvokeVoidAsync("fpEditor.moveBuilding");
+    }
+
+    private void ShowAddFloorDialog()
+    {
+        var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : 0;
+        _newFloorNumber = maxFloor + 1;
+        _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+
+        // Infer floor material from existing exterior walls
+        var hasCommercialExterior = _floors.Any(f =>
+            !string.IsNullOrEmpty(f.WallsJson) &&
+            f.WallsJson.Contains("exterior_commercial", StringComparison.OrdinalIgnoreCase));
+        _newFloorMaterial = hasCommercialExterior ? "floor_concrete" : "floor_wood";
+
+        _showAddFloor = true;
+    }
+
+    private static string GetDefaultFloorLabel(int n)
+    {
+        if (n <= -1) return "Basement " + Math.Abs(n);
+        if (n == 0) return "Ground Floor";
+        var suffix = (n % 100) switch
+        {
+            11 or 12 or 13 => "th",
+            _ => (n % 10) switch
+            {
+                1 => "st",
+                2 => "nd",
+                3 => "rd",
+                _ => "th"
+            }
+        };
+        return n + suffix + " Floor";
+    }
+
+    private async Task CreateFloor()
+    {
+        if (_selectedBuilding == null) return;
+        var lat = _selectedBuilding.CenterLatitude;
+        var lng = _selectedBuilding.CenterLongitude;
+        var cosLat = lat == 0 ? 1.0 : Math.Cos(lat * Math.PI / 180);
+        var latOffset = 25.0 / 111320.0;
+        var lngOffset = 25.0 / (111320.0 * cosLat);
+
+        await FloorPlanSvc.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
+            lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset, _newFloorMaterial);
+
+        _showAddFloor = false;
+        await LoadBuildings();
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+        var newFloor = _floors.FirstOrDefault(f => f.FloorNumber == _newFloorNumber);
+        if (newFloor != null)
+        {
+            // Select floor without computing heatmap (we're about to enter draw mode which clears it)
+            _selectedFloorId = newFloor.Id;
+            _selectedFloor = newFloor;
+            _globalActiveFloor = newFloor.FloorNumber;
+            _floorOpacity = newFloor.Opacity;
+            await UpdateFloorOverlay();
+            await UpdateApMarkers();
+            await UpdateWalls();
+            await UpdateBackgroundWalls();
+            // Auto-enter draw walls mode (will clear heatmap)
+            await ToggleWallDrawMode();
+        }
+        StateHasChanged();
+    }
+
+    private async Task DeleteSelectedFloor()
+    {
+        if (_selectedFloor == null) return;
+        _showDeleteFloor = false;
+        // Exit draw/AP mode before deleting
+        if (_mode == "walls")
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            _mode = "view";
+        }
+        else if (_mode == "aps")
+        {
+            _mode = "view";
+            _selectedApForPlacement = null;
+        }
+        await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
+        await LoadBuildings();
+        _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
+        _floors = _selectedBuilding?.Floors ?? new();
+
+        // Select first remaining floor (if any)
+        var firstFloor = _floors.OrderBy(f => f.FloorNumber).FirstOrDefault();
+        if (firstFloor != null)
+        {
+            _selectedFloorId = firstFloor.Id;
+            _selectedFloor = firstFloor;
+            _globalActiveFloor = firstFloor.FloorNumber;
+            _floorOpacity = firstFloor.Opacity;
+            await UpdateFloorOverlay();
+            await UpdateWalls();
+        }
+        else
+        {
+            _selectedFloorId = 0;
+            _selectedFloor = null;
+            await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
+        }
+
+        EnsureGlobalFloorExists();
+        await UpdateBackgroundWalls();
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+        StateHasChanged();
+    }
+
+    private async Task DeleteSelectedBuilding()
+    {
+        if (_selectedBuilding == null) return;
+        _showDeleteBuilding = false;
+        // Exit draw/AP mode before deleting
+        if (_mode == "walls")
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            _mode = "view";
+        }
+        else if (_mode == "aps")
+        {
+            _mode = "view";
+            _selectedApForPlacement = null;
+        }
+        await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
+        await LoadBuildings();
+        EnsureGlobalFloorExists();
+        await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+        if (_showHeatmap) await ComputeHeatmap();
+        StateHasChanged();
+    }
+
+    // ── Global floor picker ────────────────────────────────────────
+
+    private IEnumerable<int> AllFloorNumbers => _buildings
+        .SelectMany(b => b.Floors)
+        .Select(f => f.FloorNumber)
+        .Distinct()
+        .OrderByDescending(n => n);
+
+    private async Task SetGlobalFloor(int floorNumber)
+    {
+        _globalActiveFloor = floorNumber;
+        await UpdateApMarkers();
+        await UpdateBackgroundWalls();
+        if (_showHeatmap) await ComputeHeatmap();
+        StateHasChanged();
+    }
+
+    private void EnsureGlobalFloorExists()
+    {
+        var available = AllFloorNumbers.ToList();
+        if (available.Count == 0) { _globalActiveFloor = 1; return; }
+        if (!available.Contains(_globalActiveFloor))
+            _globalActiveFloor = available.Min();
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    private static string GetFloorLabel(int floorNumber)
+    {
+        if (floorNumber <= -1) return "B" + Math.Abs(floorNumber);
+        var lastTwo = Math.Abs(floorNumber) % 100;
+        var suffix = (lastTwo >= 11 && lastTwo <= 13) ? "th" : (Math.Abs(floorNumber) % 10) switch
+        {
+            1 => "st",
+            2 => "nd",
+            3 => "rd",
+            _ => "th"
+        };
+        return floorNumber + suffix;
+    }
+
+    [JSInvokable]
+    public async Task OnMapMoveEndForHeatmap()
+    {
+        if (_showHeatmap && _mode != "walls")
+            await ComputeHeatmap();
+    }
+
+    [JSInvokable]
+    public async Task OnSignalClientClick(string mac)
+    {
+        if (OnClientClick.HasDelegate)
+            await OnClientClick.InvokeAsync(mac);
+    }
+
+    [JSInvokable]
+    public async Task OnEscapeToView()
+    {
+        if (_showDeleteBuilding)
+            _showDeleteBuilding = false;
+        else if (_showDeleteFloor)
+            _showDeleteFloor = false;
+        else if (_showAddBuilding)
+            _showAddBuilding = false;
+        else if (_showAddFloor)
+            _showAddFloor = false;
+        else if (_mode == "walls")
+            await ToggleWallDrawMode();
+        else if (_mode == "aps")
+            await ToggleApEditMode();
+        else if (_selectedBuilding != null)
+            await DeselectBuilding();
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnEscapeMoveMode()
+    {
+        // Overlay image move was cancelled - no state to revert
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnBgBuildingClicked(int buildingId)
+    {
+        if (_selectedBuilding != null) return; // Only from global view
+        await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
+    }
+
+    private async Task ToggleFullscreen()
+    {
+        _isFullscreen = !_isFullscreen;
+        StateHasChanged();
+        // Leaflet needs to recalculate its container size after layout change
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("fpEditor.invalidateSize");
+    }
+
+    private async Task FitMapToContent()
+    {
+        if (!_mapInitialized) return;
+
+        // If a building is selected, fit to that building
+        if (_selectedBuilding != null && _floors.Count > 0 && BuildingHasWalls())
+        {
+            var (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
+            await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
+            return;
+        }
+
+        // No building selected: fit to all content (APs + buildings combined)
+        {
+            double swLat = double.MaxValue, swLng = double.MaxValue;
+            double neLat = double.MinValue, neLng = double.MinValue;
+
+            var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToList();
+            foreach (var ap in placedAps)
+            {
+                swLat = Math.Min(swLat, ap.Latitude!.Value);
+                swLng = Math.Min(swLng, ap.Longitude!.Value);
+                neLat = Math.Max(neLat, ap.Latitude!.Value);
+                neLng = Math.Max(neLng, ap.Longitude!.Value);
+            }
+
+            var (bSwLat, bSwLng, bNeLat, bNeLng) = ComputeAllBuildingBounds();
+            if (bSwLat < double.MaxValue)
+            {
+                swLat = Math.Min(swLat, bSwLat);
+                swLng = Math.Min(swLng, bSwLng);
+                neLat = Math.Max(neLat, bNeLat);
+                neLng = Math.Max(neLng, bNeLng);
+            }
+
+            if (swLat < double.MaxValue)
+                await JS.InvokeVoidAsync("fpEditor.fitBounds", swLat, swLng, neLat, neLng);
+        }
+    }
+
+    private async Task OnEditorKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _isFullscreen)
+        {
+            _isFullscreen = false;
+            StateHasChanged();
+            await Task.Delay(50);
+            await JS.InvokeVoidAsync("fpEditor.invalidateSize");
+        }
+    }
+
+    /// <summary>
+    /// Recalculate floor bounds from wall coordinates and update building center.
+    /// Called after walls are saved to keep bounds in sync with actual wall positions.
+    /// </summary>
+    private async Task RecalcBoundsFromWalls(FloorDto floor, string wallsJson)
+    {
+        if (string.IsNullOrEmpty(wallsJson) || wallsJson == "[]") return;
+        try
+        {
+            var walls = System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(wallsJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (walls == null || walls.Count == 0) return;
+
+            var allPoints = walls.SelectMany(w => w.Points).ToList();
+            if (allPoints.Count == 0) return;
+
+            var swLat = allPoints.Min(p => p.Lat);
+            var swLng = allPoints.Min(p => p.Lng);
+            var neLat = allPoints.Max(p => p.Lat);
+            var neLng = allPoints.Max(p => p.Lng);
+
+            floor.SwLatitude = swLat;
+            floor.SwLongitude = swLng;
+            floor.NeLatitude = neLat;
+            floor.NeLongitude = neLng;
+            await FloorPlanSvc.UpdateFloorAsync(floor.Id, swLat: swLat, swLng: swLng, neLat: neLat, neLng: neLng);
+
+            // Update building center from union of all floor bounds
+            if (_selectedBuilding != null && _floors.Count > 0)
+            {
+                var unionSwLat = _floors.Min(f => f.SwLatitude);
+                var unionSwLng = _floors.Min(f => f.SwLongitude);
+                var unionNeLat = _floors.Max(f => f.NeLatitude);
+                var unionNeLng = _floors.Max(f => f.NeLongitude);
+                var centerLat = (unionSwLat + unionNeLat) / 2;
+                var centerLng = (unionSwLng + unionNeLng) / 2;
+                _selectedBuilding.CenterLatitude = centerLat;
+                _selectedBuilding.CenterLongitude = centerLng;
+                await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, centerLat, centerLng);
+            }
+        }
+        catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("fpEditor.destroy"); }
+        catch (JSDisconnectedException) { }
+        _dotNetRef?.Dispose();
+    }
+
+    private class BuildingDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public double CenterLatitude { get; set; }
+        public double CenterLongitude { get; set; }
+        public List<FloorDto> Floors { get; set; } = new();
+    }
+
+    private class FloorDto
+    {
+        public int Id { get; set; }
+        public int BuildingId { get; set; }
+        public int FloorNumber { get; set; }
+        public string Label { get; set; } = "";
+        public double SwLatitude { get; set; }
+        public double SwLongitude { get; set; }
+        public double NeLatitude { get; set; }
+        public double NeLongitude { get; set; }
+        public double Opacity { get; set; } = 0.7;
+        public string? WallsJson { get; set; }
+        public bool HasImage { get; set; }
+        public string FloorMaterial { get; set; } = "floor_wood";
+    }
+
+    private class WallShape
+    {
+        public List<WallPoint> Points { get; set; } = new();
+        public string Material { get; set; } = "drywall";
+        public List<string>? Materials { get; set; }
+    }
+
+    private class WallPoint
+    {
+        public double Lat { get; set; }
+        public double Lng { get; set; }
+    }
+}

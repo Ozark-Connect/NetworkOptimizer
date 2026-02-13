@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Models;
+using NetworkOptimizer.WiFi.Data;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -44,6 +45,8 @@ public class ApMapService
                 Latitude = savedLocation?.Latitude,
                 Longitude = savedLocation?.Longitude,
                 Floor = savedLocation?.Floor,
+                OrientationDeg = savedLocation?.OrientationDeg ?? 0,
+                MountType = MountTypeHelper.Resolve(savedLocation?.MountType, ap.Model),
                 IsOnline = ap.IsOnline,
                 TotalClients = ap.TotalClients,
                 Radios = ap.Radios.Select(r => new ApRadioSummary
@@ -53,9 +56,12 @@ public class ApMapService
                     Channel = r.Channel,
                     ChannelWidth = r.ChannelWidth,
                     TxPowerDbm = r.TxPower,
+                    MinTxPowerDbm = r.MinTxPower,
+                    MaxTxPowerDbm = r.MaxTxPower,
                     Eirp = r.Eirp,
                     Clients = r.ClientCount,
-                    Utilization = r.ChannelUtilization
+                    Utilization = r.ChannelUtilization,
+                    AntennaMode = r.AntennaMode
                 }).ToList()
             };
         }).ToList();
@@ -88,5 +94,56 @@ public class ApMapService
             });
         }
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Save an AP's floor assignment.
+    /// </summary>
+    public async Task SaveApFloorAsync(string mac, int floor)
+    {
+        var normalizedMac = mac.ToLowerInvariant();
+
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+        if (existing != null)
+        {
+            existing.Floor = floor;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
+    /// Save an AP's orientation (azimuth in degrees, 0-359).
+    /// </summary>
+    public async Task SaveApOrientationAsync(string mac, int orientationDeg)
+    {
+        var normalizedMac = mac.ToLowerInvariant();
+
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+        if (existing != null)
+        {
+            existing.OrientationDeg = orientationDeg;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
+    /// Save an AP's mount type ("ceiling", "wall", or "desktop").
+    /// </summary>
+    public async Task SaveApMountTypeAsync(string mac, string mountType)
+    {
+        var normalizedMac = mac.ToLowerInvariant();
+
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+        if (existing != null)
+        {
+            existing.MountType = mountType;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
     }
 }

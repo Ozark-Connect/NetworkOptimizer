@@ -138,6 +138,13 @@ public class UniFiDeviceResponse
     public List<RadioTableStats>? RadioTableStats { get; set; }
 
     /// <summary>
+    /// Antenna table - available antenna modes (Internal, OMNI, etc.)
+    /// Only present on outdoor APs with switchable antenna modes.
+    /// </summary>
+    [JsonPropertyName("antenna_table")]
+    public List<AntennaTableEntry>? AntennaTable { get; set; }
+
+    /// <summary>
     /// Virtual AP table - per-SSID/radio statistics
     /// Only present on access points.
     /// </summary>
@@ -554,6 +561,13 @@ public class RadioTableEntry
     public bool? BuiltinAntenna { get; set; }
 
     /// <summary>
+    /// Active antenna mode ID. Links to antenna_table[].id on the parent device.
+    /// -1 means not applicable (indoor APs with "Combined" antenna only).
+    /// </summary>
+    [JsonPropertyName("antenna_id")]
+    public int? AntennaId { get; set; }
+
+    /// <summary>
     /// Whether min RSSI (client steering) is enabled
     /// </summary>
     [JsonPropertyName("min_rssi_enabled")]
@@ -733,6 +747,34 @@ public class RadioTableStats
     /// </summary>
     [JsonPropertyName("user-tx_retries")]
     public long? UserTxRetries { get; set; }
+}
+
+/// <summary>
+/// Antenna mode entry from antenna_table - available antenna configurations.
+/// Present on outdoor APs with switchable modes (Internal, OMNI, etc.)
+/// </summary>
+public class AntennaTableEntry
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("default")]
+    public bool IsDefault { get; set; }
+
+    /// <summary>Gain for wifi0 radio (typically 2.4 GHz)</summary>
+    [JsonPropertyName("wifi0_gain")]
+    public int? Wifi0Gain { get; set; }
+
+    /// <summary>Gain for wifi1 radio (typically 5 GHz)</summary>
+    [JsonPropertyName("wifi1_gain")]
+    public int? Wifi1Gain { get; set; }
+
+    /// <summary>Gain for wifi2 radio (typically 6 GHz)</summary>
+    [JsonPropertyName("wifi2_gain")]
+    public int? Wifi2Gain { get; set; }
 }
 
 /// <summary>

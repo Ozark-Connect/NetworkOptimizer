@@ -24,6 +24,12 @@ public class ApMapMarker
     /// <summary>Floor number (null if not placed, default 1 for single-story)</summary>
     public int? Floor { get; set; }
 
+    /// <summary>AP orientation in degrees (0-359, 0 = North, clockwise)</summary>
+    public int OrientationDeg { get; set; }
+
+    /// <summary>Mount type: "ceiling", "wall", or "desktop"</summary>
+    public string MountType { get; set; } = "ceiling";
+
     /// <summary>Whether the AP is currently online</summary>
     public bool IsOnline { get; set; }
 
@@ -54,6 +60,12 @@ public class ApRadioSummary
     /// <summary>TX power in dBm</summary>
     public int? TxPowerDbm { get; set; }
 
+    /// <summary>Minimum TX power in dBm (device capability)</summary>
+    public int? MinTxPowerDbm { get; set; }
+
+    /// <summary>Maximum TX power in dBm (device capability)</summary>
+    public int? MaxTxPowerDbm { get; set; }
+
     /// <summary>EIRP (Effective Isotropic Radiated Power) in dBm</summary>
     public int? Eirp { get; set; }
 
@@ -62,4 +74,10 @@ public class ApRadioSummary
 
     /// <summary>Channel utilization percentage (0-100)</summary>
     public int? Utilization { get; set; }
+
+    /// <summary>
+    /// Active antenna mode name (e.g., "Internal", "OMNI").
+    /// Null for indoor APs with no switchable modes.
+    /// </summary>
+    public string? AntennaMode { get; set; }
 }

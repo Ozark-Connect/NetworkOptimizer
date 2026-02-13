@@ -77,6 +77,12 @@ public class RadioSnapshot
     /// <summary>TX power mode (auto, high, medium, low, custom)</summary>
     public string? TxPowerMode { get; set; }
 
+    /// <summary>Minimum TX power in dBm (from device capability)</summary>
+    public int? MinTxPower { get; set; }
+
+    /// <summary>Maximum TX power in dBm (from device capability)</summary>
+    public int? MaxTxPower { get; set; }
+
     /// <summary>Antenna gain in dBi</summary>
     public int? AntennaGain { get; set; }
 
@@ -115,6 +121,13 @@ public class RadioSnapshot
 
     /// <summary>Whether this radio supports 802.11be (Wi-Fi 7). Required for MLO.</summary>
     public bool Is11Be { get; set; }
+
+    /// <summary>
+    /// Active antenna mode name (e.g., "Internal", "OMNI", "Combined").
+    /// Resolved from radio_table.antenna_id → antenna_table.name.
+    /// Null for indoor APs with no switchable modes (antenna_id = -1).
+    /// </summary>
+    public string? AntennaMode { get; set; }
 }
 
 /// <summary>

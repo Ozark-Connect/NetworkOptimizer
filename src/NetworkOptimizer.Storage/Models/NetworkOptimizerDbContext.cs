@@ -28,6 +28,8 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<AdminSettings> AdminSettings { get; set; }
     public DbSet<UpnpNote> UpnpNotes { get; set; }
     public DbSet<ApLocation> ApLocations { get; set; }
+    public DbSet<Building> Buildings { get; set; }
+    public DbSet<FloorPlan> FloorPlans { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -157,6 +159,23 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("ApLocations");
             entity.HasIndex(e => e.ApMac).IsUnique();
+        });
+
+        // Building configuration
+        modelBuilder.Entity<Building>(entity =>
+        {
+            entity.ToTable("Buildings");
+            entity.HasMany(e => e.Floors)
+                .WithOne(e => e.Building)
+                .HasForeignKey(e => e.BuildingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // FloorPlan configuration
+        modelBuilder.Entity<FloorPlan>(entity =>
+        {
+            entity.ToTable("FloorPlans");
+            entity.HasIndex(e => e.BuildingId);
         });
     }
 }

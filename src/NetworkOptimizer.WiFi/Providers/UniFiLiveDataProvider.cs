@@ -707,6 +707,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     interference = Math.Max(0, radioStats.CuTotal.Value - selfRx - selfTx);
                 }
 
+                // Resolve antenna mode name from antenna_id → antenna_table
+                string? antennaMode = null;
+                var antennaId = radioConfig?.AntennaId;
+                if (antennaId.HasValue && antennaId.Value >= 0 && ap.AntennaTable != null)
+                {
+                    antennaMode = ap.AntennaTable
+                        .FirstOrDefault(a => a.Id == antennaId.Value)?.Name;
+                }
+
                 snapshot.Radios.Add(new RadioSnapshot
                 {
                     Name = radioStats.Name,
@@ -716,6 +725,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     ExtChannel = radioStats.ExtChannel,
                     TxPower = radioStats.TxPower,
                     TxPowerMode = radioConfig?.TxPowerMode,
+                    MinTxPower = radioConfig?.MinTxPower,
+                    MaxTxPower = radioConfig?.MaxTxPower,
                     AntennaGain = radioConfig?.AntennaGain,
                     Satisfaction = radioStats.Satisfaction,
                     ClientCount = radioStats.NumSta,
@@ -727,7 +738,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     RoamingAssistantEnabled = radioConfig?.AssistedRoamingEnabled ?? false,
                     RoamingAssistantRssi = radioConfig?.AssistedRoamingRssi,
                     HasDfs = radioConfig?.HasDfs ?? false,
-                    Is11Be = radioConfig?.Is11Be ?? false
+                    Is11Be = radioConfig?.Is11Be ?? false,
+                    AntennaMode = antennaMode
                 });
             }
         }
