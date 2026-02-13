@@ -3203,6 +3203,14 @@ select.form-control {
     line-height: 0.8;
 }
 
+.speed-value.speed-down {
+    color: var(--speed-download-color);
+}
+
+.speed-value.speed-up {
+    color: var(--speed-upload-color);
+}
+
 .speed-details .speed-value {
     font-size: 1.25rem;
 }

@@ -606,7 +606,6 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    DatetimeUTC = false,
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
                     DatetimeFormatter = new DatetimeFormatter
                     {
@@ -739,11 +738,11 @@
         {
             wan.DownloadData = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
-                .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
+                .Select(r => new WanChartDataPoint(r.TestTime.ToLocalTime(), r.DownloadMbps, r.Id))
                 .ToList();
             wan.UploadData = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
-                .Select(r => new WanChartDataPoint(r.TestTime, r.UploadMbps, r.Id))
+                .Select(r => new WanChartDataPoint(r.TestTime.ToLocalTime(), r.UploadMbps, r.Id))
                 .ToList();
         }
     }

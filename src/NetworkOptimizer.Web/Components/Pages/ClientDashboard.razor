@@ -919,7 +919,7 @@
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
                 {
                     _signalChartData.Add(new SignalChartPoint(
-                        _latestPoll.Timestamp, (decimal)_client.SignalDbm.Value));
+                        _latestPoll.Timestamp.ToLocalTime(), (decimal)_client.SignalDbm.Value));
 
                     // Keep last 360 points (30 min at 5s interval)
                     if (_signalChartData.Count > 360)
@@ -968,20 +968,21 @@
         _speedResults = await DashboardService.GetSpeedResultsAsync(_client!.Mac, from, to);
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
-        // Build chart data (UTC - ApexCharts converts to browser local via DatetimeUTC=false)
+        // Build chart data (ToLocalTime converts UTC to container TZ for display)
         var dlPoints = new List<SpeedChartPoint>();
         var ulPoints = new List<SpeedChartPoint>();
         var pingPoints = new List<SpeedChartPoint>();
         var jitterPoints = new List<SpeedChartPoint>();
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
-            dlPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
-            ulPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+            var ts = r.TestTime.ToLocalTime();
+            dlPoints.Add(new SpeedChartPoint(ts, (decimal)r.DownloadMbps, "download"));
+            ulPoints.Add(new SpeedChartPoint(ts, (decimal)r.UploadMbps, "upload"));
 
             if (r.PingMs.HasValue)
-                pingPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+                pingPoints.Add(new SpeedChartPoint(ts, (decimal)r.PingMs.Value, "ping"));
             if (r.JitterMs.HasValue)
-                jitterPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+                jitterPoints.Add(new SpeedChartPoint(ts, (decimal)r.JitterMs.Value, "jitter"));
         }
         _speedDownloadData = dlPoints;
         _speedUploadData = ulPoints;
@@ -994,10 +995,10 @@
         // Use merged history (local high-res + UniFi controller data)
         _signalHistory = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
 
-        // Build chart data from history (UTC - ApexCharts converts to browser local via DatetimeUTC=false)
+        // Build chart data (ToLocalTime converts UTC to container TZ for display)
         _signalChartData = _signalHistory
             .Where(h => h.SignalDbm.HasValue)
-            .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value))
+            .Select(h => new SignalChartPoint(h.Timestamp.ToLocalTime(), (decimal)h.SignalDbm!.Value))
             .ToList();
 
         // Build chart annotations for band/AP changes
@@ -1012,7 +1013,7 @@
 
         foreach (var entry in _signalHistory)
         {
-            var ts = new DateTimeOffset(entry.Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+            var ts = new DateTimeOffset(entry.Timestamp.ToLocalTime()).ToUnixTimeMilliseconds();
 
             // Detect band change
             if (prevBand != null && entry.Band != null && entry.Band != prevBand)
@@ -1315,7 +1316,6 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    DatetimeUTC = false,
                     DatetimeFormatter = new DatetimeFormatter
                     {
                         Hour = "HH:mm",
@@ -1363,7 +1363,6 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    DatetimeUTC = false,
                     DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
                 }
             },
@@ -1399,7 +1398,6 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    DatetimeUTC = false,
                     DatetimeFormatter = new DatetimeFormatter
                     {
                         Hour = "HH:mm",
@@ -1569,7 +1567,7 @@
             if (apIndex.TryGetValue(ap, out var idx))
             {
                 _connectionChartData.Add(new ConnectionChartPoint(
-                    evt.Timestamp.UtcDateTime, idx, ap));
+                    evt.Timestamp.LocalDateTime, idx, ap));
             }
         }
 
@@ -1583,7 +1581,6 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    DatetimeUTC = false,
                     DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
                 }
             },
