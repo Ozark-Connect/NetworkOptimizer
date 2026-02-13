@@ -955,6 +955,18 @@
         color: #38bdf8;
     }
 
+    .fp-ap-popup-mode-btn {
+        background: #374151;
+        border: 1px solid #4b5563;
+        color: #d1d5db;
+        padding: 2px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .fp-ap-popup-mode-btn:hover { background: #4b5563; }
+    .fp-ap-popup-mode-btn.overridden { border-color: #38bdf8; color: #38bdf8; }
+
     .fp-btn-reset-sim {
         background: transparent;
         border-color: #f97316;
@@ -1320,7 +1332,8 @@
                 txPowerDbm = r.TxPowerDbm,
                 minTxPower = r.MinTxPowerDbm,
                 maxTxPower = r.MaxTxPowerDbm,
-                eirp = r.Eirp
+                eirp = r.Eirp,
+                antennaMode = r.AntennaMode
             })
         }));
 
@@ -1470,6 +1483,12 @@
             await UpdateApMarkers();
             if (_showHeatmap) await ComputeHeatmap();
         });
+    }
+
+    [JSInvokable]
+    public async Task OnSimulationChanged()
+    {
+        await InvokeAsync(async () => await UpdateApMarkers());
     }
 
     private async Task ToggleApEditMode()

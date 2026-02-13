@@ -1091,6 +1091,16 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         }
     }
 
+    // Apply antenna mode overrides from simulation toggle
+    if (request.AntennaModeOverrides is { Count: > 0 })
+    {
+        foreach (var ap in placedAps)
+        {
+            if (request.AntennaModeOverrides.TryGetValue(ap.Mac.ToLowerInvariant(), out var overrideMode))
+                ap.AntennaMode = overrideMode;
+        }
+    }
+
     // Build per-building floor info for smart floor attenuation
     var buildingFloorInfos = allBuildings.Select(building =>
     {

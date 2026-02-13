@@ -17,6 +17,9 @@ public class HeatmapRequest
     /// <summary>Per-AP TX power overrides keyed by MAC address (dBm values)</summary>
     public Dictionary<string, int>? TxPowerOverrides { get; set; }
 
+    /// <summary>Per-AP antenna mode overrides keyed by MAC address (e.g., "OMNI", "Internal")</summary>
+    public Dictionary<string, string>? AntennaModeOverrides { get; set; }
+
     /// <summary>Viewport bounds from the map</summary>
     public double? SwLat { get; set; }
     public double? SwLng { get; set; }

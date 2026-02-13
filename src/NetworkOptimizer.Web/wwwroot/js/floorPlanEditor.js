@@ -36,6 +36,7 @@ window.fpEditor = {
     _heatmapOverlay: null,
     _contourLayer: null,
     _txPowerOverrides: {},
+    _antennaModeOverrides: {},
     _heatmapBand: '5',
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
@@ -50,6 +51,7 @@ window.fpEditor = {
     initMap: function (containerId, centerLat, centerLng, zoom) {
         var self = this;
         this._txPowerOverrides = {};
+        this._antennaModeOverrides = {};
 
         function loadCss(href) {
             if (document.querySelector('link[href="' + href + '"]')) return;
@@ -393,6 +395,25 @@ window.fpEditor = {
                     '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
             }
 
+            // Antenna mode toggle for APs with switchable modes (e.g., Internal/OMNI)
+            var antennaModeHtml = '';
+            if (activeRadio && activeRadio.antennaMode) {
+                var macKey = ap.mac.toLowerCase();
+                var modeOverrideKey = macKey + ':' + self._heatmapBand;
+                var currentMode = self._antennaModeOverrides[modeOverrideKey] || activeRadio.antennaMode;
+                var altMode = currentMode.toUpperCase() === 'OMNI' ? 'Internal' : 'OMNI';
+                var safeModeKey = esc(modeOverrideKey);
+                var modeIsOverridden = self._antennaModeOverrides[modeOverrideKey] != null;
+                // If there's no TX power section, add the Simulate header
+                var modeHeader = txPowerHtml ? '' :
+                    '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
+                antennaModeHtml = modeHeader +
+                    '<div class="fp-ap-popup-row"><label>Antenna</label>' +
+                    '<button class="fp-ap-popup-mode-btn' + (modeIsOverridden ? ' overridden' : '') + '" ' +
+                    'onclick="fpEditor._toggleAntennaMode(\'' + safeModeKey + '\',\'' + esc(activeRadio.antennaMode) + '\')">' +
+                    esc(currentMode) + '</button></div>';
+            }
+
             var safeMac = esc(ap.mac);
             marker.bindPopup(
                 '<div class="fp-ap-popup">' +
@@ -411,6 +432,7 @@ window.fpEditor = {
                 'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
                 '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
                 txPowerHtml +
+                antennaModeHtml +
                 '</div></div>'
             );
 
@@ -467,13 +489,30 @@ window.fpEditor = {
         info.classList.add('overridden');
     },
 
+    _toggleAntennaMode: function (key, originalMode) {
+        var current = this._antennaModeOverrides[key] || originalMode;
+        var next = current.toUpperCase() === 'OMNI' ? 'Internal' : 'OMNI';
+        if (next === originalMode) {
+            delete this._antennaModeOverrides[key];
+        } else {
+            this._antennaModeOverrides[key] = next;
+        }
+        this._updateResetSimBtn();
+        this.computeHeatmap();
+        // Rebuild popups to reflect the new mode label
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
+    },
+
     _updateResetSimBtn: function () {
         var btn = document.getElementById('fp-reset-sim-btn');
-        if (btn) btn.style.display = Object.keys(this._txPowerOverrides).length > 0 ? '' : 'none';
+        var hasOverrides = Object.keys(this._txPowerOverrides).length > 0 ||
+                           Object.keys(this._antennaModeOverrides).length > 0;
+        if (btn) btn.style.display = hasOverrides ? '' : 'none';
     },
 
     resetSimulation: function () {
         this._txPowerOverrides = {};
+        this._antennaModeOverrides = {};
         this._updateResetSimBtn();
         this.computeHeatmap();
     },
@@ -1728,6 +1767,16 @@ window.fpEditor = {
         });
         if (Object.keys(filteredOverrides).length > 0) {
             body.txPowerOverrides = filteredOverrides;
+        }
+        // Filter antenna mode overrides to current band
+        var filteredModeOverrides = {};
+        Object.keys(self._antennaModeOverrides).forEach(function (key) {
+            if (key.endsWith(bandSuffix)) {
+                filteredModeOverrides[key.slice(0, -bandSuffix.length)] = self._antennaModeOverrides[key];
+            }
+        });
+        if (Object.keys(filteredModeOverrides).length > 0) {
+            body.antennaModeOverrides = filteredModeOverrides;
         }
 
         fetch(baseUrl + '/api/floor-plan/heatmap', {
