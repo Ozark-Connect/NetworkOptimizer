@@ -211,7 +211,7 @@
             </div>
         }
 
-        @if (_selectedBuilding != null && (_mode == "walls" || _mode == "aps"))
+        @if (_selectedBuilding != null && _mode == "walls")
         {
             <div class="fp-editing-chip" @onclick="DeselectBuilding">
                 Editing @_selectedBuilding.Name <span>&times;</span>
@@ -2089,9 +2089,8 @@
         if (_mode == "walls")
         {
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            _mode = "view";
         }
-        _mode = "view";
-        _selectedApForPlacement = null;
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
     }
 
