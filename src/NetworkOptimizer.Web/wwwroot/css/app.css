@@ -11719,6 +11719,12 @@ a.affected-client:hover {
     margin-bottom: 0;
 }
 
+.wan-chart-container .apexcharts-tooltip,
+.wan-chart-container .apexcharts-marker {
+    cursor: pointer;
+    pointer-events: auto;
+}
+
 .wan-time-slider {
     display: flex;
     align-items: center;
