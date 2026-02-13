@@ -969,24 +969,21 @@
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
         // Build chart data (UTC timestamps - JS formatter converts to browser local time)
-        var dlPoints = new List<SpeedChartPoint>();
-        var ulPoints = new List<SpeedChartPoint>();
-        var pingPoints = new List<SpeedChartPoint>();
-        var jitterPoints = new List<SpeedChartPoint>();
+        // Clear and repopulate existing lists (don't reassign - chart Items bindings hold the reference)
+        _speedDownloadData.Clear();
+        _speedUploadData.Clear();
+        _latencyPingData.Clear();
+        _latencyJitterData.Clear();
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
-            dlPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
-            ulPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+            _speedDownloadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
+            _speedUploadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
 
             if (r.PingMs.HasValue)
-                pingPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+                _latencyPingData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
             if (r.JitterMs.HasValue)
-                jitterPoints.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+                _latencyJitterData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
         }
-        _speedDownloadData = dlPoints;
-        _speedUploadData = ulPoints;
-        _latencyPingData = pingPoints;
-        _latencyJitterData = jitterPoints;
     }
 
     private async Task LoadSignalDataAsync(DateTime from, DateTime to)
@@ -994,11 +991,11 @@
         // Use merged history (local high-res + UniFi controller data)
         _signalHistory = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
 
-        // Build chart data (UTC timestamps - JS formatter converts to browser local time)
-        _signalChartData = _signalHistory
+        // Clear and repopulate existing list (don't reassign - chart Items binding holds the reference)
+        _signalChartData.Clear();
+        _signalChartData.AddRange(_signalHistory
             .Where(h => h.SignalDbm.HasValue)
-            .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value))
-            .ToList();
+            .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value)));
 
         // Build chart annotations for band/AP changes
         BuildSignalAnnotations();
@@ -1324,7 +1321,11 @@
                 new YAxis
                 {
                     Title = new AxisTitle { Text = "Mbps" },
-                    Min = 0
+                    Min = 0,
+                    Labels = new YAxisLabels
+                    {
+                        Formatter = @"function(val) { return Math.round(val); }"
+                    }
                 }
             },
             Colors = new List<string> { "#3385d6", "#24bc70" }, // From Device (blue), To Device (green) - matches SpeedTestDetails
@@ -1337,7 +1338,11 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                Y = new TooltipY
+                {
+                    Formatter = @"function(val) { return val.toFixed(1) + ' Mbps'; }"
+                }
             },
             Legend = new Legend { Show = true, Position = LegendPosition.Top }
         };
