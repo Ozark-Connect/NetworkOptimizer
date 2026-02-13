@@ -955,17 +955,28 @@
         color: #38bdf8;
     }
 
-    .fp-ap-popup-mode-btn {
-        background: #374151;
+    .fp-mode-toggle {
+        display: inline-flex;
         border: 1px solid #4b5563;
-        color: #d1d5db;
-        padding: 2px 10px;
         border-radius: 4px;
+        overflow: hidden;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 11px;
     }
-    .fp-ap-popup-mode-btn:hover { background: #4b5563; }
-    .fp-ap-popup-mode-btn.overridden { border-color: #38bdf8; color: #38bdf8; }
+    .fp-mode-toggle.overridden { border-color: #38bdf8; }
+    .fp-mode-opt {
+        padding: 2px 8px;
+        color: #9ca3af;
+        transition: background 0.15s, color 0.15s;
+    }
+    .fp-mode-opt.active {
+        background: #374151;
+        color: #e5e7eb;
+    }
+    .fp-mode-toggle.overridden .fp-mode-opt.active {
+        background: rgba(56, 189, 248, 0.15);
+        color: #38bdf8;
+    }
 
     .fp-btn-reset-sim {
         background: transparent;

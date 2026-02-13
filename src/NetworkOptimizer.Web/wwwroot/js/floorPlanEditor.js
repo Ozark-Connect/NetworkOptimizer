@@ -395,13 +395,13 @@ window.fpEditor = {
                     '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
             }
 
-            // Antenna mode toggle for APs with switchable modes (e.g., Internal/OMNI)
+            // Antenna mode toggle for APs with switchable modes (e.g., Internal/Omni)
             var antennaModeHtml = '';
             if (activeRadio && activeRadio.antennaMode) {
                 var macKey = ap.mac.toLowerCase();
                 var modeOverrideKey = macKey + ':' + self._heatmapBand;
                 var currentMode = self._antennaModeOverrides[modeOverrideKey] || activeRadio.antennaMode;
-                var altMode = currentMode.toUpperCase() === 'OMNI' ? 'Internal' : 'OMNI';
+                var isOmni = currentMode.toUpperCase() === 'OMNI';
                 var safeModeKey = esc(modeOverrideKey);
                 var modeIsOverridden = self._antennaModeOverrides[modeOverrideKey] != null;
                 // If there's no TX power section, add the Simulate header
@@ -409,9 +409,11 @@ window.fpEditor = {
                     '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
                 antennaModeHtml = modeHeader +
                     '<div class="fp-ap-popup-row"><label>Antenna</label>' +
-                    '<button class="fp-ap-popup-mode-btn' + (modeIsOverridden ? ' overridden' : '') + '" ' +
+                    '<div class="fp-mode-toggle' + (modeIsOverridden ? ' overridden' : '') + '" ' +
                     'onclick="fpEditor._toggleAntennaMode(\'' + safeModeKey + '\',\'' + esc(activeRadio.antennaMode) + '\')">' +
-                    esc(currentMode) + '</button></div>';
+                    '<span class="fp-mode-opt' + (isOmni ? '' : ' active') + '">Directional</span>' +
+                    '<span class="fp-mode-opt' + (isOmni ? ' active' : '') + '">Omni</span>' +
+                    '</div></div>';
             }
 
             var safeMac = esc(ap.mac);
