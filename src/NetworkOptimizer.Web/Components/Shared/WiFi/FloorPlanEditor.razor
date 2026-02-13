@@ -211,6 +211,30 @@
             </div>
         }
 
+        @if (_selectedBuilding != null || _mode == "aps" || _showSignalData)
+        {
+            <div class="fp-chip-stack">
+                @if (_selectedBuilding != null)
+                {
+                    <div class="fp-editing-chip" @onclick="DeselectBuilding">
+                        Editing @_selectedBuilding.Name <span>&times;</span>
+                    </div>
+                }
+                @if (_mode == "aps")
+                {
+                    <div class="fp-editing-chip" @onclick="ToggleApEditMode">
+                        Editing APs <span>&times;</span>
+                    </div>
+                }
+                @if (_showSignalData)
+                {
+                    <div class="fp-editing-chip" @onclick="ToggleSignalData">
+                        Showing Signal Data <span>&times;</span>
+                    </div>
+                }
+            </div>
+        }
+
         @if (_showHeatmap)
         {
             <div class="fp-heatmap-legend">
@@ -733,6 +757,55 @@
         border-right: 5px solid transparent;
         border-bottom: 10px solid #60a5fa;
         filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.8));
+    }
+
+    /* Chip stack (bottom-left of map) */
+    .fp-chip-stack {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .fp-editing-chip {
+        background: var(--primary-color);
+        color: white;
+        padding: 0.35rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        white-space: nowrap;
+    }
+
+    .fp-editing-chip:hover {
+        background: var(--primary-hover);
+    }
+
+    /* Draw-mode warning toast */
+    .fp-draw-warning {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2000;
+        background: rgba(234, 179, 8, 0.95);
+        color: #1a1a1a;
+        padding: 10px 18px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        max-width: 360px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        pointer-events: none;
+        transition: opacity 0.5s;
     }
 
     /* Wall length labels */
