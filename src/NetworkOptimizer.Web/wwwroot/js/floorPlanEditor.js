@@ -1419,6 +1419,23 @@ window.fpEditor = {
         this._startEdgePan();
         m.getContainer().style.cursor = 'crosshair';
 
+        // Highlight existing building outline so it's obvious what you're editing
+        if (this._drawHighlightLayer) { this._drawHighlightLayer.clearLayers(); m.removeLayer(this._drawHighlightLayer); }
+        this._drawHighlightLayer = null;
+        if (this._allWalls && this._allWalls.length > 0) {
+            this._drawHighlightLayer = L.layerGroup().addTo(m);
+            var hl = this._drawHighlightLayer;
+            this._allWalls.forEach(function (wall) {
+                for (var i = 0; i < wall.points.length - 1; i++) {
+                    var p1 = wall.points[i], p2 = wall.points[i + 1];
+                    // Wide soft glow behind walls (matches AP glow color)
+                    L.polyline([[p1.lat, p1.lng], [p2.lat, p2.lng]], {
+                        color: '#3b82f6', weight: 14, opacity: 0.25, lineCap: 'round', interactive: false
+                    }).addTo(hl);
+                }
+            });
+        }
+
         this._refAngle = null;
 
         // Snap point to reference angle or perpendicular
@@ -1589,7 +1606,7 @@ window.fpEditor = {
             if (isFirstPoint && !didSnapToWall && !self._distanceWarnShown &&
                 self._allWalls && self._allWalls.length > 0) {
                 var nearestM = self._nearestWallDistanceM(lat, lng);
-                if (nearestM > 6.1) { // ~20 ft
+                if (nearestM > 15.24) { // ~50 ft
                     self._distanceWarnShown = true;
                     self._showDrawWarning('This point is far from existing walls. Click "Done Editing" to finish the current building before starting a new one.');
                 }
@@ -1754,6 +1771,7 @@ window.fpEditor = {
         if (this._wallClickHandler) { m.off('click', this._wallClickHandler); this._wallClickHandler = null; }
         if (this._wallDblClickHandler) { m.off('dblclick', this._wallDblClickHandler); this._wallDblClickHandler = null; }
         if (this._wallMoveHandler) { m.off('mousemove', this._wallMoveHandler); this._wallMoveHandler = null; }
+        if (this._drawHighlightLayer) { this._drawHighlightLayer.clearLayers(); m.removeLayer(this._drawHighlightLayer); this._drawHighlightLayer = null; }
         m.doubleClickZoom.enable();
     },
 
