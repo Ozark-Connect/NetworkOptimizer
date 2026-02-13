@@ -2314,6 +2314,7 @@
         // Leaflet needs to recalculate its container size after layout change
         await Task.Delay(50);
         await JS.InvokeVoidAsync("fpEditor.invalidateSize");
+        await FitMapToContent();
     }
 
     private async Task FitMapToContent()
