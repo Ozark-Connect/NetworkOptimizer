@@ -711,31 +711,25 @@ window.fpEditor = {
 
         // Clickable building hit areas in global view (actual wall shape outlines)
         if (clickable) {
-            var bldgGroups = {};
+            // Find the largest wall shape per building (exterior outline)
+            var largest = {};
             walls.forEach(function (wall) {
                 var id = wall._buildingId;
                 if (!id || wall.points.length < 3) return;
-                // Skip interior-only wall shapes (drywall is always interior)
-                var mat = (wall.material || '').toLowerCase();
-                if (mat === 'drywall') return;
-                if (!bldgGroups[id]) bldgGroups[id] = [];
-                var latlngs = wall.points.map(function (p) { return [p.lat, p.lng]; });
-                bldgGroups[id].push(latlngs);
+                if (!largest[id] || wall.points.length > largest[id].length)
+                    largest[id] = wall.points;
             });
-            Object.keys(bldgGroups).forEach(function (id) {
-                var shapes = bldgGroups[id];
-                var group = L.featureGroup().addTo(self._bgWallLayer);
-                shapes.forEach(function (latlngs) {
-                    L.polygon(latlngs, {
-                        color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
-                    }).addTo(group);
-                });
+            Object.keys(largest).forEach(function (id) {
+                var latlngs = largest[id].map(function (p) { return [p.lat, p.lng]; });
+                var poly = L.polygon(latlngs, {
+                    color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
+                }).addTo(self._bgWallLayer);
                 var bldgId = parseInt(id);
-                group.on('click', function () {
+                poly.on('click', function () {
                     if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
                 });
-                group.on('mouseover', function () { group.setStyle({ fillOpacity: 0.15 }); });
-                group.on('mouseout', function () { group.setStyle({ fillOpacity: 0 }); });
+                poly.on('mouseover', function () { poly.setStyle({ fillOpacity: 0.15 }); });
+                poly.on('mouseout', function () { poly.setStyle({ fillOpacity: 0 }); });
             });
             var bgPaneEl = m.getPane('bgWallPane');
             if (bgPaneEl) bgPaneEl.style.pointerEvents = 'auto';
