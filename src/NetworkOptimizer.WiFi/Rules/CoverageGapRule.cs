@@ -18,7 +18,7 @@ public class CoverageGapRule : IWiFiOptimizerRule
     /// <summary>
     /// Percentage of weak signal clients to trigger this recommendation.
     /// </summary>
-    private const double WeakSignalPctThreshold = 50;
+    private const double WeakSignalPctThreshold = 40;
 
     /// <summary>
     /// Signal strength below which a client is considered "weak".
@@ -31,12 +31,9 @@ public class CoverageGapRule : IWiFiOptimizerRule
 
         foreach (var ap in ctx.AccessPoints)
         {
-            var apClients = ctx.Clients.Where(c => c.ApMac == ap.Mac).ToList();
-            if (apClients.Count < MinClientsThreshold)
-                continue;
-
-            var clientsWithSignal = apClients.Where(c => c.Signal.HasValue).ToList();
-            if (clientsWithSignal.Count == 0)
+            var clientsWithSignal = ctx.Clients
+                .Where(c => c.ApMac == ap.Mac && c.Signal.HasValue).ToList();
+            if (clientsWithSignal.Count < MinClientsThreshold)
                 continue;
 
             var weakCount = clientsWithSignal.Count(c => c.Signal < WeakSignalThreshold);
@@ -74,7 +71,7 @@ public class CoverageGapRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Warning,
             Dimensions = { HealthDimension.SignalQuality },
             Title = $"Coverage Gaps Near {coverageGapAps.Count} APs",
-            Description = $"{coverageGapAps.Count} access points have >=50% of clients with weak signal (<{WeakSignalThreshold} dBm). " +
+            Description = $"{coverageGapAps.Count} access points have >={WeakSignalPctThreshold:F0}% of clients with weak signal (<{WeakSignalThreshold} dBm). " +
                 "This indicates significant coverage gaps in your deployment.",
             AffectedEntity = string.Join(", ", coverageGapAps.Select(x => $"{x.Ap.Name} ({x.WeakPct:F0}%)")),
             Recommendation = "Review AP placement and consider increasing TX power or adding APs in areas with weak coverage.",
