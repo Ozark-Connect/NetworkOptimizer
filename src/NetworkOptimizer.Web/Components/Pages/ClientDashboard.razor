@@ -90,79 +90,70 @@
     }
     else
     {
-        @* Device Identity Hero *@
-        <div class="card identity-hero">
-            <div class="hero-main">
-                <div class="hero-device-info">
-                    <h2 class="hero-device-name">@_client.DisplayName</h2>
-                    <div class="hero-meta">
-                        <span class="meta-item" data-tooltip="MAC Address">@_client.Mac</span>
-                        <span class="meta-separator">·</span>
-                        <span class="meta-item" data-tooltip="IP Address">@_client.Ip</span>
+        @* Identity Bar *@
+        <div class="card identity-bar">
+            <div class="identity-row-1">
+                <div class="identity-info">
+                    <h2 class="identity-name">@_client.DisplayName</h2>
+                    <div class="identity-meta">
+                        <span data-tooltip="MAC Address">@_client.Mac</span>
+                        <span class="meta-sep">·</span>
+                        <span data-tooltip="IP Address">@_client.Ip</span>
                         @if (!string.IsNullOrEmpty(_client.Essid))
                         {
-                            <span class="meta-separator">·</span>
-                            <span class="meta-item" data-tooltip="SSID">@_client.Essid</span>
+                            <span class="meta-sep">·</span>
+                            <span data-tooltip="SSID">@_client.Essid</span>
                         }
                     </div>
                 </div>
-                @if (!_client.IsWired && _client.SignalDbm.HasValue)
-                {
-                    <div class="hero-signal">
+                <div class="identity-signal">
+                    @if (!_client.IsWired && _client.SignalDbm.HasValue)
+                    {
                         <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value)">
                             <span class="signal-value">@_client.SignalDbm</span>
                             <span class="signal-unit">dBm</span>
                         </div>
-                    </div>
-                }
+                        <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value)">
+                            @for (int i = 0; i < 5; i++)
+                            {
+                                var barThreshold = new[] { -90, -82, -75, -70, -60 }[i];
+                                <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
+                            }
+                        </div>
+                    }
+                    @if (_pollCount > 0)
+                    {
+                        <span class="identity-live">
+                            <span class="poll-dot"></span>
+                            <span class="poll-label">Live</span>
+                        </span>
+                    }
+                </div>
             </div>
-            <div class="hero-details">
+            <div class="identity-row-2">
                 @if (!_client.IsWired)
                 {
-                    <div class="hero-detail-item">
-                        <span class="detail-label">Band</span>
-                        <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
-                    </div>
-                    <div class="hero-detail-item">
-                        <span class="detail-label">Protocol</span>
-                        <span class="detail-value">@FormatProtocol(_client.Protocol)</span>
-                    </div>
-                    <div class="hero-detail-item">
-                        <span class="detail-label">AP</span>
-                        <span class="detail-value">@(_client.ApName ?? "—")</span>
-                    </div>
-                    <div class="hero-detail-item">
-                        <span class="detail-label">Channel</span>
-                        <span class="detail-value">@(_client.Channel?.ToString() ?? "—")</span>
-                    </div>
+                    <span class="band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                    <span class="identity-detail">
+                        @(_client.ApName ?? "—")@if (_client.ApModel != null)
+                        {<span class="detail-dim"> · @_client.ApModel</span>}
+                    </span>
+                    <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")</span>
+                    <span class="identity-detail">@FormatProtocol(_client.Protocol)</span>
                     @if (_client.TxRateKbps.HasValue)
                     {
-                        <div class="hero-detail-item">
-                            <span class="detail-label" data-tooltip="AP perspective: RX = from device, TX = to device">RX / TX</span>
-                            <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx") / @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
-                        </div>
+                        <span class="identity-detail" data-tooltip="AP perspective: RX = from device, TX = to device">
+                            RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx") / TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")
+                        </span>
                     }
                     @if (_client.IsMlo)
                     {
-                        <div class="hero-detail-item">
-                            <span class="detail-label">MLO</span>
-                            <span class="detail-value badge-mlo">Active</span>
-                        </div>
+                        <span class="identity-detail badge-mlo">MLO</span>
                     }
                 }
                 else
                 {
-                    <div class="hero-detail-item">
-                        <span class="detail-label">Connection</span>
-                        <span class="detail-value">Wired</span>
-                    </div>
-                }
-                @if (_pollCount > 0)
-                {
-                    <div class="hero-detail-item hero-poll-indicator">
-                        <span class="poll-dot"></span>
-                        <span class="detail-value poll-label">Live</span>
-                    </div>
+                    <span class="identity-detail">Wired</span>
                 }
             </div>
         </div>
@@ -378,79 +369,34 @@
             {
                 @* ===== SIGNAL TAB ===== *@
                 <div class="tab-pane">
-                    @if (!_client.IsWired && _client.SignalDbm.HasValue)
+                    @if (!_client.IsWired && (_client.NoiseDbm.HasValue || _client.ApTxPower.HasValue || _client.ApClientCount.HasValue))
                     {
-                        <div class="card signal-hero-live">
-                            <div class="signal-main">
-                                <div class="signal-gauge-large @GetSignalClass(_client.SignalDbm.Value)">
-                                    <span class="signal-value-large">@_client.SignalDbm</span>
-                                    <span class="signal-unit-large">dBm</span>
+                        <div class="signal-summary">
+                            @if (_client.NoiseDbm.HasValue)
+                            {
+                                <div class="summary-item">
+                                    <span class="summary-label">Noise</span>
+                                    <span class="summary-value">@_client.NoiseDbm dBm</span>
                                 </div>
-                                <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value)">
-                                    @for (int i = 0; i < 5; i++)
-                                    {
-                                        var barThreshold = new[] { -90, -82, -75, -70, -60 }[i];
-                                        <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
-                                    }
+                                <div class="summary-item">
+                                    <span class="summary-label">SNR</span>
+                                    <span class="summary-value">@(_client.SignalDbm - _client.NoiseDbm) dB</span>
                                 </div>
-                            </div>
-                            <div class="signal-details-grid">
-                                <div class="signal-detail">
-                                    <span class="detail-label">Band</span>
-                                    <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                            }
+                            @if (_client.ApTxPower.HasValue)
+                            {
+                                <div class="summary-item">
+                                    <span class="summary-label" data-tooltip="Transmit power at the AP radio">TX Power</span>
+                                    <span class="summary-value">@_client.ApTxPower@(_client.ApEirp.HasValue ? $" ({_client.ApEirp} EIRP)" : "") dBm</span>
                                 </div>
-                                <div class="signal-detail">
-                                    <span class="detail-label">AP</span>
-                                    <span class="detail-value">@(_client.ApName ?? "—")</span>
+                            }
+                            @if (_client.ApClientCount.HasValue)
+                            {
+                                <div class="summary-item">
+                                    <span class="summary-label" data-tooltip="Clients sharing the same radio on this AP">Radio Peers</span>
+                                    <span class="summary-value">@_client.ApClientCount</span>
                                 </div>
-                                <div class="signal-detail">
-                                    <span class="detail-label">Channel</span>
-                                    <span class="detail-value">@(_client.Channel?.ToString() ?? "—")</span>
-                                </div>
-                                @if (_client.ApModel != null)
-                                {
-                                    <div class="signal-detail">
-                                        <span class="detail-label">AP Model</span>
-                                        <span class="detail-value">@_client.ApModel</span>
-                                    </div>
-                                }
-                                @if (_client.TxRateKbps.HasValue)
-                                {
-                                    <div class="signal-detail">
-                                        <span class="detail-label" data-tooltip="AP receive rate (from device)">RX Rate</span>
-                                        <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
-                                    </div>
-                                    <div class="signal-detail">
-                                        <span class="detail-label" data-tooltip="AP transmit rate (to device)">TX Rate</span>
-                                        <span class="detail-value">@RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
-                                    </div>
-                                }
-                                @if (_client.NoiseDbm.HasValue)
-                                {
-                                    <div class="signal-detail">
-                                        <span class="detail-label">Noise</span>
-                                        <span class="detail-value">@_client.NoiseDbm dBm</span>
-                                    </div>
-                                    <div class="signal-detail">
-                                        <span class="detail-label">SNR</span>
-                                        <span class="detail-value">@(_client.SignalDbm - _client.NoiseDbm) dB</span>
-                                    </div>
-                                }
-                                @if (_client.ApTxPower.HasValue)
-                                {
-                                    <div class="signal-detail">
-                                        <span class="detail-label" data-tooltip="Transmit power at the AP radio">AP TX Power</span>
-                                        <span class="detail-value">@_client.ApTxPower dBm@(_client.ApEirp.HasValue ? $" ({_client.ApEirp} EIRP)" : "")</span>
-                                    </div>
-                                }
-                                @if (_client.ApClientCount.HasValue)
-                                {
-                                    <div class="signal-detail">
-                                        <span class="detail-label" data-tooltip="Clients sharing the same radio on this AP">Radio Peers</span>
-                                        <span class="detail-value">@_client.ApClientCount</span>
-                                    </div>
-                                }
-                            </div>
+                            }
                         </div>
                     }
                     else if (_client.IsWired)
@@ -547,49 +493,7 @@
             {
                 @* ===== CONNECTION TAB ===== *@
                 <div class="tab-pane">
-                    @* Connection Hero *@
-                    <div class="card connection-hero">
-                        <div class="connection-hero-grid">
-                            <div class="connection-detail">
-                                <span class="detail-label">@(_client.IsWired ? "Switch / Gateway" : "Current AP")</span>
-                                <span class="detail-value">@(_client.ApName ?? "—")</span>
-                            </div>
-                            @if (_client.ApModel != null)
-                            {
-                                <div class="connection-detail">
-                                    <span class="detail-label">@(_client.IsWired ? "Model" : "AP Model")</span>
-                                    <span class="detail-value">@_client.ApModel</span>
-                                </div>
-                            }
-                            @if (!_client.IsWired)
-                            {
-                                <div class="connection-detail">
-                                    <span class="detail-label">Band</span>
-                                    <span class="detail-value band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
-                                </div>
-                                <div class="connection-detail">
-                                    <span class="detail-label">Channel</span>
-                                    <span class="detail-value">@(_client.Channel?.ToString() ?? "—")</span>
-                                </div>
-                                @if (_client.SignalDbm.HasValue)
-                                {
-                                    <div class="connection-detail">
-                                        <span class="detail-label">Signal</span>
-                                        <span class="detail-value @GetSignalClass(_client.SignalDbm.Value)">@_client.SignalDbm dBm</span>
-                                    </div>
-                                }
-                                @if (_client.TxRateKbps.HasValue)
-                                {
-                                    <div class="connection-detail">
-                                        <span class="detail-label" data-tooltip="AP perspective: RX = from device, TX = to device">RX / TX</span>
-                                        <span class="detail-value">@RenderRate(_client.RxRateKbps, "wifi-speed-rx") / @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
-                                    </div>
-                                }
-                            }
-                        </div>
-                    </div>
-
-                    @* Live L2 Trace *@
+                    @* Network Path *@
                     @if (_latestPoll?.PathAnalysis != null)
                     {
                         <div class="card trace-card">
@@ -1815,68 +1719,70 @@
         color: var(--text-secondary);
     }
 
-    /* Identity Hero (.card provides bg/border/radius) */
-    .identity-hero {
-        padding: 20px;
+    /* Identity Bar (.card provides bg/border/radius) */
+    .identity-bar {
+        padding: 12px 16px;
+        position: sticky;
+        top: 0;
+        z-index: 10;
     }
-    .hero-main {
+    .identity-row-1 {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 12px;
+        gap: 12px;
+        margin-bottom: 8px;
     }
-    .hero-device-name {
-        font-size: 1.25rem;
-        margin: 0 0 4px;
+    .identity-info {
+        min-width: 0;
     }
-    .hero-meta {
+    .identity-name {
+        font-size: 1.125rem;
+        font-weight: 700;
+        margin: 0 0 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .identity-meta {
         display: flex;
         align-items: center;
         gap: 6px;
         color: var(--text-secondary);
-        font-size: 0.8125rem;
+        font-size: 0.75rem;
         font-family: monospace;
         flex-wrap: wrap;
     }
-    .meta-separator {
+    .meta-sep {
         opacity: 0.5;
     }
-    .hero-signal {
+    .identity-signal {
+        display: flex;
+        align-items: center;
+        gap: 10px;
         flex-shrink: 0;
     }
     .signal-gauge {
         display: flex;
         align-items: baseline;
         gap: 2px;
-        padding: 8px 14px;
-        border-radius: 8px;
+        padding: 6px 10px;
+        border-radius: 6px;
         background: var(--bg-tertiary);
     }
     .signal-value {
-        font-size: 1.75rem;
+        font-size: 1.5rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
     }
     .signal-unit {
-        font-size: 0.8125rem;
+        font-size: 0.75rem;
         opacity: 0.7;
     }
-    .hero-details {
+    .identity-live {
         display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-    }
-    .hero-detail-item {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-    .hero-poll-indicator {
-        display: flex;
-        flex-direction: row;
         align-items: center;
-        gap: 6px;
-        margin-left: auto;
+        gap: 5px;
     }
     .poll-dot {
         width: 8px;
@@ -1887,7 +1793,23 @@
     }
     .poll-label {
         color: var(--success-color, #10b981);
-        font-size: 0.75rem;
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .identity-row-2 {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+    .identity-detail {
+        white-space: nowrap;
+    }
+    .detail-dim {
+        opacity: 0.6;
     }
 
     @@keyframes pulse {
@@ -2068,39 +1990,15 @@
         border-bottom: 1px solid var(--border-color);
     }
 
-    /* Signal Hero Live (.card provides bg/border/radius) */
-    .signal-hero-live {
-        padding: 24px;
-    }
-    .signal-main {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        margin-bottom: 20px;
-        justify-content: center;
-    }
-    .signal-gauge-large {
-        display: flex;
-        align-items: baseline;
-        gap: 4px;
-    }
-    .signal-value-large {
-        font-size: 3rem;
-        font-weight: 700;
-        font-variant-numeric: tabular-nums;
-    }
-    .signal-unit-large {
-        font-size: 1rem;
-        opacity: 0.7;
-    }
+    /* Signal Bars (used in identity bar) */
     .signal-bars {
         display: flex;
         align-items: flex-end;
         gap: 3px;
-        height: 32px;
+        height: 24px;
     }
     .signal-bars .bar {
-        width: 6px;
+        width: 5px;
         border-radius: 2px;
         background: rgba(255,255,255,0.1);
         transition: background 0.3s;
@@ -2115,22 +2013,30 @@
     .signal-bars.signal-fair .bar.active { background: #eab308; }
     .signal-bars.signal-weak .bar.active { background: #f97316; }
     .signal-bars.signal-poor .bar.active { background: #ef4444; }
-    .signal-details-grid,
-    .connection-hero-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 12px;
-    }
-    .signal-detail,
-    .connection-detail {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
 
-    /* Connection Hero (.card provides bg/border/radius) */
-    .connection-hero {
-        padding: 20px;
+    /* Signal Summary Strip */
+    .signal-summary {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px 20px;
+        padding: 8px 16px;
+        background: var(--bg-card);
+        border-radius: 8px;
+        font-size: 0.8125rem;
+    }
+    .summary-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+    .summary-label {
+        color: var(--text-muted);
+    }
+    .summary-value {
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
     }
 
     /* Connection Event badges */
@@ -2220,13 +2126,6 @@
         100% { background-position: -200% 0; }
     }
 
-    /* Sticky heroes */
-    .identity-hero {
-        position: sticky;
-        top: 0;
-        z-index: 10;
-    }
-
     /* Sortable table headers */
     .sortable {
         cursor: pointer;
@@ -2254,6 +2153,19 @@
         .client-dashboard-page {
             padding: 0 12px 24px;
         }
+        .identity-row-1 {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .identity-signal {
+            align-self: flex-start;
+        }
+        .identity-row-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 12px;
+        }
         .dashboard-controls {
             flex-direction: column;
             align-items: stretch;
@@ -2265,17 +2177,12 @@
             flex: 1;
             text-align: center;
         }
-        .hero-main {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
-        }
         .speed-hero-results {
             flex-direction: column;
             align-items: center;
         }
-        .signal-details-grid, .connection-hero-grid {
-            grid-template-columns: repeat(2, 1fr);
+        .signal-summary {
+            gap: 6px 16px;
         }
         .speed-actions {
             flex-direction: column;
