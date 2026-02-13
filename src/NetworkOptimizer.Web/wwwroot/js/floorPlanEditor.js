@@ -396,10 +396,10 @@ window.fpEditor = {
             }
 
             // Antenna mode toggle for APs with switchable modes (e.g., Internal/Omni)
+            // Keyed by MAC only (not per-band) since antenna mode is a physical all-bands switch
             var antennaModeHtml = '';
             if (activeRadio && activeRadio.antennaMode) {
-                var macKey = ap.mac.toLowerCase();
-                var modeOverrideKey = macKey + ':' + self._heatmapBand;
+                var modeOverrideKey = ap.mac.toLowerCase();
                 var currentMode = self._antennaModeOverrides[modeOverrideKey] || activeRadio.antennaMode;
                 var isOmni = currentMode.toUpperCase() === 'OMNI';
                 var safeModeKey = esc(modeOverrideKey);
@@ -1770,15 +1770,9 @@ window.fpEditor = {
         if (Object.keys(filteredOverrides).length > 0) {
             body.txPowerOverrides = filteredOverrides;
         }
-        // Filter antenna mode overrides to current band
-        var filteredModeOverrides = {};
-        Object.keys(self._antennaModeOverrides).forEach(function (key) {
-            if (key.endsWith(bandSuffix)) {
-                filteredModeOverrides[key.slice(0, -bandSuffix.length)] = self._antennaModeOverrides[key];
-            }
-        });
-        if (Object.keys(filteredModeOverrides).length > 0) {
-            body.antennaModeOverrides = filteredModeOverrides;
+        // Antenna mode overrides are keyed by MAC only (all-bands physical switch)
+        if (Object.keys(self._antennaModeOverrides).length > 0) {
+            body.antennaModeOverrides = self._antennaModeOverrides;
         }
 
         fetch(baseUrl + '/api/floor-plan/heatmap', {
