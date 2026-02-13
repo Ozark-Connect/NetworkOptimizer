@@ -737,18 +737,18 @@ window.fpEditor = {
             }
         });
 
-        // Clickable building hit areas in global view (actual wall shape outlines)
+        // Clickable building hit areas in global view (convex hull of all wall points)
         if (clickable) {
-            // Find the largest wall shape per building (exterior outline)
-            var largest = {};
+            var allPts = {};
             walls.forEach(function (wall) {
                 var id = wall._buildingId;
-                if (!id || wall.points.length < 3) return;
-                if (!largest[id] || wall.points.length > largest[id].length)
-                    largest[id] = wall.points;
+                if (!id) return;
+                if (!allPts[id]) allPts[id] = [];
+                wall.points.forEach(function (p) { allPts[id].push(p); });
             });
-            Object.keys(largest).forEach(function (id) {
-                var latlngs = largest[id].map(function (p) { return [p.lat, p.lng]; });
+            Object.keys(allPts).forEach(function (id) {
+                var latlngs = self._convexHull(allPts[id]);
+                if (latlngs.length < 3) return;
                 var poly = L.polygon(latlngs, {
                     color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
                 }).addTo(self._bgWallLayer);
@@ -992,6 +992,38 @@ window.fpEditor = {
         this._map.closePopup();
         this._wallSelection = { wallIdx: null, segIdx: null };
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    _convexHull: function (points) {
+        // Graham scan - returns [[lat,lng], ...] in CCW order
+        if (!points || points.length < 3) return points ? points.map(function (p) { return [p.lat, p.lng]; }) : [];
+        var pts = points.map(function (p) { return { lat: p.lat, lng: p.lng }; });
+        // Find bottom-most (then left-most) point as pivot
+        var pivot = pts[0];
+        for (var i = 1; i < pts.length; i++) {
+            if (pts[i].lat < pivot.lat || (pts[i].lat === pivot.lat && pts[i].lng < pivot.lng))
+                pivot = pts[i];
+        }
+        // Sort by polar angle from pivot
+        pts.sort(function (a, b) {
+            var da = Math.atan2(a.lat - pivot.lat, a.lng - pivot.lng);
+            var db = Math.atan2(b.lat - pivot.lat, b.lng - pivot.lng);
+            if (da !== db) return da - db;
+            var distA = (a.lng - pivot.lng) * (a.lng - pivot.lng) + (a.lat - pivot.lat) * (a.lat - pivot.lat);
+            var distB = (b.lng - pivot.lng) * (b.lng - pivot.lng) + (b.lat - pivot.lat) * (b.lat - pivot.lat);
+            return distA - distB;
+        });
+        var stack = [pts[0], pts[1]];
+        for (var i = 2; i < pts.length; i++) {
+            while (stack.length > 1) {
+                var a = stack[stack.length - 2], b = stack[stack.length - 1], c = pts[i];
+                var cross = (b.lng - a.lng) * (c.lat - a.lat) - (b.lat - a.lat) * (c.lng - a.lng);
+                if (cross > 0) break;
+                stack.pop();
+            }
+            stack.push(pts[i]);
+        }
+        return stack.map(function (p) { return [p.lat, p.lng]; });
     },
 
     _wallArea: function (wall) {
