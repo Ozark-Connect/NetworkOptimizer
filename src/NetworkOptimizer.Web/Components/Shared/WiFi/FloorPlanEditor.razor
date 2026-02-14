@@ -1997,6 +1997,7 @@
         _selectedCatalogModel = null;
         await UpdateApMarkers();
         await SetMapClickToPlaceMode(_mode == "aps");
+        if (_mode == "view") await UpdateBackgroundWalls();
     }
 
     private void SelectApForPlacement(ApMapMarker ap)
@@ -2017,6 +2018,7 @@
         _selectedApForPlacement = null;
         await UpdateApMarkers();
         await SetMapClickToPlaceMode(_mode == "plan-aps");
+        if (_mode == "view") await UpdateBackgroundWalls();
     }
 
     private void SelectCatalogModel(string model)
