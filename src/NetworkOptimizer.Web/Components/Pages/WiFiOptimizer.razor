@@ -580,6 +580,7 @@
     private List<Iperf3Result> _speedTestResults = new();
     private List<SignalMapPoint> _signalMapPoints = new();
     private List<ApMapMarker> _apMapMarkers = new();
+    private System.Threading.Timer? _mapPollTimer;
 
     protected override void OnInitialized()
     {
@@ -592,6 +593,36 @@
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         _ = LoadDataAsync();
+
+        // Poll for new speed test results and signal data every 5 seconds
+        _mapPollTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    var now = DateTime.UtcNow;
+                    var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+                    // Three tiers of granularity: 5s for last hour, 30s for last day, 5min for older
+                    var recentTask = DashboardService.GetSignalMapPointsAsync(
+                        null, now.AddHours(-1), now, bucketSeconds: 5);
+                    var dayTask = DashboardService.GetSignalMapPointsAsync(
+                        null, now.AddDays(-1), now.AddHours(-1), bucketSeconds: 30);
+                    var olderTask = DashboardService.GetSignalMapPointsAsync(
+                        null, now.AddDays(-7), now.AddDays(-1), bucketSeconds: 300);
+
+                    await Task.WhenAll(speedTestTask, recentTask, dayTask, olderTask);
+
+                    _speedTestResults = await speedTestTask;
+                    _signalMapPoints = (await recentTask)
+                        .Concat(await dayTask)
+                        .Concat(await olderTask)
+                        .ToList();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
     protected override void OnParametersSet()
@@ -621,20 +652,29 @@
             await ConnectionService.WaitForConnectionAsync();
 
             // Load all data in parallel
+            var now = DateTime.UtcNow;
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync();
             var apsTask = WiFiService.GetAccessPointsAsync();
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
-            var signalMapTask = DashboardService.GetSignalMapPointsAsync(
-                null, DateTime.UtcNow.AddDays(-7), DateTime.UtcNow, bucketMinutes: 5);
+            var signalRecentTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddHours(-1), now, bucketSeconds: 5);
+            var signalDayTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-1), now.AddHours(-1), bucketSeconds: 30);
+            var signalOlderTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-7), now.AddDays(-1), bucketSeconds: 300);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalMapTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask,
+                signalRecentTask, signalDayTask, signalOlderTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
-            _signalMapPoints = await signalMapTask;
+            _signalMapPoints = (await signalRecentTask)
+                .Concat(await signalDayTask)
+                .Concat(await signalOlderTask)
+                .ToList();
 
             // Build AP map markers (join AP snapshots with saved locations)
             await LoadApMarkers();
@@ -655,20 +695,29 @@
         {
             WiFiService.ClearCache();
 
+            var now = DateTime.UtcNow;
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
-            var signalMapTask = DashboardService.GetSignalMapPointsAsync(
-                null, DateTime.UtcNow.AddDays(-7), DateTime.UtcNow, bucketMinutes: 5);
+            var signalRecentTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddHours(-1), now, bucketSeconds: 5);
+            var signalDayTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-1), now.AddHours(-1), bucketSeconds: 30);
+            var signalOlderTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-7), now.AddDays(-1), bucketSeconds: 300);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalMapTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask,
+                signalRecentTask, signalDayTask, signalOlderTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
-            _signalMapPoints = await signalMapTask;
+            _signalMapPoints = (await signalRecentTask)
+                .Concat(await signalDayTask)
+                .Concat(await signalOlderTask)
+                .ToList();
 
             await LoadApMarkers();
         }
@@ -719,6 +768,7 @@
 
     public void Dispose()
     {
+        _mapPollTimer?.Dispose();
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
     }
 

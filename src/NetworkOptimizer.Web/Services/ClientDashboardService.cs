@@ -224,12 +224,12 @@ public class ClientDashboardService
     /// If mac is null, returns points for all clients.
     /// </summary>
     public async Task<List<SignalMapPoint>> GetSignalMapPointsAsync(
-        string? mac, DateTime from, DateTime to, int bucketMinutes = 5)
+        string? mac, DateTime from, DateTime to, int bucketSeconds = 300)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
 
         var query = db.ClientSignalLogs
-            .Where(l => l.Timestamp >= from && l.Timestamp <= to
+            .Where(l => l.Timestamp >= from && l.Timestamp < to
                      && l.Latitude != null && l.Longitude != null
                      && l.SignalDbm != null);
 
@@ -238,7 +238,7 @@ public class ClientDashboardService
 
         var logs = await query.OrderBy(l => l.Timestamp).ToListAsync();
 
-        if (bucketMinutes <= 0)
+        if (bucketSeconds <= 0)
         {
             return logs.Select(l => new SignalMapPoint
             {
@@ -260,7 +260,7 @@ public class ClientDashboardService
             {
                 l.ClientMac,
                 Bucket = new DateTime(
-                    l.Timestamp.Ticks - (l.Timestamp.Ticks % (TimeSpan.TicksPerMinute * bucketMinutes)),
+                    l.Timestamp.Ticks - (l.Timestamp.Ticks % (TimeSpan.TicksPerSecond * bucketSeconds)),
                     DateTimeKind.Utc)
             })
             .Select(g =>

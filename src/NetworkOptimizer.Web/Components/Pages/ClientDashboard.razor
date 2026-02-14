@@ -1014,16 +1014,16 @@
             .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value)));
 
         // Build signal map points (grouped by time bucket matching display granularity)
-        var bucketMinutes = _selectedTimeFilter switch
+        var bucketSec = _selectedTimeFilter switch
         {
             1 => 0,
-            6 => 1,
-            24 => 5,
-            168 => 30,
-            _ => 60
+            6 => 60,
+            24 => 300,
+            168 => 1800,
+            _ => 3600
         };
         _signalMapPoints = await DashboardService.GetSignalMapPointsAsync(
-            _client!.Mac, from, to, bucketMinutes);
+            _client!.Mac, from, to, bucketSec);
 
         // Build chart annotations for band/AP changes
         BuildSignalAnnotations();
