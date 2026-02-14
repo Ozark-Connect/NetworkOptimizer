@@ -72,10 +72,16 @@ public class Iperf3ServerService : BackgroundService
 
     /// <summary>
     /// Resume the iperf3 server after a pause.
+    /// Kills any orphaned iperf3 processes and waits for the port to be released.
     /// </summary>
-    public void Resume()
+    public async Task ResumeAsync()
     {
         if (!_isPaused) return;
+
+        // Kill any orphaned iperf3 still holding the port, then wait for OS to release it
+        await KillOrphanedIperf3ProcessesAsync();
+        await Task.Delay(1000);
+
         _isPaused = false;
         _resumeTcs?.TrySetResult();
         _resumeTcs = null;

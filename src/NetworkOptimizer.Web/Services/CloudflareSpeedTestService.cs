@@ -292,7 +292,7 @@ public partial class CloudflareSpeedTestService
         finally
         {
             // Resume iperf3 server after WAN speed test completes (or fails/cancels)
-            _iperf3ServerService.Resume();
+            await _iperf3ServerService.ResumeAsync();
             lock (_lock) _isRunning = false;
         }
     }
