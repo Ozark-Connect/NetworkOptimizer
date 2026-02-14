@@ -1163,6 +1163,7 @@
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public List<Iperf3Result> SpeedTestResults { get; set; } = new();
     [Parameter] public List<SignalMapPoint> SignalLogMarkers { get; set; } = new();
+    [Parameter] public bool HideDashboardLinks { get; set; }
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
@@ -2117,7 +2118,7 @@
             var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
             html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats \u2192</a>";
         }
-        if (!string.IsNullOrEmpty(result.DeviceHost))
+        if (!HideDashboardLinks && !string.IsNullOrEmpty(result.DeviceHost))
         {
             var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
             html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
@@ -2129,7 +2130,7 @@
         return html;
     }
 
-    private static string BuildSignalLogPopup(SignalMapPoint point)
+    private string BuildSignalLogPopup(SignalMapPoint point)
     {
         var time = point.Timestamp.ToLocalTime().ToString("MMM d, h:mm:ss tt");
         var html = "<div class='map-popup'>";
@@ -2158,7 +2159,7 @@
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
         html += $"<span class='map-popup-time'>{time}</span>";
-        if (!string.IsNullOrEmpty(point.ClientIp))
+        if (!HideDashboardLinks && !string.IsNullOrEmpty(point.ClientIp))
         {
             var ip = System.Net.WebUtility.HtmlEncode(point.ClientIp);
             html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";

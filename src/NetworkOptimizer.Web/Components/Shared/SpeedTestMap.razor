@@ -150,6 +150,9 @@
     public bool ClientDetailMode { get; set; }
 
     [Parameter]
+    public bool ShowDashboardLinks { get; set; }
+
+    [Parameter]
     public EventCallback<string> OnClientClick { get; set; }
 
     [Parameter]
@@ -1493,21 +1496,28 @@
             html += "</div>";
         }
 
-        // Time and view/client link
+        // Time and view/client/dashboard links
         html += "<div class='wifi-tooltip-divider'></div>";
         html += $"<div class='map-popup-footer'>";
         html += $"<span class='map-popup-time'>{time}</span>";
+        html += "<span class='map-popup-links'>";
         var clientMac = result.ClientMac ?? result.PathAnalysis?.Path?.Hops?
             .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
         if (ClientDetailMode && !string.IsNullOrEmpty(clientMac))
         {
             var escapedMac = clientMac.Replace("'", "\\'").Replace("\"", "&quot;");
-            html += $"<a href='javascript:void(0)' onclick='window._speedTestClientClick(\"{escapedMac}\")' class='map-popup-link'>Client details →</a>";
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestClientClick(\"{escapedMac}\")' class='map-popup-link'>Client details \u2192</a>";
         }
         else if (OnResultClick.HasDelegate)
         {
-            html += $"<a href='javascript:void(0)' onclick='window._speedTestMapClick({result.Id})' class='map-popup-link'>View →</a>";
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestMapClick({result.Id})' class='map-popup-link'>View \u2192</a>";
         }
+        if (ShowDashboardLinks && !string.IsNullOrEmpty(result.DeviceHost))
+        {
+            var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
+            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed' class='map-popup-link'>Dashboard \u2192</a>";
+        }
+        html += "</span>";
         html += "</div>";
 
         html += "</div>";
@@ -1789,6 +1799,13 @@
 
     .map-popup-time {
         color: #64748b;
+    }
+
+    .map-popup-links {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
     }
 
     .map-popup-link {
