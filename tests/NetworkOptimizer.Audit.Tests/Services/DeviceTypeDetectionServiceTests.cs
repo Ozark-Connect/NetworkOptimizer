@@ -228,6 +228,25 @@ public class DeviceTypeDetectionServiceTests
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
     }
 
+    [Fact]
+    public void DetectDeviceType_FurboVendor_ReturnsCloudCamera()
+    {
+        // Arrange - Furbo is a cloud camera vendor (dog camera with treat tossing)
+        var client = new UniFiClientResponse
+        {
+            Mac = "11:22:33:44:55:66",
+            Name = "Furbo Dog Camera",
+            Oui = "Furbo",
+            DevCat = 9 // Camera fingerprint (9 = IP Network Camera)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Furbo cameras are cloud cameras (require internet for remote access)
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
     #endregion
 
     #region Camera Name Override Tests (Nest/Google cameras)
@@ -255,6 +274,29 @@ public class DeviceTypeDetectionServiceTests
 
         // Assert - Camera name + Nest vendor = CloudCamera (not self-hosted Camera)
         // Confidence may vary based on detection path (name supplement vs direct detection)
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Theory]
+    [InlineData("Furbo", "Living Room")]
+    [InlineData("FURBO", "Dog Camera")]
+    [InlineData("Furbo Inc", "Pet Camera")]
+    [InlineData("Furbo Dog Camera", "Kitchen Cam")]
+    public void DetectDeviceType_FurboVendorVariations_ReturnsCloudCamera(string vendor, string deviceName)
+    {
+        // Arrange - Test various Furbo vendor name formats (case-insensitive, with suffixes)
+        var client = new UniFiClientResponse
+        {
+            Mac = "11:22:33:44:55:66",
+            Name = deviceName,
+            Oui = vendor,
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - All Furbo variations should be detected as cloud cameras
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
     }
 
@@ -976,6 +1018,7 @@ public class DeviceTypeDetectionServiceTests
     [InlineData("Blink", ClientDeviceCategory.CloudCamera)]
     [InlineData("TP-Link", ClientDeviceCategory.CloudCamera)]
     [InlineData("Canary", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Furbo", ClientDeviceCategory.CloudCamera)]
     public void DetectFromMac_HistoryCameraFingerprint_WithCloudVendor_ReturnsCloudCamera(string vendor, ClientDeviceCategory expected)
     {
         // Arrange - history with camera fingerprint (DevCat 9) and cloud vendor via OUI
@@ -1733,6 +1776,7 @@ public class DeviceTypeDetectionServiceTests
     [InlineData("SimpliSafe Inc")]
     [InlineData("TP-Link Technologies")]
     [InlineData("Canary Connect")]
+    [InlineData("Furbo Inc")]
     // Bare vendor names (word boundary should still match)
     [InlineData("Ring")]
     [InlineData("Nest")]
@@ -1743,6 +1787,7 @@ public class DeviceTypeDetectionServiceTests
     [InlineData("SimpliSafe")]
     [InlineData("TP-Link")]
     [InlineData("Canary")]
+    [InlineData("Furbo")]
     public void DetectDeviceType_ActualCloudVendor_BecomesCloudCamera(string oui)
     {
         // Arrange - Actual cloud camera vendor OUI
