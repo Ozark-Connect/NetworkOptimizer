@@ -948,6 +948,11 @@
         color: #64748b;
     }
 
+    .map-popup-links {
+        display: flex;
+        gap: 8px;
+    }
+
     .map-tooltip-ap {
         padding-left: 0.3rem;
         margin-bottom: 0.35rem;
@@ -2076,18 +2081,25 @@
         html += $"<span class='wifi-speed-tx'>\u2191 {result.UploadMbps:F0}</span> Mbps";
         html += "</div>";
 
-        // Footer with time and client details link
+        // Footer with time and links
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
         html += $"<span class='map-popup-time'>{time}</span>";
+        html += "<span class='map-popup-links'>";
         var clientMac = result.ClientMac ?? result.PathAnalysis?.Path?.Hops?
             .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
         if (OnClientClick.HasDelegate && !string.IsNullOrEmpty(clientMac))
         {
             var jsMac = clientMac.Replace("'", "\\'");
             var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
-            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client details \u2192</a>";
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats</a>";
         }
+        if (!string.IsNullOrEmpty(result.DeviceHost))
+        {
+            var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
+            html += $"<a href='/client-dashboard?ip={ip}' class='map-popup-link'>Dashboard \u2192</a>";
+        }
+        html += "</span>";
         html += "</div>";
 
         html += "</div>";

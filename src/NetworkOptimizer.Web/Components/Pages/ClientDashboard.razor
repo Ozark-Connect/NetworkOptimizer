@@ -958,8 +958,8 @@
             .Where(h => h.SignalDbm.HasValue)
             .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value)));
 
-        // Build signal map points from entries with GPS data
-        _signalMapPoints = _signalHistory
+        // Build signal map points from downsampled/grouped data (matches the table display)
+        _signalMapPoints = DownsampleForDisplay(_signalHistory)
             .Where(h => h.Latitude.HasValue && h.Longitude.HasValue && h.SignalDbm.HasValue)
             .Select(h => new SignalMapPoint
             {
