@@ -655,7 +655,7 @@ window.fpEditor = {
                 // Planned AP popup: direct editing + delete button
                 var plannedTag = '<span class="fp-ap-popup-planned-tag">Planned</span>';
                 var nameInput = '<input type="text" class="fp-ap-popup-name-input" value="' + esc(ap.name || ap.model) + '" ' +
-                    'oninput="fpEditor._debouncedNameSave(' + ap.plannedId + ',this.value)" />';
+                    'oninput="fpEditor._pendingName={id:' + ap.plannedId + ',value:this.value}" />';
                 var deleteBtn = '<div class="fp-ap-popup-divider"></div>' +
                     '<button class="fp-ap-popup-delete" onclick="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApDeleteFromJs\',' + ap.plannedId + ')">Remove Planned AP</button>';
 
@@ -681,6 +681,12 @@ window.fpEditor = {
                     '</div></div>',
                     { maxWidth: 280 }
                 );
+                marker.on('popupclose', function () {
+                    if (fpEditor._pendingName && fpEditor._pendingName.id === ap.plannedId) {
+                        fpEditor._dotNetRef.invokeMethodAsync('OnPlannedApNameChangedFromJs', ap.plannedId, fpEditor._pendingName.value);
+                        fpEditor._pendingName = null;
+                    }
+                });
             } else {
                 // Real AP popup (existing behavior)
                 marker.bindPopup(
@@ -764,13 +770,6 @@ window.fpEditor = {
         if (reopenMarker) {
             reopenMarker.openPopup();
         }
-    },
-
-    _debouncedNameSave: function (plannedId, value) {
-        clearTimeout(this._nameDebounceTimer);
-        this._nameDebounceTimer = setTimeout(function () {
-            fpEditor._dotNetRef.invokeMethodAsync('OnPlannedApNameChangedFromJs', plannedId, value);
-        }, 500);
     },
 
     _updateTxPowerLabel: function (slider) {
