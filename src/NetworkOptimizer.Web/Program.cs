@@ -295,6 +295,7 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>()
 builder.Services.AddScoped<WiFiOptimizerService>();
 builder.Services.AddScoped<ApMapService>();
 builder.Services.AddSingleton<FloorPlanService>();
+builder.Services.AddSingleton<PlannedApService>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.PropagationService>();
 
@@ -1016,6 +1017,7 @@ app.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext 
 
 app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     FloorPlanService floorSvc, ApMapService apMapSvc,
+    PlannedApService plannedApSvc,
     NetworkOptimizer.WiFi.Services.PropagationService propagationSvc) =>
 {
     var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
@@ -1075,6 +1077,34 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
             };
         }).ToList();
 
+    // Add planned APs to the propagation computation (unless excluded by toggle)
+    if (!request.ExcludePlannedAps)
+    foreach (var pa in await plannedApSvc.GetAllAsync())
+    {
+        var bandDefaults = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(pa.Model, bandFilter);
+        var (modeGain, modeMaxTx, modeDefaultTx) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bandDefaults, pa.AntennaMode);
+        var txPowerStored = bandFilter switch { "2.4" => pa.TxPower24Dbm, "6" => pa.TxPower6Dbm, _ => pa.TxPower5Dbm };
+        var txPower = txPowerStored ?? modeDefaultTx;
+        // Only include planned APs that have the selected band
+        var patternLoader = context.RequestServices.GetRequiredService<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
+        var supportedBands = patternLoader.GetSupportedBands(pa.Model);
+        if (!supportedBands.Contains(bandFilter)) continue;
+
+        placedAps.Add(new NetworkOptimizer.WiFi.Models.PropagationAp
+        {
+            Mac = $"planned-{pa.Id}",
+            Model = pa.Model,
+            Latitude = pa.Latitude,
+            Longitude = pa.Longitude,
+            Floor = pa.Floor,
+            OrientationDeg = pa.OrientationDeg,
+            MountType = pa.MountType,
+            AntennaMode = pa.AntennaMode,
+            TxPowerDbm = txPower,
+            AntennaGainDbi = modeGain
+        });
+    }
+
     // Apply TX power overrides from simulation slider
     if (request.TxPowerOverrides is { Count: > 0 })
     {
@@ -1085,14 +1115,27 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         }
     }
 
-    // Apply antenna mode overrides from simulation toggle
+    // Apply antenna mode overrides from simulation toggle (also updates gain)
     if (request.AntennaModeOverrides is { Count: > 0 })
     {
         foreach (var ap in placedAps)
         {
             if (request.AntennaModeOverrides.TryGetValue(ap.Mac.ToLowerInvariant(), out var overrideMode))
+            {
                 ap.AntennaMode = overrideMode;
+                var bd = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(ap.Model, bandFilter);
+                var (gain, maxTx, _) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bd, overrideMode);
+                ap.AntennaGainDbi = gain;
+                ap.TxPowerDbm = Math.Min(ap.TxPowerDbm, maxTx);
+            }
         }
+    }
+
+    // Remove disabled APs from simulation
+    if (request.DisabledMacs is { Count: > 0 })
+    {
+        var disabled = new HashSet<string>(request.DisabledMacs, StringComparer.OrdinalIgnoreCase);
+        placedAps.RemoveAll(ap => disabled.Contains(ap.Mac));
     }
 
     // Build per-building floor info for smart floor attenuation
@@ -1115,6 +1158,77 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         request.Band, placedAps, wallsByFloor, activeFloor, request.GridResolutionMeters, buildingFloorInfos);
 
     return Results.Ok(result);
+});
+
+// ── Planned APs ─────────────────────────────────────────────────────
+
+app.MapGet("/api/floor-plan/planned-aps", async (PlannedApService svc) =>
+{
+    var aps = await svc.GetAllAsync();
+    return Results.Ok(aps);
+});
+
+app.MapPost("/api/floor-plan/planned-aps", async (HttpContext context, PlannedApService svc) =>
+{
+    var ap = await context.Request.ReadFromJsonAsync<NetworkOptimizer.Storage.Models.PlannedAp>();
+    if (ap == null) return Results.BadRequest(new { error = "Request body is required" });
+    var created = await svc.CreateAsync(ap);
+    return Results.Ok(created);
+});
+
+app.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext context, PlannedApService svc) =>
+{
+    var body = await context.Request.ReadFromJsonAsync<Dictionary<string, System.Text.Json.JsonElement>>();
+    if (body == null) return Results.BadRequest(new { error = "Request body is required" });
+
+    if (body.TryGetValue("latitude", out var lat) && body.TryGetValue("longitude", out var lng))
+        await svc.UpdateLocationAsync(id, lat.GetDouble(), lng.GetDouble());
+    if (body.TryGetValue("floor", out var floor))
+        await svc.UpdateFloorAsync(id, floor.GetInt32());
+    if (body.TryGetValue("orientationDeg", out var deg))
+        await svc.UpdateOrientationAsync(id, deg.GetInt32());
+    if (body.TryGetValue("mountType", out var mt))
+        await svc.UpdateMountTypeAsync(id, mt.GetString() ?? "ceiling");
+    if (body.TryGetValue("txPowerDbm", out var tx) && body.TryGetValue("band", out var band))
+        await svc.UpdateTxPowerAsync(id, band.GetString() ?? "5", tx.ValueKind == System.Text.Json.JsonValueKind.Null ? null : tx.GetInt32());
+    if (body.TryGetValue("antennaMode", out var am))
+        await svc.UpdateAntennaModeAsync(id, am.ValueKind == System.Text.Json.JsonValueKind.Null ? null : am.GetString());
+    if (body.TryGetValue("name", out var name))
+        await svc.UpdateNameAsync(id, name.GetString() ?? "");
+
+    return Results.Ok(new { success = true });
+});
+
+app.MapDelete("/api/floor-plan/planned-aps/{id:int}", async (int id, PlannedApService svc) =>
+{
+    var deleted = await svc.DeleteAsync(id);
+    return deleted ? Results.Ok(new { success = true }) : Results.NotFound();
+});
+
+app.MapGet("/api/floor-plan/ap-catalog", (NetworkOptimizer.WiFi.Data.AntennaPatternLoader patternLoader) =>
+{
+    var catalog = NetworkOptimizer.WiFi.Data.ApModelCatalog.BuildCatalog(patternLoader);
+    return Results.Ok(catalog.Select(c => new
+    {
+        model = c.Model,
+        bands = c.Bands.ToDictionary(b => b.Key, b => new
+        {
+            defaultTxPowerDbm = b.Value.DefaultTxPowerDbm,
+            minTxPowerDbm = b.Value.MinTxPowerDbm,
+            maxTxPowerDbm = b.Value.MaxTxPowerDbm,
+            antennaGainDbi = b.Value.AntennaGainDbi,
+            modeOverrides = b.Value.ModeOverrides?.ToDictionary(m => m.Key, m => new
+            {
+                antennaGainDbi = m.Value.AntennaGainDbi,
+                maxTxPowerDbm = m.Value.MaxTxPowerDbm,
+                defaultTxPowerDbm = m.Value.DefaultTxPowerDbm,
+            })
+        }),
+        defaultMountType = c.DefaultMountType,
+        hasOmniVariant = c.HasOmniVariant,
+        antennaVariants = c.AntennaVariants,
+        iconPath = NetworkOptimizer.Web.Components.Shared.DeviceIcon.GetIconPath(c.Model) ?? "/images/devices/default-ap.png"
+    }));
 });
 
 // Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)

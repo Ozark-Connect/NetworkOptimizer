@@ -153,38 +153,44 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
 
-        // Elevation angle (90 = horizon for same floor, decreasing for below)
+        // Elevation angle in pattern coordinates (ceiling mount native):
+        // 0 = straight down, 90 = horizon, 180 = straight up
+        // IW and Wall APs on a "desktop" stand sit upright (same as wall-mounted)
+        var effectiveMount = ap.MountType == "desktop" && IsStandMountModel(ap.Model) ? "wall" : ap.MountType;
+        var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
         int elevationDeg;
         if (floorSeparation == 0)
         {
-            elevationDeg = 90; // horizon
+            elevationDeg = 90; // horizon - no mount offset on same floor
         }
         else
         {
-            // Angle from vertical: 0 = straight down, 90 = horizon
-            elevationDeg = (int)(Math.Atan2(distance2d, verticalDistance) * 180.0 / Math.PI);
+            // angleFromVertical: 0 = straight down/up, 90 = horizon
+            var angleFromVertical = (int)(Math.Atan2(distance2d, verticalDistance) * 180.0 / Math.PI);
+            // Target below AP → looking down (near 0), target above → looking up (near 180)
+            var targetAbove = activeFloor > ap.Floor;
+            elevationDeg = targetAbove ? 180 - angleFromVertical : angleFromVertical;
             elevationDeg = Math.Clamp(elevationDeg, 0, 358);
-        }
 
-        // Apply mount type elevation offset before antenna pattern lookup.
-        // The offset is the difference between the actual mount and the pattern's native orientation.
-        // Outdoor APs in omni mode have patterns measured wall-mounted, but directional (non-omni)
-        // patterns are measured flat (ceiling orientation), so we adjust accordingly.
-        var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
-        var patternMountOffset = patternNativeMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
-        var actualMountOffset = ap.MountType switch { "wall" => -90, "desktop" => 180, _ => 0 };
-        var elevationOffset = actualMountOffset - patternMountOffset;
-        elevationDeg = ((elevationDeg + elevationOffset) % 359 + 359) % 359;
+            // Apply mount type elevation offset for cross-floor only.
+            // Same floor uses horizon (90) regardless of mount since we don't model within-floor height.
+            var patternMountOffset = patternNativeMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
+            var actualMountOffset = effectiveMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
+            var elevationOffset = actualMountOffset - patternMountOffset;
+            elevationDeg = ((elevationDeg + elevationOffset) % 359 + 359) % 359;
+        }
 
         // Antenna pattern gain using pattern multiplication:
         // Combine 2D azimuth and elevation cuts into 3D approximation.
         // Both patterns are normalized to 0 dB at peak, so addition in dB = multiplication in linear.
         //
-        // Wall mount swap: when an AP is wall-mounted, its elevation plane (vertical for ceiling)
-        // rotates to horizontal, and its azimuth plane (horizontal for ceiling) rotates to vertical.
-        // So horizontal directionality comes from the elevation pattern, and vertical from azimuth.
+        // Swap azimuth/elevation patterns when the actual mount rotates the antenna
+        // 90° relative to how the pattern was measured. Wall mount rotates the az/el
+        // planes vs ceiling/desktop. If pattern and mount are both wall (e.g., omni
+        // outdoor APs), no swap is needed - the pattern already matches the orientation.
+        var needSwap = (effectiveMount == "wall") != (patternNativeMount == "wall");
         float azGain, elGain;
-        if (ap.MountType == "wall")
+        if (needSwap)
         {
             azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, elevationDeg, ap.AntennaMode);
@@ -366,33 +372,39 @@ public class PropagationService
 
     /// <summary>
     /// Determine the native mount orientation of the antenna pattern data.
-    /// APs with switchable antenna modes (those with an omni variant in the pattern
-    /// data) have their directional patterns measured flat (ceiling orientation),
-    /// while their omni patterns are measured wall-mounted.
-    /// When the requested variant doesn't exist for the band (e.g., U7-Pro-Outdoor
+    /// All directional patterns (base, narrow, wide, panel) are measured flat (ceiling).
+    /// Only omni patterns are measured wall-mounted.
+    /// When the requested omni variant doesn't exist for the band (e.g., U7-Pro-Outdoor
     /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
-    /// so we must also fall back to the base pattern's native mount.
+    /// so we must also fall back to ceiling.
     /// </summary>
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
         var isOmni = !string.IsNullOrEmpty(antennaMode) &&
                      antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
 
-        if (!_antennaLoader.HasOmniVariant(model))
-            return MountTypeHelper.GetDefaultMountType(model);
-
-        if (isOmni)
+        if (isOmni && _antennaLoader.HasOmniVariant(model))
         {
             // Check if the omni variant actually has this band. If not, the pattern
             // loader fell back to the base directional pattern, so use ceiling mount.
             var omniPattern = _antennaLoader.GetPattern(model, band, "OMNI");
             var basePattern = _antennaLoader.GetPattern(model, band);
-            if (omniPattern == basePattern || omniPattern == null)
-                return "ceiling"; // fell back to directional base
-            return MountTypeHelper.GetDefaultMountType(model); // true omni pattern loaded
+            if (omniPattern != null && omniPattern != basePattern)
+                return "wall"; // true omni pattern loaded, measured wall-mounted
         }
 
-        return "ceiling"; // directional mode on a switchable AP
+        return "ceiling"; // all directional patterns are measured flat
+    }
+
+    /// <summary>
+    /// IW and Wall APs can sit on a desk stand in the same upright orientation as wall-mounted.
+    /// "Desktop" for these models means wall orientation, not flipped like ceiling-mount APs.
+    /// </summary>
+    private static bool IsStandMountModel(string model)
+    {
+        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase) ? model[..^2] : model;
+        return m.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
+               m.Contains("-Wall", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

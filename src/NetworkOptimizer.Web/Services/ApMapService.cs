@@ -14,11 +14,13 @@ public class ApMapService
 {
     private readonly WiFiOptimizerService _wifiService;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly ILogger<ApMapService> _logger;
 
-    public ApMapService(WiFiOptimizerService wifiService, IDbContextFactory<NetworkOptimizerDbContext> dbFactory)
+    public ApMapService(WiFiOptimizerService wifiService, IDbContextFactory<NetworkOptimizerDbContext> dbFactory, ILogger<ApMapService> logger)
     {
         _wifiService = wifiService;
         _dbFactory = dbFactory;
+        _logger = logger;
     }
 
     /// <summary>
@@ -49,19 +51,34 @@ public class ApMapService
                 MountType = MountTypeHelper.Resolve(savedLocation?.MountType, ap.Model),
                 IsOnline = ap.IsOnline,
                 TotalClients = ap.TotalClients,
-                Radios = ap.Radios.Select(r => new ApRadioSummary
+                Radios = ap.Radios.Select(r =>
                 {
-                    Band = r.Band.ToDisplayString(),
-                    RadioCode = r.Band.ToUniFiCode(),
-                    Channel = r.Channel,
-                    ChannelWidth = r.ChannelWidth,
-                    TxPowerDbm = r.TxPower,
-                    MinTxPowerDbm = r.MinTxPower,
-                    MaxTxPowerDbm = r.MaxTxPower,
-                    Eirp = r.Eirp,
-                    Clients = r.ClientCount,
-                    Utilization = r.ChannelUtilization,
-                    AntennaMode = r.AntennaMode
+                    var bandStr = r.Band.ToDisplayString();
+                    var apiMax = r.MaxTxPower;
+                    // Only clamp when API exceeds catalog by >= 2 dBm (small discrepancies
+                    // are common between spec sheets and firmware, so allow 1 dBm tolerance)
+                    int? clampedMax = apiMax;
+                    if (ApModelCatalog.TryGetBandDefaults(ap.Model, bandStr, out var catalogDefaults) &&
+                        apiMax.HasValue && apiMax.Value >= catalogDefaults.MaxTxPowerDbm + 2)
+                    {
+                        clampedMax = catalogDefaults.MaxTxPowerDbm;
+                    }
+                    _logger.LogTrace("AP {Name} model='{Model}' band={Band} apiMax={ApiMax} clampedMax={ClampedMax}",
+                        ap.Name, ap.Model, bandStr, apiMax, clampedMax);
+                    return new ApRadioSummary
+                    {
+                        Band = bandStr,
+                        RadioCode = r.Band.ToUniFiCode(),
+                        Channel = r.Channel,
+                        ChannelWidth = r.ChannelWidth,
+                        TxPowerDbm = r.TxPower,
+                        MinTxPowerDbm = r.MinTxPower,
+                        MaxTxPowerDbm = clampedMax,
+                        Eirp = r.Eirp,
+                        Clients = r.ClientCount,
+                        Utilization = r.ChannelUtilization,
+                        AntennaMode = r.AntennaMode
+                    };
                 }).ToList()
             };
         }).ToList();

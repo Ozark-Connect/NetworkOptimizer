@@ -43,10 +43,8 @@ public class AntennaPatternLoader
 
         if (_patterns == null) return null;
 
-        // Strip color suffix (e.g., "-B" for black) that doesn't affect antenna pattern
-        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2]
-            : model;
+        // Strip suffixes that don't affect antenna pattern
+        var patternName = StripModelSuffix(model);
 
         // Normalize band key
         var bandKey = band switch
@@ -99,11 +97,36 @@ public class AntennaPatternLoader
         EnsureLoaded();
         if (_patterns == null) return false;
 
-        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2]
-            : model;
-
+        var patternName = StripModelSuffix(model);
         return _patterns.ContainsKey($"{patternName}:omni");
+    }
+
+    /// <summary>
+    /// Get all antenna variant suffixes for a model (e.g., ["omni"] for U7-Outdoor, ["narrow","wide"] for E7-Audience).
+    /// Returns empty list if the model has no switchable modes.
+    /// </summary>
+    public List<string> GetAntennaVariants(string model)
+    {
+        EnsureLoaded();
+        if (_patterns == null) return new List<string>();
+
+        var patternName = StripModelSuffix(model);
+        var prefix = $"{patternName}:";
+        return _patterns.Keys
+            .Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(k => k[prefix.Length..])
+            .OrderBy(k => k)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Strip color suffix "-B" which doesn't affect antenna pattern.
+    /// </summary>
+    private static string StripModelSuffix(string model)
+    {
+        if (model.EndsWith("-B", StringComparison.OrdinalIgnoreCase))
+            return model[..^2];
+        return model;
     }
 
     /// <summary>
@@ -117,6 +140,37 @@ public class AntennaPatternLoader
 
         var index = Math.Clamp(elevationDegrees, 0, pattern.Elevation.Length - 1);
         return pattern.Elevation[index];
+    }
+
+    /// <summary>
+    /// Get all base model names from the antenna pattern file, excluding variant suffixes (e.g., ":omni").
+    /// </summary>
+    public List<string> GetAllBaseModelNames()
+    {
+        EnsureLoaded();
+        if (_patterns == null) return new List<string>();
+
+        return _patterns.Keys
+            .Where(k => !k.Contains(':'))
+            .OrderBy(k => k)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Get the bands supported by a model based on its antenna pattern entries.
+    /// Returns band strings like "2.4", "5", "6".
+    /// </summary>
+    public List<string> GetSupportedBands(string model)
+    {
+        EnsureLoaded();
+        if (_patterns == null) return new List<string>();
+
+        var patternName = StripModelSuffix(model);
+
+        if (!_patterns.TryGetValue(patternName, out var bands))
+            return new List<string>();
+
+        return bands.Keys.OrderBy(b => b).ToList();
     }
 
     private void EnsureLoaded()

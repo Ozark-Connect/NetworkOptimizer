@@ -9,6 +9,8 @@
 @using Microsoft.JSInterop
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
+@inject PlannedApService PlannedApSvc
+@inject AntennaPatternLoader PatternLoader
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -105,6 +107,9 @@
                     <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
                         @(_mode == "aps" ? "Done" : "Edit APs")
                     </button>
+                    <button class="fp-btn @(_mode == "plan-aps" ? "fp-btn-warning" : "")" @onclick="TogglePlanApMode">
+                        @(_mode == "plan-aps" ? "Done" : "Plan APs")
+                    </button>
                 </div>
 
                 <span class="fp-toolbar-sep"></span>
@@ -125,6 +130,13 @@
                 {
                     <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
                         Reset Sim
+                    </button>
+                }
+                @if (!ReadOnly && _plannedAps.Count > 0)
+                {
+                    <button class="fp-btn @(_showPlannedAps ? "active" : "")" @onclick="TogglePlannedAps"
+                            data-tooltip="Show/hide planned APs on map and heatmap">
+                        Planned APs
                     </button>
                 }
                 <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
@@ -206,7 +218,37 @@
             }
         }
 
-        @if (!ReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps")
+        @if (_mode == "plan-aps")
+        {
+            <div class="fp-ap-panel">
+                <div class="fp-ap-panel-header">
+                    @if (_selectedCatalogModel != null)
+                    {
+                        <span>Click the map to place <strong>@_selectedCatalogModel</strong></span>
+                    }
+                    else
+                    {
+                        <span>Select an AP model to plan</span>
+                    }
+                </div>
+                <div class="fp-ap-panel-list">
+                    @foreach (var m in _apCatalog)
+                    {
+                        <button class="fp-ap-item @(_selectedCatalogModel == m.Model ? "selected" : "")"
+                                @onclick="() => SelectCatalogModel(m.Model)">
+                            <img src="@(DeviceIcon.GetIconPath(m.Model) ?? "/images/devices/default-ap.png")"
+                                 alt="@m.Model" class="fp-ap-item-icon" />
+                            <div class="fp-ap-item-info">
+                                <span class="fp-ap-item-name">@m.Model</span>
+                                <span class="fp-ap-item-bands">@string.Join(" / ", m.Bands.Keys.Select(b => b + " GHz"))</span>
+                            </div>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (!ReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
         {
             <div class="fp-edit-hint fp-wall-hint"><!--!--><span>Click Draw Layout to draw walls, windows, doors, etc.</span></div>
         }
@@ -225,7 +267,7 @@
             </div>
         }
 
-        @if (_selectedBuilding != null || _mode == "aps" || _showSignalData)
+        @if (_selectedBuilding != null || _mode == "aps" || _mode == "plan-aps" || _showSignalData)
         {
             <div class="fp-chip-stack">
                 @if (_selectedBuilding != null)
@@ -238,6 +280,12 @@
                 {
                     <div class="fp-editing-chip" @onclick="ToggleApEditMode">
                         Editing APs <span class="fp-chip-close">&times;</span>
+                    </div>
+                }
+                @if (_mode == "plan-aps")
+                {
+                    <div class="fp-editing-chip" @onclick="TogglePlanApMode">
+                        Planning APs <span class="fp-chip-close">&times;</span>
                     </div>
                 }
                 @if (_showSignalData)
@@ -661,6 +709,19 @@
         white-space: nowrap;
     }
 
+    .fp-ap-item-info {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 0;
+    }
+
+    .fp-ap-item-bands {
+        font-size: 10px;
+        color: var(--text-muted, #64748b);
+        white-space: nowrap;
+    }
+
     /* Mode hints */
     .fp-edit-hint {
         position: absolute;
@@ -748,6 +809,82 @@
 
     .fp-ap-glow-dot.other-floor {
         background: radial-gradient(circle, rgba(100, 100, 140, 0.3) 0%, transparent 55%);
+    }
+
+    .fp-ap-glow-dot.planned {
+        background: radial-gradient(circle, rgba(249, 115, 22, 0.55) 0%, rgba(249, 115, 22, 0.12) 55%, transparent 100%);
+    }
+
+    .fp-ap-glow-dot.planned.other-floor {
+        background: radial-gradient(circle, rgba(249, 115, 22, 0.2) 0%, transparent 55%);
+    }
+
+    .fp-ap-planned-badge {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #f97316;
+        color: white;
+        font-size: 9px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 3;
+        line-height: 1;
+    }
+
+    .fp-ap-marker-container.planned .fp-ap-marker-icon {
+        border: 2px dashed #f97316;
+        border-radius: 50%;
+        box-sizing: border-box;
+    }
+
+    .fp-ap-popup-planned-tag {
+        background: #f97316;
+        color: white;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 1px 6px;
+        border-radius: 3px;
+        white-space: nowrap;
+    }
+
+    .fp-ap-popup-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .fp-ap-popup-name-input {
+        flex: 1;
+        background: var(--bg-tertiary, #334155);
+        border: 1px solid var(--border-color, #475569);
+        color: var(--text-primary, #f1f5f9);
+        border-radius: 3px;
+        padding: 2px 6px;
+        font-size: 13px;
+        font-weight: 600;
+        min-width: 0;
+    }
+
+    .fp-ap-popup-delete {
+        width: 100%;
+        padding: 6px;
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .fp-ap-popup-delete:hover {
+        background: rgba(239, 68, 68, 0.25);
     }
 
     /* AP direction indicator */
@@ -1078,6 +1215,31 @@
         color: #38bdf8;
     }
 
+    .fp-disable-ap-btn {
+        background: transparent;
+        border: 1px solid #4b5563;
+        color: #9ca3af;
+        padding: 3px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        width: 100%;
+    }
+    .fp-disable-ap-btn:hover {
+        border-color: #6b7280;
+        color: #e5e7eb;
+        background: rgba(107, 114, 128, 0.15);
+    }
+    .fp-disable-ap-btn.active {
+        border-color: #38bdf8;
+        color: #38bdf8;
+        background: rgba(56, 189, 248, 0.1);
+    }
+    .fp-disable-ap-btn.active:hover {
+        background: rgba(56, 189, 248, 0.2);
+    }
+
     .fp-btn-reset-sim {
         background: transparent;
         border-color: #f97316;
@@ -1179,6 +1341,7 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
+    private bool _showPlannedAps = true;
     private bool _showSignalData;
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
@@ -1195,6 +1358,9 @@
     private bool _showDeleteFloor;
     private bool _isFullscreen;
     private ApMapMarker? _selectedApForPlacement;
+    private List<PlannedAp> _plannedAps = new();
+    private List<ApModelCatalog.ApModelInfo> _apCatalog = new();
+    private string? _selectedCatalogModel;
 
     private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
     private int _lastSignalLogCount;
@@ -1218,9 +1384,14 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             if (ReadOnly)
+            {
                 _showSignalData = true;
+                _showPlannedAps = false;
+            }
             await LoadBuildings();
             await LoadApMarkers();
+            await LoadPlannedAps();
+            _apCatalog = ApModelCatalog.BuildCatalog(PatternLoader);
             await InitializeMap();
             // Show placed APs immediately on map load (no floor selection needed)
             await UpdateApMarkers();
@@ -1329,11 +1500,14 @@
 
     private async Task OnBuildingChanged(ChangeEventArgs e)
     {
+        await LoadBuildings();
         _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
         _selectedFloorId = 0;
         _selectedFloor = null;
+        if (_mode == "aps" || _mode == "plan-aps")
+            await SetMapClickToPlaceMode(false);
         _mode = "view";
 
         if (_selectedBuilding != null && _floors.Count > 0)
@@ -1504,27 +1678,85 @@
         var placedAps = _apMarkers
             .Where(a => a.Latitude.HasValue && a.Longitude.HasValue);
 
-        var markersJson = System.Text.Json.JsonSerializer.Serialize(placedAps.Select(a => new
+        var realMarkers = placedAps.Select(a => new
         {
             mac = a.Mac, name = a.Name, model = a.Model,
-            lat = a.Latitude, lng = a.Longitude, floor = a.Floor ?? 1,
+            lat = (double?)a.Latitude, lng = (double?)a.Longitude, floor = a.Floor ?? 1,
             orientation = a.OrientationDeg, mountType = a.MountType,
             online = a.IsOnline, clients = a.TotalClients,
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
             sameFloor = (a.Floor ?? 1) == _globalActiveFloor,
-            radios = a.Radios.Select(r => new
+            isPlanned = false, plannedId = 0,
+            radios = a.Radios.Select(r =>
             {
-                band = r.Band,
-                radioCode = r.RadioCode,
-                txPowerDbm = r.TxPowerDbm,
-                minTxPower = r.MinTxPowerDbm,
-                maxTxPower = r.MaxTxPowerDbm,
-                eirp = r.Eirp,
-                antennaMode = r.AntennaMode
-            })
-        }));
+                var bd = ApModelCatalog.GetBandDefaults(a.Model, r.Band);
+                // Include per-mode catalog limits so JS can clamp TX/gain when simulating mode changes
+                Dictionary<string, object>? catalogModes = null;
+                if (bd.ModeOverrides is { Count: > 0 })
+                {
+                    catalogModes = new Dictionary<string, object>
+                    {
+                        ["internal"] = new { maxTxPowerDbm = bd.MaxTxPowerDbm, antennaGainDbi = bd.AntennaGainDbi }
+                    };
+                    foreach (var (mk, mv) in bd.ModeOverrides)
+                        catalogModes[mk] = new { maxTxPowerDbm = mv.MaxTxPowerDbm ?? bd.MaxTxPowerDbm, antennaGainDbi = mv.AntennaGainDbi };
+                }
+                return new
+                {
+                    band = r.Band,
+                    radioCode = r.RadioCode,
+                    txPowerDbm = (int?)r.TxPowerDbm,
+                    minTxPowerDbm = (int?)r.MinTxPowerDbm,
+                    maxTxPowerDbm = (int?)r.MaxTxPowerDbm,
+                    eirp = (int?)r.Eirp,
+                    antennaMode = r.AntennaMode,
+                    catalogModes = (object?)catalogModes
+                };
+            }).ToList()
+        });
 
-        await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps", _heatmapBand);
+        var plannedMarkers = _plannedAps.Select(pa =>
+        {
+            var supportedBands = PatternLoader.GetSupportedBands(pa.Model);
+            var radios = supportedBands.Select(band =>
+            {
+                var bd = ApModelCatalog.GetBandDefaults(pa.Model, band);
+                var (modeGain, modeMaxTx, modeDefaultTx) = ApModelCatalog.ResolveForMode(bd, pa.AntennaMode);
+                var radioCode = band == "2.4" ? "ng" : band == "6" ? "6e" : "na";
+                var txPowerStored = band switch { "2.4" => pa.TxPower24Dbm, "6" => pa.TxPower6Dbm, _ => pa.TxPower5Dbm };
+                var txPower = txPowerStored ?? modeDefaultTx;
+                return new
+                {
+                    band = band,
+                    radioCode = radioCode,
+                    txPowerDbm = (int?)txPower,
+                    minTxPowerDbm = (int?)bd.MinTxPowerDbm,
+                    maxTxPowerDbm = (int?)modeMaxTx,
+                    eirp = (int?)(txPower + modeGain),
+                    antennaMode = pa.AntennaMode,
+                    catalogModes = (object?)null
+                };
+            }).ToList();
+
+            return new
+            {
+                mac = $"planned-{pa.Id}", name = pa.Name, model = pa.Model,
+                lat = (double?)pa.Latitude, lng = (double?)pa.Longitude, floor = pa.Floor,
+                orientation = pa.OrientationDeg, mountType = pa.MountType,
+                online = true, clients = 0,
+                iconUrl = DeviceIcon.GetIconPath(pa.Model) ?? "/images/devices/default-ap.png",
+                sameFloor = pa.Floor == _globalActiveFloor,
+                isPlanned = true, plannedId = pa.Id,
+                radios = radios
+            };
+        });
+
+        var allMarkers = _showPlannedAps
+            ? realMarkers.Concat(plannedMarkers)
+            : realMarkers;
+        var markersJson = System.Text.Json.JsonSerializer.Serialize(allMarkers);
+
+        await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps" || _mode == "plan-aps", _heatmapBand);
     }
 
     [JSInvokable]
@@ -1678,17 +1910,137 @@
         await InvokeAsync(async () => await UpdateApMarkers());
     }
 
+    // ── Planned AP callbacks ──────────────────────────────────────────
+
+    [JSInvokable]
+    public async Task OnPlannedApDragEndFromJs(int plannedId, double lat, double lng)
+    {
+        await PlannedApSvc.UpdateLocationAsync(plannedId, lat, lng);
+        await LoadPlannedAps();
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    [JSInvokable]
+    public async Task OnPlannedApFloorChangedFromJs(int plannedId, int floor)
+    {
+        await PlannedApSvc.UpdateFloorAsync(plannedId, floor);
+        await LoadPlannedAps();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnPlannedApOrientationChangedFromJs(int plannedId, int deg)
+    {
+        await PlannedApSvc.UpdateOrientationAsync(plannedId, deg);
+        await LoadPlannedAps();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnPlannedApMountTypeChangedFromJs(int plannedId, string mountType)
+    {
+        await PlannedApSvc.UpdateMountTypeAsync(plannedId, mountType);
+        await LoadPlannedAps();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnPlannedApTxPowerChangedFromJs(int plannedId, string band, int txPower)
+    {
+        await PlannedApSvc.UpdateTxPowerAsync(plannedId, band, txPower);
+        await LoadPlannedAps();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnPlannedApAntennaModeChangedFromJs(int plannedId, string? mode)
+    {
+        await PlannedApSvc.UpdateAntennaModeAsync(plannedId, mode);
+        await LoadPlannedAps();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnPlannedApNameChangedFromJs(int plannedId, string name)
+    {
+        await PlannedApSvc.UpdateNameAsync(plannedId, name);
+        await LoadPlannedAps();
+        await UpdateApMarkers();
+    }
+
+    [JSInvokable]
+    public async Task OnPlannedApDeleteFromJs(int plannedId)
+    {
+        await PlannedApSvc.DeleteAsync(plannedId);
+        await LoadPlannedAps();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
     private async Task ToggleApEditMode()
     {
         _mode = _mode == "aps" ? "view" : "aps";
         _selectedApForPlacement = null;
+        _selectedCatalogModel = null;
         await UpdateApMarkers();
         await SetMapClickToPlaceMode(_mode == "aps");
+        if (_mode == "view") await UpdateBackgroundWalls();
     }
 
     private void SelectApForPlacement(ApMapMarker ap)
     {
         _selectedApForPlacement = _selectedApForPlacement?.Mac == ap.Mac ? null : ap;
+    }
+
+    private async Task LoadPlannedAps()
+    {
+        try { _plannedAps = await PlannedApSvc.GetAllAsync(); }
+        catch { _plannedAps = new(); }
+    }
+
+    private async Task TogglePlanApMode()
+    {
+        _mode = _mode == "plan-aps" ? "view" : "plan-aps";
+        _selectedCatalogModel = null;
+        _selectedApForPlacement = null;
+        await UpdateApMarkers();
+        await SetMapClickToPlaceMode(_mode == "plan-aps");
+        if (_mode == "view") await UpdateBackgroundWalls();
+    }
+
+    private void SelectCatalogModel(string model)
+    {
+        _selectedCatalogModel = _selectedCatalogModel == model ? null : model;
     }
 
     private async Task SetMapClickToPlaceMode(bool enabled)
@@ -1700,6 +2052,42 @@
     [JSInvokable]
     public async Task OnMapClickForPlacement(double lat, double lng)
     {
+        // Planned AP placement
+        if (_mode == "plan-aps" && _selectedCatalogModel != null)
+        {
+            var model = _selectedCatalogModel;
+            var mountType = MountTypeHelper.GetDefaultMountType(model);
+            var catalogEntry = _apCatalog.FirstOrDefault(c => c.Model == model);
+            string? defaultAntennaMode = null;
+            if (catalogEntry?.AntennaVariants is { Count: > 0 } variants)
+            {
+                // Set default antenna mode: "Narrow" for narrow/wide APs, "Internal" for omni APs
+                defaultAntennaMode = variants.Contains("narrow", StringComparer.OrdinalIgnoreCase)
+                    ? "Narrow" : "Internal";
+            }
+            var ap = new PlannedAp
+            {
+                Name = model,
+                Model = model,
+                Latitude = lat,
+                Longitude = lng,
+                Floor = _globalActiveFloor,
+                MountType = mountType,
+                AntennaMode = defaultAntennaMode
+            };
+            await PlannedApSvc.CreateAsync(ap);
+            await LoadPlannedAps();
+            await InvokeAsync(async () =>
+            {
+                StateHasChanged();
+                if (_mapInitialized)
+                    await UpdateApMarkers();
+                if (_showHeatmap) await ComputeHeatmap();
+            });
+            return;
+        }
+
+        // Real AP placement
         if (_selectedApForPlacement == null) return;
         var mac = _selectedApForPlacement.Mac;
         _selectedApForPlacement = null;
@@ -1775,7 +2163,7 @@
 
         var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
         var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
-        var clickable = _selectedBuilding == null && !ReadOnly;
+        var clickable = _selectedBuilding == null && !ReadOnly && _mode != "aps" && _mode != "plan-aps";
         await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson, clickable);
 
         // Same-building adjacent floor walls (for length snap when drawing first shape)
@@ -1978,7 +2366,14 @@
     {
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
-        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand);
+        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand, !_showPlannedAps);
+    }
+
+    private async Task TogglePlannedAps()
+    {
+        _showPlannedAps = !_showPlannedAps;
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
     }
 
     // ── Signal Data Overlay ────────────────────────────────────────
@@ -2352,10 +2747,12 @@
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
             _mode = "view";
         }
-        else if (_mode == "aps")
+        else if (_mode == "aps" || _mode == "plan-aps")
         {
+            await SetMapClickToPlaceMode(false);
             _mode = "view";
             _selectedApForPlacement = null;
+            _selectedCatalogModel = null;
         }
         await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
         await LoadBuildings();
@@ -2397,10 +2794,12 @@
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
             _mode = "view";
         }
-        else if (_mode == "aps")
+        else if (_mode == "aps" || _mode == "plan-aps")
         {
+            await SetMapClickToPlaceMode(false);
             _mode = "view";
             _selectedApForPlacement = null;
+            _selectedCatalogModel = null;
         }
         await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
         await LoadBuildings();
@@ -2480,6 +2879,8 @@
             await ToggleWallDrawMode();
         else if (_mode == "aps")
             await ToggleApEditMode();
+        else if (_mode == "plan-aps")
+            await TogglePlanApMode();
         else if (_selectedBuilding != null)
             await DeselectBuilding();
         StateHasChanged();
@@ -2495,8 +2896,9 @@
     [JSInvokable]
     public async Task OnBgBuildingClicked(int buildingId)
     {
-        if (ReadOnly) return; // No building editing in read-only mode
+        if (ReadOnly) return;
         if (_selectedBuilding != null) return; // Only from global view
+        if (_mode == "aps" || _mode == "plan-aps") return; // Don't select buildings during AP placement
         await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
     }
 
