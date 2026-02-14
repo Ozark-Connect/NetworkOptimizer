@@ -122,7 +122,7 @@
                                 <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
                             }
                         </span>
-                        @if (!_isOwnDevice)
+                        @if (!_isOwnDevice && _client is { IsWired: false })
                         {
                             <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
                                     @onclick="ToggleLogging">
@@ -159,7 +159,7 @@
                 {
                     <span class="identity-detail">Wired</span>
                 }
-                @if (!_isOwnDevice)
+                @if (!_isOwnDevice && _client is { IsWired: false })
                 {
                     <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-desktop"
                             @onclick="ToggleLogging">
@@ -787,7 +787,7 @@
         }
 
         _isOwnDevice = string.IsNullOrEmpty(IpParam);
-        _isLogging = _isOwnDevice; // own device always logs; remote starts paused
+        _isLogging = _isOwnDevice && _client is { IsWired: false }; // only log wireless devices
 
         // Build OpenSpeedTest URL
         BuildOpenSpeedTestUrl();
