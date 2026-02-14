@@ -436,7 +436,7 @@
                                     <ApexPointSeries TItem="SignalChartPoint"
                                                      Items="_signalChartData"
                                                      Name="Signal (dBm)"
-                                                     SeriesType="SeriesType.Line"
+                                                     SeriesType="SeriesType.Area"
                                                      XValue="e => e.Timestamp"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
@@ -1563,18 +1563,28 @@
             {
                 new YAxis
                 {
-                    Title = new AxisTitle { Text = "dBm" },
-                    Reversed = true, // Stronger signal = higher on chart
-                    Min = -90,
-                    Max = -20
+                    Min = -100,
+                    Max = -20,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#3b82f6" },
+                        Formatter = "function(val) { return val + ' dBm'; }"
+                    }
                 }
             },
             Colors = new List<string> { "#3b82f6" },
             Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
-            Grid = new Grid
+            Fill = new Fill
             {
-                BorderColor = "rgba(255,255,255,0.08)"
+                Type = new List<FillType> { FillType.Gradient },
+                Gradient = new FillGradient
+                {
+                    ShadeIntensity = 0.3,
+                    OpacityFrom = 0.4,
+                    OpacityTo = 0.1
+                }
             },
+            Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
