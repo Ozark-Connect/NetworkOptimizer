@@ -2112,7 +2112,7 @@
             if (HideDashboardLinks)
                 html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed' class='map-popup-link'>Speed Results \u2192</a>";
             else
-                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
+                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Client Performance \u2192</a>";
         }
         html += "</span>";
         html += "</div>";
@@ -2160,7 +2160,7 @@
         if (!HideDashboardLinks && !string.IsNullOrEmpty(point.ClientIp))
         {
             var ip = System.Net.WebUtility.HtmlEncode(point.ClientIp);
-            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
+            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Client Performance \u2192</a>";
         }
         html += "</span>";
         html += "</div>";
