@@ -546,9 +546,9 @@ window.fpEditor = {
             if (isPlanned) {
                 // Planned APs: TX power changes persist directly to DB
                 if (activeRadio && activeRadio.txPowerDbm != null) {
-                    var currentPower = activeRadio.txPowerDbm;
                     var minPower = activeRadio.minTxPower || 1;
                     var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
+                    var currentPower = Math.min(activeRadio.txPowerDbm, maxPower);
                     var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
                     var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
                     var eirpText = currentEirp != null ? ' / ' + currentEirp + ' dBm EIRP' : '';
