@@ -121,13 +121,6 @@
                             <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
                         </span>
                     }
-                    @if (!_isOwnDevice)
-                    {
-                        <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle"
-                                @onclick="ToggleLogging">
-                            @(_isLogging ? "Stop Logging" : "Start Logging")
-                        </button>
-                    }
                 </div>
             </div>
             <div class="identity-row-2">
@@ -142,8 +135,10 @@
                     <span class="identity-detail">@FormatProtocol(_client.Protocol)</span>
                     @if (_client.TxRateKbps.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="AP perspective: RX = from device, TX = to device">
-                            RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx") / TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")
+                        <span class="identity-detail identity-rates" data-tooltip="AP perspective: RX = from device, TX = to device">
+                            <span>RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                            <span class="rate-sep">/</span>
+                            <span>TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                         </span>
                     }
                     @if (_client.IsMlo)
@@ -154,6 +149,13 @@
                 else
                 {
                     <span class="identity-detail">Wired</span>
+                }
+                @if (!_isOwnDevice)
+                {
+                    <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle"
+                            @onclick="ToggleLogging">
+                        @(_isLogging ? "Stop Logging" : "Start Logging")
+                    </button>
                 }
             </div>
         </div>
@@ -1911,7 +1913,7 @@
         gap: 5px;
     }
     .logging-toggle {
-        margin-left: 4px;
+        margin-left: auto;
         font-size: 0.6875rem;
         padding: 2px 8px;
         height: 22px;
@@ -1939,6 +1941,10 @@
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    .identity-rates {
+        display: flex;
+        gap: 4px;
     }
     .detail-dim {
         opacity: 0.6;
@@ -2300,6 +2306,16 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 6px 12px;
+        }
+        .identity-rates {
+            flex-direction: column;
+            gap: 0;
+        }
+        .identity-rates .rate-sep {
+            display: none;
+        }
+        .logging-toggle {
+            margin-left: 0;
         }
         .dashboard-controls {
             flex-direction: column;
