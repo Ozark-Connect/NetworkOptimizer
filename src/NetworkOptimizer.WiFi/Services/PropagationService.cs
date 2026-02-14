@@ -153,7 +153,8 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
 
-        // Elevation angle (90 = horizon for same floor, decreasing for below)
+        // Elevation angle in pattern coordinates (ceiling mount native):
+        // 0 = straight down, 90 = horizon, 180 = straight up
         int elevationDeg;
         if (floorSeparation == 0)
         {
@@ -161,8 +162,11 @@ public class PropagationService
         }
         else
         {
-            // Angle from vertical: 0 = straight down, 90 = horizon
-            elevationDeg = (int)(Math.Atan2(distance2d, verticalDistance) * 180.0 / Math.PI);
+            // angleFromVertical: 0 = straight down/up, 90 = horizon
+            var angleFromVertical = (int)(Math.Atan2(distance2d, verticalDistance) * 180.0 / Math.PI);
+            // Target below AP → looking down (near 0), target above → looking up (near 180)
+            var targetAbove = activeFloor > ap.Floor;
+            elevationDeg = targetAbove ? 180 + angleFromVertical : angleFromVertical;
             elevationDeg = Math.Clamp(elevationDeg, 0, 358);
         }
 
