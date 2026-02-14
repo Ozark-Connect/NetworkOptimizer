@@ -780,8 +780,9 @@
         // Identify client
         await IdentifyAndLoadAsync();
 
-        // Request GPS location (fire-and-forget, non-blocking)
-        _ = RequestGpsAsync();
+        // Request GPS location only for wireless clients viewing own device (data will be persisted)
+        if (string.IsNullOrEmpty(IpParam) && _client is { IsWired: false })
+            _ = RequestGpsAsync();
 
         // Start polling every 5 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
