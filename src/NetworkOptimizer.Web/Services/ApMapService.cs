@@ -55,10 +55,11 @@ public class ApMapService
                 {
                     var bandStr = r.Band.ToDisplayString();
                     var apiMax = r.MaxTxPower;
-                    // Only clamp API max to catalog max when we have real catalog data for this model
+                    // Only clamp when API exceeds catalog by >= 2 dBm (small discrepancies
+                    // are common between spec sheets and firmware, so allow 1 dBm tolerance)
                     int? clampedMax = apiMax;
                     if (ApModelCatalog.TryGetBandDefaults(ap.Model, bandStr, out var catalogDefaults) &&
-                        apiMax.HasValue && apiMax.Value > catalogDefaults.MaxTxPowerDbm)
+                        apiMax.HasValue && apiMax.Value >= catalogDefaults.MaxTxPowerDbm + 2)
                     {
                         clampedMax = catalogDefaults.MaxTxPowerDbm;
                     }
