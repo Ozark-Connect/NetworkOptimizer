@@ -1500,6 +1500,7 @@
 
     private async Task OnBuildingChanged(ChangeEventArgs e)
     {
+        await LoadBuildings();
         _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
