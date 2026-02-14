@@ -254,6 +254,7 @@ public class ClientDashboardService
                 Band = l.Band,
                 Channel = l.Channel,
                 ApName = l.ApName,
+                ClientMac = l.ClientMac,
                 ClientIp = l.ClientIp,
                 DeviceName = l.DeviceName
             };

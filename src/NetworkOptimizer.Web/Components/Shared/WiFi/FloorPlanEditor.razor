@@ -2011,6 +2011,7 @@
             .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
             .Select(r => new
             {
+                key = $"st-{r.Id}",
                 lat = r.Latitude!.Value,
                 lng = r.Longitude!.Value,
                 color = GetSignalColor(r.WifiSignalDbm!.Value),
@@ -2020,8 +2021,9 @@
 
         // Markers from signal log entries (client dashboard)
         var signalLogMarkers = SignalLogMarkers
-            .Select(p => new
+            .Select((p, i) => new
             {
+                key = $"sl-{p.Timestamp.Ticks}-{i}",
                 lat = p.Latitude,
                 lng = p.Longitude,
                 color = GetSignalColor(p.SignalDbm),
@@ -2159,11 +2161,19 @@
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
         html += $"<span class='map-popup-time'>{time}</span>";
+        html += "<span class='map-popup-links'>";
+        if (OnClientClick.HasDelegate && !string.IsNullOrEmpty(point.ClientMac))
+        {
+            var jsMac = point.ClientMac.Replace("'", "\\'");
+            var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats \u2192</a>";
+        }
         if (!HideDashboardLinks && !string.IsNullOrEmpty(point.ClientIp))
         {
             var ip = System.Net.WebUtility.HtmlEncode(point.ClientIp);
             html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
         }
+        html += "</span>";
         html += "</div>";
         html += "</div>";
         return html;

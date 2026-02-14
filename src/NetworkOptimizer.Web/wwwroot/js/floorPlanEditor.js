@@ -2258,10 +2258,32 @@ window.fpEditor = {
         if (!this._map || !this._signalClusterGroup) return;
         var self = this;
 
+        // Save state before clearing (open popup, spiderfied cluster)
+        var openPopupKey = null;
+        var spiderfiedKeys = [];
+
+        this._signalClusterGroup.eachLayer(function (layer) {
+            if (layer.isPopupOpen && layer.isPopupOpen()) {
+                openPopupKey = layer.options.markerKey;
+            }
+        });
+
+        if (this._signalCurrentSpider) {
+            var childMarkers = this._signalCurrentSpider.getAllChildMarkers();
+            childMarkers.forEach(function (m) {
+                spiderfiedKeys.push(m.options.markerKey);
+                if (m.isPopupOpen && m.isPopupOpen()) {
+                    openPopupKey = m.options.markerKey;
+                }
+            });
+        }
+
         this._signalClusterGroup.clearLayers();
         this._signalCurrentSpider = null;
 
         var markers = JSON.parse(markersJson);
+        var markerMap = {};
+        var markerToReopen = null;
 
         markers.forEach(function (m) {
             var marker = L.circleMarker([m.lat, m.lng], {
@@ -2271,11 +2293,48 @@ window.fpEditor = {
                 weight: 2,
                 opacity: 1,
                 fillOpacity: 0.8,
-                signalDbm: m.signalDbm
+                signalDbm: m.signalDbm,
+                markerKey: m.key
             });
             if (m.popup) marker.bindPopup(m.popup);
             self._signalClusterGroup.addLayer(marker);
+            if (m.key) markerMap[m.key] = marker;
+
+            if (openPopupKey && m.key === openPopupKey) {
+                markerToReopen = marker;
+            }
         });
+
+        // Restore spider and/or popup
+        if (spiderfiedKeys.length > 0) {
+            setTimeout(function () {
+                var clusterToSpiderfy = null;
+                for (var i = 0; i < spiderfiedKeys.length; i++) {
+                    var marker = markerMap[spiderfiedKeys[i]];
+                    if (marker) {
+                        var parent = self._signalClusterGroup.getVisibleParent(marker);
+                        if (parent && parent !== marker && parent.spiderfy) {
+                            clusterToSpiderfy = parent;
+                            break;
+                        }
+                    }
+                }
+
+                if (clusterToSpiderfy) {
+                    clusterToSpiderfy.spiderfy();
+                    if (openPopupKey) {
+                        setTimeout(function () {
+                            var m = markerMap[openPopupKey];
+                            if (m) m.openPopup();
+                        }, 100);
+                    }
+                } else if (markerToReopen) {
+                    markerToReopen.openPopup();
+                }
+            }, 50);
+        } else if (markerToReopen) {
+            markerToReopen.openPopup();
+        }
     },
 
     clearSignalData: function () {
