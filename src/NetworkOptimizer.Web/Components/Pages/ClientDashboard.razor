@@ -1,6 +1,6 @@
 @page "/client-dashboard"
 @rendermode InteractiveServer
-@implements IDisposable
+@implements IAsyncDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.UniFi.Models
@@ -58,6 +58,19 @@
                 <div class="banner-text">
                     <strong>GPS Unavailable</strong>
                     <span>Location data for signal mapping requires HTTPS. Connect via HTTPS to enable walk-test mapping.</span>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_gpsDenied)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Location Permission Denied</strong>
+                    <span>Enable location access in your browser or device settings to collect GPS data for walk-test signal mapping.</span>
                 </div>
             </div>
         </div>
@@ -133,6 +146,10 @@
                             {
                                 <span class="poll-dot"></span>
                                 <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
+                            }
+                            else
+                            {
+                                <span class="poll-label" style="opacity: 0.5">Connecting...</span>
                             }
                         </span>
                         @if (!_isOwnDevice && _client is { IsWired: false })
@@ -785,6 +802,10 @@
     private int? _gpsAccuracy;
     private bool _isInsecureContext;
     private bool _showGpsWarning;
+    private bool _gpsDenied;
+    private DotNetObjectReference<ClientDashboard>? _dotNetRef;
+    private int? _gpsWatcherId;
+    private DateTime _lastGpsCallback;
 
     // Time filter options
     private static readonly (int hours, string label)[] _timeFilters = new[]
@@ -846,6 +867,8 @@
         // Identify client
         await IdentifyAndLoadAsync();
 
+        // Note: initial GPS request happens in OnAfterRenderAsync (needs JS interop)
+
         // Start polling every 5 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
         {
@@ -876,14 +899,13 @@
         // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
-        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client is { IsWired: false };
+        _showGpsWarning = _isInsecureContext && _isOwnDevice;
 
         if (_showGpsWarning)
             StateHasChanged();
 
-        // Request GPS location only for wireless clients viewing own device
-        if (_isOwnDevice && _client is { IsWired: false } && !_isInsecureContext)
-            _ = RequestGpsAsync();
+        // GPS watcher is started from the first poll cycle (after _client is identified)
+        // so we can skip it for wired devices
     }
 
     private async Task IdentifyAndLoadAsync()
@@ -949,11 +971,27 @@
         if (string.IsNullOrEmpty(_clientIp))
             return;
 
+        // Start GPS watcher on first poll for wireless own-device (needs _client to be loaded)
+        if (!_gpsWatcherId.HasValue && _isOwnDevice && !_isInsecureContext
+            && _client is { IsWired: false })
+            await StartGpsWatcherAsync();
+
+        // If the GPS watcher was sending callbacks (success or error) but went completely
+        // silent, the browser is gone - stop persisting to avoid zombie writes.
+        // GPS signal loss still fires error callbacks, so silence = dead browser.
+        var watcherSilent = _gpsWatcherId.HasValue
+            && _lastGpsCallback != default
+            && _lastGpsCallback < DateTime.UtcNow.AddSeconds(-15);
+        var persist = _isLogging && !watcherSilent;
+        var lat = watcherSilent ? null : _gpsLat;
+        var lng = watcherSilent ? null : _gpsLng;
+        var acc = watcherSilent ? null : _gpsAccuracy;
+
         try
         {
             _latestPoll = await DashboardService.PollSignalAsync(
-                _clientIp, _gpsLat, _gpsLng, _gpsAccuracy,
-                persist: _isLogging);
+                _clientIp, lat, lng, acc,
+                persist: persist);
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
@@ -1485,38 +1523,48 @@
         _ => "Unknown"
     };
 
-    private async Task RequestGpsAsync()
+    private async Task StartGpsWatcherAsync()
     {
         try
         {
-            // Wrap browser geolocation in a Promise for JS interop
-            var js = "new Promise((resolve) => { " +
-                "if (!navigator.geolocation) { resolve(null); return; } " +
-                "navigator.geolocation.getCurrentPosition(" +
-                "(pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }), " +
-                "() => resolve(null), " +
-                "{ enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }" +
-                "); })";
-            var result = await JS.InvokeAsync<GpsResult?>("eval", js);
+            _dotNetRef = DotNetObjectReference.Create(this);
 
-            if (result != null)
-            {
-                _gpsLat = result.Lat;
-                _gpsLng = result.Lng;
-                _gpsAccuracy = result.Acc;
-            }
+            // Register a named JS function, then call it with the DotNetObjectReference
+            // (eval doesn't pass extra args, so we need a two-step approach)
+            await JS.InvokeVoidAsync("eval",
+                "window.__startGpsWatcher = (ref) => { " +
+                "if (!navigator.geolocation) return null; " +
+                "return navigator.geolocation.watchPosition(" +
+                "(pos) => ref.invokeMethodAsync('OnGpsPosition', " +
+                    "pos.coords.latitude, pos.coords.longitude, Math.round(pos.coords.accuracy)), " +
+                "(err) => ref.invokeMethodAsync('OnGpsError', err.code), " +
+                "{ enableHighAccuracy: true, maximumAge: 0 }" +
+                "); }");
+
+            _gpsWatcherId = await JS.InvokeAsync<int?>("__startGpsWatcher", _dotNetRef);
         }
         catch
         {
-            // GPS is optional - don't fail if browser denies permission
+            // GPS is optional
         }
     }
 
-    private class GpsResult
+    [JSInvokable]
+    public void OnGpsPosition(double lat, double lng, int acc)
     {
-        public double Lat { get; set; }
-        public double Lng { get; set; }
-        public int? Acc { get; set; }
+        _gpsDenied = false;
+        _gpsLat = lat;
+        _gpsLng = lng;
+        _gpsAccuracy = acc;
+        _lastGpsCallback = DateTime.UtcNow;
+    }
+
+    [JSInvokable]
+    public void OnGpsError(int code)
+    {
+        // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+        _gpsDenied = code == 1;
+        _lastGpsCallback = DateTime.UtcNow;
     }
 
     // --- URL Construction ---
@@ -1896,9 +1944,17 @@
         };
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         _pollTimer?.Dispose();
+
+        // Stop GPS watcher
+        if (_gpsWatcherId.HasValue)
+        {
+            try { await JS.InvokeVoidAsync("eval", $"navigator.geolocation.clearWatch({_gpsWatcherId.Value})"); }
+            catch { }
+        }
+        _dotNetRef?.Dispose();
     }
 }
 
