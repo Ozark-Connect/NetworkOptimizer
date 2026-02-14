@@ -1123,6 +1123,13 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         }
     }
 
+    // Remove disabled APs from simulation
+    if (request.DisabledMacs is { Count: > 0 })
+    {
+        var disabled = new HashSet<string>(request.DisabledMacs, StringComparer.OrdinalIgnoreCase);
+        placedAps.RemoveAll(ap => disabled.Contains(ap.Mac));
+    }
+
     // Build per-building floor info for smart floor attenuation
     var buildingFloorInfos = allBuildings.Select(building =>
     {

@@ -20,6 +20,9 @@ public class HeatmapRequest
     /// <summary>Per-AP antenna mode overrides keyed by MAC address (e.g., "OMNI", "Internal")</summary>
     public Dictionary<string, string>? AntennaModeOverrides { get; set; }
 
+    /// <summary>MAC addresses of APs to exclude from simulation (disabled by user)</summary>
+    public List<string>? DisabledMacs { get; set; }
+
     /// <summary>Viewport bounds from the map</summary>
     public double? SwLat { get; set; }
     public double? SwLng { get; set; }

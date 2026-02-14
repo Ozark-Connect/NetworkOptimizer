@@ -36,6 +36,7 @@ window.fpEditor = {
     _contourLayer: null,
     _txPowerOverrides: {},
     _antennaModeOverrides: {},
+    _disabledAps: {},
     _heatmapBand: '5',
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
@@ -215,6 +216,7 @@ window.fpEditor = {
         var self = this;
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
+        this._disabledAps = {};
         var resolveReady;
         var readyPromise = new Promise(function (resolve) { resolveReady = resolve; });
 
@@ -492,13 +494,15 @@ window.fpEditor = {
                 html: '<div class="' + glowClass + '"></div>',
                 iconSize: [48, 48], iconAnchor: [24, 24]
             });
+            var isDisabled = !!self._disabledAps[ap.mac.toLowerCase()];
             var glowMarker = L.marker([ap.lat, ap.lng], {
-                icon: glowIcon, interactive: false, pane: 'apGlowPane'
+                icon: glowIcon, interactive: false, pane: 'apGlowPane',
+                opacity: isDisabled ? 0 : 1
             }).addTo(self._apGlowLayer);
 
             // Icon layer with orientation arrow
-            var opacity = isPlanned
-                ? (ap.sameFloor ? 1.0 : 0.35)
+            var opacity = isDisabled ? 0.2
+                : isPlanned ? (ap.sameFloor ? 1.0 : 0.35)
                 : (ap.online ? (ap.sameFloor ? 1.0 : 0.35) : (ap.sameFloor ? 0.4 : 0.2));
             var arrowHtml = ap.sameFloor
                 ? '<div class="fp-ap-direction" style="transform:rotate(' + ap.orientation + 'deg)"><div class="fp-ap-arrow"></div></div>'
@@ -618,6 +622,19 @@ window.fpEditor = {
                 }
             }
 
+            // Disable AP toggle button
+            var disableApHtml = '';
+            var macLower = ap.mac.toLowerCase();
+            var disableHeader = (txPowerHtml || antennaModeHtml) ? '' :
+                '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
+            disableApHtml = disableHeader +
+                '<div class="fp-ap-popup-row" style="margin-top:4px">' +
+                '<button class="fp-disable-ap-btn' + (isDisabled ? ' active' : '') + '" ' +
+                'data-tooltip="Simulate removing this AP to test coverage with a replacement" ' +
+                'onclick="fpEditor._toggleDisableAp(\'' + esc(macLower) + '\')">' +
+                (isDisabled ? 'Enable AP' : 'Disable AP') +
+                '</button></div>';
+
             var safeMac = esc(ap.mac);
 
             if (isPlanned) {
@@ -670,6 +687,7 @@ window.fpEditor = {
                     '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
+                    disableApHtml +
                     '</div></div>'
                 );
             }
@@ -776,18 +794,34 @@ window.fpEditor = {
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
     },
 
+    _toggleDisableAp: function (macLower) {
+        if (this._disabledAps[macLower]) {
+            delete this._disabledAps[macLower];
+        } else {
+            this._disabledAps[macLower] = true;
+        }
+        this._updateResetSimBtn();
+        this.computeHeatmap();
+        // Rebuild markers to update opacity and popup button label
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
+    },
+
     _updateResetSimBtn: function () {
         var btn = document.getElementById('fp-reset-sim-btn');
         var hasOverrides = Object.keys(this._txPowerOverrides).length > 0 ||
-                           Object.keys(this._antennaModeOverrides).length > 0;
+                           Object.keys(this._antennaModeOverrides).length > 0 ||
+                           Object.keys(this._disabledAps).length > 0;
         if (btn) btn.style.display = hasOverrides ? '' : 'none';
     },
 
     resetSimulation: function () {
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
+        this._disabledAps = {};
         this._updateResetSimBtn();
         this.computeHeatmap();
+        // Rebuild markers to restore opacity
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
     },
 
     // ── AP Placement Mode ────────────────────────────────────────────
@@ -2173,6 +2207,11 @@ window.fpEditor = {
         // Antenna mode overrides are keyed by MAC only (all-bands physical switch)
         if (Object.keys(self._antennaModeOverrides).length > 0) {
             body.antennaModeOverrides = self._antennaModeOverrides;
+        }
+        // Disabled APs to exclude from heatmap
+        var disabledList = Object.keys(self._disabledAps);
+        if (disabledList.length > 0) {
+            body.disabledMacs = disabledList;
         }
 
         fetch(baseUrl + '/api/floor-plan/heatmap', {
