@@ -228,6 +228,152 @@ public class DeviceTypeDetectionServiceTests
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
     }
 
+    [Fact]
+    public void DetectDeviceType_FurboVendor_ReturnsCloudCamera()
+    {
+        // Arrange - Furbo is a cloud camera vendor (dog camera with treat tossing)
+        var client = new UniFiClientResponse
+        {
+            Mac = "11:22:33:44:55:66",
+            Name = "Furbo Dog Camera",
+            Oui = "Furbo",
+            DevCat = 9 // Camera fingerprint (9 = IP Network Camera)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Furbo cameras are cloud cameras (require internet for remote access)
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    #endregion
+
+    #region Apple Device Vendor Override Tests (Generic Fingerprints)
+
+    [Theory]
+    [InlineData("9C:3E:53:2A:72:5A", "Keeping-Room 72:5a", 47)] // SmartTV fingerprint, Apple TV OUI
+    [InlineData("C8:D0:83:B9:2B:A0", "Living-Room-Wireless", 7)] // SmartTV fingerprint, Apple TV OUI
+    [InlineData("A8:51:AB:13:F0:CD", "Guest-Media", 47)] // SmartTV fingerprint, Apple TV OUI (avoid "appletv" in name)
+    [InlineData("68:D9:3C:11:22:33", "Theater-Device", 47)] // SmartTV fingerprint, Apple TV OUI
+    public void DetectDeviceType_AppleOuiWithSmartTVFingerprint_UsesOuiForStreamingDevice(string mac, string deviceName, int devCat)
+    {
+        // Arrange - Apple devices with generic SmartTV fingerprint should use MAC OUI 
+        // to get specific device type (Apple TV = StreamingDevice, not generic SmartTV)
+        var client = new UniFiClientResponse
+        {
+            Mac = mac,
+            Name = deviceName,
+            Oui = "Apple, Inc.",
+            DevCat = devCat // SmartTV fingerprint (generic)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should detect as StreamingDevice (from MAC OUI), not SmartTV (from fingerprint)
+        result.Category.Should().Be(ClientDeviceCategory.StreamingDevice);
+        result.VendorName.Should().Be("Apple TV");
+        result.ConfidenceScore.Should().Be(98); // High confidence - Apple OUI + specific MAC match
+        result.Source.Should().Be(DetectionSource.MacOui);
+    }
+
+    [Theory]
+    [InlineData("E0:2B:96:9C:03:1E", "Keeping-Room-Speaker", 51)] // IoTGeneric fingerprint, HomePod OUI (avoid "siri" in name)
+    [InlineData("F4:34:F0:3E:69:C2", "Guest-Speaker", 51)] // IoTGeneric fingerprint, HomePod OUI
+    public void DetectDeviceType_AppleOuiWithIoTGenericFingerprint_UsesOuiForSmartSpeaker(string mac, string deviceName, int devCat)
+    {
+        // Arrange - Apple devices with generic IoTGeneric fingerprint should use MAC OUI
+        // to get specific device type (HomePod = SmartSpeaker, not generic IoT)
+        var client = new UniFiClientResponse
+        {
+            Mac = mac,
+            Name = deviceName,
+            Oui = "Apple, Inc.",
+            DevCat = devCat // IoTGeneric fingerprint (generic)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should detect as SmartSpeaker (from MAC OUI), not IoTGeneric (from fingerprint)
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+        result.VendorName.Should().Be("Apple HomePod");
+        result.ConfidenceScore.Should().Be(98); // High confidence - Apple OUI + specific MAC match
+        result.Source.Should().Be(DetectionSource.MacOui);
+    }
+
+    [Fact]
+    public void DetectDeviceType_AppleOuiWithGenericFingerprintButNoMacOuiMatch_UsesFingerprint()
+    {
+        // Arrange - Apple device with generic fingerprint but MAC prefix not in our OUI database
+        // Should fall back to normal fingerprint detection
+        var client = new UniFiClientResponse
+        {
+            Mac = "AA:BB:CC:DD:EE:FF", // Unknown MAC prefix
+            Name = "Some-Device",
+            Oui = "Apple, Inc.",
+            DevCat = 47 // SmartTV fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - No specific MAC OUI match, so should use fingerprint (SmartTV)
+        // This might be a generic Apple-compatible TV or other device
+        result.Category.Should().Be(ClientDeviceCategory.SmartTV);
+        result.ConfidenceScore.Should().Be(95); // Normal fingerprint confidence
+    }
+
+    [Theory]
+    [InlineData("E0:2B:96:9C:03:1E", "Office Siri", 51)] // Name-based detection takes priority
+    [InlineData("F4:34:F0:3E:69:C2", "Master HomePod", 51)] // Name-based detection takes priority
+    public void DetectDeviceType_AppleHomePodWithSiriOrHomePodInName_StillDetectsCorrectly(string mac, string deviceName, int devCat)
+    {
+        // Arrange - HomePods with "siri" or "homepod" in name should be detected
+        // through either name-based override OR MAC OUI override (both work)
+        var client = new UniFiClientResponse
+        {
+            Mac = mac,
+            Name = deviceName,
+            Oui = "Apple, Inc.",
+            DevCat = devCat // IoTGeneric fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+        result.ConfidenceScore.Should().BeGreaterThanOrEqualTo(95); // High confidence (95% from name, or 98% from vendor override)
+    }
+
+    [Theory]
+    [InlineData(1)] // Laptop
+    [InlineData(2)] // Tablet
+    [InlineData(4)] // Smartphone
+    [InlineData(117)] // Desktop
+    public void DetectDeviceType_AppleOuiWithSpecificFingerprint_DoesNotOverride(int devCat)
+    {
+        // Arrange - Apple devices with specific (non-generic) fingerprints should NOT be overridden
+        // Only generic categories (SmartTV, IoTGeneric) trigger the MAC OUI override
+        var client = new UniFiClientResponse
+        {
+            Mac = "E0:2B:96:9C:03:1E", // HomePod OUI
+            Name = "Device",
+            Oui = "Apple, Inc.",
+            DevCat = devCat // Specific fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should use the specific fingerprint, not override to HomePod based on MAC
+        // (Even though MAC says HomePod, the specific fingerprint is more trustworthy for what's actually connected)
+        result.Category.Should().NotBe(ClientDeviceCategory.SmartSpeaker);
+        result.ConfidenceScore.Should().Be(95); // Normal fingerprint confidence
+    }
+
     #endregion
 
     #region Camera Name Override Tests (Nest/Google cameras)
@@ -255,6 +401,29 @@ public class DeviceTypeDetectionServiceTests
 
         // Assert - Camera name + Nest vendor = CloudCamera (not self-hosted Camera)
         // Confidence may vary based on detection path (name supplement vs direct detection)
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Theory]
+    [InlineData("Furbo", "Living Room")]
+    [InlineData("FURBO", "Dog Camera")]
+    [InlineData("Furbo Inc", "Pet Camera")]
+    [InlineData("Furbo Dog Camera", "Kitchen Cam")]
+    public void DetectDeviceType_FurboVendorVariations_ReturnsCloudCamera(string vendor, string deviceName)
+    {
+        // Arrange - Test various Furbo vendor name formats (case-insensitive, with suffixes)
+        var client = new UniFiClientResponse
+        {
+            Mac = "11:22:33:44:55:66",
+            Name = deviceName,
+            Oui = vendor,
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - All Furbo variations should be detected as cloud cameras
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
     }
 
@@ -976,6 +1145,7 @@ public class DeviceTypeDetectionServiceTests
     [InlineData("Blink", ClientDeviceCategory.CloudCamera)]
     [InlineData("TP-Link", ClientDeviceCategory.CloudCamera)]
     [InlineData("Canary", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Furbo", ClientDeviceCategory.CloudCamera)]
     public void DetectFromMac_HistoryCameraFingerprint_WithCloudVendor_ReturnsCloudCamera(string vendor, ClientDeviceCategory expected)
     {
         // Arrange - history with camera fingerprint (DevCat 9) and cloud vendor via OUI
@@ -1155,6 +1325,36 @@ public class DeviceTypeDetectionServiceTests
         // Assert
         result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
         result.VendorName.Should().Be("Google");
+    }
+
+    [Theory]
+    [InlineData("E0:2B:96:12:34:56", "Office Siri")]
+    [InlineData("F4:34:F0:AB:CD:EF", "Guest Room 1 Siri")]
+    [InlineData("D4:90:9C:11:22:33", "Living Room Siri")]
+    [InlineData("E0:2B:96:44:55:66", "Game Room Speaker 1")]
+    [InlineData("F4:34:F0:77:88:99", "Game Room Speaker 2")]
+    public void DetectFromMac_AppleSpeakerOui_ReturnsSmartSpeaker(string macAddress, string deviceName)
+    {
+        // Arrange - Test MAC OUI detection for Apple smart speakers using real device names
+        // These OUIs are specific to Apple's smart speaker product line
+        var history = new List<UniFiClientDetailResponse>
+        {
+            new()
+            {
+                Mac = macAddress,
+                Name = deviceName
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac(macAddress);
+
+        // Assert - Should detect as SmartSpeaker via MAC OUI
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+        result.VendorName.Should().Be("Apple HomePod");
+        result.Source.Should().Be(DetectionSource.MacOui);
+        result.ConfidenceScore.Should().Be(75);
     }
 
     #endregion

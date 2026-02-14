@@ -176,7 +176,8 @@ public class DeviceTypeDetectionService
         // Priority 0.5: Check OUI for vendors that need special handling
         // - Cync/Wyze/GE have camera fingerprints but most devices are actually plugs/bulbs
         // - Apple with SmartSensor fingerprint is likely Apple Watch
-        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat);
+        // - Apple with generic fingerprints (SmartTV, IoTGeneric) should use MAC OUI for specific device type
+        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat, client?.Mac);
         if (vendorOverrideResult != null)
         {
             _logger?.LogDebug("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
@@ -442,7 +443,15 @@ public class DeviceTypeDetectionService
 
         // Media/Entertainment
         if (name.Contains("roku")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, OuiHighConfidence);
-        if (name.Contains("apple") && name.Contains("tv")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, OuiHighConfidence);
+
+        // Apple devices: Use device name to disambiguate between Apple TV and HomePod
+        if (name.Contains("apple"))
+        {
+            if (name.Contains("tv") || deviceNameLower.Contains("apple tv"))
+                return CreateOuiResult(ClientDeviceCategory.StreamingDevice, "Apple TV", OuiHighConfidence);
+            if (deviceNameLower.Contains("homepod") || deviceNameLower.Contains("siri"))
+                return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, "Apple HomePod", OuiHighConfidence);
+        }
 
         return DeviceDetectionResult.Unknown;
     }
@@ -1185,7 +1194,8 @@ public class DeviceTypeDetectionService
                System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\barlo\b") ||
                System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bsimplisafe\b") ||
                System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\btp-link\b") ||
-               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bcanary\b");
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bcanary\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bfurbo\b");
     }
 
     /// <summary>
@@ -1203,10 +1213,44 @@ public class DeviceTypeDetectionService
     /// - Apple devices with SmartSensor fingerprint are usually Apple Watches (Smartphone).
     /// - GoPro action cameras share devCat 106 with security cameras but aren't security devices.
     /// </summary>
-    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat)
+    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat, string? mac)
     {
         var ouiLower = oui?.ToLowerInvariant() ?? "";
         var nameLower = (name ?? hostname ?? "").ToLowerInvariant();
+
+        // Apple devices with generic fingerprints should check MAC OUI for specific device type
+        // Apple controls their hardware tightly, so MAC OUI is highly reliable for Apple devices
+        // This catches Apple TVs (SmartTV fingerprint) and HomePods (IoTGeneric) even without specific names
+        if (ouiLower.Contains("apple") && !string.IsNullOrEmpty(mac))
+        {
+            var isGenericFingerprint = devCat == 51 || // IoTGeneric
+                                       devCat == 7 ||   // SmartTV (generic)
+                                       devCat == 47;     // SmartTV (alternative)
+
+            if (isGenericFingerprint)
+            {
+                var macOuiResult = _macOuiDetector.Detect(mac);
+                if (macOuiResult.Category != ClientDeviceCategory.Unknown)
+                {
+                    // MAC OUI database has a specific match for this Apple device
+                    return new DeviceDetectionResult
+                    {
+                        Category = macOuiResult.Category,
+                        Source = DetectionSource.MacOui,
+                        ConfidenceScore = 98, // Very high confidence - Apple OUI + specific device match
+                        VendorName = macOuiResult.VendorName,
+                        RecommendedNetwork = macOuiResult.RecommendedNetwork,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["override_reason"] = "Apple device with generic fingerprint - MAC OUI provides specific device type",
+                            ["oui"] = oui ?? "",
+                            ["dev_cat"] = devCat ?? 0,
+                            ["mac_oui_category"] = macOuiResult.Category.ToString()
+                        }
+                    };
+                }
+            }
+        }
 
         // Apple devices with SmartSensor fingerprint (DevCat=14) are likely Apple Watches
         if (ouiLower.Contains("apple") && devCat == 14)
@@ -1223,6 +1267,28 @@ public class DeviceTypeDetectionService
                     ["override_reason"] = "Apple device with SmartSensor fingerprint is likely Apple Watch",
                     ["oui"] = oui ?? "",
                     ["dev_cat"] = devCat ?? 0
+                }
+            };
+        }
+
+        // Apple HomePods with IoTGeneric fingerprint (DevCat=51) - override based on name containing "homepod" or "siri"
+        // Note: This is now redundant with the generic check above, but kept for explicit name-based detection
+        if (ouiLower.Contains("apple") && devCat == 51 &&
+            (nameLower.Contains("homepod") || nameLower.Contains("siri")))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartSpeaker,
+                Source = DetectionSource.UniFiFingerprint,
+                ConfidenceScore = 98, // Very high confidence - vendor + name + fingerprint all match
+                VendorName = "Apple HomePod",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Apple device with IoTGeneric fingerprint and HomePod/Siri name",
+                    ["oui"] = oui ?? "",
+                    ["dev_cat"] = devCat ?? 0,
+                    ["name"] = name ?? hostname ?? ""
                 }
             };
         }
