@@ -447,7 +447,7 @@ public class DeviceTypeDetectionService
         // Apple devices: Use device name to disambiguate between Apple TV and HomePod
         if (name.Contains("apple"))
         {
-            if (name.Contains("tv") || deviceNameLower.Contains("apple tv"))
+            if (deviceNameLower.Contains("tv") || deviceNameLower.Contains("apple tv"))
                 return CreateOuiResult(ClientDeviceCategory.StreamingDevice, "Apple TV", OuiHighConfidence);
             if (deviceNameLower.Contains("homepod") || deviceNameLower.Contains("siri"))
                 return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, "Apple HomePod", OuiHighConfidence);
