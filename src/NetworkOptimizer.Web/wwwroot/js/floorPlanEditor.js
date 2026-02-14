@@ -38,6 +38,7 @@ window.fpEditor = {
     _antennaModeOverrides: {},
     _disabledAps: {},
     _heatmapBand: '5',
+    _excludePlannedAps: false,
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
@@ -2187,10 +2188,11 @@ window.fpEditor = {
         if (!m) return;
         var self = this;
 
-        // Store params so the slider can re-invoke without arguments
+        // Store params so JS-initiated recomputes (sim toggles, sliders) work without arguments
         if (baseUrl) this._heatmapBaseUrl = baseUrl;
         if (activeFloor != null) this._heatmapFloor = activeFloor;
         if (band) this._heatmapBand = band;
+        if (excludePlannedAps != null) this._excludePlannedAps = excludePlannedAps;
         baseUrl = this._heatmapBaseUrl;
         activeFloor = this._heatmapFloor;
         band = this._heatmapBand;
@@ -2229,7 +2231,7 @@ window.fpEditor = {
         if (disabledList.length > 0) {
             body.disabledMacs = disabledList;
         }
-        if (excludePlannedAps) {
+        if (self._excludePlannedAps) {
             body.excludePlannedAps = true;
         }
 
