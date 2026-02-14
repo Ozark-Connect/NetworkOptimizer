@@ -884,7 +884,9 @@
                             Timestamp = _latestPoll.Timestamp,
                             Band = _client.Band,
                             Channel = _client.Channel,
-                            ApName = _client.ApName
+                            ApName = _client.ApName,
+                            ClientIp = _clientIp,
+                            DeviceName = _client.DisplayName
                         });
                     }
                 }
@@ -958,20 +960,17 @@
             .Where(h => h.SignalDbm.HasValue)
             .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value)));
 
-        // Build signal map points from downsampled/grouped data (matches the table display)
-        _signalMapPoints = DownsampleForDisplay(_signalHistory)
-            .Where(h => h.Latitude.HasValue && h.Longitude.HasValue && h.SignalDbm.HasValue)
-            .Select(h => new SignalMapPoint
-            {
-                Latitude = h.Latitude!.Value,
-                Longitude = h.Longitude!.Value,
-                SignalDbm = h.SignalDbm!.Value,
-                Timestamp = h.Timestamp,
-                Band = h.Band,
-                Channel = h.Channel,
-                ApName = h.ApName
-            })
-            .ToList();
+        // Build signal map points (grouped by time bucket matching display granularity)
+        var bucketMinutes = _selectedTimeFilter switch
+        {
+            1 => 0,
+            6 => 1,
+            24 => 5,
+            168 => 30,
+            _ => 60
+        };
+        _signalMapPoints = await DashboardService.GetSignalMapPointsAsync(
+            _client!.Mac, from, to, bucketMinutes);
 
         // Build chart annotations for band/AP changes
         BuildSignalAnnotations();

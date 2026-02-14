@@ -134,4 +134,6 @@ public class SignalMapPoint
     public string? Band { get; set; }
     public int? Channel { get; set; }
     public string? ApName { get; set; }
+    public string? ClientIp { get; set; }
+    public string? DeviceName { get; set; }
 }

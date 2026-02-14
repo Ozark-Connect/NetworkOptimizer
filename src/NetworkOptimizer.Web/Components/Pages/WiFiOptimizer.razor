@@ -6,6 +6,7 @@
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
 @inject ClientSpeedTestService SpeedTestService
+@inject ClientDashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
 @inject ApMapService ApMapService
@@ -228,7 +229,7 @@
     else if (_activeTab == "floorplan")
     {
         <!-- Signal Map / Floor Plan Editor -->
-        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" OnClientClick="HandleMapClientClick" />
+        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" />
     }
     else if (_activeTab == "roaming")
     {
@@ -577,6 +578,7 @@
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<Iperf3Result> _speedTestResults = new();
+    private List<SignalMapPoint> _signalMapPoints = new();
     private List<ApMapMarker> _apMapMarkers = new();
 
     protected override void OnInitialized()
@@ -623,13 +625,16 @@
             var healthTask = WiFiService.GetSiteHealthScoreAsync();
             var apsTask = WiFiService.GetAccessPointsAsync();
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+            var signalMapTask = DashboardService.GetSignalMapPointsAsync(
+                null, DateTime.UtcNow.AddDays(-7), DateTime.UtcNow, bucketMinutes: 5);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalMapTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
+            _signalMapPoints = await signalMapTask;
 
             // Build AP map markers (join AP snapshots with saved locations)
             await LoadApMarkers();
@@ -654,13 +659,16 @@
             var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+            var signalMapTask = DashboardService.GetSignalMapPointsAsync(
+                null, DateTime.UtcNow.AddDays(-7), DateTime.UtcNow, bucketMinutes: 5);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalMapTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
+            _signalMapPoints = await signalMapTask;
 
             await LoadApMarkers();
         }

@@ -2097,7 +2097,7 @@
         if (!string.IsNullOrEmpty(result.DeviceHost))
         {
             var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
-            html += $"<a href='/client-dashboard?ip={ip}' class='map-popup-link'>Dashboard \u2192</a>";
+            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
         }
         html += "</span>";
         html += "</div>";
@@ -2110,6 +2110,10 @@
     {
         var time = point.Timestamp.ToLocalTime().ToString("MMM d, h:mm:ss tt");
         var html = "<div class='map-popup'>";
+
+        if (!string.IsNullOrEmpty(point.DeviceName))
+            html += $"<div class='wifi-tooltip-header'>{System.Net.WebUtility.HtmlEncode(point.DeviceName)}</div>";
+
         html += "<div class='wifi-tooltip-link-signal'>";
         if (!string.IsNullOrEmpty(point.Band))
         {
@@ -2129,7 +2133,14 @@
             html += $"<div style='font-size:0.8rem;color:#94a3b8;'>Ch {point.Channel}</div>";
 
         html += "<div class='wifi-tooltip-divider'></div>";
-        html += $"<div class='map-popup-footer'><span class='map-popup-time'>{time}</span></div>";
+        html += "<div class='map-popup-footer'>";
+        html += $"<span class='map-popup-time'>{time}</span>";
+        if (!string.IsNullOrEmpty(point.ClientIp))
+        {
+            var ip = System.Net.WebUtility.HtmlEncode(point.ClientIp);
+            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
+        }
+        html += "</div>";
         html += "</div>";
         return html;
     }

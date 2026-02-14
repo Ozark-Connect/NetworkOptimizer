@@ -210,6 +210,70 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// Get GPS-located signal measurements as map points, grouped into time buckets.
+    /// If mac is null, returns points for all clients.
+    /// </summary>
+    public async Task<List<SignalMapPoint>> GetSignalMapPointsAsync(
+        string? mac, DateTime from, DateTime to, int bucketMinutes = 5)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = db.ClientSignalLogs
+            .Where(l => l.Timestamp >= from && l.Timestamp <= to
+                     && l.Latitude != null && l.Longitude != null
+                     && l.SignalDbm != null);
+
+        if (!string.IsNullOrEmpty(mac))
+            query = query.Where(l => l.ClientMac == mac);
+
+        var logs = await query.OrderBy(l => l.Timestamp).ToListAsync();
+
+        if (bucketMinutes <= 0)
+        {
+            return logs.Select(l => new SignalMapPoint
+            {
+                Latitude = l.Latitude!.Value,
+                Longitude = l.Longitude!.Value,
+                SignalDbm = l.SignalDbm!.Value,
+                Timestamp = l.Timestamp,
+                Band = l.Band,
+                Channel = l.Channel,
+                ApName = l.ApName,
+                ClientIp = l.ClientIp,
+                DeviceName = l.DeviceName
+            }).ToList();
+        }
+
+        // Group into time buckets per client
+        return logs
+            .GroupBy(l => new
+            {
+                l.ClientMac,
+                Bucket = new DateTime(
+                    l.Timestamp.Ticks - (l.Timestamp.Ticks % (TimeSpan.TicksPerMinute * bucketMinutes)),
+                    DateTimeKind.Utc)
+            })
+            .Select(g =>
+            {
+                var items = g.ToList();
+                var last = items[^1];
+                return new SignalMapPoint
+                {
+                    Latitude = last.Latitude!.Value,
+                    Longitude = last.Longitude!.Value,
+                    SignalDbm = (int)Math.Round(items.Average(i => (double)i.SignalDbm!.Value)),
+                    Timestamp = g.Key.Bucket,
+                    Band = items.GroupBy(i => i.Band).OrderByDescending(bg => bg.Count()).First().Key,
+                    Channel = items.GroupBy(i => i.Channel).OrderByDescending(bg => bg.Count()).First().Key,
+                    ApName = items.GroupBy(i => i.ApName).OrderByDescending(bg => bg.Count()).First().Key,
+                    ClientIp = last.ClientIp,
+                    DeviceName = last.DeviceName
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>
     /// Get trace change events for a client (entries where TraceJson is stored).
     /// </summary>
     public async Task<List<TraceChangeEntry>> GetTraceHistoryAsync(
