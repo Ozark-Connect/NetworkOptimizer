@@ -787,7 +787,7 @@
         }
 
         _isOwnDevice = string.IsNullOrEmpty(IpParam);
-        _isLogging = _isOwnDevice && _client is { IsWired: false }; // only log wireless devices
+        _isLogging = _isOwnDevice; // own device always logs; backend skips wired
 
         // Build OpenSpeedTest URL
         BuildOpenSpeedTestUrl();
