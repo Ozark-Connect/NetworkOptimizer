@@ -63,7 +63,7 @@ public class ApMapService
                     {
                         clampedMax = catalogDefaults.MaxTxPowerDbm;
                     }
-                    _logger.LogDebug("AP {Name} model='{Model}' band={Band} apiMax={ApiMax} clampedMax={ClampedMax}",
+                    _logger.LogTrace("AP {Name} model='{Model}' band={Band} apiMax={ApiMax} clampedMax={ClampedMax}",
                         ap.Name, ap.Model, bandStr, apiMax, clampedMax);
                     return new ApRadioSummary
                     {
