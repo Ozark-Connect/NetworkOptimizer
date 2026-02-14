@@ -102,19 +102,18 @@
                     <span class="fp-toolbar-sep"></span>
                 }
 
+                @* ── APs group ── *@
+                <div class="fp-toolbar-group">
+                    <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
+                        @(_mode == "aps" ? "Done" : "Edit APs")
+                    </button>
+                    <button class="fp-btn @(_mode == "plan-aps" ? "fp-btn-warning" : "")" @onclick="TogglePlanApMode">
+                        @(_mode == "plan-aps" ? "Done" : "Plan APs")
+                    </button>
+                </div>
+
+                <span class="fp-toolbar-sep"></span>
             }
-
-            @* ── APs group ── *@
-            <div class="fp-toolbar-group">
-                <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
-                    @(_mode == "aps" ? "Done" : "Edit APs")
-                </button>
-                <button class="fp-btn @(_mode == "plan-aps" ? "fp-btn-warning" : "")" @onclick="TogglePlanApMode">
-                    @(_mode == "plan-aps" ? "Done" : "Plan APs")
-                </button>
-            </div>
-
-            <span class="fp-toolbar-sep"></span>
 
             @* ── View group ── *@
             <div class="fp-toolbar-group">

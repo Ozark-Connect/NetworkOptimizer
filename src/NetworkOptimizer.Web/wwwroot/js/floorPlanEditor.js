@@ -1,6 +1,6 @@
 // Floor Plan Editor - Leaflet map integration
 // Provides map, AP markers, wall drawing, heatmap, and floor overlay management
-function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML.replace(/"/g, '&quot;'); }
 
 window.fpEditor = {
 
