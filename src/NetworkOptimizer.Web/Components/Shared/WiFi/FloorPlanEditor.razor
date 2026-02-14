@@ -2142,7 +2142,7 @@
 
         var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
         var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
-        var clickable = _selectedBuilding == null && !ReadOnly;
+        var clickable = _selectedBuilding == null && !ReadOnly && _mode != "aps" && _mode != "plan-aps";
         await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson, clickable);
 
         // Same-building adjacent floor walls (for length snap when drawing first shape)
