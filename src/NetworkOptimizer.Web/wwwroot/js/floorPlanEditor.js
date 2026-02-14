@@ -865,12 +865,17 @@ window.fpEditor = {
             this._placementHandler = null;
         }
 
+        this._placementActive = enabled;
+
         if (enabled) {
             this._placementHandler = function (e) {
                 self._dotNetRef.invokeMethodAsync('OnMapClickForPlacement', e.latlng.lat, e.latlng.lng);
             };
             m.on('click', this._placementHandler);
             m.getContainer().style.cursor = 'crosshair';
+            // Disable building click-to-select during placement
+            var bgPaneEl = m.getPane('bgWallPane');
+            if (bgPaneEl) bgPaneEl.style.pointerEvents = 'none';
         } else {
             m.getContainer().style.cursor = '';
         }
@@ -907,7 +912,9 @@ window.fpEditor = {
         });
 
         // Clickable building hit areas in global view (convex hull of all wall points)
-        if (clickable) {
+        // Never enable building click-to-select while AP placement is active
+        var effectiveClickable = clickable && !this._placementActive;
+        if (effectiveClickable) {
             var allPts = {};
             walls.forEach(function (wall) {
                 var id = wall._buildingId;

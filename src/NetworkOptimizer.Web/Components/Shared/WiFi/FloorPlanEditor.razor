@@ -2877,8 +2877,9 @@
     [JSInvokable]
     public async Task OnBgBuildingClicked(int buildingId)
     {
-        if (ReadOnly) return; // No building editing in read-only mode
+        if (ReadOnly) return;
         if (_selectedBuilding != null) return; // Only from global view
+        if (_mode == "aps" || _mode == "plan-aps") return; // Don't select buildings during AP placement
         await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
     }
 
