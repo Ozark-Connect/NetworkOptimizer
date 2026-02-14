@@ -775,6 +775,25 @@
         (0, "All")
     };
 
+    private string? _lastTabParam;
+
+    protected override void OnParametersSet()
+    {
+        // Handle tab query param changes when already on this page (Blazor reuses the component)
+        if (!string.IsNullOrEmpty(TabParam) && TabParam != _lastTabParam && _lastTabParam != null)
+        {
+            var newTab = TabParam.ToLowerInvariant() switch
+            {
+                "signal" => "signal",
+                "connection" => "connection",
+                _ => "speed"
+            };
+            if (newTab != _activeTab)
+                SetActiveTab(newTab);
+        }
+        _lastTabParam = TabParam;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Parse tab from URL
