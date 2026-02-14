@@ -220,11 +220,12 @@ public class ClientDashboardService
     }
 
     /// <summary>
-    /// Get GPS-located signal measurements as map points, grouped into time buckets.
+    /// Get GPS-located signal measurements as map points, deduplicating consecutive
+    /// entries where AP, band, channel, signal, and position are unchanged.
     /// If mac is null, returns points for all clients.
     /// </summary>
     public async Task<List<SignalMapPoint>> GetSignalMapPointsAsync(
-        string? mac, DateTime from, DateTime to, int bucketSeconds = 300)
+        string? mac, DateTime from, DateTime to)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
 
@@ -238,9 +239,13 @@ public class ClientDashboardService
 
         var logs = await query.OrderBy(l => l.Timestamp).ToListAsync();
 
-        if (bucketSeconds <= 0)
+        // Deduplicate consecutive entries with same AP/band/channel/signal/position
+        var result = new List<SignalMapPoint>();
+        SignalMapPoint? prev = null;
+
+        foreach (var l in logs)
         {
-            return logs.Select(l => new SignalMapPoint
+            var point = new SignalMapPoint
             {
                 Latitude = l.Latitude!.Value,
                 Longitude = l.Longitude!.Value,
@@ -251,39 +256,24 @@ public class ClientDashboardService
                 ApName = l.ApName,
                 ClientIp = l.ClientIp,
                 DeviceName = l.DeviceName
-            }).ToList();
+            };
+
+            if (prev != null
+                && prev.ApName == point.ApName
+                && prev.Band == point.Band
+                && prev.Channel == point.Channel
+                && prev.SignalDbm == point.SignalDbm
+                && prev.Latitude == point.Latitude
+                && prev.Longitude == point.Longitude)
+            {
+                continue; // identical to previous, skip
+            }
+
+            result.Add(point);
+            prev = point;
         }
 
-        // Group into time buckets per client, breaking on AP/band/channel changes
-        return logs
-            .GroupBy(l => new
-            {
-                l.ClientMac,
-                l.ApName,
-                l.Band,
-                l.Channel,
-                Bucket = new DateTime(
-                    l.Timestamp.Ticks - (l.Timestamp.Ticks % (TimeSpan.TicksPerSecond * bucketSeconds)),
-                    DateTimeKind.Utc)
-            })
-            .Select(g =>
-            {
-                var items = g.ToList();
-                var last = items[^1];
-                return new SignalMapPoint
-                {
-                    Latitude = last.Latitude!.Value,
-                    Longitude = last.Longitude!.Value,
-                    SignalDbm = (int)Math.Round(items.Average(i => (double)i.SignalDbm!.Value)),
-                    Timestamp = g.Key.Bucket,
-                    Band = g.Key.Band,
-                    Channel = g.Key.Channel,
-                    ApName = g.Key.ApName,
-                    ClientIp = last.ClientIp,
-                    DeviceName = last.DeviceName
-                };
-            })
-            .ToList();
+        return result;
     }
 
     /// <summary>

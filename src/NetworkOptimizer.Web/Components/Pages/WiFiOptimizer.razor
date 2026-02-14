@@ -603,21 +603,13 @@
                 {
                     var now = DateTime.UtcNow;
                     var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
-                    // Three tiers of granularity: 5s for last hour, 30s for last day, 5min for older
-                    var recentTask = DashboardService.GetSignalMapPointsAsync(
-                        null, now.AddHours(-1), now, bucketSeconds: 5);
-                    var dayTask = DashboardService.GetSignalMapPointsAsync(
-                        null, now.AddDays(-1), now.AddHours(-1), bucketSeconds: 30);
-                    var olderTask = DashboardService.GetSignalMapPointsAsync(
-                        null, now.AddDays(-7), now.AddDays(-1), bucketSeconds: 300);
+                    var signalTask = DashboardService.GetSignalMapPointsAsync(
+                        null, now.AddDays(-7), now);
 
-                    await Task.WhenAll(speedTestTask, recentTask, dayTask, olderTask);
+                    await Task.WhenAll(speedTestTask, signalTask);
 
                     _speedTestResults = await speedTestTask;
-                    _signalMapPoints = (await recentTask)
-                        .Concat(await dayTask)
-                        .Concat(await olderTask)
-                        .ToList();
+                    _signalMapPoints = await signalTask;
                     StateHasChanged();
                 });
             }
@@ -657,24 +649,16 @@
             var healthTask = WiFiService.GetSiteHealthScoreAsync();
             var apsTask = WiFiService.GetAccessPointsAsync();
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
-            var signalRecentTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddHours(-1), now, bucketSeconds: 5);
-            var signalDayTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-1), now.AddHours(-1), bucketSeconds: 30);
-            var signalOlderTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-7), now.AddDays(-1), bucketSeconds: 300);
+            var signalTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-7), now);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask,
-                signalRecentTask, signalDayTask, signalOlderTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
-            _signalMapPoints = (await signalRecentTask)
-                .Concat(await signalDayTask)
-                .Concat(await signalOlderTask)
-                .ToList();
+            _signalMapPoints = await signalTask;
 
             // Build AP map markers (join AP snapshots with saved locations)
             await LoadApMarkers();
@@ -700,24 +684,16 @@
             var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
-            var signalRecentTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddHours(-1), now, bucketSeconds: 5);
-            var signalDayTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-1), now.AddHours(-1), bucketSeconds: 30);
-            var signalOlderTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-7), now.AddDays(-1), bucketSeconds: 300);
+            var signalTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-7), now);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask,
-                signalRecentTask, signalDayTask, signalOlderTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
-            _signalMapPoints = (await signalRecentTask)
-                .Concat(await signalDayTask)
-                .Concat(await signalOlderTask)
-                .ToList();
+            _signalMapPoints = await signalTask;
 
             await LoadApMarkers();
         }
