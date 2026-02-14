@@ -2182,7 +2182,7 @@ window.fpEditor = {
 
     // ── Heatmap ──────────────────────────────────────────────────────
 
-    computeHeatmap: function (baseUrl, activeFloor, band) {
+    computeHeatmap: function (baseUrl, activeFloor, band, excludePlannedAps) {
         var m = this._map;
         if (!m) return;
         var self = this;
@@ -2228,6 +2228,9 @@ window.fpEditor = {
         var disabledList = Object.keys(self._disabledAps);
         if (disabledList.length > 0) {
             body.disabledMacs = disabledList;
+        }
+        if (excludePlannedAps) {
+            body.excludePlannedAps = true;
         }
 
         fetch(baseUrl + '/api/floor-plan/heatmap', {

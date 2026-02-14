@@ -23,6 +23,9 @@ public class HeatmapRequest
     /// <summary>MAC addresses of APs to exclude from simulation (disabled by user)</summary>
     public List<string>? DisabledMacs { get; set; }
 
+    /// <summary>When true, exclude all planned APs from the heatmap computation</summary>
+    public bool ExcludePlannedAps { get; set; }
+
     /// <summary>Viewport bounds from the map</summary>
     public double? SwLat { get; set; }
     public double? SwLng { get; set; }

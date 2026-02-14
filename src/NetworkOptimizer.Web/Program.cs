@@ -1077,9 +1077,9 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
             };
         }).ToList();
 
-    // Add planned APs to the propagation computation
-    var plannedAps = await plannedApSvc.GetAllAsync();
-    foreach (var pa in plannedAps)
+    // Add planned APs to the propagation computation (unless excluded by toggle)
+    if (!request.ExcludePlannedAps)
+    foreach (var pa in await plannedApSvc.GetAllAsync())
     {
         var bandDefaults = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(pa.Model, bandFilter);
         var txPower = pa.TxPowerDbm ?? bandDefaults.DefaultTxPowerDbm;

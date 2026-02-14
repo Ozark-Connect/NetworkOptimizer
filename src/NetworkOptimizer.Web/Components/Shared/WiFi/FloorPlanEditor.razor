@@ -141,6 +141,13 @@
                         Reset Sim
                     </button>
                 }
+                @if (!ReadOnly && _plannedAps.Count > 0)
+                {
+                    <button class="fp-btn @(_showPlannedAps ? "active" : "")" @onclick="TogglePlannedAps"
+                            data-tooltip="Show/hide planned APs on map and heatmap">
+                        Planned APs
+                    </button>
+                }
                 <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
                     Signal Data
                 </button>
@@ -1343,6 +1350,7 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
+    private bool _showPlannedAps = true;
     private bool _showSignalData;
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
@@ -1385,7 +1393,10 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             if (ReadOnly)
+            {
                 _showSignalData = true;
+                _showPlannedAps = false;
+            }
             await LoadBuildings();
             await LoadApMarkers();
             await LoadPlannedAps();
@@ -1727,7 +1738,9 @@
             };
         });
 
-        var allMarkers = realMarkers.Concat(plannedMarkers);
+        var allMarkers = _showPlannedAps
+            ? realMarkers.Concat(plannedMarkers)
+            : realMarkers;
         var markersJson = System.Text.Json.JsonSerializer.Serialize(allMarkers);
 
         await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps" || _mode == "plan-aps", _heatmapBand);
@@ -2338,7 +2351,14 @@
     {
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
-        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand);
+        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand, !_showPlannedAps);
+    }
+
+    private async Task TogglePlannedAps()
+    {
+        _showPlannedAps = !_showPlannedAps;
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
     }
 
     // ── Signal Data Overlay ────────────────────────────────────────
