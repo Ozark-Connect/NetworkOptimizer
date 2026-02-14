@@ -846,14 +846,6 @@
         // Identify client
         await IdentifyAndLoadAsync();
 
-        // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
-        _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
-        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client is { IsWired: false };
-
-        // Request GPS location only for wireless clients viewing own device (data will be persisted)
-        if (_isOwnDevice && _client is { IsWired: false } && !_isInsecureContext)
-            _ = RequestGpsAsync();
-
         // Start polling every 5 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
         {
@@ -875,6 +867,23 @@
                 try { await InvokeAsync(StateHasChanged); } catch { }
             }
         }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
+        // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
+        _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
+        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client is { IsWired: false };
+
+        if (_showGpsWarning)
+            StateHasChanged();
+
+        // Request GPS location only for wireless clients viewing own device
+        if (_isOwnDevice && _client is { IsWired: false } && !_isInsecureContext)
+            _ = RequestGpsAsync();
     }
 
     private async Task IdentifyAndLoadAsync()
