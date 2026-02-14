@@ -74,10 +74,16 @@ public class MacOuiDetector
         { "B8:3E:59", ("Roku", ClientDeviceCategory.StreamingDevice, 90) },
         { "C8:3A:6B", ("Roku", ClientDeviceCategory.StreamingDevice, 90) },
 
-        // Apple TV (note: Apple devices can be many things)
+        // Apple TV /HomePods (note: Apple devices can be many things)
         { "40:CB:C0", ("Apple TV", ClientDeviceCategory.StreamingDevice, 75) },
         { "70:56:81", ("Apple TV", ClientDeviceCategory.StreamingDevice, 75) },
         { "68:D9:3C", ("Apple TV", ClientDeviceCategory.StreamingDevice, 75) },
+        { "A8:51:AB", ("Apple TV", ClientDeviceCategory.StreamingDevice, 75) },
+        { "C8:D0:83", ("Apple TV", ClientDeviceCategory.StreamingDevice, 75) },
+        { "9C:3E:53", ("Apple TV", ClientDeviceCategory.StreamingDevice, 75) },
+        { "E0:2B:96", ("Apple HomePod", ClientDeviceCategory.SmartSpeaker, 75) },
+        { "F4:34:F0", ("Apple HomePod", ClientDeviceCategory.SmartSpeaker, 75) },
+        { "D4:90:9C", ("Apple HomePod", ClientDeviceCategory.SmartSpeaker, 75) },
 
         // Chromecast
         { "54:60:09", ("Chromecast", ClientDeviceCategory.StreamingDevice, 85) },
