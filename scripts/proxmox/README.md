@@ -235,7 +235,7 @@ pct pull <CT_ID> /tmp/data-backup.tar.gz ./data-backup.tar.gz
 pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer && docker compose down"
 
 # Restore data
-pct push ./data-backup.tar.gz <CT_ID> /tmp/data-backup.tar.gz
+pct push <CT_ID> ./data-backup.tar.gz /tmp/data-backup.tar.gz
 pct exec <CT_ID> -- tar xzf /tmp/data-backup.tar.gz -C /opt/network-optimizer
 
 # Start services
