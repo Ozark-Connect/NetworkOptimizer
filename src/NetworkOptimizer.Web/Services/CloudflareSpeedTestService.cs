@@ -162,13 +162,6 @@ public partial class CloudflareSpeedTestService
                 downloadMbps, downloadBytes, Concurrency, dlLatencyMs);
             Report("Download complete", 55, $"Down: {downloadMbps:F1} Mbps");
 
-            // Reclaim download phase memory before starting upload
-            // Compact LOH only (where large download buffers live) - safe because it doesn't
-            // relocate small object heap where pipe handles and async state machines reside
-            GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
-            GC.WaitForPendingFinalizers();
-
             // Phase 4: Upload (55-95%) - concurrent connections + latency probes
             Report("Testing upload", 56, null);
             var (uploadBps, uploadBytes, ulLatencyMs, ulJitterMs) = await MeasureThroughputAsync(
@@ -240,10 +233,7 @@ public partial class CloudflareSpeedTestService
             Report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
             lock (_lock) _lastCompletedResult = result;
 
-            // Reclaim upload phase memory and return LOH segments to OS
-            GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
-            GC.WaitForPendingFinalizers();
+
 
             // Trigger background path analysis with Cloudflare-reported WAN IP and pre-resolved WAN group
             var cfWanIp = metadata.Ip;
