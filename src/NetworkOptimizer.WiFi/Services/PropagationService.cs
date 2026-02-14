@@ -404,8 +404,7 @@ public class PropagationService
     {
         var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase) ? model[..^2] : model;
         return m.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
-               m.Contains("-Wall", StringComparison.OrdinalIgnoreCase) ||
-               m.Equals("U7-Pro-Wall", StringComparison.OrdinalIgnoreCase);
+               m.Contains("-Wall", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
