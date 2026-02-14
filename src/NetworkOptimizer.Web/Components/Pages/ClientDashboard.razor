@@ -326,7 +326,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var r in _speedResults)
+                                        @foreach (var r in GetPagedSpeedResults())
                                         {
                                             <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
@@ -355,6 +355,14 @@
                                     </tbody>
                                 </table>
                             </div>
+                            @if (SpeedTotalPages > 1)
+                            {
+                                <div class="pagination">
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)">Prev</button>
+                                    <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_speedResults.Count results)</span>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next</button>
+                                </div>
+                            }
                         </div>
                     }
                     @* Speed Map (wireless clients only) *@
@@ -554,7 +562,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var evt in _connectionEvents)
+                                        @foreach (var evt in GetPagedConnectionEvents())
                                         {
                                             <tr class="@GetEventRowClass(evt.Type)">
                                                 <td>@evt.Timestamp.ToLocalTime().ToString("g")</td>
@@ -593,6 +601,14 @@
                                     </tbody>
                                 </table>
                             </div>
+                            @if (ConnectionTotalPages > 1)
+                            {
+                                <div class="pagination">
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage <= 1)" @onclick="() => ChangeConnectionPage(-1)">Prev</button>
+                                    <span class="pagination-info">Page @_connectionPage of @ConnectionTotalPages (@_connectionEvents.Count events)</span>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage >= ConnectionTotalPages)" @onclick="() => ChangeConnectionPage(1)">Next</button>
+                                </div>
+                            }
                         </div>
                     }
                     else
@@ -702,11 +718,17 @@
     private string _signalSortCol = "time";
     private bool _signalSortAsc = false;
     private int _signalPage = 1;
-    private const int SignalPageSize = 20;
+    private const int SignalPageSize = 25;
+
+    // Speed results pagination
+    private int _speedPage = 1;
+    private const int SpeedPageSize = 25;
 
     // Connection tab
     private List<TraceChangeEntry> _traceHistory = new();
     private List<ClientConnectionEvent> _connectionEvents = new();
+    private int _connectionPage = 1;
+    private const int ConnectionPageSize = 25;
     private DateTime? _expandedTraceTimestamp;
     private List<ConnectionChartPoint> _connectionChartData = new();
     private ApexChart<ConnectionChartPoint>? _connectionChart;
@@ -1074,6 +1096,8 @@
         if (_selectedTimeFilter == hours) return;
         _selectedTimeFilter = hours;
         _signalPage = 1;
+        _speedPage = 1;
+        _connectionPage = 1;
 
         // Reload data for all tabs with new time range
         _ = InvokeAsync(async () =>
@@ -1213,6 +1237,32 @@
     private void ChangeSignalPage(int delta)
     {
         _signalPage = Math.Clamp(_signalPage + delta, 1, SignalTotalPages);
+    }
+
+    // Speed results pagination
+    private int SpeedTotalPages => Math.Max(1, (int)Math.Ceiling(_speedResults.Count / (double)SpeedPageSize));
+
+    private IEnumerable<Iperf3Result> GetPagedSpeedResults()
+    {
+        return _speedResults.Skip((_speedPage - 1) * SpeedPageSize).Take(SpeedPageSize);
+    }
+
+    private void ChangeSpeedPage(int delta)
+    {
+        _speedPage = Math.Clamp(_speedPage + delta, 1, SpeedTotalPages);
+    }
+
+    // Connection events pagination
+    private int ConnectionTotalPages => Math.Max(1, (int)Math.Ceiling(_connectionEvents.Count / (double)ConnectionPageSize));
+
+    private IEnumerable<ClientConnectionEvent> GetPagedConnectionEvents()
+    {
+        return _connectionEvents.Skip((_connectionPage - 1) * ConnectionPageSize).Take(ConnectionPageSize);
+    }
+
+    private void ChangeConnectionPage(int delta)
+    {
+        _connectionPage = Math.Clamp(_connectionPage + delta, 1, ConnectionTotalPages);
     }
 
     /// <summary>

@@ -215,6 +215,8 @@ window.fpEditor = {
         var self = this;
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
+        var resolveReady;
+        var readyPromise = new Promise(function (resolve) { resolveReady = resolve; });
 
         function loadCss(href) {
             if (document.querySelector('link[href="' + href + '"]')) return;
@@ -398,9 +400,11 @@ window.fpEditor = {
             });
 
             L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(m);
+            resolveReady();
         }
 
         init();
+        return readyPromise;
     },
 
     setDotNetRef: function (ref) {
