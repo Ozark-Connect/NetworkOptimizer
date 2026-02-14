@@ -903,6 +903,10 @@
                 _client = _latestPoll.Client;
                 _pollCount++;
 
+                // Disable logging indicator for wired devices (backend already skips storage)
+                if (_pollCount == 1 && _client.IsWired)
+                    _isLogging = false;
+
                 // Refresh the active tab data periodically (every 6 polls = ~30s)
                 if (_pollCount % 6 == 0)
                 {
