@@ -14,11 +14,13 @@ public class ApMapService
 {
     private readonly WiFiOptimizerService _wifiService;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly ILogger<ApMapService> _logger;
 
-    public ApMapService(WiFiOptimizerService wifiService, IDbContextFactory<NetworkOptimizerDbContext> dbFactory)
+    public ApMapService(WiFiOptimizerService wifiService, IDbContextFactory<NetworkOptimizerDbContext> dbFactory, ILogger<ApMapService> logger)
     {
         _wifiService = wifiService;
         _dbFactory = dbFactory;
+        _logger = logger;
     }
 
     /// <summary>
@@ -57,6 +59,8 @@ public class ApMapService
                     var apiMax = r.MaxTxPower;
                     // Clamp API max to catalog max when API reports unrealistically high values
                     var clampedMax = (apiMax.HasValue && apiMax.Value > catalogMax) ? catalogMax : apiMax;
+                    _logger.LogDebug("AP {Name} model='{Model}' band={Band} catalogMax={CatalogMax} apiMax={ApiMax} clampedMax={ClampedMax}",
+                        ap.Name, ap.Model, bandStr, catalogMax, apiMax, clampedMax);
                     return new ApRadioSummary
                     {
                         Band = bandStr,
