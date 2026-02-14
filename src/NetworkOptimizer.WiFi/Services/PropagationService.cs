@@ -366,33 +366,28 @@ public class PropagationService
 
     /// <summary>
     /// Determine the native mount orientation of the antenna pattern data.
-    /// APs with switchable antenna modes (those with an omni variant in the pattern
-    /// data) have their directional patterns measured flat (ceiling orientation),
-    /// while their omni patterns are measured wall-mounted.
-    /// When the requested variant doesn't exist for the band (e.g., U7-Pro-Outdoor
+    /// All directional patterns (base, narrow, wide, panel) are measured flat (ceiling).
+    /// Only omni patterns are measured wall-mounted.
+    /// When the requested omni variant doesn't exist for the band (e.g., U7-Pro-Outdoor
     /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
-    /// so we must also fall back to the base pattern's native mount.
+    /// so we must also fall back to ceiling.
     /// </summary>
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
         var isOmni = !string.IsNullOrEmpty(antennaMode) &&
                      antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
 
-        if (!_antennaLoader.HasOmniVariant(model))
-            return MountTypeHelper.GetDefaultMountType(model);
-
-        if (isOmni)
+        if (isOmni && _antennaLoader.HasOmniVariant(model))
         {
             // Check if the omni variant actually has this band. If not, the pattern
             // loader fell back to the base directional pattern, so use ceiling mount.
             var omniPattern = _antennaLoader.GetPattern(model, band, "OMNI");
             var basePattern = _antennaLoader.GetPattern(model, band);
-            if (omniPattern == basePattern || omniPattern == null)
-                return "ceiling"; // fell back to directional base
-            return MountTypeHelper.GetDefaultMountType(model); // true omni pattern loaded
+            if (omniPattern != null && omniPattern != basePattern)
+                return "wall"; // true omni pattern loaded, measured wall-mounted
         }
 
-        return "ceiling"; // directional mode on a switchable AP
+        return "ceiling"; // all directional patterns are measured flat
     }
 
     /// <summary>
