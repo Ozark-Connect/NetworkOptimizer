@@ -175,7 +175,7 @@ public class ClientDashboardService
                 await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
         }
 
-        _logger.LogDebug("Poll for {Ip}: identify={IdentifyMs}ms, total={TotalMs}ms",
+        _logger.LogTrace("Poll for {Ip}: identify={IdentifyMs}ms, total={TotalMs}ms",
             clientIp, identifyMs, pollSw.ElapsedMilliseconds);
 
         return result;

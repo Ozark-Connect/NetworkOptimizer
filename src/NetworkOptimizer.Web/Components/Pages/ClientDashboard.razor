@@ -719,17 +719,17 @@
     private string _signalSortCol = "time";
     private bool _signalSortAsc = false;
     private int _signalPage = 1;
-    private const int SignalPageSize = 25;
+    private const int SignalPageSize = 20;
 
     // Speed results pagination
     private int _speedPage = 1;
-    private const int SpeedPageSize = 25;
+    private const int SpeedPageSize = 20;
 
     // Connection tab
     private List<TraceChangeEntry> _traceHistory = new();
     private List<ClientConnectionEvent> _connectionEvents = new();
     private int _connectionPage = 1;
-    private const int ConnectionPageSize = 25;
+    private const int ConnectionPageSize = 20;
     private DateTime? _expandedTraceTimestamp;
     private List<ConnectionChartPoint> _connectionChartData = new();
     private ApexChart<ConnectionChartPoint>? _connectionChart;
@@ -1008,12 +1008,22 @@
     private void BuildSignalAnnotations()
     {
         var annotations = new List<AnnotationsXAxis>();
+
+        // Only show annotations for short time windows (1h, 6h, 24h) - too noisy for 7d/30d/All
+        if (_selectedTimeFilter > 24 || _selectedTimeFilter == 0)
+        {
+            _signalChartOptions.Annotations = new Annotations { Xaxis = annotations };
+            return;
+        }
+
         string? prevBand = null;
         string? prevAp = null;
+        int yOffset = -5; // alternating offset to stack overlapping labels
 
         foreach (var entry in _signalHistory)
         {
             var ts = new DateTimeOffset(entry.Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+            bool added = false;
 
             // Detect band change
             if (prevBand != null && entry.Band != null && entry.Band != prevBand)
@@ -1026,9 +1036,11 @@
                     {
                         Text = FormatBand(entry.Band),
                         Style = new Style { Background = "#a78bfa", Color = "#fff", FontSize = "10px" },
-                        Orientation = Orientation.Horizontal
+                        Orientation = Orientation.Horizontal,
+                        OffsetY = yOffset
                     }
                 });
+                added = true;
             }
 
             // Detect AP roam
@@ -1042,10 +1054,15 @@
                     {
                         Text = entry.ApName,
                         Style = new Style { Background = "#3b82f6", Color = "#fff", FontSize = "10px" },
-                        Orientation = Orientation.Horizontal
+                        Orientation = Orientation.Horizontal,
+                        OffsetY = added ? yOffset + 18 : yOffset // stack below band label if both
                     }
                 });
+                added = true;
             }
+
+            if (added)
+                yOffset = yOffset == -5 ? -23 : -5; // alternate between two heights
 
             if (entry.Band != null) prevBand = entry.Band;
             if (entry.ApName != null) prevAp = entry.ApName;
@@ -1721,10 +1738,10 @@
     {
         _connectionChartData.Clear();
 
-        // Build AP name → index mapping from events
+        // Build AP name → index mapping from all AP names in events
         var apNames = _connectionEvents
-            .Select(e => e.ApName ?? e.ToApName ?? "Unknown")
-            .Where(n => n != "Unknown")
+            .SelectMany(e => new[] { e.ApName, e.ToApName, e.FromApName })
+            .Where(n => !string.IsNullOrEmpty(n))
             .Distinct()
             .OrderBy(n => n)
             .ToList();
@@ -1733,11 +1750,14 @@
 
         var apIndex = new Dictionary<string, int>();
         for (int i = 0; i < apNames.Count; i++)
-            apIndex[apNames[i]] = i;
+            apIndex[apNames[i]!] = i;
 
         foreach (var evt in _connectionEvents.OrderBy(e => e.Timestamp))
         {
-            var ap = evt.ApName ?? evt.ToApName ?? "Unknown";
+            // Show where the client is after the event
+            var ap = evt.Type == ClientConnectionEventType.Roamed
+                ? (evt.ToApName ?? evt.ApName ?? "Unknown")
+                : (evt.ApName ?? "Unknown");
             if (apIndex.TryGetValue(ap, out var idx))
             {
                 _connectionChartData.Add(new ConnectionChartPoint(
@@ -1769,7 +1789,7 @@
                     Labels = new YAxisLabels
                     {
                         Formatter = @"function(val) {
-                            var names = [" + string.Join(",", apNames.Select(n => "'" + n.Replace("'", "\\'") + "'")) + @"];
+                            var names = [" + string.Join(",", apNames.Select(n => "'" + n!.Replace("'", "\\'") + "'")) + @"];
                             var idx = Math.round(val);
                             return idx >= 0 && idx < names.length ? names[idx] : '';
                         }"
