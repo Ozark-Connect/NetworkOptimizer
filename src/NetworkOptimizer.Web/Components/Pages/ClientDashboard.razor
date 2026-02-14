@@ -139,14 +139,16 @@
                         {<span class="detail-dim"> · @_client.ApModel</span>}
                     </span>
                     <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")</span>
-                    <span class="identity-detail">@FormatProtocol(_client.Protocol)</span>
-                    @if (_client.TxRateKbps.HasValue)
+                    <span class="identity-detail identity-proto-tx">
+                        @FormatProtocol(_client.Protocol)
+                        @if (_client.TxRateKbps.HasValue)
+                        {
+                            <span class="rate-inline" data-tooltip="AP transmit rate (to device)">· TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
+                        }
+                    </span>
+                    @if (_client.RxRateKbps.HasValue)
                     {
-                        <span class="identity-detail identity-rates" data-tooltip="AP perspective: RX = from device, TX = to device">
-                            <span>RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
-                            <span class="rate-sep">/</span>
-                            <span>TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
-                        </span>
+                        <span class="identity-detail" data-tooltip="AP receive rate (from device)">RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
                     }
                     @if (_client.IsMlo)
                     {
@@ -1955,9 +1957,8 @@
     .identity-detail {
         white-space: nowrap;
     }
-    .identity-rates {
-        display: flex;
-        gap: 4px;
+    .rate-inline {
+        opacity: 0.85;
     }
     .detail-dim {
         opacity: 0.6;
@@ -2319,13 +2320,6 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 6px 12px;
-        }
-        .identity-rates {
-            flex-direction: column;
-            gap: 0;
-        }
-        .identity-rates .rate-sep {
-            display: none;
         }
         .logging-toggle-desktop {
             display: none;
