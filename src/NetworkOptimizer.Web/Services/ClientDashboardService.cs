@@ -495,6 +495,7 @@ public class ClientDashboardService
         var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
 
         // Delete in batches to avoid long-running transactions
+        int totalDeleted = 0;
         int deleted;
         do
         {
@@ -502,11 +503,12 @@ public class ClientDashboardService
                 .Where(l => l.Timestamp < cutoff)
                 .Take(1000)
                 .ExecuteDeleteAsync();
+            totalDeleted += deleted;
         } while (deleted == 1000);
 
-        if (deleted > 0)
+        if (totalDeleted > 0)
         {
-            _logger.LogInformation("Cleaned up {Count} old signal log entries", deleted);
+            _logger.LogInformation("Cleaned up {Count} old signal log entries", totalDeleted);
         }
 
         // Downsample entries older than 24h to ~1/minute

@@ -50,6 +50,19 @@
         </div>
     }
 
+    @if (_isInsecureContext)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>GPS Unavailable</strong>
+                    <span>Location data for signal mapping requires HTTPS. Connect via HTTPS to enable walk-test mapping.</span>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_loading)
     {
         <div class="skeleton-hero card">
@@ -403,10 +416,13 @@
                                     <span class="summary-label">Noise</span>
                                     <span class="summary-value">@_client.NoiseDbm dBm</span>
                                 </div>
-                                <div class="summary-item">
-                                    <span class="summary-label">SNR</span>
-                                    <span class="summary-value">@(_client.SignalDbm - _client.NoiseDbm) dB</span>
-                                </div>
+                                @if (_client.SignalDbm.HasValue)
+                                {
+                                    <div class="summary-item">
+                                        <span class="summary-label">SNR</span>
+                                        <span class="summary-value">@(_client.SignalDbm - _client.NoiseDbm) dB</span>
+                                    </div>
+                                }
                             }
                             @if (_client.ApTxPower.HasValue)
                             {
@@ -763,6 +779,7 @@
     private double? _gpsLat;
     private double? _gpsLng;
     private int? _gpsAccuracy;
+    private bool _isInsecureContext;
 
     // Time filter options
     private static readonly (int hours, string label)[] _timeFilters = new[]
@@ -1442,6 +1459,15 @@
     {
         try
         {
+            // Check if browser is in a secure context (HTTPS or localhost) - required for geolocation
+            var isSecure = await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
+            if (!isSecure)
+            {
+                _isInsecureContext = true;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
             // Wrap browser geolocation in a Promise for JS interop
             var js = "new Promise((resolve) => { " +
                 "if (!navigator.geolocation) { resolve(null); return; } " +
