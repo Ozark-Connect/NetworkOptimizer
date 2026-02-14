@@ -11,6 +11,7 @@
 @inject ApMapService ApMapSvc
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject ILogger<FloorPlanEditor> Logger
 @implements IAsyncDisposable
 
 <div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
@@ -1195,13 +1196,16 @@
 
     private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
     private int _lastSignalLogCount;
+    private int _lastSpeedTestCount;
 
     protected override async Task OnParametersSetAsync()
     {
-        // Auto-update signal data markers when SignalLogMarkers changes
-        if (_mapInitialized && _showSignalData && SignalLogMarkers.Count != _lastSignalLogCount)
+        // Auto-update signal data markers when either data source changes
+        if (_mapInitialized && _showSignalData
+            && (SignalLogMarkers.Count != _lastSignalLogCount || SpeedTestResults.Count != _lastSpeedTestCount))
         {
             _lastSignalLogCount = SignalLogMarkers.Count;
+            _lastSpeedTestCount = SpeedTestResults.Count;
             await UpdateSignalDataMarkers();
         }
     }
@@ -1988,9 +1992,18 @@
 
     private async Task UpdateSignalDataMarkers()
     {
+        Logger.LogInformation("[SignalMap] UpdateSignalDataMarkers called. MapInit={MapInit}, ShowSignal={Show}, SpeedTests={ST}, SignalLogs={SL}",
+            _mapInitialized, _showSignalData, SpeedTestResults.Count, SignalLogMarkers.Count);
+
         if (!_mapInitialized || !_showSignalData) return;
 
         // Markers from speed test results
+        foreach (var r in SpeedTestResults)
+        {
+            Logger.LogInformation("[SignalMap] SpeedTest: Lat={Lat}, Lng={Lng}, Signal={Sig}, Host={Host}",
+                r.Latitude, r.Longitude, r.WifiSignalDbm, r.DeviceHost);
+        }
+
         var speedTestMarkers = SpeedTestResults
             .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
             .Select(r => new
@@ -2012,6 +2025,9 @@
                 signalDbm = p.SignalDbm,
                 popup = BuildSignalLogPopup(p)
             });
+
+        Logger.LogInformation("[SignalMap] After filter: SpeedTestMarkers={ST}, SignalLogMarkers={SL}",
+            speedTestMarkers.Count(), signalLogMarkers.Count());
 
         var allMarkers = speedTestMarkers.Concat(signalLogMarkers);
         var markersJson = System.Text.Json.JsonSerializer.Serialize(allMarkers);
