@@ -21,7 +21,7 @@
     @* Page Header *@
     <div class="page-header">
         <h1>Client Dashboard</h1>
-        <p class="page-description">Real-time signal quality, speed performance, and connection history for your device.</p>
+        <p class="page-description">Real-time signal quality, speed performance, and connection history for @(string.IsNullOrEmpty(IpParam) ? "your device" : "a specific device").</p>
     </div>
 
     @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
