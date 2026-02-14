@@ -256,10 +256,10 @@
                     @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
                     {
                         <div class="speed-actions">
-                            <a href="@(_openSpeedTestUrl)?Run" target="_blank" class="btn btn-primary btn-lg">
+                            <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
                                 Run Speed Test
                             </a>
-                            <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" class="btn btn-secondary btn-lg"
+                            <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
                                data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
                                 Quick Test
                             </a>
@@ -2353,8 +2353,9 @@
             text-align: center;
         }
         .speed-hero-results {
-            flex-direction: column;
-            align-items: center;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
         }
         .signal-summary {
             gap: 6px 16px;
