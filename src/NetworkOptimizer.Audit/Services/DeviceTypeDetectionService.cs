@@ -1191,7 +1191,8 @@ public class DeviceTypeDetectionService
                System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\barlo\b") ||
                System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bsimplisafe\b") ||
                System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\btp-link\b") ||
-               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bcanary\b");
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bcanary\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bfurbo\b");
     }
 
     /// <summary>
