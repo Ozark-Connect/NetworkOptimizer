@@ -587,7 +587,7 @@ window.fpEditor = {
                         '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
                         (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
                         'oninput="fpEditor._updateTxPowerLabel(this)" ' +
-                        'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap()" />' +
+                        'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap();fpEditor._dotNetRef.invokeMethodAsync(\'OnSimulationChanged\')" />' +
                         '</div>' +
                         '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
                 }
@@ -655,7 +655,7 @@ window.fpEditor = {
                 // Planned AP popup: direct editing + delete button
                 var plannedTag = '<span class="fp-ap-popup-planned-tag">Planned</span>';
                 var nameInput = '<input type="text" class="fp-ap-popup-name-input" value="' + esc(ap.name || ap.model) + '" ' +
-                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApNameChangedFromJs\',' + ap.plannedId + ',this.value)" />';
+                    'oninput="fpEditor._debouncedNameSave(' + ap.plannedId + ',this.value)" />';
                 var deleteBtn = '<div class="fp-ap-popup-divider"></div>' +
                     '<button class="fp-ap-popup-delete" onclick="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApDeleteFromJs\',' + ap.plannedId + ')">Remove Planned AP</button>';
 
@@ -764,6 +764,13 @@ window.fpEditor = {
         if (reopenMarker) {
             reopenMarker.openPopup();
         }
+    },
+
+    _debouncedNameSave: function (plannedId, value) {
+        clearTimeout(this._nameDebounceTimer);
+        this._nameDebounceTimer = setTimeout(function () {
+            fpEditor._dotNetRef.invokeMethodAsync('OnPlannedApNameChangedFromJs', plannedId, value);
+        }, 500);
     },
 
     _updateTxPowerLabel: function (slider) {
