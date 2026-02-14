@@ -114,20 +114,22 @@
                             }
                         </div>
                     }
-                    <span class="identity-live">
-                        @if (_pollCount > 0)
+                    <div class="identity-live-group">
+                        <span class="identity-live">
+                            @if (_pollCount > 0)
+                            {
+                                <span class="poll-dot"></span>
+                                <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
+                            }
+                        </span>
+                        @if (!_isOwnDevice)
                         {
-                            <span class="poll-dot"></span>
-                            <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
+                            <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
+                                    @onclick="ToggleLogging">
+                                @(_isLogging ? "Stop Logging" : "Start Logging")
+                            </button>
                         }
-                    </span>
-                    @if (!_isOwnDevice)
-                    {
-                        <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
-                                @onclick="ToggleLogging">
-                            @(_isLogging ? "Stop Logging" : "Start Logging")
-                        </button>
-                    }
+                    </div>
                 </div>
             </div>
             <div class="identity-row-2">
@@ -1914,6 +1916,11 @@
         font-size: 0.75rem;
         opacity: 0.7;
     }
+    .identity-live-group {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
     .identity-live {
         display: flex;
         align-items: center;
@@ -2319,6 +2326,10 @@
         }
         .logging-toggle-desktop {
             display: none;
+        }
+        .identity-live-group {
+            flex-direction: column;
+            align-items: flex-start;
         }
         .logging-toggle-mobile {
             display: inline-flex;
