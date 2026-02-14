@@ -157,6 +157,7 @@ public class PropagationService
         // 0 = straight down, 90 = horizon, 180 = straight up
         // IW and Wall APs on a "desktop" stand sit upright (same as wall-mounted)
         var effectiveMount = ap.MountType == "desktop" && IsStandMountModel(ap.Model) ? "wall" : ap.MountType;
+        var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
         int elevationDeg;
         if (floorSeparation == 0)
         {
@@ -173,7 +174,6 @@ public class PropagationService
 
             // Apply mount type elevation offset for cross-floor only.
             // Same floor uses horizon (90) regardless of mount since we don't model within-floor height.
-            var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
             var patternMountOffset = patternNativeMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
             var actualMountOffset = effectiveMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
             var elevationOffset = actualMountOffset - patternMountOffset;
@@ -184,11 +184,13 @@ public class PropagationService
         // Combine 2D azimuth and elevation cuts into 3D approximation.
         // Both patterns are normalized to 0 dB at peak, so addition in dB = multiplication in linear.
         //
-        // Wall mount swap: when an AP is wall-mounted, its elevation plane (vertical for ceiling)
-        // rotates to horizontal, and its azimuth plane (horizontal for ceiling) rotates to vertical.
-        // So horizontal directionality comes from the elevation pattern, and vertical from azimuth.
+        // Swap azimuth/elevation patterns when the actual mount rotates the antenna
+        // 90° relative to how the pattern was measured. Wall mount rotates the az/el
+        // planes vs ceiling/desktop. If pattern and mount are both wall (e.g., omni
+        // outdoor APs), no swap is needed - the pattern already matches the orientation.
+        var needSwap = (effectiveMount == "wall") != (patternNativeMount == "wall");
         float azGain, elGain;
-        if (effectiveMount == "wall")
+        if (needSwap)
         {
             azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, elevationDeg, ap.AntennaMode);
