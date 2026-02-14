@@ -468,6 +468,10 @@ window.fpEditor = {
         var self = this;
         if (band) this._heatmapBand = band;
 
+        // Disable building click-to-select hit areas while in AP editing modes
+        var bgPaneEl = m.getPane('bgWallPane');
+        if (bgPaneEl) bgPaneEl.style.pointerEvents = draggable ? 'none' : 'auto';
+
         if (!this._apLayer) this._apLayer = L.layerGroup().addTo(m);
         if (!this._apGlowLayer) this._apGlowLayer = L.layerGroup().addTo(m);
 
