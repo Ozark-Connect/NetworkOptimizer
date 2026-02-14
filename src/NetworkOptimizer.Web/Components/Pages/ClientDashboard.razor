@@ -323,8 +323,11 @@
                                             <th>Time</th>
                                             <th>From Device</th>
                                             <th>To Device</th>
-                                            <th data-tooltip="AP receive rate (from device)">RX Rate</th>
-                                            <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                            @if (!(_client?.IsWired == true))
+                                            {
+                                                <th data-tooltip="AP receive rate (from device)">RX Rate</th>
+                                                <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                            }
                                             <th>Ping</th>
                                             <th>Type</th>
                                         </tr>
@@ -337,15 +340,18 @@
                                                 <td>@r.TestTime.ToLocalTime().ToString("g")</td>
                                                 <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
                                                 <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
-                                                <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
-                                                <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                @if (!(_client?.IsWired == true))
+                                                {
+                                                    <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
+                                                    <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                }
                                                 <td>@(r.PingMs?.ToString("F1") ?? "-") ms</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
                                             {
                                                 <tr class="result-details-row">
-                                                    <td colspan="7">
+                                                    <td colspan="@(_client?.IsWired == true ? 5 : 7)">
                                                         <div class="result-details">
                                                             <SpeedTestDetails Result="r" />
                                                         </div>
