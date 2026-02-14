@@ -163,8 +163,9 @@ public partial class CloudflareSpeedTestService
             Report("Download complete", 55, $"Down: {downloadMbps:F1} Mbps");
 
             // Reclaim download phase memory before starting upload
-            // Use Forced (not Aggressive) to avoid decommitting segments, and compacting: false
-            // to avoid moving live objects - compacting corrupts in-flight Spans and pipe handles
+            // Compact LOH only (where large download buffers live) - safe because it doesn't
+            // relocate small object heap where pipe handles and async state machines reside
+            GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
             GC.WaitForPendingFinalizers();
 
@@ -239,7 +240,8 @@ public partial class CloudflareSpeedTestService
             Report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
             lock (_lock) _lastCompletedResult = result;
 
-            // Reclaim upload phase memory
+            // Reclaim upload phase memory and return LOH segments to OS
+            GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: false);
             GC.WaitForPendingFinalizers();
 
