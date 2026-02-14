@@ -2115,7 +2115,7 @@
         {
             var jsMac = clientMac.Replace("'", "\\'");
             var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
-            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats</a>";
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats \u2192</a>";
         }
         if (!string.IsNullOrEmpty(result.DeviceHost))
         {
