@@ -1082,7 +1082,8 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     foreach (var pa in await plannedApSvc.GetAllAsync())
     {
         var bandDefaults = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(pa.Model, bandFilter);
-        var txPower = pa.TxPowerDbm ?? bandDefaults.DefaultTxPowerDbm;
+        var (modeGain, modeMaxTx, modeDefaultTx) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bandDefaults, pa.AntennaMode);
+        var txPower = pa.TxPowerDbm ?? modeDefaultTx;
         // Only include planned APs that have the selected band
         var patternLoader = context.RequestServices.GetRequiredService<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
         var supportedBands = patternLoader.GetSupportedBands(pa.Model);
@@ -1099,7 +1100,7 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
             MountType = pa.MountType,
             AntennaMode = pa.AntennaMode,
             TxPowerDbm = txPower,
-            AntennaGainDbi = bandDefaults.AntennaGainDbi
+            AntennaGainDbi = modeGain
         });
     }
 
@@ -1113,13 +1114,18 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         }
     }
 
-    // Apply antenna mode overrides from simulation toggle
+    // Apply antenna mode overrides from simulation toggle (also updates gain)
     if (request.AntennaModeOverrides is { Count: > 0 })
     {
         foreach (var ap in placedAps)
         {
             if (request.AntennaModeOverrides.TryGetValue(ap.Mac.ToLowerInvariant(), out var overrideMode))
+            {
                 ap.AntennaMode = overrideMode;
+                var bd = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(ap.Model, bandFilter);
+                var (gain, _, _) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bd, overrideMode);
+                ap.AntennaGainDbi = gain;
+            }
         }
     }
 
@@ -1208,7 +1214,13 @@ app.MapGet("/api/floor-plan/ap-catalog", (NetworkOptimizer.WiFi.Data.AntennaPatt
             defaultTxPowerDbm = b.Value.DefaultTxPowerDbm,
             minTxPowerDbm = b.Value.MinTxPowerDbm,
             maxTxPowerDbm = b.Value.MaxTxPowerDbm,
-            antennaGainDbi = b.Value.AntennaGainDbi
+            antennaGainDbi = b.Value.AntennaGainDbi,
+            modeOverrides = b.Value.ModeOverrides?.ToDictionary(m => m.Key, m => new
+            {
+                antennaGainDbi = m.Value.AntennaGainDbi,
+                maxTxPowerDbm = m.Value.MaxTxPowerDbm,
+                defaultTxPowerDbm = m.Value.DefaultTxPowerDbm,
+            })
         }),
         defaultMountType = c.DefaultMountType,
         hasOmniVariant = c.HasOmniVariant,

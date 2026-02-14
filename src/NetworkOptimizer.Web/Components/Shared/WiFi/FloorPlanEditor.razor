@@ -1703,16 +1703,17 @@
             var radios = supportedBands.Select(band =>
             {
                 var bd = ApModelCatalog.GetBandDefaults(pa.Model, band);
+                var (modeGain, modeMaxTx, modeDefaultTx) = ApModelCatalog.ResolveForMode(bd, pa.AntennaMode);
                 var radioCode = band == "2.4" ? "ng" : band == "6" ? "6e" : "na";
-                var txPower = pa.TxPowerDbm ?? bd.DefaultTxPowerDbm;
+                var txPower = pa.TxPowerDbm ?? modeDefaultTx;
                 return new
                 {
                     band = band,
                     radioCode = radioCode,
                     txPowerDbm = (int?)txPower,
                     minTxPower = (int?)bd.MinTxPowerDbm,
-                    maxTxPower = (int?)bd.MaxTxPowerDbm,
-                    eirp = (int?)(txPower + bd.AntennaGainDbi),
+                    maxTxPower = (int?)modeMaxTx,
+                    eirp = (int?)(txPower + modeGain),
                     antennaMode = pa.AntennaMode
                 };
             }).ToList();

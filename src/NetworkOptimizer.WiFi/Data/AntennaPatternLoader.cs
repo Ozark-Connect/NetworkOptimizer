@@ -43,10 +43,8 @@ public class AntennaPatternLoader
 
         if (_patterns == null) return null;
 
-        // Strip color suffix (e.g., "-B" for black) that doesn't affect antenna pattern
-        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2]
-            : model;
+        // Strip suffixes that don't affect antenna pattern
+        var patternName = StripModelSuffix(model);
 
         // Normalize band key
         var bandKey = band switch
@@ -99,10 +97,7 @@ public class AntennaPatternLoader
         EnsureLoaded();
         if (_patterns == null) return false;
 
-        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2]
-            : model;
-
+        var patternName = StripModelSuffix(model);
         return _patterns.ContainsKey($"{patternName}:omni");
     }
 
@@ -115,16 +110,23 @@ public class AntennaPatternLoader
         EnsureLoaded();
         if (_patterns == null) return new List<string>();
 
-        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2]
-            : model;
-
+        var patternName = StripModelSuffix(model);
         var prefix = $"{patternName}:";
         return _patterns.Keys
             .Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .Select(k => k[prefix.Length..])
             .OrderBy(k => k)
             .ToList();
+    }
+
+    /// <summary>
+    /// Strip color suffix "-B" which doesn't affect antenna pattern.
+    /// </summary>
+    private static string StripModelSuffix(string model)
+    {
+        if (model.EndsWith("-B", StringComparison.OrdinalIgnoreCase))
+            return model[..^2];
+        return model;
     }
 
     /// <summary>
@@ -163,9 +165,7 @@ public class AntennaPatternLoader
         EnsureLoaded();
         if (_patterns == null) return new List<string>();
 
-        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
-            ? model[..^2]
-            : model;
+        var patternName = StripModelSuffix(model);
 
         if (!_patterns.TryGetValue(patternName, out var bands))
             return new List<string>();

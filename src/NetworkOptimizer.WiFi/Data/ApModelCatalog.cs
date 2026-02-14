@@ -7,6 +7,16 @@ namespace NetworkOptimizer.WiFi.Data;
 public static class ApModelCatalog
 {
     /// <summary>
+    /// Per-antenna-mode overrides for gain and TX power limits.
+    /// </summary>
+    public class ModeDefaults
+    {
+        public int AntennaGainDbi { get; init; }
+        public int? MaxTxPowerDbm { get; init; }
+        public int? DefaultTxPowerDbm { get; init; }
+    }
+
+    /// <summary>
     /// Per-band radio defaults for a planned AP model.
     /// </summary>
     public class BandDefaults
@@ -15,6 +25,12 @@ public static class ApModelCatalog
         public int MinTxPowerDbm { get; init; }
         public int MaxTxPowerDbm { get; init; }
         public int AntennaGainDbi { get; init; }
+
+        /// <summary>
+        /// Per-antenna-mode overrides for gain and TX power.
+        /// Key is the mode variant name (e.g., "omni", "narrow", "wide", "panel").
+        /// </summary>
+        public Dictionary<string, ModeDefaults>? ModeOverrides { get; init; }
     }
 
     /// <summary>
@@ -101,21 +117,28 @@ public static class ApModelCatalog
         },
         ["U7-Outdoor"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 8 },
-            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 13 },
+            // Website specs: Directional 8/12.5 dBi, OMNI 3/4 dBi
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 8,
+                ModeOverrides = new() { ["omni"] = new() { AntennaGainDbi = 3 } } },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 13,
+                ModeOverrides = new() { ["omni"] = new() { AntennaGainDbi = 4 } } },
         },
         ["U7-Pro-Outdoor"] = new()
         {
-            // Gain null in public.json (external antenna) - estimated from antenna pattern data
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 4 },
-            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
-            ["6"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 6 },
+            // Website specs: Directional 8/11/10 dBi, OMNI 6/8 dBi (no omni on 6 GHz)
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 8,
+                ModeOverrides = new() { ["omni"] = new() { AntennaGainDbi = 6 } } },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 11,
+                ModeOverrides = new() { ["omni"] = new() { AntennaGainDbi = 8 } } },
+            ["6"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 10 },
         },
         ["U7-Pro-Outdoor-EU"] = new()
         {
-            // No 6 GHz in EU variant. Gain null in public.json - using base model estimates
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 4 },
-            ["5"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
+            // No 6 GHz. Website specs: same gains as US
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 8,
+                ModeOverrides = new() { ["omni"] = new() { AntennaGainDbi = 6 } } },
+            ["5"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 11,
+                ModeOverrides = new() { ["omni"] = new() { AntennaGainDbi = 8 } } },
         },
 
         // === Wi-Fi 6E / Enterprise APs ===
@@ -134,16 +157,33 @@ public static class ApModelCatalog
         },
         ["E7-Audience"] = new()
         {
-            // 5+6 GHz only (no 2.4 GHz radio). Selectable beam: narrow 15 dBi 50x50, wide 11 dBi 90x90
-            // Gain null in public.json - using website specs. Narrow (15 dBi) is default.
-            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
-            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
+            // 5+6 GHz only (no 2.4 GHz radio). Website specs: narrow 15 dBi 50x50, wide 11 dBi 90x90
+            // US 6 GHz: 36 dBm EIRP cap → narrow max 21 dBm, wide max 25 dBm
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15,
+                ModeOverrides = new() {
+                    ["narrow"] = new() { AntennaGainDbi = 15 },
+                    ["wide"] = new() { AntennaGainDbi = 11 },
+                } },
+            ["6"] = new() { DefaultTxPowerDbm = 21, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15,
+                ModeOverrides = new() {
+                    ["narrow"] = new() { AntennaGainDbi = 15, MaxTxPowerDbm = 21, DefaultTxPowerDbm = 21 },
+                    ["wide"] = new() { AntennaGainDbi = 11, MaxTxPowerDbm = 25, DefaultTxPowerDbm = 25 },
+                } },
         },
         ["E7-Audience-EU"] = new()
         {
-            // Same specs as E7-Audience
-            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
-            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
+            // Same antenna hardware as US. No EIRP cap differences on EU side.
+            // Antenna patterns duplicated manually in antenna-patterns.json since EU source data was missing.
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15,
+                ModeOverrides = new() {
+                    ["narrow"] = new() { AntennaGainDbi = 15 },
+                    ["wide"] = new() { AntennaGainDbi = 11 },
+                } },
+            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15,
+                ModeOverrides = new() {
+                    ["narrow"] = new() { AntennaGainDbi = 15 },
+                    ["wide"] = new() { AntennaGainDbi = 11 },
+                } },
         },
         ["E7-Campus-EU"] = new()
         {
@@ -284,13 +324,26 @@ public static class ApModelCatalog
         },
         ["UK-Ultra"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 3 },
-            ["5"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 4 },
+            // Website specs: OMNI 4.7/6.1 dBi, Panel 10/15 dBi
+            ["2.4"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 5,
+                ModeOverrides = new() {
+                    ["omni"] = new() { AntennaGainDbi = 5 },
+                    ["panel"] = new() { AntennaGainDbi = 10 },
+                } },
+            ["5"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 6,
+                ModeOverrides = new() {
+                    ["omni"] = new() { AntennaGainDbi = 6 },
+                    ["panel"] = new() { AntennaGainDbi = 15 },
+                } },
         },
         ["UWB-XG"] = new()
         {
-            // 5 GHz only
-            ["5"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 10 },
+            // 5 GHz only. Website specs: narrow 15 dBi 50x50, wide 10 dBi 90x90
+            ["5"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 15,
+                ModeOverrides = new() {
+                    ["narrow"] = new() { AntennaGainDbi = 15 },
+                    ["wide"] = new() { AntennaGainDbi = 10 },
+                } },
         },
 
         // === Gateways with Wi-Fi ===
@@ -399,5 +452,26 @@ public static class ApModelCatalog
             "6" => Default6,
             _ => Default5
         };
+    }
+
+    /// <summary>
+    /// Resolve effective gain, max TX, and default TX for a specific antenna mode.
+    /// Returns mode-specific overrides where available, falling back to band defaults.
+    /// </summary>
+    public static (int antennaGainDbi, int maxTxPowerDbm, int defaultTxPowerDbm) ResolveForMode(
+        BandDefaults bandDefaults, string? antennaMode)
+    {
+        if (!string.IsNullOrEmpty(antennaMode) &&
+            bandDefaults.ModeOverrides != null &&
+            bandDefaults.ModeOverrides.TryGetValue(antennaMode, out var mode))
+        {
+            return (
+                mode.AntennaGainDbi,
+                mode.MaxTxPowerDbm ?? bandDefaults.MaxTxPowerDbm,
+                mode.DefaultTxPowerDbm ?? bandDefaults.DefaultTxPowerDbm
+            );
+        }
+
+        return (bandDefaults.AntennaGainDbi, bandDefaults.MaxTxPowerDbm, bandDefaults.DefaultTxPowerDbm);
     }
 }
