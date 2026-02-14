@@ -979,9 +979,14 @@
         // If the GPS watcher was sending callbacks (success or error) but went completely
         // silent, the browser is gone - stop persisting to avoid zombie writes.
         // GPS signal loss still fires error callbacks, so silence = dead browser.
+        // GPS denied fires a single error callback then goes silent - skip zombie
+        // check in that case so we keep logging signal data without coordinates.
         var watcherSilent = _gpsWatcherId.HasValue
+            && !_gpsDenied
             && _lastGpsCallback != default
             && _lastGpsCallback < DateTime.UtcNow.AddSeconds(-15);
+        if (watcherSilent)
+            _isLogging = false;
         var persist = _isLogging && !watcherSilent;
         var lat = watcherSilent ? null : _gpsLat;
         var lng = watcherSilent ? null : _gpsLng;
