@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net;
-using System.Runtime;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +34,7 @@ public partial class CloudflareSpeedTestService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly IConfiguration _configuration;
+    private readonly Iperf3ServerService _iperf3ServerService;
 
     // Observable test state (polled by UI components)
     private readonly object _lock = new();
@@ -82,13 +82,15 @@ public partial class CloudflareSpeedTestService
         IHttpClientFactory httpClientFactory,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        Iperf3ServerService iperf3ServerService)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _dbFactory = dbFactory;
         _pathAnalyzer = pathAnalyzer;
         _configuration = configuration;
+        _iperf3ServerService = iperf3ServerService;
     }
 
     /// <summary>
@@ -119,6 +121,14 @@ public partial class CloudflareSpeedTestService
 
         try
         {
+            // Pause iperf3 server during WAN speed test to free pipe handles.
+            // GC compaction while iperf3 pipe readers are active causes AccessViolationException.
+            if (_iperf3ServerService.IsRunning)
+            {
+                _logger.LogInformation("Pausing iperf3 server for WAN speed test");
+                await _iperf3ServerService.PauseAsync();
+            }
+
             _logger.LogInformation("Starting Cloudflare WAN speed test ({Concurrency} concurrent connections)", Concurrency);
 
             // Wrap progress to always update service-level state (for navigate-away polling)
@@ -281,6 +291,8 @@ public partial class CloudflareSpeedTestService
         }
         finally
         {
+            // Resume iperf3 server after WAN speed test completes (or fails/cancels)
+            _iperf3ServerService.Resume();
             lock (_lock) _isRunning = false;
         }
     }
