@@ -619,6 +619,9 @@ public class ClientDashboardService
         double? gpsLng,
         int? gpsAccuracy)
     {
+        // Skip wired clients - no Wi-Fi signal data to record
+        if (identity.IsWired) return;
+
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
