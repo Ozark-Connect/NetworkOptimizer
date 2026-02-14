@@ -121,6 +121,13 @@
                             <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
                         </span>
                     }
+                    @if (!_isOwnDevice)
+                    {
+                        <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
+                                @onclick="ToggleLogging">
+                            @(_isLogging ? "Stop Logging" : "Start Logging")
+                        </button>
+                    }
                 </div>
             </div>
             <div class="identity-row-2">
@@ -152,7 +159,7 @@
                 }
                 @if (!_isOwnDevice)
                 {
-                    <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle"
+                    <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-desktop"
                             @onclick="ToggleLogging">
                         @(_isLogging ? "Stop Logging" : "Start Logging")
                     </button>
@@ -1913,10 +1920,16 @@
         gap: 5px;
     }
     .logging-toggle {
-        margin-left: auto;
         font-size: 0.6875rem;
         padding: 2px 8px;
         height: 22px;
+    }
+    .logging-toggle-desktop {
+        margin-left: auto;
+        margin-top: -2rem;
+    }
+    .logging-toggle-mobile {
+        display: none;
     }
     .poll-dot {
         width: 8px;
@@ -2314,9 +2327,11 @@
         .identity-rates .rate-sep {
             display: none;
         }
-        .logging-toggle {
-            grid-column: 1 / -1;
-            justify-self: end;
+        .logging-toggle-desktop {
+            display: none;
+        }
+        .logging-toggle-mobile {
+            display: inline-flex;
         }
         .dashboard-controls {
             flex-direction: column;
