@@ -1015,8 +1015,11 @@
             .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value)));
 
         // Build signal map points (consecutive duplicates are collapsed automatically)
-        _signalMapPoints = await DashboardService.GetSignalMapPointsAsync(
-            _client!.Mac, from, to);
+        var signalTask = DashboardService.GetSignalMapPointsAsync(_client!.Mac, from, to);
+        var speedTask = DashboardService.GetSpeedResultsAsync(_client!.Mac, from, to);
+        await Task.WhenAll(signalTask, speedTask);
+        _signalMapPoints = await signalTask;
+        _speedResults = await speedTask;
 
         // Build chart annotations for band/AP changes
         BuildSignalAnnotations();
