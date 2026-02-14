@@ -6,6 +6,7 @@
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
 @inject ClientSpeedTestService SpeedTestService
+@inject ClientDashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
 @inject ApMapService ApMapService
@@ -223,12 +224,13 @@
                       OnClientClick="HandleMapClientClick"
                       OnRefresh="RefreshData"
                       ClientDetailMode="true"
+                      ShowDashboardLinks="true"
                       MapHeight="676px" />
     }
     else if (_activeTab == "floorplan")
     {
         <!-- Signal Map / Floor Plan Editor -->
-        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" OnClientClick="HandleMapClientClick" />
+        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" />
     }
     else if (_activeTab == "roaming")
     {
@@ -553,7 +555,8 @@
                           OnApLocationChanged="HandleApLocationChanged"
                           OnClientClick="HandleMapClientClick"
                           OnRefresh="RefreshData"
-                          ClientDetailMode="true" />
+                          ClientDetailMode="true"
+                          ShowDashboardLinks="true" />
         }
     } @* End of overview tab *@
 }
@@ -577,7 +580,9 @@
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<Iperf3Result> _speedTestResults = new();
+    private List<SignalMapPoint> _signalMapPoints = new();
     private List<ApMapMarker> _apMapMarkers = new();
+    private System.Threading.Timer? _mapPollTimer;
 
     protected override void OnInitialized()
     {
@@ -590,6 +595,28 @@
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         _ = LoadDataAsync();
+
+        // Poll for new speed test results and signal data every 5 seconds
+        _mapPollTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    var now = DateTime.UtcNow;
+                    var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+                    var signalTask = DashboardService.GetSignalMapPointsAsync(
+                        null, now.AddDays(-7), now);
+
+                    await Task.WhenAll(speedTestTask, signalTask);
+
+                    _speedTestResults = await speedTestTask;
+                    _signalMapPoints = await signalTask;
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
     protected override void OnParametersSet()
@@ -619,17 +646,21 @@
             await ConnectionService.WaitForConnectionAsync();
 
             // Load all data in parallel
+            var now = DateTime.UtcNow;
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync();
             var apsTask = WiFiService.GetAccessPointsAsync();
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+            var signalTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-7), now);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
+            _signalMapPoints = await signalTask;
 
             // Build AP map markers (join AP snapshots with saved locations)
             await LoadApMarkers();
@@ -650,17 +681,21 @@
         {
             WiFiService.ClearCache();
 
+            var now = DateTime.UtcNow;
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+            var signalTask = DashboardService.GetSignalMapPointsAsync(
+                null, now.AddDays(-7), now);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
             _speedTestResults = await speedTestTask;
+            _signalMapPoints = await signalTask;
 
             await LoadApMarkers();
         }
@@ -711,6 +746,7 @@
 
     public void Dispose()
     {
+        _mapPollTimer?.Dispose();
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
     }
 

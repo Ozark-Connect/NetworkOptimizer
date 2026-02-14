@@ -312,12 +312,8 @@
                 Labels = new XAxisLabels
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeFormatter = new DatetimeFormatter
-                    {
-                        Hour = "HH:mm",
-                        Day = "MMM dd",
-                        Month = "MMM"
-                    }
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -450,7 +446,7 @@
 
         foreach (var metric in _metrics.OrderBy(m => m.Timestamp))
         {
-            var ts = metric.Timestamp.ToLocalTime().DateTime;
+            var ts = metric.Timestamp.UtcDateTime;
 
             // Log bands available in first metric
             if (_metrics.IndexOf(metric) == 0)

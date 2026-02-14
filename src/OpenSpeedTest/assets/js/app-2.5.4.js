@@ -577,6 +577,7 @@ window.onload = function() {
     } else {
       userAgentString = "Not Found";
     }
+    var originalDuration; // Set after URL params modify dlDuration
     var ulFinal = ulDuration * 0.6;
     var dlFinal = dlDuration * 0.6;
     function setFinal() {
@@ -712,11 +713,16 @@ window.onload = function() {
         dlDuration = 31557600;
         ulDuration = 31557600;
       }
-      if (custom > 12 || customS > 12) {
+      if (custom > 0 || customS > 0) {
         dlDuration = runStressCustom;
         ulDuration = runStressCustom;
       }
     }
+    originalDuration = dlDuration; // Capture after URL params but before extraTime inflation
+    // Recalculate averaging windows after URL params changed dlDuration/ulDuration
+    dlFinal = dlDuration * 0.6;
+    ulFinal = ulDuration * 0.6;
+    setFinal();
     var overheadClean = parseInt(getCommand.clean);
     var overheadCleanC = parseInt(getCommand.c);
     var customOverHeadValue = 1;
@@ -1025,7 +1031,7 @@ window.onload = function() {
           Show.oDoLiveSpeed.el.textContent = ost;
           if (location.hostname != myname.toLowerCase() + com) {
             // Build POST data for saving results
-            saveTestData = "d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString;
+            saveTestData = "d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString + "&dur=" + originalDuration;
             // Set initial results link to client speed test page (will be updated with result ID after save)
             if (typeof clientResultsUrl !== "undefined") {
               var circleSVG2 = document.getElementById("resultsData");

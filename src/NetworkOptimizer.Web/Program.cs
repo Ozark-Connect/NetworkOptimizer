@@ -184,6 +184,9 @@ builder.Services.AddSingleton<GatewaySpeedTestService>();
 // Register Client Speed Test service (singleton - receives browser/iperf3 client results)
 builder.Services.AddSingleton<ClientSpeedTestService>();
 
+// Register Client Dashboard service (singleton - signal polling, trace tracking)
+builder.Services.AddSingleton<ClientDashboardService>();
+
 // Register Cloudflare WAN Speed Test service (singleton - server-side WAN speed tests)
 builder.Services.AddSingleton<CloudflareSpeedTestService>();
 
@@ -694,17 +697,14 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
     double? longitude = double.TryParse(GetValue("lng"), out var lng) ? lng : null;
     int? locationAccuracy = int.TryParse(GetValue("acc"), out var acc) ? acc : null;
 
-    // Get client IP (handle proxies)
-    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-    var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-    if (!string.IsNullOrEmpty(forwardedFor))
-    {
-        clientIp = forwardedFor.Split(',')[0].Trim();
-    }
+    // Test duration per direction (seconds)
+    int? duration = int.TryParse(GetValue("dur"), out var dur) ? dur : null;
+
+    var clientIp = GetClientIp(context);
 
     var result = await service.RecordOpenSpeedTestResultAsync(
         clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
-        latitude, longitude, locationAccuracy);
+        latitude, longitude, locationAccuracy, duration);
 
     return Results.Ok(new
     {
@@ -721,13 +721,7 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
 // Called by OpenSpeedTest ~3 seconds into a test to capture wireless rates mid-test
 app.MapPost("/api/public/speedtest/topology-snapshots", async (HttpContext context, ITopologySnapshotService snapshotService) =>
 {
-    // Get client IP (handle proxies)
-    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-    var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-    if (!string.IsNullOrEmpty(forwardedFor))
-    {
-        clientIp = forwardedFor.Split(',')[0].Trim();
-    }
+    var clientIp = GetClientIp(context);
 
     // Fire-and-forget - capture snapshot asynchronously, don't block response
     _ = snapshotService.CaptureSnapshotAsync(clientIp);
@@ -1216,6 +1210,66 @@ app.MapGet("/api/floor-plan/ap-catalog", (NetworkOptimizer.WiFi.Data.AntennaPatt
 });
 
 // Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
+// --- Client Dashboard API ---
+
+app.MapGet("/api/client-dashboard/identify", async (HttpContext context, ClientDashboardService service) =>
+{
+    var clientIp = GetClientIp(context);
+    var identity = await service.IdentifyClientAsync(clientIp);
+    return identity != null ? Results.Ok(identity) : Results.NotFound(new { error = "Client not found" });
+});
+
+app.MapGet("/api/client-dashboard/signal-poll", async (HttpContext context, ClientDashboardService service,
+    double? lat = null, double? lng = null, int? acc = null) =>
+{
+    var clientIp = GetClientIp(context);
+    var result = await service.PollSignalAsync(clientIp, lat, lng, acc);
+    return result != null ? Results.Ok(result) : Results.NotFound(new { error = "Client not found" });
+});
+
+app.MapPost("/api/client-dashboard/signal-log", async (HttpContext context, ClientDashboardService service) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.Web.Models.GpsUpdateRequest>();
+    if (request == null)
+        return Results.BadRequest(new { error = "Request body is required" });
+
+    // Identify client by IP to get MAC
+    var clientIp = GetClientIp(context);
+    var identity = await service.IdentifyClientAsync(clientIp);
+    if (identity == null)
+        return Results.NotFound(new { error = "Client not found" });
+
+    await service.SubmitGpsAsync(identity.Mac, request.Latitude, request.Longitude, request.AccuracyMeters);
+    return Results.Ok(new { success = true });
+});
+
+app.MapGet("/api/client-dashboard/signal-history", async (ClientDashboardService service,
+    string mac, DateTime? from = null, DateTime? to = null, int? skip = null, int? take = null) =>
+{
+    var fromDate = from ?? DateTime.UtcNow.AddHours(-24);
+    var toDate = to ?? DateTime.UtcNow;
+    var history = await service.GetSignalHistoryAsync(mac, fromDate, toDate, skip ?? 0, take ?? 500);
+    return Results.Ok(history);
+});
+
+app.MapGet("/api/client-dashboard/trace-history", async (ClientDashboardService service,
+    string mac, DateTime? from = null, DateTime? to = null) =>
+{
+    var fromDate = from ?? DateTime.UtcNow.AddHours(-24);
+    var toDate = to ?? DateTime.UtcNow;
+    var history = await service.GetTraceHistoryAsync(mac, fromDate, toDate);
+    return Results.Ok(history);
+});
+
+app.MapGet("/api/client-dashboard/speed-results", async (ClientDashboardService service,
+    string mac, DateTime? from = null, DateTime? to = null) =>
+{
+    var fromDate = from ?? DateTime.UtcNow.AddHours(-24);
+    var toDate = to ?? DateTime.UtcNow;
+    var results = await service.GetSpeedResultsAsync(mac, fromDate, toDate);
+    return Results.Ok(results);
+});
+
 app.MapGet("/api/demo-mappings", () =>
 {
     var mappingsEnv = Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS");
@@ -1287,6 +1341,18 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
     }
 
     return settings;
+}
+
+// Helper to extract client IP from request (handles proxies)
+static string GetClientIp(HttpContext context)
+{
+    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(forwardedFor))
+    {
+        clientIp = forwardedFor.Split(',')[0].Trim();
+    }
+    return clientIp;
 }
 
 // Request DTO for UPnP notes

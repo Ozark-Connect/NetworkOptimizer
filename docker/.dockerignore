@@ -33,9 +33,9 @@ docs/
 **/*.coverage
 **/*.coveragexml
 
-# NuGet
-*.nupkg
-**/packages/
+# NuGet (exclude default caches, but keep our local packages source)
+!packages/
+!packages/*.nupkg
 
 # Node modules (if any)
 node_modules/

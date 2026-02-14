@@ -218,11 +218,28 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             _ => "5minutes"
         };
 
+        // stat/report/{granularity}.user supported attrs (tested 2026-02-13):
+        // WORKS: time, signal, rssi, tx_rate, rx_rate, satisfaction, anomalies,
+        //        duration, bytes, tx_bytes, rx_bytes, tx_retries, tx_packets,
+        //        rx_packets, wifi_tx_attempts, wifi_tx_dropped,
+        //        radio_protocol_most_common (e.g. "ax"), rx_rate_most_common (kbps string),
+        //        x-set-ap_macs (actual MAC array), duration_map-ap_duration (ms per AP map),
+        //        ap_macs (count only, not actual MAC)
+        // Channel requires dynamic key: {band}-{apMac}-channel_info_most_common (e.g. "6e-84:78:48:c8:48:f1-channel_info_most_common")
+        //   - Returns "channel:width" string (e.g. "133:320")
+        //   - Must know band prefix + AP MAC upfront, so we request it dynamically after getting AP MAC
+        // NOT AVAILABLE as simple attrs: ap_mac, channel, noise, radio, essid, bssid,
+        //        device_mac, network, is_wired, ccq, tx_rate_most_common
         var attrs = new[]
         {
             "time",  // Must include time to get timestamp
-            "signal", "tx_retries", "tx_packets", "rx_packets",
-            "wifi_tx_attempts", "wifi_tx_dropped"
+            "signal", "tx_rate", "rx_rate", "satisfaction",
+            "tx_retries", "tx_packets", "rx_packets",
+            "wifi_tx_attempts", "wifi_tx_dropped",
+            "radio_protocol_most_common", "rx_rate_most_common",
+            "x-set-ap_macs", "duration_map-ap_duration",
+            // Band-prefixed signal: whichever returns data reveals the band
+            "6e-signal", "na-signal", "ng-signal"
         };
 
         try
@@ -230,13 +247,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             _logger.LogDebug("Fetching client metrics for {ClientMac}: {ReportType}, start={Start}, end={End}",
                 clientMac, reportType, start, end);
 
+            var startMs = start.ToUnixTimeMilliseconds();
+            var endMs = end.ToUnixTimeMilliseconds();
+
             var reportData = await _client.PostUserReportAsync(
-                reportType,
-                clientMac,
-                start.ToUnixTimeMilliseconds(),
-                end.ToUnixTimeMilliseconds(),
-                attrs,
-                cancellationToken);
+                reportType, clientMac, startMs, endMs, attrs, cancellationToken);
 
             _logger.LogDebug("Client report response for {ClientMac}: ValueKind={ValueKind}, ArrayLength={Length}",
                 clientMac,
@@ -244,6 +259,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 reportData.ValueKind == System.Text.Json.JsonValueKind.Array ? reportData.GetArrayLength() : 0);
 
             var metrics = ParseClientMetrics(reportData, clientMac);
+
+            // Second query: fetch channel info using dynamic keys
+            // We now know the AP MAC(s) and band(s) from the first query
+            await EnrichWithChannelInfoAsync(metrics, reportType, clientMac, startMs, endMs, cancellationToken);
+
             _logger.LogInformation("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
             return metrics;
         }
@@ -1062,6 +1082,100 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return metrics;
     }
 
+    /// <summary>
+    /// Second-pass query: request channel_info_most_common using dynamic keys
+    /// built from the AP MAC(s) and band(s) discovered in the first query.
+    /// </summary>
+    private async Task EnrichWithChannelInfoAsync(
+        List<ClientWiFiMetrics> metrics,
+        string reportType,
+        string clientMac,
+        long startMs,
+        long endMs,
+        CancellationToken cancellationToken)
+    {
+        // Find unique band+AP MAC combos that need channel info
+        var combos = metrics
+            .Where(m => m.Band.HasValue && !string.IsNullOrEmpty(m.ApMac) && !m.Channel.HasValue)
+            .Select(m => (Band: m.Band!.Value, ApMac: m.ApMac!))
+            .Distinct()
+            .ToList();
+
+        if (combos.Count == 0)
+            return;
+
+        // Build dynamic attr keys for each combo
+        var channelAttrs = new List<string> { "time" };
+        foreach (var (band, apMac) in combos)
+        {
+            var bandPrefix = band switch
+            {
+                RadioBand.Band2_4GHz => "ng",
+                RadioBand.Band5GHz => "na",
+                RadioBand.Band6GHz => "6e",
+                _ => null
+            };
+            if (bandPrefix != null)
+                channelAttrs.Add($"{bandPrefix}-{apMac}-channel_info_most_common");
+        }
+
+        if (channelAttrs.Count <= 1)
+            return; // Only "time", no channel keys
+
+        try
+        {
+            var channelData = await _client.PostUserReportAsync(
+                reportType, clientMac, startMs, endMs,
+                channelAttrs.ToArray(), cancellationToken);
+
+            if (channelData.ValueKind != JsonValueKind.Array)
+                return;
+
+            // Build a lookup: timestamp -> (channel, width)
+            var channelByTime = new Dictionary<long, (int Channel, int? Width)>();
+            foreach (var item in channelData.EnumerateArray())
+            {
+                if (!item.TryGetProperty("time", out var timeProp))
+                    continue;
+
+                var ts = (long)timeProp.GetDouble();
+
+                // Check each channel key
+                foreach (var prop in item.EnumerateObject())
+                {
+                    if (!prop.Name.EndsWith("-channel_info_most_common") || prop.Value.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    var parts = prop.Value.GetString()?.Split(':');
+                    if (parts?.Length >= 1 && int.TryParse(parts[0], out var ch))
+                    {
+                        int? width = parts.Length >= 2 && int.TryParse(parts[1], out var w) ? w : null;
+                        channelByTime[ts] = (ch, width);
+                        break;
+                    }
+                }
+            }
+
+            // Merge channel data into metrics
+            foreach (var m in metrics)
+            {
+                var mTs = m.Timestamp.ToUnixTimeMilliseconds();
+                if (!m.Channel.HasValue && channelByTime.TryGetValue(mTs, out var chInfo))
+                {
+                    m.Channel = chInfo.Channel;
+                    m.ChannelWidth = chInfo.Width;
+                }
+            }
+
+            _logger.LogDebug("Enriched {Count} metrics with channel info for {ClientMac}",
+                channelByTime.Count, clientMac);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch channel info for {ClientMac}", clientMac);
+        }
+    }
+
     private List<ClientWiFiMetrics> ParseClientMetrics(JsonElement data, string clientMac)
     {
         var metrics = new List<ClientWiFiMetrics>();
@@ -1109,8 +1223,76 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 TxPackets = GetLongOrNull(item, "tx_packets"),
                 RxPackets = GetLongOrNull(item, "rx_packets"),
                 WifiTxAttempts = GetLongOrNull(item, "wifi_tx_attempts"),
-                WifiTxDropped = GetLongOrNull(item, "wifi_tx_dropped")
+                WifiTxDropped = GetLongOrNull(item, "wifi_tx_dropped"),
+                Satisfaction = GetDoubleOrNull(item, "satisfaction")
             };
+
+            // tx_rate/rx_rate are averaged values in kbps
+            var txRate = GetDoubleOrNull(item, "tx_rate");
+            if (txRate.HasValue) metric.TxRateKbps = (long)txRate.Value;
+            var rxRate = GetDoubleOrNull(item, "rx_rate");
+            if (rxRate.HasValue) metric.RxRateKbps = (long)rxRate.Value;
+
+            // Protocol from radio_protocol_most_common (e.g. "ax", "be", "ac")
+            if (item.TryGetProperty("radio_protocol_most_common", out var protoProp) &&
+                protoProp.ValueKind == JsonValueKind.String)
+            {
+                metric.Protocol = protoProp.GetString();
+            }
+
+            // AP MAC from x-set-ap_macs array (take first one)
+            if (item.TryGetProperty("x-set-ap_macs", out var apMacsProp) &&
+                apMacsProp.ValueKind == JsonValueKind.Array && apMacsProp.GetArrayLength() > 0)
+            {
+                metric.ApMac = apMacsProp[0].GetString();
+            }
+
+            // Determine band from band-prefixed signal fields
+            // Whichever band has a signal value is the active band
+            if (GetDoubleOrNull(item, "6e-signal").HasValue)
+                metric.Band = RadioBand.Band6GHz;
+            else if (GetDoubleOrNull(item, "na-signal").HasValue)
+                metric.Band = RadioBand.Band5GHz;
+            else if (GetDoubleOrNull(item, "ng-signal").HasValue)
+                metric.Band = RadioBand.Band2_4GHz;
+            else if (metric.Protocol != null)
+            {
+                // Fallback: infer band from protocol + rate
+                var maxRate = Math.Max(metric.TxRateKbps ?? 0, metric.RxRateKbps ?? 0);
+                metric.Band = InferBandFromRate(metric.Protocol, maxRate);
+            }
+
+            // Try to get channel from dynamic key: {band}-{apMac}-channel_info_most_common
+            // or scan all properties for *-channel_info_most_common pattern
+            if (metric.Band.HasValue)
+            {
+                var bandPrefix = metric.Band.Value switch
+                {
+                    RadioBand.Band2_4GHz => "ng",
+                    RadioBand.Band5GHz => "na",
+                    RadioBand.Band6GHz => "6e",
+                    _ => null
+                };
+
+                if (bandPrefix != null)
+                {
+                    // Scan response properties for channel_info_most_common with this band prefix
+                    foreach (var prop in item.EnumerateObject())
+                    {
+                        if (prop.Name.StartsWith(bandPrefix + "-") &&
+                            prop.Name.EndsWith("-channel_info_most_common") &&
+                            prop.Value.ValueKind == JsonValueKind.String)
+                        {
+                            var parts = prop.Value.GetString()?.Split(':');
+                            if (parts?.Length >= 1 && int.TryParse(parts[0], out var ch))
+                                metric.Channel = ch;
+                            if (parts?.Length >= 2 && int.TryParse(parts[1], out var width))
+                                metric.ChannelWidth = width;
+                            break;
+                        }
+                    }
+                }
+            }
 
             if (metric.WifiTxAttempts > 0 && metric.TxRetries.HasValue)
             {
@@ -1262,6 +1444,50 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             // API may return floats, so convert to long via double
             return (long)val.GetDouble();
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Infer radio band from Wi-Fi protocol and link rate.
+    /// Wi-Fi 6E (ax on 6GHz) and Wi-Fi 7 (be) support higher rates.
+    /// 2.4GHz max is ~600Mbps (ax), 5GHz max is ~2.4Gbps (ax), 6GHz goes higher.
+    /// </summary>
+    private static RadioBand? InferBandFromRate(string protocol, long maxRateKbps)
+    {
+        var proto = protocol.ToLowerInvariant();
+
+        // Wi-Fi 7 (be) is always 6GHz (or 5GHz with 320MHz, but primarily 6GHz)
+        if (proto == "be")
+            return RadioBand.Band6GHz;
+
+        // Convert to Mbps for easier comparison
+        var rateMbps = maxRateKbps / 1000.0;
+
+        if (proto == "ax")
+        {
+            // Wi-Fi 6E on 6GHz typically has rates > 1200 Mbps with 160/320MHz channels
+            // Wi-Fi 6 on 5GHz typically 600-2400 Mbps
+            // Wi-Fi 6 on 2.4GHz maxes out around 574 Mbps (2x2 40MHz)
+            if (rateMbps > 1200) return RadioBand.Band6GHz;
+            if (rateMbps > 400) return RadioBand.Band5GHz;
+            return RadioBand.Band2_4GHz;
+        }
+
+        if (proto == "ac")
+            return RadioBand.Band5GHz; // 802.11ac is 5GHz only
+
+        if (proto == "n" || proto == "a")
+        {
+            // 802.11n can be either band, use rate to guess
+            // 802.11a is 5GHz only
+            if (proto == "a") return RadioBand.Band5GHz;
+            return rateMbps > 150 ? RadioBand.Band5GHz : RadioBand.Band2_4GHz;
+        }
+
+        // b/g are 2.4GHz only
+        if (proto == "b" || proto == "g")
+            return RadioBand.Band2_4GHz;
+
         return null;
     }
 

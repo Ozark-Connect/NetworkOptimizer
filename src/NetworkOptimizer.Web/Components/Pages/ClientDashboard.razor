@@ -1,0 +1,2434 @@
+@page "/client-dashboard"
+@rendermode InteractiveServer
+@implements IDisposable
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Models
+@using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.WiFi.Models
+@using Microsoft.AspNetCore.Http
+@using ApexCharts
+@inject ClientDashboardService DashboardService
+@inject ClientSpeedTestService SpeedTestService
+@inject UniFiConnectionService ConnectionService
+@inject IConfiguration Configuration
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject IHttpContextAccessor HttpContextAccessor
+
+<div class="client-dashboard-page">
+    @* Page Header *@
+    <div class="page-header">
+        <h1>Client Performance</h1>
+        <p class="page-description">Live signal strength, speed test history, connection path tracing, and walk-test signal mapping for @(_isOwnDevice ? "your device" : "a specific Wi-Fi client").@(_isOwnDevice ? _isInsecureContext ? " Leave this page open to collect signal data." : " Leave this page open while walking around to collect signal and location data." : "")</p>
+    </div>
+
+    @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Not Connected</strong>
+                    <span>Unable to reach the UniFi Console. Signal polling is paused.</span>
+                </div>
+                <a href="/settings" class="btn btn-primary btn-sm">Check Settings</a>
+            </div>
+        </div>
+    }
+    else if (_consecutiveFailures >= 3)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Polling Interrupted</strong>
+                    <span>@_consecutiveFailures consecutive polls failed. Retrying...</span>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showGpsWarning)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>GPS Unavailable</strong>
+                    <span>Location data for signal mapping requires HTTPS. Connect via HTTPS to enable walk-test mapping.</span>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <div class="skeleton-hero card">
+            <div class="skeleton-row">
+                <div class="skeleton-block skeleton-title"></div>
+                <div class="skeleton-block skeleton-gauge"></div>
+            </div>
+            <div class="skeleton-row">
+                <div class="skeleton-block skeleton-detail"></div>
+                <div class="skeleton-block skeleton-detail"></div>
+                <div class="skeleton-block skeleton-detail"></div>
+                <div class="skeleton-block skeleton-detail"></div>
+            </div>
+        </div>
+        <div class="skeleton-tabs">
+            <div class="skeleton-block skeleton-tab"></div>
+            <div class="skeleton-block skeleton-tab"></div>
+            <div class="skeleton-block skeleton-tab"></div>
+        </div>
+        <div class="skeleton-chart card">
+            <div class="skeleton-block skeleton-chart-area"></div>
+        </div>
+    }
+    else if (_client == null)
+    {
+        <div class="card empty-state">
+            <h3>Device Not Found</h3>
+            <p>Could not identify your device on the network. Make sure you're connected and the UniFi Console is reachable.</p>
+            <button class="btn btn-primary" @onclick="RetryIdentify">Retry</button>
+        </div>
+    }
+    else
+    {
+        @* Identity Bar *@
+        <div class="card identity-bar">
+            <div class="identity-row-1">
+                <div class="identity-info">
+                    <h2 class="identity-name">@_client.DisplayName</h2>
+                    <div class="identity-meta">
+                        <span data-tooltip="MAC Address">@_client.Mac</span>
+                        <span class="meta-sep">·</span>
+                        <span data-tooltip="IP Address">@_client.Ip</span>
+                        @if (!string.IsNullOrEmpty(_client.Essid))
+                        {
+                            <span class="meta-sep">·</span>
+                            <span data-tooltip="SSID">@_client.Essid</span>
+                        }
+                    </div>
+                </div>
+                <div class="identity-signal">
+                    @if (!_client.IsWired && _client.SignalDbm.HasValue)
+                    {
+                        <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value)">
+                            <span class="signal-value">@_client.SignalDbm</span>
+                            <span class="signal-unit">dBm</span>
+                        </div>
+                        <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value)">
+                            @for (int i = 0; i < 5; i++)
+                            {
+                                var barThreshold = new[] { -90, -82, -75, -70, -60 }[i];
+                                <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
+                            }
+                        </div>
+                    }
+                    <div class="identity-live-group">
+                        <span class="identity-live">
+                            @if (_pollCount > 0)
+                            {
+                                <span class="poll-dot"></span>
+                                <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
+                            }
+                        </span>
+                        @if (!_isOwnDevice && _client is { IsWired: false })
+                        {
+                            <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
+                                    @onclick="ToggleLogging"
+                                    data-tooltip="Log signal strength, AP, and channel over time for this device without GPS location data"
+                                    data-tooltip-hover-only>
+                                @(_isLogging ? "Stop Logging" : "Start Logging")
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="identity-row-2">
+                @if (!_client.IsWired)
+                {
+                    <span class="band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
+                    <span class="identity-detail">
+                        @(_client.ApName ?? "—")@if (_client.ApModel != null)
+                        {<span class="detail-dim"> · @_client.ApModel</span>}
+                    </span>
+                    <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")</span>
+                    <span class="identity-detail identity-proto">@FormatProtocol(_client.Protocol)</span>
+                    @if (_client.RxRateKbps.HasValue)
+                    {
+                        <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                    }
+                    @if (_client.TxRateKbps.HasValue)
+                    {
+                        <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
+                    }
+                    @if (_client.IsMlo)
+                    {
+                        <span class="identity-detail badge-mlo">MLO</span>
+                    }
+                }
+                else
+                {
+                    <span class="identity-detail">Wired</span>
+                }
+                @if (!_isOwnDevice && _client is { IsWired: false })
+                {
+                    <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-desktop"
+                            @onclick="ToggleLogging"
+                            data-tooltip="Log signal strength, AP, and channel over time for this device without GPS location data"
+                            data-tooltip-hover-only>
+                        @(_isLogging ? "Stop Logging" : "Start Logging")
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Tabs + Time Filter *@
+        <div class="dashboard-controls">
+            <div class="tab-bar">
+                <button class="tab-btn @(_activeTab == "speed" ? "active" : "")"
+                        @onclick='() => SetActiveTab("speed")'>Speed</button>
+                <button class="tab-btn @(_activeTab == "signal" ? "active" : "")"
+                        @onclick='() => SetActiveTab("signal")'>Signal</button>
+                <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
+                        @onclick='() => SetActiveTab("connection")'>Connection</button>
+            </div>
+            <div class="time-range-selector">
+                @foreach (var tf in _timeFilters)
+                {
+                    <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
+                            @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
+                }
+            </div>
+        </div>
+
+        @* Tab Content *@
+        <div class="tab-content">
+            @if (_tabLoading)
+            {
+                <div class="tab-loading">
+                    <span class="spinner"></span>
+                </div>
+            }
+            @if (_activeTab == "speed")
+            {
+                @* ===== SPEED TAB ===== *@
+                <div class="tab-pane">
+                    @if (_latestSpeedResult != null)
+                    {
+                        <div class="card speed-hero">
+                            <div class="speed-hero-results">
+                                <div class="speed-metric download">
+                                    <span class="speed-label">From Device</span>
+                                    <span class="speed-value speed-down">@_latestSpeedResult.DownloadMbps.ToString("F1")</span>
+                                    <span class="speed-unit">Mbps</span>
+                                </div>
+                                <div class="speed-metric upload">
+                                    <span class="speed-label">To Device</span>
+                                    <span class="speed-value speed-up">@_latestSpeedResult.UploadMbps.ToString("F1")</span>
+                                    <span class="speed-unit">Mbps</span>
+                                </div>
+                                @if (_latestSpeedResult.PingMs.HasValue)
+                                {
+                                    <div class="speed-metric ping">
+                                        <span class="speed-label">Ping</span>
+                                        <span class="speed-value">@_latestSpeedResult.PingMs.Value.ToString("F1")</span>
+                                        <span class="speed-unit">ms</span>
+                                    </div>
+                                }
+                                @if (_latestSpeedResult.JitterMs.HasValue)
+                                {
+                                    <div class="speed-metric jitter">
+                                        <span class="speed-label">Jitter</span>
+                                        <span class="speed-value">@_latestSpeedResult.JitterMs.Value.ToString("F1")</span>
+                                        <span class="speed-unit">ms</span>
+                                    </div>
+                                }
+                                @if (_latestSpeedResult.DownloadLatencyMs.HasValue || _latestSpeedResult.UploadLatencyMs.HasValue)
+                                {
+                                    <div class="speed-metric loaded-latency">
+                                        <span class="speed-label">Loaded Latency</span>
+                                        <span class="speed-value">@((_latestSpeedResult.DownloadLatencyMs ?? _latestSpeedResult.UploadLatencyMs)?.ToString("F1"))</span>
+                                        <span class="speed-unit">ms</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="speed-hero-meta">
+                                <span>@_latestSpeedResult.TestTime.ToLocalTime().ToString("g")</span>
+                                <span>@_latestSpeedResult.DurationSeconds s test</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <p>No speed tests yet. Run a test to see results here.</p>
+                        </div>
+                    }
+
+                    @* Speed Test Buttons *@
+                    @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
+                    {
+                        <div class="speed-actions">
+                            <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
+                                Run Speed Test
+                            </a>
+                            <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
+                               data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
+                                Quick Test
+                            </a>
+                        </div>
+                    }
+
+                    @* Speed History Chart *@
+                    @if (_speedDownloadData.Count > 0)
+                    {
+                        <div class="card chart-card">
+                            <h3>Speed History</h3>
+                            <div class="chart-container">
+                                <ApexChart @ref="_speedChart" TItem="SpeedChartPoint"
+                                           Options="_speedChartOptions"
+                                           Height="@("250px")">
+                                    <ApexPointSeries TItem="SpeedChartPoint"
+                                                     Items="_speedDownloadData"
+                                                     Name="From Device"
+                                                     SeriesType="SeriesType.Area"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                    <ApexPointSeries TItem="SpeedChartPoint"
+                                                     Items="_speedUploadData"
+                                                     Name="To Device"
+                                                     SeriesType="SeriesType.Area"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                </ApexChart>
+                            </div>
+                        </div>
+                    }
+
+                    @* Latency History Chart *@
+                    @if (_latencyPingData.Count > 0)
+                    {
+                        <div class="card chart-card">
+                            <h3>Latency History</h3>
+                            <div class="chart-container">
+                                <ApexChart @ref="_latencyChart" TItem="SpeedChartPoint"
+                                           Options="_latencyChartOptions"
+                                           Height="@("200px")">
+                                    <ApexPointSeries TItem="SpeedChartPoint"
+                                                     Items="_latencyPingData"
+                                                     Name="Ping"
+                                                     SeriesType="SeriesType.Line"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                    <ApexPointSeries TItem="SpeedChartPoint"
+                                                     Items="_latencyJitterData"
+                                                     Name="Jitter"
+                                                     SeriesType="SeriesType.Line"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                </ApexChart>
+                            </div>
+                        </div>
+                    }
+
+                    @* Speed Results Table *@
+                    @if (_speedResults.Count > 0)
+                    {
+                        <div class="card results-card">
+                            <h3>Test Results</h3>
+                            <div class="results-table-container">
+                                <table class="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>From Device</th>
+                                            <th>To Device</th>
+                                            @if (!(_client?.IsWired == true))
+                                            {
+                                                <th data-tooltip="AP receive rate (from device)">RX Rate</th>
+                                                <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                            }
+                                            <th>Ping</th>
+                                            <th>Type</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var r in GetPagedSpeedResults())
+                                        {
+                                            <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
+                                                @onclick="() => ToggleResultExpand(r.Id)">
+                                                <td>@r.TestTime.ToLocalTime().ToString("g")</td>
+                                                <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
+                                                <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
+                                                @if (!(_client?.IsWired == true))
+                                                {
+                                                    <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
+                                                    <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                }
+                                                <td>@(r.PingMs?.ToString("F1") ?? "-") ms</td>
+                                                <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
+                                            </tr>
+                                            @if (_expandedResultId == r.Id)
+                                            {
+                                                <tr class="result-details-row">
+                                                    <td colspan="@(_client?.IsWired == true ? 5 : 7)">
+                                                        <div class="result-details">
+                                                            <SpeedTestDetails Result="r" />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (SpeedTotalPages > 1)
+                            {
+                                <div class="pagination">
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)">Prev</button>
+                                    <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_speedResults.Count results)</span>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    @* Speed Map (wireless clients only) *@
+                    @if (!(_client?.IsWired == true) && _speedResults.Any(r => r.Latitude.HasValue))
+                    {
+                        <SpeedTestMap Results="_speedResults" MapHeight="400px" />
+                    }
+                </div>
+            }
+            else if (_activeTab == "signal")
+            {
+                @* ===== SIGNAL TAB ===== *@
+                <div class="tab-pane">
+                    @if (!_client.IsWired && (_client.NoiseDbm.HasValue || _client.ApTxPower.HasValue || _client.ApClientCount.HasValue))
+                    {
+                        <div class="signal-summary">
+                            @if (_client.NoiseDbm.HasValue)
+                            {
+                                <div class="summary-item">
+                                    <span class="summary-label">Noise</span>
+                                    <span class="summary-value">@_client.NoiseDbm dBm</span>
+                                </div>
+                                @if (_client.SignalDbm.HasValue)
+                                {
+                                    <div class="summary-item">
+                                        <span class="summary-label">SNR</span>
+                                        <span class="summary-value">@(_client.SignalDbm - _client.NoiseDbm) dB</span>
+                                    </div>
+                                }
+                            }
+                            @if (_client.ApTxPower.HasValue)
+                            {
+                                <div class="summary-item">
+                                    <span class="summary-label" data-tooltip="Transmit power at the AP radio">TX Power</span>
+                                    <span class="summary-value">@_client.ApTxPower@(_client.ApEirp.HasValue ? $" ({_client.ApEirp} EIRP)" : "") dBm</span>
+                                </div>
+                            }
+                            @if (_client.ApClientCount.HasValue)
+                            {
+                                <div class="summary-item">
+                                    <span class="summary-label" data-tooltip="Clients sharing the same radio on this AP">Radio Peers</span>
+                                    <span class="summary-value">@_client.ApClientCount</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_client.IsWired)
+                    {
+                        <div class="empty-state">
+                            <p>Signal data is only available for wireless clients. This device is connected via Ethernet.</p>
+                        </div>
+                    }
+
+                    @* Signal Map (wireless only, GPS data available) *@
+                    @if (_signalMapPoints.Count > 0 && !(_client?.IsWired == true))
+                    {
+                        <div class="card chart-card">
+                            <h3>Signal Map</h3>
+                            <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor ReadOnly="true"
+                                             SpeedTestResults="_speedResults"
+                                             SignalLogMarkers="_signalMapPoints"
+                                             HideDashboardLinks="true"
+                                             MapHeight="350px" />
+                        </div>
+                    }
+
+                    @* Signal History Chart (wireless only) *@
+                    @if (_signalChartData.Count > 0 && !(_client?.IsWired == true))
+                    {
+                        <div class="card chart-card">
+                            <h3>Signal History</h3>
+                            <div class="chart-container">
+                                <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
+                                           Options="_signalChartOptions"
+                                           Height="@("250px")">
+                                    <ApexPointSeries TItem="SignalChartPoint"
+                                                     Items="_signalChartData"
+                                                     Name="Signal (dBm)"
+                                                     SeriesType="SeriesType.Area"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                </ApexChart>
+                            </div>
+                        </div>
+                    }
+
+                    @* Signal History Table (wireless only) *@
+                    @if (_signalHistory.Count > 0 && !(_client?.IsWired == true))
+                    {
+                        <div class="card results-card">
+                            <h3>Signal Log</h3>
+                            <div class="results-table-container">
+                                <table class="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="sortable @(_signalSortCol == "time" ? "sorted" : "")" @onclick='() => ToggleSignalSort("time")'>Time @SortIndicator("time")</th>
+                                            <th class="sortable @(_signalSortCol == "signal" ? "sorted" : "")" @onclick='() => ToggleSignalSort("signal")'>Signal @SortIndicator("signal")</th>
+                                            <th class="sortable @(_signalSortCol == "band" ? "sorted" : "")" @onclick='() => ToggleSignalSort("band")'>Band @SortIndicator("band")</th>
+                                            <th class="sortable @(_signalSortCol == "ap" ? "sorted" : "")" @onclick='() => ToggleSignalSort("ap")'>AP @SortIndicator("ap")</th>
+                                            <th class="sortable @(_signalSortCol == "channel" ? "sorted" : "")" @onclick='() => ToggleSignalSort("channel")'>Channel @SortIndicator("channel")</th>
+                                            <th data-tooltip="AP receive rate (from device)">RX Rate</th>
+                                            <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in GetPagedSignalHistory())
+                                        {
+                                            var entry = row.Entry;
+                                            <tr class="@(entry.DataSource == SignalDataSource.UniFiController ? "unifi-source-row" : "")">
+                                                <td>
+                                                    @if (row.IsRange)
+                                                    {
+                                                        @FormatSignalTime(entry.Timestamp)
+                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
+                                                        <span class="row-count">(@row.Count)</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        @FormatSignalTime(entry.Timestamp)
+                                                    }
+                                                    @if (entry.DataSource == SignalDataSource.UniFiController)
+                                                    {
+                                                        <span class="source-dot" data-tooltip="UniFi Network historic data"></span>
+                                                    }
+                                                </td>
+                                                <td class="@GetSignalClass(entry.SignalDbm ?? 0)">@(entry.SignalDbm?.ToString() ?? "-") dBm</td>
+                                                <td>@FormatBand(entry.Band)</td>
+                                                <td>@(entry.ApName ?? "-")</td>
+                                                <td>@(entry.Channel?.ToString() ?? "-")</td>
+                                                <td>@RenderRate(entry.RxRateKbps, "wifi-speed-rx")</td>
+                                                <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (SignalTotalPages > 1)
+                            {
+                                <div class="pagination">
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage <= 1)" @onclick="() => ChangeSignalPage(-1)">Prev</button>
+                                    <span class="pagination-info">Page @_signalPage of @SignalTotalPages (@_cachedCollapsed.Count rows)</span>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage >= SignalTotalPages)" @onclick="() => ChangeSignalPage(1)">Next</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            else if (_activeTab == "connection")
+            {
+                @* ===== CONNECTION TAB ===== *@
+                <div class="tab-pane">
+                    @* Network Path *@
+                    @if (_latestPoll?.PathAnalysis != null)
+                    {
+                        <div class="card trace-card">
+                            <h3>Network Path</h3>
+                            <SpeedTestDetails PathAnalysis="_latestPoll.PathAnalysis" PathOnly="true" />
+                        </div>
+                    }
+
+                    @* Connection History Graph *@
+                    @if (_connectionEvents.Count > 1)
+                    {
+                        <div class="card chart-card">
+                            <h3>Connection History</h3>
+                            <div class="chart-container">
+                                <ApexChart @ref="_connectionChart" TItem="ConnectionChartPoint"
+                                           Options="_connectionChartOptions"
+                                           Height="@("200px")">
+                                    <ApexPointSeries TItem="ConnectionChartPoint"
+                                                     Items="_connectionChartData"
+                                                     Name="AP"
+                                                     SeriesType="SeriesType.Scatter"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.ApIndex"
+                                                     OrderBy="e => e.X" />
+                                </ApexChart>
+                            </div>
+                        </div>
+                    }
+
+                    @* Connection Events (from UniFi controller) *@
+                    @if (_connectionEvents.Count > 0)
+                    {
+                        <div class="card results-card">
+                            <h3>Connection Events</h3>
+                            <div class="results-table-container">
+                                <table class="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Event</th>
+                                            <th>@(_client?.IsWired == true ? "Switch / Gateway" : "AP")</th>
+                                            @if (!(_client?.IsWired == true))
+                                            {
+                                                <th>Band</th>
+                                                <th>Signal</th>
+                                            }
+                                            <th>Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var evt in GetPagedConnectionEvents())
+                                        {
+                                            <tr class="@GetEventRowClass(evt.Type)">
+                                                <td>@evt.Timestamp.ToLocalTime().ToString("g")</td>
+                                                <td>
+                                                    <span class="event-badge @GetEventBadgeClass(evt.Type)">
+                                                        @FormatEventType(evt.Type)
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    @if (evt.Type == ClientConnectionEventType.Roamed)
+                                                    {
+                                                        <span>@(evt.FromApName ?? "?") → @(evt.ToApName ?? evt.ApName ?? "?")</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        @(evt.ApName ?? "—")
+                                                    }
+                                                </td>
+                                                @if (!(_client?.IsWired == true))
+                                                {
+                                                    <td>@(evt.GetRadioBandDisplay() ?? "—")</td>
+                                                    <td class="@GetSignalClass(evt.Signal ?? 0)">@(evt.Signal?.ToString() ?? "—") dBm</td>
+                                                }
+                                                <td class="event-details-cell">
+                                                    @if (evt.Type == ClientConnectionEventType.Roamed && evt.PreviousSignal.HasValue)
+                                                    {
+                                                        <span data-tooltip="Signal before roam">@evt.PreviousSignal dBm → @evt.Signal dBm</span>
+                                                    }
+                                                    else if (evt.Type == ClientConnectionEventType.Disconnected && evt.Duration != null)
+                                                    {
+                                                        <span data-tooltip="Session duration">@evt.Duration</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (ConnectionTotalPages > 1)
+                            {
+                                <div class="pagination">
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage <= 1)" @onclick="() => ChangeConnectionPage(-1)">Prev</button>
+                                    <span class="pagination-info">Page @_connectionPage of @ConnectionTotalPages (@_connectionEvents.Count events)</span>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage >= ConnectionTotalPages)" @onclick="() => ChangeConnectionPage(1)">Next</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <p>No connection events found in the selected time window.</p>
+                        </div>
+                    }
+
+                    @* Trace History *@
+                    @if (_traceHistory.Count > 0)
+                    {
+                        <div class="card results-card">
+                            <h3>Trace Changes</h3>
+                            <div class="results-table-container">
+                                <table class="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Hops</th>
+                                            <th>Bottleneck</th>
+                                            <th>Change</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (int i = 0; i < _traceHistory.Count; i++)
+                                        {
+                                            var trace = _traceHistory[i];
+                                            var prev = i < _traceHistory.Count - 1 ? _traceHistory[i + 1] : null;
+                                            <tr class="result-row @(_expandedTraceTimestamp == trace.Timestamp ? "expanded" : "")"
+                                                @onclick="() => ToggleTraceExpand(trace.Timestamp)">
+                                                <td>@trace.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
+                                                <td>@(trace.HopCount?.ToString() ?? "—")</td>
+                                                <td>@(trace.BottleneckLinkSpeedMbps?.ToString("F0") ?? "—") Mbps</td>
+                                                <td class="trace-change-cell">
+                                                    @if (prev != null)
+                                                    {
+                                                        @FormatTraceChange(prev, trace)
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="trace-initial">Initial</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                            @if (_expandedTraceTimestamp == trace.Timestamp && trace.PathAnalysis != null)
+                                            {
+                                                <tr class="result-details-row">
+                                                    <td colspan="4">
+                                                        <div class="result-details">
+                                                            <SpeedTestDetails PathAnalysis="trace.PathAnalysis" PathOnly="true" />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "ip")]
+    public string? IpParam { get; set; }
+
+    // State
+    private bool _isOwnDevice; // true when viewing own device (no ?ip= param)
+    private bool _isLogging; // true when actively persisting signal data
+    private bool _loading = true;
+    private bool _tabLoading;
+    private ClientIdentity? _client;
+    private SignalPollResult? _latestPoll;
+    private string _activeTab = "speed";
+    private int _selectedTimeFilter = 24; // hours, default 24h
+    private int _pollCount;
+    private int _consecutiveFailures;
+
+    // Speed tab
+    private List<Iperf3Result> _speedResults = new();
+    private Iperf3Result? _latestSpeedResult;
+    private List<SpeedChartPoint> _speedDownloadData = new();
+    private List<SpeedChartPoint> _speedUploadData = new();
+    private ApexChart<SpeedChartPoint>? _speedChart;
+    private ApexChartOptions<SpeedChartPoint> _speedChartOptions = new();
+    private List<SpeedChartPoint> _latencyPingData = new();
+    private List<SpeedChartPoint> _latencyJitterData = new();
+    private ApexChart<SpeedChartPoint>? _latencyChart;
+    private ApexChartOptions<SpeedChartPoint> _latencyChartOptions = new();
+    private int? _expandedResultId;
+    private string? _openSpeedTestUrl;
+
+    // Signal tab
+    private List<SignalHistoryEntry> _signalHistory = new();
+    private List<SignalChartPoint> _signalChartData = new();
+    private List<SignalMapPoint> _signalMapPoints = new();
+    private ApexChart<SignalChartPoint>? _signalChart;
+    private ApexChartOptions<SignalChartPoint> _signalChartOptions = new();
+
+    // Signal table sorting & pagination
+    private string _signalSortCol = "time";
+    private bool _signalSortAsc = false;
+    private int _signalPage = 1;
+    private const int SignalPageSize = 20;
+
+    // Speed results pagination
+    private int _speedPage = 1;
+    private const int SpeedPageSize = 20;
+
+    // Connection tab
+    private List<TraceChangeEntry> _traceHistory = new();
+    private List<ClientConnectionEvent> _connectionEvents = new();
+    private int _connectionPage = 1;
+    private const int ConnectionPageSize = 20;
+    private DateTime? _expandedTraceTimestamp;
+    private List<ConnectionChartPoint> _connectionChartData = new();
+    private ApexChart<ConnectionChartPoint>? _connectionChart;
+    private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
+
+    // Polling
+    private System.Threading.Timer? _pollTimer;
+
+    // GPS
+    private double? _gpsLat;
+    private double? _gpsLng;
+    private int? _gpsAccuracy;
+    private bool _isInsecureContext;
+    private bool _showGpsWarning;
+
+    // Time filter options
+    private static readonly (int hours, string label)[] _timeFilters = new[]
+    {
+        (1, "1h"),
+        (6, "6h"),
+        (24, "24h"),
+        (168, "7d"),
+        (720, "30d"),
+        (0, "All")
+    };
+
+    private string? _lastTabParam;
+
+    protected override void OnParametersSet()
+    {
+        // Handle tab query param changes when already on this page (Blazor reuses the component)
+        if (!string.IsNullOrEmpty(TabParam) && TabParam != _lastTabParam && _lastTabParam != null)
+        {
+            var newTab = TabParam.ToLowerInvariant() switch
+            {
+                "signal" => "signal",
+                "connection" => "connection",
+                _ => "speed"
+            };
+            if (newTab != _activeTab)
+                SetActiveTab(newTab);
+        }
+        _lastTabParam = TabParam;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Parse tab from URL
+        if (!string.IsNullOrEmpty(TabParam))
+        {
+            _activeTab = TabParam.ToLowerInvariant() switch
+            {
+                "signal" => "signal",
+                "connection" => "connection",
+                _ => "speed"
+            };
+        }
+
+        _isOwnDevice = string.IsNullOrEmpty(IpParam);
+        _isLogging = _isOwnDevice; // own device always logs; backend skips wired
+
+        // Build OpenSpeedTest URL
+        BuildOpenSpeedTestUrl();
+
+        // Configure charts
+        ConfigureSpeedChart();
+        ConfigureLatencyChart();
+        ConfigureSignalChart();
+
+        // Wait for UniFi controller connection (needed for client identity + AP data on signal map)
+        await ConnectionService.WaitForConnectionAsync();
+
+        // Identify client
+        await IdentifyAndLoadAsync();
+
+        // Start polling every 5 seconds
+        _pollTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await PollAsync();
+                    StateHasChanged();
+                });
+                _consecutiveFailures = 0;
+
+                // Run daily cleanup check (non-blocking)
+                _ = DashboardService.TryCleanupAsync();
+            }
+            catch
+            {
+                _consecutiveFailures++;
+                try { await InvokeAsync(StateHasChanged); } catch { }
+            }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
+        // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
+        _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
+        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client is { IsWired: false };
+
+        if (_showGpsWarning)
+            StateHasChanged();
+
+        // Request GPS location only for wireless clients viewing own device
+        if (_isOwnDevice && _client is { IsWired: false } && !_isInsecureContext)
+            _ = RequestGpsAsync();
+    }
+
+    private async Task IdentifyAndLoadAsync()
+    {
+        _loading = true;
+
+        try
+        {
+            // We don't have direct access to HttpContext IP in Blazor Server,
+            // so we use JS interop to get the page URL and call the API
+            _client = await GetClientIdentityAsync();
+
+            if (_client != null)
+            {
+                await LoadTabDataAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to identify client: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string? _clientIp;
+
+    private async Task<ClientIdentity?> GetClientIdentityAsync()
+    {
+        // Use ?ip= query param if provided (for testing/linking to specific clients)
+        if (string.IsNullOrEmpty(_clientIp) && !_isOwnDevice)
+        {
+            _clientIp = IpParam;
+        }
+
+        // In Blazor Server, HttpContext is only available during the initial HTTP request.
+        // OnInitializedAsync runs during that first request, so we capture the IP here.
+        if (string.IsNullOrEmpty(_clientIp))
+        {
+            var httpContext = HttpContextAccessor.HttpContext;
+            if (httpContext != null)
+            {
+                var clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(forwardedFor))
+                {
+                    clientIp = forwardedFor.Split(',')[0].Trim();
+                }
+                _clientIp = clientIp;
+            }
+        }
+
+        if (string.IsNullOrEmpty(_clientIp) || _clientIp == "unknown")
+            return null;
+
+        return await DashboardService.IdentifyClientAsync(_clientIp);
+    }
+
+    private async Task PollAsync()
+    {
+        if (string.IsNullOrEmpty(_clientIp))
+            return;
+
+        try
+        {
+            _latestPoll = await DashboardService.PollSignalAsync(
+                _clientIp, _gpsLat, _gpsLng, _gpsAccuracy,
+                persist: _isLogging);
+            if (_latestPoll != null)
+            {
+                _client = _latestPoll.Client;
+                _pollCount++;
+
+                // Disable logging indicator for wired devices (backend already skips storage)
+                if (_pollCount == 1 && _client.IsWired)
+                    _isLogging = false;
+
+                // Refresh the active tab data periodically (every 6 polls = ~30s)
+                if (_pollCount % 6 == 0)
+                {
+                    await LoadTabDataAsync();
+                    await UpdateActiveChartsAsync();
+                }
+
+                // Add to live signal chart data
+                if (_activeTab == "signal" && _client.SignalDbm.HasValue)
+                {
+                    _signalChartData.Add(new SignalChartPoint(
+                        _latestPoll.Timestamp, (decimal)_client.SignalDbm.Value));
+
+                    // Keep last 360 points (30 min at 5s interval)
+                    if (_signalChartData.Count > 360)
+                        _signalChartData.RemoveAt(0);
+
+                    try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
+
+                    // Add live signal map point when GPS is available
+                    if (_gpsLat.HasValue && _gpsLng.HasValue)
+                    {
+                        _signalMapPoints.Add(new SignalMapPoint
+                        {
+                            Latitude = _gpsLat.Value,
+                            Longitude = _gpsLng.Value,
+                            SignalDbm = _client.SignalDbm.Value,
+                            Timestamp = _latestPoll.Timestamp,
+                            Band = _client.Band,
+                            Channel = _client.Channel,
+                            ApName = _client.ApName,
+                            ClientIp = _clientIp,
+                            DeviceName = _client.DisplayName
+                        });
+                    }
+                }
+
+                // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
+                if (_activeTab == "connection" && (_latestPoll.TraceChanged || _pollCount % 12 == 0))
+                {
+                    var (f, t) = GetTimeRange();
+                    await LoadConnectionDataAsync(f, t);
+                    try { if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true); } catch { }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Poll failed: {ex.Message}");
+        }
+    }
+
+    private async Task LoadTabDataAsync()
+    {
+        if (_client == null) return;
+
+        var (from, to) = GetTimeRange();
+
+        switch (_activeTab)
+        {
+            case "speed":
+                await LoadSpeedDataAsync(from, to);
+                break;
+            case "signal":
+                await LoadSignalDataAsync(from, to);
+                break;
+            case "connection":
+                await LoadConnectionDataAsync(from, to);
+                break;
+        }
+    }
+
+    private async Task LoadSpeedDataAsync(DateTime from, DateTime to)
+    {
+        _speedResults = await DashboardService.GetSpeedResultsAsync(_client!.Mac, from, to);
+        _latestSpeedResult = _speedResults.FirstOrDefault();
+
+        // Build chart data (UTC timestamps - JS formatter converts to browser local time)
+        // Clear and repopulate existing lists (don't reassign - chart Items bindings hold the reference)
+        _speedDownloadData.Clear();
+        _speedUploadData.Clear();
+        _latencyPingData.Clear();
+        _latencyJitterData.Clear();
+        foreach (var r in _speedResults.OrderBy(r => r.TestTime))
+        {
+            _speedDownloadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
+            _speedUploadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+
+            if (r.PingMs.HasValue)
+                _latencyPingData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+            if (r.JitterMs.HasValue)
+                _latencyJitterData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+        }
+    }
+
+    private async Task LoadSignalDataAsync(DateTime from, DateTime to)
+    {
+        // Use merged history (local high-res + UniFi controller data)
+        _signalHistory = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
+
+        // Clear and repopulate existing list (don't reassign - chart Items binding holds the reference)
+        _signalChartData.Clear();
+        _signalChartData.AddRange(_signalHistory
+            .Where(h => h.SignalDbm.HasValue)
+            .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value)));
+
+        // Build signal map points (consecutive duplicates are collapsed automatically)
+        var signalTask = DashboardService.GetSignalMapPointsAsync(_client!.Mac, from, to);
+        var speedTask = DashboardService.GetSpeedResultsAsync(_client!.Mac, from, to);
+        await Task.WhenAll(signalTask, speedTask);
+        _signalMapPoints = await signalTask;
+        _speedResults = await speedTask;
+
+        // Build chart annotations for band/AP changes
+        BuildSignalAnnotations();
+    }
+
+    private void BuildSignalAnnotations()
+    {
+        var annotations = new List<AnnotationsXAxis>();
+
+        // Only show annotations for short time windows (1h, 6h, 24h) - too noisy for 7d/30d/All
+        if (_selectedTimeFilter > 24 || _selectedTimeFilter == 0)
+        {
+            _signalChartOptions.Annotations = new Annotations { Xaxis = annotations };
+            return;
+        }
+
+        string? prevBand = null;
+        string? prevAp = null;
+        int yOffset = -5; // alternating offset to stack overlapping labels
+
+        foreach (var entry in _signalHistory)
+        {
+            var ts = new DateTimeOffset(entry.Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+            bool added = false;
+
+            // Detect band change
+            if (prevBand != null && entry.Band != null && entry.Band != prevBand)
+            {
+                annotations.Add(new AnnotationsXAxis
+                {
+                    X = ts,
+                    BorderColor = "#a78bfa",
+                    Label = new Label
+                    {
+                        Text = FormatBand(entry.Band),
+                        Style = new Style { Background = "#a78bfa", Color = "#fff", FontSize = "10px" },
+                        Orientation = Orientation.Horizontal,
+                        OffsetY = yOffset
+                    }
+                });
+                added = true;
+            }
+
+            // Detect AP roam
+            if (prevAp != null && entry.ApName != null && entry.ApName != prevAp)
+            {
+                annotations.Add(new AnnotationsXAxis
+                {
+                    X = ts,
+                    BorderColor = "#3b82f6",
+                    Label = new Label
+                    {
+                        Text = entry.ApName,
+                        Style = new Style { Background = "#3b82f6", Color = "#fff", FontSize = "10px" },
+                        Orientation = Orientation.Horizontal,
+                        OffsetY = added ? yOffset + 18 : yOffset // stack below band label if both
+                    }
+                });
+                added = true;
+            }
+
+            if (added)
+                yOffset = yOffset == -5 ? -23 : -5; // alternate between two heights
+
+            if (entry.Band != null) prevBand = entry.Band;
+            if (entry.ApName != null) prevAp = entry.ApName;
+        }
+
+        _signalChartOptions.Annotations = new Annotations { Xaxis = annotations };
+    }
+
+    private async Task LoadConnectionDataAsync(DateTime from, DateTime to)
+    {
+        // Load trace history and UniFi connection events in parallel
+        var traceTask = DashboardService.GetTraceHistoryAsync(_client!.Mac, from, to);
+        var eventsTask = DashboardService.GetConnectionEventsAsync(_client.Mac);
+
+        await Task.WhenAll(traceTask, eventsTask);
+
+        _traceHistory = traceTask.Result;
+
+        // Filter connection events to the selected time range
+        _connectionEvents = eventsTask.Result
+            .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+            .OrderByDescending(e => e.Timestamp)
+            .ToList();
+
+        // Build connection history chart data
+        BuildConnectionChartData();
+    }
+
+    private void SetActiveTab(string tab)
+    {
+        if (_activeTab == tab) return;
+        _activeTab = tab;
+
+        // Update URL without navigation
+        var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
+        NavigationManager.NavigateTo(uri, forceLoad: false, replace: true);
+
+        // Load data for the new tab
+        _ = InvokeAsync(async () =>
+        {
+            _tabLoading = true;
+            StateHasChanged();
+            try
+            {
+                await LoadTabDataAsync();
+            }
+            finally
+            {
+                _tabLoading = false;
+                StateHasChanged();
+            }
+            await UpdateActiveChartsAsync();
+        });
+    }
+
+    private void ToggleLogging()
+    {
+        _isLogging = !_isLogging;
+    }
+
+    private void SetTimeFilter(int hours)
+    {
+        if (_selectedTimeFilter == hours) return;
+        _selectedTimeFilter = hours;
+        _signalPage = 1;
+        _speedPage = 1;
+        _connectionPage = 1;
+
+        // Reload data for all tabs with new time range
+        _ = InvokeAsync(async () =>
+        {
+            _tabLoading = true;
+            StateHasChanged();
+            try
+            {
+                await LoadTabDataAsync();
+            }
+            finally
+            {
+                _tabLoading = false;
+                StateHasChanged();
+            }
+            await UpdateActiveChartsAsync();
+        });
+    }
+
+    private async Task UpdateActiveChartsAsync()
+    {
+        try
+        {
+            switch (_activeTab)
+            {
+                case "speed":
+                    if (_speedChart != null) await _speedChart.UpdateSeriesAsync(true);
+                    if (_latencyChart != null) await _latencyChart.UpdateSeriesAsync(true);
+                    break;
+                case "signal":
+                    if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true);
+                    break;
+                case "connection":
+                    if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true);
+                    break;
+            }
+        }
+        catch { /* Chart may not be mounted yet */ }
+    }
+
+    private (DateTime from, DateTime to) GetTimeRange()
+    {
+        var to = DateTime.UtcNow;
+        var from = _selectedTimeFilter == 0
+            ? DateTime.MinValue
+            : to.AddHours(-_selectedTimeFilter);
+        return (from, to);
+    }
+
+    private async Task RetryIdentify()
+    {
+        await IdentifyAndLoadAsync();
+        StateHasChanged();
+    }
+
+    private void ToggleResultExpand(int resultId)
+    {
+        _expandedResultId = _expandedResultId == resultId ? null : resultId;
+    }
+
+    private void ToggleTraceExpand(DateTime timestamp)
+    {
+        _expandedTraceTimestamp = _expandedTraceTimestamp == timestamp ? null : timestamp;
+    }
+
+    // --- Signal Table Sorting ---
+
+    private void ToggleSignalSort(string col)
+    {
+        if (_signalSortCol == col)
+            _signalSortAsc = !_signalSortAsc;
+        else
+        {
+            _signalSortCol = col;
+            _signalSortAsc = col == "time" ? false : true; // default: time desc, others asc
+        }
+        _signalPage = 1;
+    }
+
+    private string SortIndicator(string col)
+    {
+        if (_signalSortCol != col) return "";
+        return _signalSortAsc ? "\u25B2" : "\u25BC";
+    }
+
+    private List<CollapsedSignalRow> _cachedCollapsed = new();
+
+    private List<CollapsedSignalRow> GetSortedSignalHistory()
+    {
+        // Downsample based on selected time range
+        var data = DownsampleForDisplay(_signalHistory);
+
+        // Sort the data
+        data = _signalSortCol switch
+        {
+            "signal" => _signalSortAsc
+                ? data.OrderBy(e => e.SignalDbm ?? int.MinValue)
+                : data.OrderByDescending(e => e.SignalDbm ?? int.MinValue),
+            "band" => _signalSortAsc
+                ? data.OrderBy(e => e.Band ?? "")
+                : data.OrderByDescending(e => e.Band ?? ""),
+            "ap" => _signalSortAsc
+                ? data.OrderBy(e => e.ApName ?? "")
+                : data.OrderByDescending(e => e.ApName ?? ""),
+            "channel" => _signalSortAsc
+                ? data.OrderBy(e => e.Channel ?? 0)
+                : data.OrderByDescending(e => e.Channel ?? 0),
+            _ => _signalSortAsc
+                ? data.OrderBy(e => e.Timestamp)
+                : data.OrderByDescending(e => e.Timestamp)
+        };
+
+        // Collapse consecutive identical rows into ranges
+        var collapsed = new List<CollapsedSignalRow>();
+        CollapsedSignalRow? current = null;
+
+        foreach (var entry in data)
+        {
+            if (current != null && current.IsSameAs(entry))
+            {
+                current.EndTime = entry.Timestamp;
+                current.Count++;
+            }
+            else
+            {
+                current = new CollapsedSignalRow(entry);
+                collapsed.Add(current);
+            }
+        }
+
+        _cachedCollapsed = collapsed;
+        return collapsed;
+    }
+
+    private int SignalTotalPages => Math.Max(1, (int)Math.Ceiling(_cachedCollapsed.Count / (double)SignalPageSize));
+
+    private IEnumerable<CollapsedSignalRow> GetPagedSignalHistory()
+    {
+        var collapsed = GetSortedSignalHistory();
+        return collapsed.Skip((_signalPage - 1) * SignalPageSize).Take(SignalPageSize);
+    }
+
+    private void ChangeSignalPage(int delta)
+    {
+        _signalPage = Math.Clamp(_signalPage + delta, 1, SignalTotalPages);
+    }
+
+    // Speed results pagination
+    private int SpeedTotalPages => Math.Max(1, (int)Math.Ceiling(_speedResults.Count / (double)SpeedPageSize));
+
+    private IEnumerable<Iperf3Result> GetPagedSpeedResults()
+    {
+        return _speedResults.Skip((_speedPage - 1) * SpeedPageSize).Take(SpeedPageSize);
+    }
+
+    private void ChangeSpeedPage(int delta)
+    {
+        _speedPage = Math.Clamp(_speedPage + delta, 1, SpeedTotalPages);
+    }
+
+    // Connection events pagination
+    private int ConnectionTotalPages => Math.Max(1, (int)Math.Ceiling(_connectionEvents.Count / (double)ConnectionPageSize));
+
+    private IEnumerable<ClientConnectionEvent> GetPagedConnectionEvents()
+    {
+        return _connectionEvents.Skip((_connectionPage - 1) * ConnectionPageSize).Take(ConnectionPageSize);
+    }
+
+    private void ChangeConnectionPage(int delta)
+    {
+        _connectionPage = Math.Clamp(_connectionPage + delta, 1, ConnectionTotalPages);
+    }
+
+    /// <summary>
+    /// Downsample signal history entries to match the display granularity for the selected time range.
+    /// 1h: raw (5s), 6h: 1-min buckets, 24h: 5-min, 7d: 30-min, 30d+: 1-hour.
+    /// </summary>
+    private IEnumerable<SignalHistoryEntry> DownsampleForDisplay(List<SignalHistoryEntry> entries)
+    {
+        var bucketMinutes = _selectedTimeFilter switch
+        {
+            1 => 0,     // raw
+            6 => 1,     // 1-minute buckets
+            24 => 5,    // 5-minute buckets
+            168 => 30,  // 30-minute buckets
+            _ => 60     // 1-hour buckets (30d, All)
+        };
+
+        if (bucketMinutes == 0)
+            return entries;
+
+        return entries
+            .GroupBy(e => new
+            {
+                Bucket = new DateTime(
+                    e.Timestamp.Ticks - (e.Timestamp.Ticks % (TimeSpan.TicksPerMinute * bucketMinutes)),
+                    DateTimeKind.Utc),
+                e.DataSource
+            })
+            .Select(g =>
+            {
+                var items = g.ToList();
+                var first = items[0];
+                return new SignalHistoryEntry
+                {
+                    Timestamp = g.Key.Bucket,
+                    SignalDbm = items.Any(i => i.SignalDbm.HasValue)
+                        ? (int?)Math.Round(items.Where(i => i.SignalDbm.HasValue).Average(i => (double)i.SignalDbm!.Value))
+                        : null,
+                    NoiseDbm = items.LastOrDefault(i => i.NoiseDbm.HasValue)?.NoiseDbm ?? first.NoiseDbm,
+                    Band = items.GroupBy(i => i.Band).OrderByDescending(bg => bg.Count()).First().Key,
+                    ApName = items.GroupBy(i => i.ApName).OrderByDescending(bg => bg.Count()).First().Key,
+                    ApMac = items.GroupBy(i => i.ApMac).OrderByDescending(bg => bg.Count()).First().Key,
+                    Channel = items.GroupBy(i => i.Channel).OrderByDescending(bg => bg.Count()).First().Key,
+                    ChannelWidth = items.LastOrDefault(i => i.ChannelWidth.HasValue)?.ChannelWidth ?? first.ChannelWidth,
+                    Protocol = items.GroupBy(i => i.Protocol).OrderByDescending(bg => bg.Count()).First().Key,
+                    TxRateKbps = items.Any(i => i.TxRateKbps.HasValue && i.TxRateKbps > 0)
+                        ? items.Where(i => i.TxRateKbps.HasValue && i.TxRateKbps > 0).Max(i => i.TxRateKbps)
+                        : null,
+                    RxRateKbps = items.Any(i => i.RxRateKbps.HasValue && i.RxRateKbps > 0)
+                        ? items.Where(i => i.RxRateKbps.HasValue && i.RxRateKbps > 0).Max(i => i.RxRateKbps)
+                        : null,
+                    HopCount = items.LastOrDefault(i => i.HopCount.HasValue)?.HopCount ?? first.HopCount,
+                    BottleneckLinkSpeedMbps = items.LastOrDefault(i => i.BottleneckLinkSpeedMbps.HasValue)?.BottleneckLinkSpeedMbps ?? first.BottleneckLinkSpeedMbps,
+                    Latitude = items.LastOrDefault(i => i.Latitude.HasValue)?.Latitude ?? first.Latitude,
+                    Longitude = items.LastOrDefault(i => i.Longitude.HasValue)?.Longitude ?? first.Longitude,
+                    DataSource = g.Key.DataSource
+                };
+            })
+            .OrderBy(e => e.Timestamp);
+    }
+
+    private class CollapsedSignalRow
+    {
+        public SignalHistoryEntry Entry { get; }
+        public DateTime EndTime { get; set; }
+        public int Count { get; set; } = 1;
+
+        public bool IsRange => Count > 1;
+
+        public CollapsedSignalRow(SignalHistoryEntry entry)
+        {
+            Entry = entry;
+            EndTime = entry.Timestamp;
+        }
+
+        public bool IsSameAs(SignalHistoryEntry other) =>
+            Entry.SignalDbm == other.SignalDbm &&
+            Entry.Band == other.Band &&
+            Entry.ApName == other.ApName &&
+            Entry.Channel == other.Channel &&
+            Entry.TxRateKbps == other.TxRateKbps &&
+            Entry.RxRateKbps == other.RxRateKbps &&
+            Entry.DataSource == other.DataSource;
+    }
+
+    // --- Connection Event Helpers ---
+
+    private static string GetEventBadgeClass(ClientConnectionEventType type) => type switch
+    {
+        ClientConnectionEventType.Connected => "event-connected",
+        ClientConnectionEventType.Disconnected => "event-disconnected",
+        ClientConnectionEventType.Roamed => "event-roamed",
+        _ => ""
+    };
+
+    private static string GetEventRowClass(ClientConnectionEventType type) => type switch
+    {
+        ClientConnectionEventType.Disconnected => "event-row-disconnect",
+        _ => ""
+    };
+
+    private static string FormatEventType(ClientConnectionEventType type) => type switch
+    {
+        ClientConnectionEventType.Connected => "Connected",
+        ClientConnectionEventType.Disconnected => "Disconnected",
+        ClientConnectionEventType.Roamed => "Roamed",
+        _ => "Unknown"
+    };
+
+    private async Task RequestGpsAsync()
+    {
+        try
+        {
+            // Wrap browser geolocation in a Promise for JS interop
+            var js = "new Promise((resolve) => { " +
+                "if (!navigator.geolocation) { resolve(null); return; } " +
+                "navigator.geolocation.getCurrentPosition(" +
+                "(pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }), " +
+                "() => resolve(null), " +
+                "{ enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }" +
+                "); })";
+            var result = await JS.InvokeAsync<GpsResult?>("eval", js);
+
+            if (result != null)
+            {
+                _gpsLat = result.Lat;
+                _gpsLng = result.Lng;
+                _gpsAccuracy = result.Acc;
+            }
+        }
+        catch
+        {
+            // GPS is optional - don't fail if browser denies permission
+        }
+    }
+
+    private class GpsResult
+    {
+        public double Lat { get; set; }
+        public double Lng { get; set; }
+        public int? Acc { get; set; }
+    }
+
+    // --- URL Construction ---
+
+    private void BuildOpenSpeedTestUrl()
+    {
+        var hostName = Configuration["HOST_NAME"];
+        var hostIp = Configuration["HOST_IP"];
+        var openSpeedTestHost = Configuration["OPENSPEEDTEST_HOST"];
+        var openSpeedTestPortConfig = Configuration["OPENSPEEDTEST_PORT"];
+        var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
+        var openSpeedTestHttps = Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+        var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
+        var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
+
+        if (string.IsNullOrEmpty(openSpeedTestHost))
+            openSpeedTestHost = hostName;
+
+        if (!string.IsNullOrEmpty(openSpeedTestHost))
+        {
+            if (openSpeedTestHttps)
+            {
+                _openSpeedTestUrl = openSpeedTestHttpsPort == "443"
+                    ? $"https://{openSpeedTestHost}"
+                    : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
+            }
+            else
+            {
+                _openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
+            }
+        }
+        else
+        {
+            var fallbackIp = !string.IsNullOrEmpty(hostIp) ? hostIp : NetworkUtilities.DetectLocalIpFromInterfaces();
+            if (!string.IsNullOrEmpty(fallbackIp))
+            {
+                _openSpeedTestUrl = $"http://{fallbackIp}:{openSpeedTestPort}";
+            }
+        }
+    }
+
+    // --- Chart Configuration ---
+
+    private void ConfigureSpeedChart()
+    {
+        _speedChartOptions = new ApexChartOptions<SpeedChartPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false }
+            },
+            Theme = new Theme { Mode = Mode.Dark },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Title = new AxisTitle { Text = "Mbps" },
+                    Min = 0,
+                    Labels = new YAxisLabels
+                    {
+                        Formatter = @"function(val) { return Math.round(val); }"
+                    }
+                }
+            },
+            Colors = new List<string> { "#3385d6", "#24bc70" }, // From Device (blue), To Device (green) - matches SpeedTestDetails
+            Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
+            Fill = new Fill { Opacity = new Opacity(0.15) },
+            Grid = new Grid
+            {
+                BorderColor = "rgba(255,255,255,0.08)"
+            },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                Y = new TooltipY
+                {
+                    Formatter = @"function(val) { return val.toFixed(1) + ' Mbps'; }"
+                }
+            },
+            Legend = new Legend { Show = true, Position = LegendPosition.Top }
+        };
+    }
+
+    private void ConfigureLatencyChart()
+    {
+        _latencyChartOptions = new ApexChartOptions<SpeedChartPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false }
+            },
+            Theme = new Theme { Mode = Mode.Dark },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis { Title = new AxisTitle { Text = "ms" }, Min = 0 }
+            },
+            Colors = new List<string> { "#f59e0b", "#a78bfa" },
+            Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
+            },
+            Legend = new Legend { Show = true, Position = LegendPosition.Top }
+        };
+    }
+
+    private void ConfigureSignalChart()
+    {
+        _signalChartOptions = new ApexChartOptions<SignalChartPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false }
+            },
+            Theme = new Theme { Mode = Mode.Dark },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = -100,
+                    Max = -20,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#3b82f6" },
+                        Formatter = "function(val) { return val + ' dBm'; }"
+                    }
+                }
+            },
+            Colors = new List<string> { "#3b82f6" },
+            Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
+            Fill = new Fill
+            {
+                Type = new List<FillType> { FillType.Gradient },
+                Gradient = new FillGradient
+                {
+                    ShadeIntensity = 0.3,
+                    OpacityFrom = 0.4,
+                    OpacityTo = 0.1
+                }
+            },
+            Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
+            },
+            Legend = new Legend { Show = false }
+        };
+    }
+
+    // --- Formatting Helpers ---
+
+    private static string GetSignalClass(int dbm) => dbm switch
+    {
+        >= -60 => "signal-excellent",
+        >= -70 => "signal-good",
+        >= -75 => "signal-fair",
+        >= -82 => "signal-weak",
+        _ => "signal-poor"
+    };
+
+    private static string GetBandClass(string? band) => band switch
+    {
+        "6e" or "6g" => "band-6ghz",
+        "na" or "5g" => "band-5ghz",
+        "ng" or "2g" => "band-2ghz",
+        _ => ""
+    };
+
+    private static string GetSpeedClass(double mbps) => mbps switch
+    {
+        >= 500 => "speed-excellent",
+        >= 100 => "speed-good",
+        >= 30 => "speed-fair",
+        _ => "speed-poor"
+    };
+
+    private static string FormatProtocol(string? proto) => proto switch
+    {
+        "be" => "Wi-Fi 7 (BE)",
+        "ax" => "Wi-Fi 6 (AX)",
+        "ac" => "Wi-Fi 5 (AC)",
+        "n" => "Wi-Fi 4 (N)",
+        _ => proto ?? "—"
+    };
+
+    private static string FormatSignalTime(DateTime utcTimestamp)
+    {
+        var local = utcTimestamp.ToLocalTime();
+        return local.Date == DateTime.Now.Date
+            ? local.ToString("HH:mm:ss")
+            : local.ToString("MMM dd HH:mm:ss");
+    }
+
+    private static MarkupString RenderRate(long? rateKbps, string colorClass)
+    {
+        if (!rateKbps.HasValue || rateKbps == 0)
+            return new MarkupString("-");
+        var value = $"{rateKbps.Value / 1000.0:F0}";
+        return new MarkupString($"<span class=\"{colorClass}\">{value}</span> Mbps");
+    }
+
+    private static string FormatBand(string? band) => band switch
+    {
+        "ng" => "2.4 GHz",
+        "na" => "5 GHz",
+        "6e" => "6 GHz",
+        _ => band ?? "—"
+    };
+
+    // --- Chart Data Classes ---
+
+    private class SpeedChartPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal Value { get; set; }
+        public string Series { get; set; } = "";
+        public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+        public SpeedChartPoint(DateTime timestamp, decimal value, string series)
+        {
+            Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
+            Value = value;
+            Series = series;
+        }
+    }
+
+    private class SignalChartPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal Value { get; set; }
+        public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+        public SignalChartPoint(DateTime timestamp, decimal value)
+        {
+            Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
+            Value = value;
+        }
+    }
+
+    // --- Trace Change Summary ---
+
+    private static string FormatTraceChange(TraceChangeEntry prev, TraceChangeEntry curr)
+    {
+        var parts = new List<string>();
+
+        if (prev.HopCount.HasValue && curr.HopCount.HasValue && prev.HopCount != curr.HopCount)
+            parts.Add($"{prev.HopCount}\u2192{curr.HopCount} hops");
+
+        if (prev.BottleneckLinkSpeedMbps.HasValue && curr.BottleneckLinkSpeedMbps.HasValue
+            && Math.Abs(prev.BottleneckLinkSpeedMbps.Value - curr.BottleneckLinkSpeedMbps.Value) > 0.5)
+            parts.Add($"{prev.BottleneckLinkSpeedMbps:F0}\u2192{curr.BottleneckLinkSpeedMbps:F0} Mbps");
+
+        return parts.Count > 0 ? string.Join(", ", parts) : "Path changed";
+    }
+
+    // --- Connection Chart ---
+
+    private class ConnectionChartPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal ApIndex { get; set; }
+        public string ApName { get; set; } = "";
+        public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+        public ConnectionChartPoint(DateTime ts, decimal apIndex, string apName)
+        {
+            Timestamp = DateTime.SpecifyKind(ts, DateTimeKind.Utc);
+            ApIndex = apIndex;
+            ApName = apName;
+        }
+    }
+
+    private void BuildConnectionChartData()
+    {
+        _connectionChartData.Clear();
+
+        // Build AP name → index mapping from all AP names in events
+        var apNames = _connectionEvents
+            .SelectMany(e => new[] { e.ApName, e.ToApName, e.FromApName })
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Distinct()
+            .OrderBy(n => n)
+            .ToList();
+
+        if (apNames.Count == 0) return;
+
+        var apIndex = new Dictionary<string, int>();
+        for (int i = 0; i < apNames.Count; i++)
+            apIndex[apNames[i]!] = i;
+
+        foreach (var evt in _connectionEvents.OrderBy(e => e.Timestamp))
+        {
+            // Show where the client is after the event
+            var ap = evt.Type == ClientConnectionEventType.Roamed
+                ? (evt.ToApName ?? evt.ApName ?? "Unknown")
+                : (evt.ApName ?? "Unknown");
+            if (apIndex.TryGetValue(ap, out var idx))
+            {
+                _connectionChartData.Add(new ConnectionChartPoint(
+                    evt.Timestamp.UtcDateTime, idx, ap));
+            }
+        }
+
+        // Configure chart with AP names as Y categories
+        _connectionChartOptions = new ApexChartOptions<ConnectionChartPoint>
+        {
+            Chart = new Chart { Background = "transparent", Toolbar = new Toolbar { Show = false }, Zoom = new Zoom { Enabled = false } },
+            Theme = new Theme { Mode = Mode.Dark },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = -0.5m,
+                    Max = apNames.Count - 0.5m,
+                    TickAmount = apNames.Count > 1 ? apNames.Count - 1 : 1,
+                    Labels = new YAxisLabels
+                    {
+                        Formatter = @"function(val) {
+                            var names = [" + string.Join(",", apNames.Select(n => "'" + n!.Replace("'", "\\'") + "'")) + @"];
+                            var idx = Math.round(val);
+                            return idx >= 0 && idx < names.length ? names[idx] : '';
+                        }"
+                    }
+                }
+            },
+            Colors = new List<string> { "#3b82f6" },
+            Markers = new Markers { Size = 8 },
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
+            Tooltip = new Tooltip { Theme = Mode.Dark },
+            Legend = new Legend { Show = false }
+        };
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
+    }
+}
+
+<style>
+    /* Page-specific layout (app.css provides .page-header, .page-description, .card, .btn*, .empty-state,
+       .signal-*, .band-badge.band-*, .time-range-selector, .time-btn, .detail-label, .detail-value) */
+
+    .apexcharts-legend-marker {
+        margin-right: 0.3rem;
+    }
+
+    .client-dashboard-page {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 16px 32px;
+    }
+
+    /* Loading */
+    .loading-container {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: var(--text-secondary);
+    }
+
+    /* Identity Bar (.card provides bg/border/radius) */
+    .identity-bar {
+        padding: 12px 16px;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    .identity-row-1 {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
+    .identity-info {
+        min-width: 0;
+    }
+    .identity-name {
+        font-size: 1.125rem;
+        font-weight: 700;
+        margin: 0 0 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .identity-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-family: monospace;
+        flex-wrap: wrap;
+    }
+    .meta-sep {
+        opacity: 0.5;
+    }
+    .identity-signal {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+    .signal-gauge {
+        display: flex;
+        align-items: baseline;
+        gap: 2px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: var(--bg-tertiary);
+    }
+    .signal-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+    }
+    .signal-unit {
+        font-size: 0.75rem;
+        opacity: 0.7;
+    }
+    .identity-live-group {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .identity-live {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 38px;
+        min-height: 18px;
+    }
+    .logging-toggle {
+        font-size: 0.6875rem;
+        padding: 2px 8px;
+        height: 22px;
+    }
+    .logging-toggle-desktop {
+        margin-left: auto;
+        margin-top: -2rem;
+    }
+    .logging-toggle-mobile {
+        display: none;
+    }
+    .poll-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success-color, #10b981);
+        animation: pulse 2s ease-in-out infinite;
+    }
+    .poll-label {
+        color: var(--success-color, #10b981);
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .identity-row-2 {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+    .identity-detail {
+        white-space: nowrap;
+    }
+    .detail-dim {
+        opacity: 0.6;
+    }
+
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+
+    /* Speed colors (no signal-* needed - app.css provides those) */
+    .speed-excellent { color: #10b981; }
+    .speed-good { color: #3b82f6; }
+    .speed-fair { color: #f59e0b; }
+    .speed-poor { color: #ef5858; }
+
+    /* MLO badge (not in app.css) */
+    .badge-mlo {
+        padding: 0.125rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        background: rgba(251, 191, 36, 0.15);
+        color: #fbbf24;
+    }
+
+    /* Tabs + Time Filter */
+    .dashboard-controls {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+    }
+    .tab-bar {
+        display: flex;
+        gap: 0.25rem;
+        background: var(--bg-primary);
+        border-radius: 6px;
+        padding: 0.25rem;
+    }
+    .tab-btn {
+        padding: 0.625rem 1.25rem;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 500;
+        min-height: 44px;
+        transition: all 0.15s ease;
+    }
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+    .tab-btn.active {
+        background: var(--primary-color);
+        color: white;
+    }
+
+    /* Tab content */
+    .tab-content {
+        min-height: 200px;
+        position: relative;
+    }
+    .tab-loading {
+        display: flex;
+        justify-content: center;
+        padding: 2rem 0;
+    }
+    .tab-pane {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .tab-pane .card {
+        margin-bottom: 0;
+    }
+
+    /* Speed Hero (.card provides bg/border/radius) */
+    .speed-hero {
+        padding: 24px;
+    }
+    .speed-hero-results {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .speed-metric {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+    .speed-label {
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+    }
+    .speed-value {
+        font-size: 2rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+    }
+    .speed-unit {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+    .speed-hero-meta {
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+        margin-top: 12px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    /* Speed Actions */
+    .speed-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+    }
+
+    /* Card content padding (.card provides bg/border/radius) */
+    .chart-card,
+    .results-card,
+    .trace-card {
+        padding: 20px;
+    }
+    .chart-card h3,
+    .results-card h3,
+    .trace-card h3 {
+        margin: 0 0 12px;
+        font-size: 1rem;
+    }
+
+    /* Results Table */
+    .results-table-container {
+        overflow-x: auto;
+    }
+    .results-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+    }
+    .results-table th {
+        text-align: left;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-weight: 500;
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+    }
+    .results-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        white-space: nowrap;
+    }
+    .result-row {
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .result-row:hover {
+        background: var(--bg-hover);
+    }
+    .result-row.expanded {
+        background: var(--bg-tertiary);
+    }
+    .result-details-row td {
+        padding: 0;
+    }
+    .result-details {
+        padding: 16px;
+        background: rgba(0,0,0,0.2);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    /* Signal Bars (used in identity bar) */
+    .signal-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 24px;
+    }
+    .signal-bars .bar {
+        width: 5px;
+        border-radius: 2px;
+        background: rgba(255,255,255,0.1);
+        transition: background 0.3s;
+    }
+    .signal-bars .bar:nth-child(1) { height: 20%; }
+    .signal-bars .bar:nth-child(2) { height: 40%; }
+    .signal-bars .bar:nth-child(3) { height: 60%; }
+    .signal-bars .bar:nth-child(4) { height: 80%; }
+    .signal-bars .bar:nth-child(5) { height: 100%; }
+    .signal-bars.signal-excellent .bar.active { background: #10b981; }
+    .signal-bars.signal-good .bar.active { background: #22c55e; }
+    .signal-bars.signal-fair .bar.active { background: #eab308; }
+    .signal-bars.signal-weak .bar.active { background: #f97316; }
+    .signal-bars.signal-poor .bar.active { background: #ef4444; }
+
+    /* Signal Summary Strip */
+    .signal-summary {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px 20px;
+        padding: 8px 16px;
+        background: var(--bg-card);
+        border-radius: 8px;
+        font-size: 0.8125rem;
+    }
+    .summary-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+    .summary-label {
+        color: var(--text-muted);
+    }
+    .summary-value {
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* Connection Event badges */
+    .event-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 0.6875rem;
+        font-weight: 500;
+    }
+    .event-connected {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+    }
+    .event-disconnected {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+    }
+    .event-roamed {
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+    }
+    .event-row-disconnect {
+        opacity: 0.7;
+    }
+    .event-details-cell {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    /* UniFi data source indicator */
+    .source-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #a78bfa;
+        margin-left: 4px;
+        vertical-align: middle;
+    }
+    .unifi-source-row {
+        opacity: 0.8;
+    }
+
+    .time-range-indicator {
+        color: var(--text-muted);
+        margin-left: 0.3rem;
+    }
+    .row-count {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        margin-left: 4px;
+    }
+
+    /* Skeleton loaders */
+    .skeleton-hero {
+        padding: 20px;
+        margin-bottom: 16px;
+    }
+    .skeleton-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .skeleton-chart {
+        padding: 20px;
+    }
+    .skeleton-row {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 12px;
+        align-items: center;
+    }
+    .skeleton-block {
+        background: linear-gradient(90deg, var(--bg-tertiary) 25%, rgba(255,255,255,0.06) 50%, var(--bg-tertiary) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+        border-radius: 4px;
+    }
+    .skeleton-title { width: 200px; height: 28px; }
+    .skeleton-gauge { width: 90px; height: 48px; border-radius: 8px; margin-left: auto; }
+    .skeleton-detail { width: 100px; height: 36px; }
+    .skeleton-tab { width: 80px; height: 44px; border-radius: 6px; }
+    .skeleton-chart-area { width: 100%; height: 200px; border-radius: 4px; }
+
+    @@keyframes skeleton-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
+    /* Sortable table headers */
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+    }
+    .sortable:hover {
+        color: var(--text-primary);
+    }
+    .sortable.sorted {
+        color: var(--primary-color);
+    }
+
+    /* Trace change cell */
+    .trace-change-cell {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    .trace-initial {
+        color: var(--text-secondary);
+        font-style: italic;
+    }
+
+    /* Mobile responsive */
+    @@media (max-width: 768px) {
+        .client-dashboard-page {
+            padding: 0 12px 24px;
+        }
+        .identity-row-1 {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .identity-signal {
+            align-self: stretch;
+        }
+        .identity-row-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 12px;
+        }
+        .logging-toggle-desktop {
+            display: none;
+        }
+        .identity-live-group {
+            flex-direction: column;
+            align-items: flex-end;
+            margin-left: auto;
+        }
+        .logging-toggle-mobile {
+            display: inline-flex;
+        }
+        .dashboard-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .tab-bar {
+            justify-content: stretch;
+        }
+        .tab-btn {
+            flex: 1;
+            text-align: center;
+        }
+        .speed-hero-results {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .signal-summary {
+            gap: 6px 16px;
+        }
+        .speed-actions {
+            flex-direction: column;
+        }
+        .speed-actions .btn {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+</style>

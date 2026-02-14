@@ -3203,6 +3203,14 @@ select.form-control {
     line-height: 0.8;
 }
 
+.speed-value.speed-down {
+    color: var(--speed-download-color);
+}
+
+.speed-value.speed-up {
+    color: var(--speed-upload-color);
+}
+
 .speed-details .speed-value {
     font-size: 1.25rem;
 }
@@ -7158,12 +7166,21 @@ a.path-hop.hop-clickable:hover {
 
 .client-info-main {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 1rem;
 }
 
 .client-info-main .client-name {
     font-size: 1.1rem;
+}
+
+.client-info-main .client-dashboard-link {
+    color: var(--text-muted);
+    transition: color 0.15s;
+}
+
+.client-info-main .client-dashboard-link:hover {
+    color: var(--primary-color);
 }
 
 .client-name {

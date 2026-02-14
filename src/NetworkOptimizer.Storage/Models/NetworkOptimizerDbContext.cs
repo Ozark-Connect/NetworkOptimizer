@@ -31,6 +31,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<Building> Buildings { get; set; }
     public DbSet<FloorPlan> FloorPlans { get; set; }
     public DbSet<PlannedAp> PlannedAps { get; set; }
+    public DbSet<ClientSignalLog> ClientSignalLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -183,6 +184,14 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<PlannedAp>(entity =>
         {
             entity.ToTable("PlannedAps");
+        });
+
+        // ClientSignalLog configuration
+        modelBuilder.Entity<ClientSignalLog>(entity =>
+        {
+            entity.ToTable("ClientSignalLogs");
+            entity.HasIndex(e => new { e.ClientMac, e.Timestamp });
+            entity.HasIndex(e => e.TraceHash);
         });
     }
 }

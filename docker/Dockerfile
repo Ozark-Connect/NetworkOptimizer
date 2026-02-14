@@ -7,9 +7,11 @@ ARG VERSION=0.0.0-alpha.0
 
 WORKDIR /src
 
-# Copy solution file, build props, and all project files first for layer caching
+# Copy solution file, build props, NuGet config, and all project files first for layer caching
 COPY ["NetworkOptimizer.sln", "./"]
 COPY ["Directory.Build.props", "./"]
+COPY ["nuget.config", "./"]
+COPY ["packages/", "packages/"]
 COPY ["src/NetworkOptimizer.Core/NetworkOptimizer.Core.csproj", "src/NetworkOptimizer.Core/"]
 COPY ["src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj", "src/NetworkOptimizer.Web/"]
 COPY ["src/NetworkOptimizer.UniFi/NetworkOptimizer.UniFi.csproj", "src/NetworkOptimizer.UniFi/"]

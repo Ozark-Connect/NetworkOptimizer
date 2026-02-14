@@ -97,4 +97,19 @@ public class ClientWiFiMetrics
 
     /// <summary>Channel at this time</summary>
     public int? Channel { get; set; }
+
+    /// <summary>Channel width (MHz) at this time</summary>
+    public int? ChannelWidth { get; set; }
+
+    /// <summary>Average TX rate (kbps) - from AP to client</summary>
+    public long? TxRateKbps { get; set; }
+
+    /// <summary>Average RX rate (kbps) - from client to AP</summary>
+    public long? RxRateKbps { get; set; }
+
+    /// <summary>Wi-Fi protocol (e.g. "ax", "be", "ac")</summary>
+    public string? Protocol { get; set; }
+
+    /// <summary>Satisfaction score (0-100)</summary>
+    public double? Satisfaction { get; set; }
 }

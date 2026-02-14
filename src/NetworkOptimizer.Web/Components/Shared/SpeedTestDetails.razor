@@ -5,132 +5,144 @@
 @using NetworkOptimizer.Web.Components.Shared
 @implements IDisposable
 
-<div class="speed-results">
-    @if (DownloadMbps > 0)
-    {
-        <div class="speed-result download">
-            <div class="speed-icon">
-                <svg viewBox="0 0 24 24" width="32" height="32">
-                    <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
+@if (!PathOnly)
+{
+    <div class="speed-results">
+        @if (DownloadMbps > 0)
+        {
+            <div class="speed-result download">
+                <div class="speed-icon">
+                    <svg viewBox="0 0 24 24" width="32" height="32">
+                        <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div class="speed-details">
+                    <div class="speed-label">@(UseWanLabels ? "Download" : "From Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data downloaded from the internet (WAN to server)" : "Data transferred from the tested device to this server")">?</span></div>
+                    <div class="speed-value">@DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                    <div class="speed-meta">@FormatBytes(DownloadBytes) transferred</div>
+                </div>
             </div>
-            <div class="speed-details">
-                <div class="speed-label">@(UseWanLabels ? "Download" : "From Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data downloaded from the internet (WAN to server)" : "Data transferred from the tested device to this server")">?</span></div>
-                <div class="speed-value">@DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                <div class="speed-meta">@FormatBytes(DownloadBytes) transferred</div>
+        }
+        @if (UploadMbps > 0)
+        {
+            <div class="speed-result upload">
+                <div class="speed-icon">
+                    <svg viewBox="0 0 24 24" width="32" height="32">
+                        <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div class="speed-details">
+                    <div class="speed-label">@(UseWanLabels ? "Upload" : "To Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data uploaded to the internet (server to WAN)" : "Data transferred to the tested device from this server")">?</span></div>
+                    <div class="speed-value">@UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                    <div class="speed-meta">@FormatBytes(UploadBytes) transferred</div>
+                </div>
             </div>
-        </div>
-    }
-    @if (UploadMbps > 0)
-    {
-        <div class="speed-result upload">
-            <div class="speed-icon">
-                <svg viewBox="0 0 24 24" width="32" height="32">
-                    <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </div>
-            <div class="speed-details">
-                <div class="speed-label">@(UseWanLabels ? "Upload" : "To Device") <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@(UseWanLabels ? "Data uploaded to the internet (server to WAN)" : "Data transferred to the tested device from this server")">?</span></div>
-                <div class="speed-value">@UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                <div class="speed-meta">@FormatBytes(UploadBytes) transferred</div>
-            </div>
-        </div>
-    }
-    @if ((OnDelete.HasDelegate || (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)) && Result != null)
-    {
-        <div class="detail-actions" @onclick:stopPropagation="true">
-            @if (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)
-            {
-                @if (_wanEditing)
+        }
+        @if (Result != null && (OnDelete.HasDelegate || (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate) || !string.IsNullOrEmpty(Result.DeviceHost)))
+        {
+            <div class="detail-actions" @onclick:stopPropagation="true">
+                @if (!string.IsNullOrEmpty(Result.DeviceHost))
                 {
-                    <div class="wan-reassign-overlay" @onclick="CancelWanEdit"></div>
-                    <select class="wan-reassign-select" @onchange="HandleWanSelected">
-                        <option value="">Select WAN...</option>
-                        @foreach (var wan in AvailableWans)
-                        {
-                            <option value="@wan.NetworkGroup" selected="@(wan.NetworkGroup == Result.WanNetworkGroup)">@wan.DisplayName</option>
-                        }
-                    </select>
-                }
-                else if (_wanSaving)
-                {
-                    <span class="spinner-sm"></span>
-                }
-                else if (_wanSaved)
-                {
-                    <span class="wan-saved-indicator">Saved</span>
-                }
-                else
-                {
-                    <button class="btn-action-icon" @onclick="StartWanEdit" data-tooltip="Change WAN assignment" data-tooltip-hover-only>
+                    <a href="/client-dashboard?ip=@Result.DeviceHost&tab=speed" class="btn-action-icon"
+                       data-tooltip="View full speed and signal history" data-tooltip-hover-only>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                            <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                         </svg>
-                    </button>
+                    </a>
                 }
-            }
-            @if (OnDelete.HasDelegate)
-            {
-                <button class="btn-action-icon btn-action-danger" @onclick="HandleDelete" disabled="@_deleting" data-tooltip="Delete this result" data-tooltip-hover-only>
-                    @if (_deleting)
+                @if (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate)
+                {
+                    @if (_wanEditing)
+                    {
+                        <div class="wan-reassign-overlay" @onclick="CancelWanEdit"></div>
+                        <select class="wan-reassign-select" @onchange="HandleWanSelected">
+                            <option value="">Select WAN...</option>
+                            @foreach (var wan in AvailableWans)
+                            {
+                                <option value="@wan.NetworkGroup" selected="@(wan.NetworkGroup == Result.WanNetworkGroup)">@wan.DisplayName</option>
+                            }
+                        </select>
+                    }
+                    else if (_wanSaving)
                     {
                         <span class="spinner-sm"></span>
                     }
+                    else if (_wanSaved)
+                    {
+                        <span class="wan-saved-indicator">Saved</span>
+                    }
                     else
                     {
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                        </svg>
+                        <button class="btn-action-icon" @onclick="StartWanEdit" data-tooltip="Change WAN assignment" data-tooltip-hover-only>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                            </svg>
+                        </button>
                     }
-                </button>
-            }
+                }
+                @if (OnDelete.HasDelegate)
+                {
+                    <button class="btn-action-icon btn-action-danger" @onclick="HandleDelete" disabled="@_deleting" data-tooltip="Delete this result" data-tooltip-hover-only>
+                        @if (_deleting)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        else
+                        {
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                            </svg>
+                        }
+                    </button>
+                }
+            </div>
+        }
+    </div>
+    @if (DownloadRetransmits > 0 || UploadRetransmits > 0)
+    {
+        <div class="retransmits-info">
+            <small>Retransmits: @DownloadRetransmits from / @UploadRetransmits to</small>
         </div>
     }
-</div>
-@if (DownloadRetransmits > 0 || UploadRetransmits > 0)
-{
-    <div class="retransmits-info">
-        <small>Retransmits: @DownloadRetransmits from / @UploadRetransmits to</small>
+    <div class="test-details">
+        <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
+        <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
+        @if (IsInTableRow)
+        {
+            <span class="hide-mobile">Host <code>@DeviceHost</code></span>
+        }
+        else
+        {
+            <span>@(UseWanLabels ? "Host" : "Device") <code>@DeviceName (@DeviceHost)</code></span>
+        }
+        <span class="hide-mobile">Duration <code>@DurationSeconds seconds</code></span>
+        <span class="show-mobile">Duration <code>@(DurationSeconds)s</code></span>
+        <span>Streams <code>@ParallelStreams parallel</code></span>
+        @if (PingMs.HasValue)
+        {
+            <span>Ping <code>@(PingMs.Value % 1 == 0 && PingMs.Value >= 10 ? PingMs.Value.ToString("F0") : PingMs.Value.ToString("F1")) ms</code></span>
+        }
+        @if (JitterMs.HasValue)
+        {
+            <span>Jitter <code>@(JitterMs.Value.ToString("F1")) ms</code></span>
+        }
+        @if (DownloadLatencyMs.HasValue || UploadLatencyMs.HasValue)
+        {
+            @if (DownloadLatencyMs.HasValue)
+            {
+                <span data-tooltip="Latency measured while downloading (link saturated). High values indicate bufferbloat.">
+                    Loaded ↓ <code>@(DownloadLatencyMs.Value.ToString("F1")) ms@(DownloadJitterMs.HasValue && DownloadJitterMs.Value > 0 ? $" ({DownloadJitterMs.Value:F1} jitter)" : "")</code>
+                </span>
+            }
+            @if (UploadLatencyMs.HasValue)
+            {
+                <span data-tooltip="Latency measured while uploading (link saturated). High values indicate bufferbloat.">
+                    Loaded ↑ <code>@(UploadLatencyMs.Value.ToString("F1")) ms@(UploadJitterMs.HasValue && UploadJitterMs.Value > 0 ? $" ({UploadJitterMs.Value:F1} jitter)" : "")</code>
+                </span>
+            }
+        }
     </div>
 }
-<div class="test-details">
-    <span class="hide-mobile">@TestTime.ToLocalTime().ToString("g")</span>
-    <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
-    @if (IsInTableRow)
-    {
-        <span class="hide-mobile">Host <code>@DeviceHost</code></span>
-    }
-    else
-    {
-        <span>@(UseWanLabels ? "Host" : "Device") <code>@DeviceName (@DeviceHost)</code></span>
-    }
-    <span class="hide-mobile">Duration <code>@DurationSeconds seconds</code></span>
-    <span class="show-mobile">Duration <code>@(DurationSeconds)s</code></span>
-    <span>Streams <code>@ParallelStreams parallel</code></span>
-    @if (PingMs.HasValue)
-    {
-        <span>Ping <code>@(PingMs.Value % 1 == 0 && PingMs.Value >= 10 ? PingMs.Value.ToString("F0") : PingMs.Value.ToString("F1")) ms</code></span>
-    }
-    @if (JitterMs.HasValue)
-    {
-        <span>Jitter <code>@(JitterMs.Value.ToString("F1")) ms</code></span>
-    }
-    @if (DownloadLatencyMs.HasValue || UploadLatencyMs.HasValue)
-    {
-        @if (DownloadLatencyMs.HasValue)
-        {
-            <span data-tooltip="Latency measured while downloading (link saturated). High values indicate bufferbloat.">
-                Loaded ↓ <code>@(DownloadLatencyMs.Value.ToString("F1")) ms@(DownloadJitterMs.HasValue && DownloadJitterMs.Value > 0 ? $" ({DownloadJitterMs.Value:F1} jitter)" : "")</code>
-            </span>
-        }
-        @if (UploadLatencyMs.HasValue)
-        {
-            <span data-tooltip="Latency measured while uploading (link saturated). High values indicate bufferbloat.">
-                Loaded ↑ <code>@(UploadLatencyMs.Value.ToString("F1")) ms@(UploadJitterMs.HasValue && UploadJitterMs.Value > 0 ? $" ({UploadJitterMs.Value:F1} jitter)" : "")</code>
-            </span>
-        }
-    }
-</div>
 
 @if (PathAnalysis != null)
 {
@@ -404,6 +416,11 @@
     /// When true, uses WAN labels (Download/Upload) instead of LAN labels (From Device/To Device)
     /// </summary>
     [Parameter] public bool UseWanLabels { get; set; }
+
+    /// <summary>
+    /// When true, only renders the path visualization and hides test details (speed, retransmits, metadata).
+    /// </summary>
+    [Parameter] public bool PathOnly { get; set; }
 
     /// <summary>
     /// Path analysis result (set automatically when using Result parameter)

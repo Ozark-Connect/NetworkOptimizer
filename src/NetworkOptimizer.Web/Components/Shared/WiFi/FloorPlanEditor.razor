@@ -19,21 +19,24 @@
     <!-- Toolbar -->
     <div class="fp-toolbar">
         <div class="fp-toolbar-left">
-            <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged"
-                    disabled="@(_mode == "walls")">
-                <option value="0">Select Building...</option>
-                @foreach (var b in _buildings)
+            @if (!ReadOnly)
+            {
+                <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged"
+                        disabled="@(_mode == "walls")">
+                    <option value="0">Select Building...</option>
+                    @foreach (var b in _buildings)
+                    {
+                        <option value="@b.Id">@b.Name</option>
+                    }
+                </select>
+                @if (_selectedBuilding != null)
                 {
-                    <option value="@b.Id">@b.Name</option>
+                    <button class="fp-btn" @onclick="DeselectBuilding">Done Editing</button>
                 }
-            </select>
-            @if (_selectedBuilding != null)
-            {
-                <button class="fp-btn" @onclick="DeselectBuilding">Done Editing</button>
-            }
-            else
-            {
-                <button class="fp-btn" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
+                else
+                {
+                    <button class="fp-btn" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
+                }
             }
 
             @if (_selectedBuilding != null)
@@ -48,8 +51,11 @@
                             @GetFloorLabel(f.FloorNumber)
                         </button>
                     }
-                    <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor" data-tooltip-hover-only
-                            disabled="@(_mode == "walls")">+ Floor</button>
+                    @if (!ReadOnly)
+                    {
+                        <button class="fp-floor-btn fp-floor-add" @onclick="ShowAddFloorDialog" data-tooltip="Add floor" data-tooltip-hover-only
+                                disabled="@(_mode == "walls")">+ Floor</button>
+                    }
                 </div>
             }
             else if (AllFloorNumbers.Any())
@@ -67,30 +73,42 @@
             }
         </div>
         <div class="fp-toolbar-right">
-            @if (_selectedFloor != null)
+            @if (!ReadOnly)
             {
-                @* ── Walls group ── *@
+                @if (_selectedFloor != null)
+                {
+                    @* ── Walls group ── *@
+                    <div class="fp-toolbar-group">
+                        <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "fp-btn-primary")" @onclick="ToggleWallDrawMode">
+                            @(_mode == "walls" ? "Done Drawing" : "Draw Layout")
+                        </button>
+                        @if (_mode == "walls")
+                        {
+                            <select class="fp-select fp-select-sm fp-wall-select" @bind="_wallMaterial">
+                                @foreach (var mat in MaterialAttenuation.MaterialLabels
+                                    .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior"))
+                                {
+                                    var db = MaterialAttenuation.GetAttenuation(mat.Key, "5");
+                                    <option value="@mat.Key">@mat.Value (@db dB)</option>
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
+                                    data-tooltip="Delete last wall" data-tooltip-hover-only>Undo Wall</button>
+                        }
+                    </div>
+                    <span class="fp-toolbar-sep"></span>
+                }
+
+                @* ── APs group ── *@
                 <div class="fp-toolbar-group">
-                    <button class="fp-btn @(_mode == "walls" ? "fp-btn-warning" : "fp-btn-primary")" @onclick="ToggleWallDrawMode">
-                        @(_mode == "walls" ? "Done Drawing" : "Draw Layout")
+                    <button class="fp-btn @(_mode == "aps" ? "fp-btn-warning" : "")" @onclick="ToggleApEditMode">
+                        @(_mode == "aps" ? "Done" : "Edit APs")
                     </button>
-                    @if (_mode == "walls")
-                    {
-                        <select class="fp-select fp-select-sm fp-wall-select" @bind="_wallMaterial">
-                            @foreach (var mat in MaterialAttenuation.MaterialLabels
-                                .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior"))
-                            {
-                                var db = MaterialAttenuation.GetAttenuation(mat.Key, "5");
-                                <option value="@mat.Key">@mat.Value (@db dB)</option>
-                            }
-                        </select>
-                    }
-                    else
-                    {
-                        <button class="fp-btn fp-btn-danger-sm" @onclick="DeleteLastWall"
-                                data-tooltip="Delete last wall" data-tooltip-hover-only>Undo Wall</button>
-                    }
                 </div>
+
                 <span class="fp-toolbar-sep"></span>
             }
 
@@ -232,7 +250,7 @@
             </div>
         }
 
-        @if (_selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
+        @if (!ReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
         {
             <div class="fp-edit-hint fp-wall-hint"><!--!--><span>Click Draw Layout to draw walls, windows, doors, etc.</span></div>
         }
@@ -257,13 +275,13 @@
                 @if (_selectedBuilding != null)
                 {
                     <div class="fp-editing-chip" @onclick="DeselectBuilding">
-                        Editing @_selectedBuilding.Name <span>&times;</span>
+                        Editing @_selectedBuilding.Name <span class="fp-chip-close">&times;</span>
                     </div>
                 }
                 @if (_mode == "aps")
                 {
                     <div class="fp-editing-chip" @onclick="ToggleApEditMode">
-                        Editing APs <span>&times;</span>
+                        Editing APs <span class="fp-chip-close">&times;</span>
                     </div>
                 }
                 @if (_mode == "plan-aps")
@@ -275,7 +293,7 @@
                 @if (_showSignalData)
                 {
                     <div class="fp-editing-chip" @onclick="ToggleSignalData">
-                        Showing Signal Data <span>&times;</span>
+                        Showing Signal Data <span class="fp-chip-close">&times;</span>
                     </div>
                 }
             </div>
@@ -298,7 +316,7 @@
     </div>
 
     <!-- Bottom bar -->
-    @if (_selectedFloor != null)
+    @if (!ReadOnly && _selectedFloor != null)
     {
         <div class="fp-bottom-bar">
             @* TODO: Re-enable once floor plan image sizing/positioning is implemented
@@ -326,7 +344,7 @@
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
     }
-    else if (_selectedBuilding != null)
+    else if (!ReadOnly && _selectedBuilding != null)
     {
         <div class="fp-bottom-bar">
             <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
@@ -920,6 +938,11 @@
         white-space: nowrap;
     }
 
+    .fp-editing-chip .fp-chip-close {
+        margin-left: auto;
+        margin-top: -2px;
+    }
+
     .fp-editing-chip:hover {
         background: var(--primary-hover);
     }
@@ -1055,7 +1078,7 @@
 
     /* Signal data popup styles (matches Speed Map) */
     .map-popup {
-        min-width: 200px;
+        min-width: 235px;
     }
 
     .map-popup-footer {
@@ -1067,6 +1090,13 @@
 
     .map-popup-time {
         color: #64748b;
+    }
+
+    .map-popup-links {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
     }
 
     .map-tooltip-ap {
@@ -1268,7 +1298,10 @@
 
 @code {
     [Parameter] public string MapHeight { get; set; } = "600px";
+    [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public List<Iperf3Result> SpeedTestResults { get; set; } = new();
+    [Parameter] public List<SignalMapPoint> SignalLogMarkers { get; set; } = new();
+    [Parameter] public bool HideDashboardLinks { get; set; }
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
@@ -1306,12 +1339,28 @@
     private string? _selectedCatalogModel;
 
     private IEnumerable<ApMapMarker> UnplacedAps => _apMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
+    private int _lastSignalLogCount;
+    private int _lastSpeedTestCount;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Auto-update signal data markers when either data source changes
+        if (_mapInitialized && _showSignalData
+            && (SignalLogMarkers.Count != _lastSignalLogCount || SpeedTestResults.Count != _lastSpeedTestCount))
+        {
+            _lastSignalLogCount = SignalLogMarkers.Count;
+            _lastSpeedTestCount = SpeedTestResults.Count;
+            await UpdateSignalDataMarkers();
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
+            if (ReadOnly)
+                _showSignalData = true;
             await LoadBuildings();
             await LoadApMarkers();
             await LoadPlannedAps();
@@ -1321,6 +1370,7 @@
             await UpdateApMarkers();
             await UpdateBackgroundWalls();
             if (_showHeatmap) await ComputeHeatmap();
+            if (_showSignalData) await UpdateSignalDataMarkers();
             StateHasChanged();
         }
     }
@@ -2051,7 +2101,7 @@
 
         var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
         var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
-        var clickable = _selectedBuilding == null;
+        var clickable = _selectedBuilding == null && !ReadOnly;
         await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson, clickable);
 
         // Same-building adjacent floor walls (for length snap when drawing first shape)
@@ -2272,18 +2322,32 @@
     {
         if (!_mapInitialized || !_showSignalData) return;
 
-        var filtered = SpeedTestResults
+        var speedTestMarkers = SpeedTestResults
             .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
-            .ToList();
+            .Select(r => new
+            {
+                key = $"st-{r.Id}",
+                lat = r.Latitude!.Value,
+                lng = r.Longitude!.Value,
+                color = GetSignalColor(r.WifiSignalDbm!.Value),
+                signalDbm = r.WifiSignalDbm!.Value,
+                popup = BuildSignalPopup(r)
+            });
 
-        var markersJson = System.Text.Json.JsonSerializer.Serialize(filtered.Select(r => new
-        {
-            lat = r.Latitude!.Value,
-            lng = r.Longitude!.Value,
-            color = GetSignalColor(r.WifiSignalDbm!.Value),
-            signalDbm = r.WifiSignalDbm!.Value,
-            popup = BuildSignalPopup(r)
-        }));
+        // Markers from signal log entries (client dashboard)
+        var signalLogMarkers = SignalLogMarkers
+            .Select((p, i) => new
+            {
+                key = $"sl-{p.Timestamp.Ticks}-{i}",
+                lat = p.Latitude,
+                lng = p.Longitude,
+                color = GetSignalColor(p.SignalDbm),
+                signalDbm = p.SignalDbm,
+                popup = BuildSignalLogPopup(p)
+            });
+
+        var allMarkers = speedTestMarkers.Concat(signalLogMarkers);
+        var markersJson = System.Text.Json.JsonSerializer.Serialize(allMarkers);
 
         await JS.InvokeVoidAsync("fpEditor.updateSignalData", markersJson);
     }
@@ -2355,20 +2419,77 @@
         html += $"<span class='wifi-speed-tx'>\u2191 {result.UploadMbps:F0}</span> Mbps";
         html += "</div>";
 
-        // Footer with time and client details link
+        // Footer with time and links
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
         html += $"<span class='map-popup-time'>{time}</span>";
+        html += "<span class='map-popup-links'>";
         var clientMac = result.ClientMac ?? result.PathAnalysis?.Path?.Hops?
             .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
         if (OnClientClick.HasDelegate && !string.IsNullOrEmpty(clientMac))
         {
             var jsMac = clientMac.Replace("'", "\\'");
             var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
-            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client details \u2192</a>";
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats \u2192</a>";
         }
+        if (!string.IsNullOrEmpty(result.DeviceHost))
+        {
+            var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
+            if (HideDashboardLinks)
+                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed' class='map-popup-link'>Speed Results \u2192</a>";
+            else
+                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Client Performance \u2192</a>";
+        }
+        html += "</span>";
         html += "</div>";
 
+        html += "</div>";
+        return html;
+    }
+
+    private string BuildSignalLogPopup(SignalMapPoint point)
+    {
+        var time = point.Timestamp.ToLocalTime().ToString("MMM d, h:mm:ss tt");
+        var html = "<div class='map-popup'>";
+
+        if (!string.IsNullOrEmpty(point.DeviceName))
+            html += $"<div class='wifi-tooltip-header'>{System.Net.WebUtility.HtmlEncode(point.DeviceName)}</div>";
+
+        html += "<div class='wifi-tooltip-link-signal'>";
+        if (!string.IsNullOrEmpty(point.Band))
+        {
+            var radio = System.Net.WebUtility.HtmlEncode(point.Band.ToLowerInvariant());
+            html += $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span> ";
+        }
+        html += $"{point.SignalDbm} dBm";
+        html += "</div>";
+
+        if (!string.IsNullOrEmpty(point.ApName))
+        {
+            var apName = System.Net.WebUtility.HtmlEncode(point.ApName);
+            html += $"<div class='wifi-tooltip-link map-tooltip-ap'><strong>AP</strong> {apName}</div>";
+        }
+
+        if (point.Channel.HasValue)
+            html += $"<div style='font-size:0.8rem;color:#94a3b8;'>Ch {point.Channel}</div>";
+
+        html += "<div class='wifi-tooltip-divider'></div>";
+        html += "<div class='map-popup-footer'>";
+        html += $"<span class='map-popup-time'>{time}</span>";
+        html += "<span class='map-popup-links'>";
+        if (OnClientClick.HasDelegate && !string.IsNullOrEmpty(point.ClientMac))
+        {
+            var jsMac = point.ClientMac.Replace("'", "\\'");
+            var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
+            html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats \u2192</a>";
+        }
+        if (!HideDashboardLinks && !string.IsNullOrEmpty(point.ClientIp))
+        {
+            var ip = System.Net.WebUtility.HtmlEncode(point.ClientIp);
+            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Client Performance \u2192</a>";
+        }
+        html += "</span>";
+        html += "</div>";
         html += "</div>";
         return html;
     }
@@ -2704,6 +2825,7 @@
     [JSInvokable]
     public async Task OnBgBuildingClicked(int buildingId)
     {
+        if (ReadOnly) return; // No building editing in read-only mode
         if (_selectedBuilding != null) return; // Only from global view
         await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
     }
