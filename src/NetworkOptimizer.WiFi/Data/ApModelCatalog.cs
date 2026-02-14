@@ -26,6 +26,12 @@ public static class ApModelCatalog
         public required Dictionary<string, BandDefaults> Bands { get; init; }
         public required string DefaultMountType { get; init; }
         public bool HasOmniVariant { get; init; }
+
+        /// <summary>
+        /// Antenna variant suffixes available for this model (e.g., ["omni"] or ["narrow","wide"]).
+        /// Empty if the model has no switchable antenna modes.
+        /// </summary>
+        public List<string> AntennaVariants { get; init; } = new();
     }
 
     // Fallback defaults for models not in the hardcoded table
@@ -121,25 +127,27 @@ public static class ApModelCatalog
         },
         ["E7-Campus"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 4 },
-            ["5"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
-            ["6"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
+            // Website specs (public.json had wrong values: 22/4, 29/6, 29/6)
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 9 },
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
+            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
         },
         ["E7-Audience"] = new()
         {
-            // 5+6 GHz only (no 2.4 GHz radio). Gain null in public.json - estimated from wide-angle antenna pattern
-            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
-            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
+            // 5+6 GHz only (no 2.4 GHz radio). Selectable beam: narrow 15 dBi 50x50, wide 11 dBi 90x90
+            // Gain null in public.json - using website specs. Narrow (15 dBi) is default.
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
+            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
         },
         ["E7-Audience-EU"] = new()
         {
-            // Same specs as E7-Audience (gain null in public.json - estimated from wide-angle antenna pattern)
-            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
-            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
+            // Same specs as E7-Audience
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
+            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 15 },
         },
         ["E7-Campus-EU"] = new()
         {
-            // Different gains/power from base E7-Campus (higher directional gains for EU regulatory)
+            // Same gains/power as E7-Campus, just no 6 GHz radio
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 9 },
             ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
         },
@@ -359,12 +367,14 @@ public static class ApModelCatalog
                 }
             }
 
+            var variants = patternLoader.GetAntennaVariants(model);
             catalog.Add(new ApModelInfo
             {
                 Model = model,
                 Bands = bands,
                 DefaultMountType = MountTypeHelper.GetDefaultMountType(model),
                 HasOmniVariant = patternLoader.HasOmniVariant(model),
+                AntennaVariants = variants,
             });
         }
 

@@ -587,19 +587,26 @@ window.fpEditor = {
                 }
             }
 
-            // Antenna mode toggle for APs with switchable modes (e.g., Internal/Omni)
+            // Antenna mode toggle for APs with switchable modes
+            // Supports two types: Internal/OMNI (U7-Outdoor) and Narrow/Wide (E7-Audience)
             var antennaModeHtml = '';
+            function getModePair(mode) {
+                var m = (mode || '').toUpperCase();
+                if (m === 'NARROW' || m === 'WIDE') return { modes: ['Narrow', 'Wide'], labels: ['Narrow', 'Wide'] };
+                return { modes: ['Internal', 'OMNI'], labels: ['Directional', 'Omni'] };
+            }
             if (isPlanned) {
                 // Planned APs: antenna mode persists directly
                 if (activeRadio && activeRadio.antennaMode) {
                     var currentMode = activeRadio.antennaMode;
-                    var isOmni = currentMode && currentMode.toUpperCase() === 'OMNI';
+                    var pair = getModePair(currentMode);
+                    var activeIdx = currentMode.toUpperCase() === pair.modes[1].toUpperCase() ? 1 : 0;
                     antennaModeHtml =
                         '<div class="fp-ap-popup-row"><label>Antenna</label>' +
                         '<div class="fp-mode-toggle" ' +
-                        'onclick="fpEditor._togglePlannedAntennaMode(' + ap.plannedId + ',\'' + esc(currentMode || 'Internal') + '\')">' +
-                        '<span class="fp-mode-opt' + (isOmni ? '' : ' active') + '">Directional</span>' +
-                        '<span class="fp-mode-opt' + (isOmni ? ' active' : '') + '">Omni</span>' +
+                        'onclick="fpEditor._togglePlannedAntennaMode(' + ap.plannedId + ',\'' + esc(currentMode) + '\')">' +
+                        '<span class="fp-mode-opt' + (activeIdx === 0 ? ' active' : '') + '">' + pair.labels[0] + '</span>' +
+                        '<span class="fp-mode-opt' + (activeIdx === 1 ? ' active' : '') + '">' + pair.labels[1] + '</span>' +
                         '</div></div>';
                 }
             } else {
@@ -607,7 +614,8 @@ window.fpEditor = {
                 if (activeRadio && activeRadio.antennaMode) {
                     var modeOverrideKey = ap.mac.toLowerCase();
                     var currentMode = self._antennaModeOverrides[modeOverrideKey] || activeRadio.antennaMode;
-                    var isOmni = currentMode.toUpperCase() === 'OMNI';
+                    var pair = getModePair(currentMode);
+                    var activeIdx = currentMode.toUpperCase() === pair.modes[1].toUpperCase() ? 1 : 0;
                     var safeModeKey = esc(modeOverrideKey);
                     var modeIsOverridden = self._antennaModeOverrides[modeOverrideKey] != null;
                     var modeHeader = txPowerHtml ? '' :
@@ -616,8 +624,8 @@ window.fpEditor = {
                         '<div class="fp-ap-popup-row"><label>Antenna</label>' +
                         '<div class="fp-mode-toggle' + (modeIsOverridden ? ' overridden' : '') + '" ' +
                         'onclick="fpEditor._toggleAntennaMode(\'' + safeModeKey + '\',\'' + esc(activeRadio.antennaMode) + '\')">' +
-                        '<span class="fp-mode-opt' + (isOmni ? '' : ' active') + '">Directional</span>' +
-                        '<span class="fp-mode-opt' + (isOmni ? ' active' : '') + '">Omni</span>' +
+                        '<span class="fp-mode-opt' + (activeIdx === 0 ? ' active' : '') + '">' + pair.labels[0] + '</span>' +
+                        '<span class="fp-mode-opt' + (activeIdx === 1 ? ' active' : '') + '">' + pair.labels[1] + '</span>' +
                         '</div></div>';
                 }
             }
@@ -775,15 +783,23 @@ window.fpEditor = {
         });
     },
 
+    _getOtherMode: function (currentMode) {
+        var m = currentMode.toUpperCase();
+        if (m === 'NARROW') return 'Wide';
+        if (m === 'WIDE') return 'Narrow';
+        if (m === 'OMNI') return 'Internal';
+        return 'OMNI';
+    },
+
     _togglePlannedAntennaMode: function (plannedId, currentMode) {
-        var next = currentMode.toUpperCase() === 'OMNI' ? null : 'OMNI';
+        var next = this._getOtherMode(currentMode);
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnPlannedApAntennaModeChangedFromJs', plannedId, next);
     },
 
     _toggleAntennaMode: function (key, originalMode) {
         var current = this._antennaModeOverrides[key] || originalMode;
-        var next = current.toUpperCase() === 'OMNI' ? 'Internal' : 'OMNI';
-        if (next === originalMode) {
+        var next = this._getOtherMode(current);
+        if (next.toUpperCase() === originalMode.toUpperCase()) {
             delete this._antennaModeOverrides[key];
         } else {
             this._antennaModeOverrides[key] = next;

@@ -1212,6 +1212,7 @@ app.MapGet("/api/floor-plan/ap-catalog", (NetworkOptimizer.WiFi.Data.AntennaPatt
         }),
         defaultMountType = c.DefaultMountType,
         hasOmniVariant = c.HasOmniVariant,
+        antennaVariants = c.AntennaVariants,
         iconPath = NetworkOptimizer.Web.Components.Shared.DeviceIcon.GetIconPath(c.Model) ?? "/images/devices/default-ap.png"
     }));
 });

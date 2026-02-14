@@ -107,6 +107,27 @@ public class AntennaPatternLoader
     }
 
     /// <summary>
+    /// Get all antenna variant suffixes for a model (e.g., ["omni"] for U7-Outdoor, ["narrow","wide"] for E7-Audience).
+    /// Returns empty list if the model has no switchable modes.
+    /// </summary>
+    public List<string> GetAntennaVariants(string model)
+    {
+        EnsureLoaded();
+        if (_patterns == null) return new List<string>();
+
+        var patternName = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            ? model[..^2]
+            : model;
+
+        var prefix = $"{patternName}:";
+        return _patterns.Keys
+            .Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(k => k[prefix.Length..])
+            .OrderBy(k => k)
+            .ToList();
+    }
+
+    /// <summary>
     /// Get antenna gain at a specific elevation angle for a model/band/mode.
     /// Returns 0 dBi if pattern not found.
     /// </summary>

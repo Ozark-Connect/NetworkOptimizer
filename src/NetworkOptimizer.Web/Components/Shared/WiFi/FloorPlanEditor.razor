@@ -2029,6 +2029,14 @@
         {
             var model = _selectedCatalogModel;
             var mountType = MountTypeHelper.GetDefaultMountType(model);
+            var catalogEntry = _apCatalog.FirstOrDefault(c => c.Model == model);
+            string? defaultAntennaMode = null;
+            if (catalogEntry?.AntennaVariants is { Count: > 0 } variants)
+            {
+                // Set default antenna mode: "Narrow" for narrow/wide APs, "Internal" for omni APs
+                defaultAntennaMode = variants.Contains("narrow", StringComparer.OrdinalIgnoreCase)
+                    ? "Narrow" : "Internal";
+            }
             var ap = new PlannedAp
             {
                 Name = model,
@@ -2036,7 +2044,8 @@
                 Latitude = lat,
                 Longitude = lng,
                 Floor = _globalActiveFloor,
-                MountType = mountType
+                MountType = mountType,
+                AntennaMode = defaultAntennaMode
             };
             await PlannedApSvc.CreateAsync(ap);
             await LoadPlannedAps();
