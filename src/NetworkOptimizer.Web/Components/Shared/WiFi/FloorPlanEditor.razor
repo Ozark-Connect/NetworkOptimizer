@@ -2120,10 +2120,13 @@
             var htmlMac = System.Net.WebUtility.HtmlEncode(jsMac);
             html += $"<a href='javascript:void(0)' onclick='fpEditor._dotNetRef.invokeMethodAsync(\"OnSignalClientClick\",\"{htmlMac}\")' class='map-popup-link'>Client stats \u2192</a>";
         }
-        if (!HideDashboardLinks && !string.IsNullOrEmpty(result.DeviceHost))
+        if (!string.IsNullOrEmpty(result.DeviceHost))
         {
             var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
-            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
+            if (HideDashboardLinks)
+                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed' class='map-popup-link'>Speed Results \u2192</a>";
+            else
+                html += $"<a href='/client-dashboard?ip={ip}&amp;tab=signal' class='map-popup-link'>Dashboard \u2192</a>";
         }
         html += "</span>";
         html += "</div>";
