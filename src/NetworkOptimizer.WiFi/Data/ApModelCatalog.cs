@@ -187,7 +187,8 @@ public static class ApModelCatalog
         },
         ["E7-Campus-EU"] = new()
         {
-            // Same gains/power as E7-Campus, just no 6 GHz radio
+            // Same gains/power as E7-Campus, just no 6 GHz radio.
+            // 2.4 GHz pattern duplicated manually in antenna-patterns.json (EU source data was missing).
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 9 },
             ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
         },
