@@ -443,7 +443,10 @@ public static class ApModelCatalog
     /// </summary>
     public static BandDefaults GetBandDefaults(string model, string band)
     {
-        if (ModelDefaults.TryGetValue(model, out var modelBands) &&
+        // Strip color suffix (e.g., "-B" for black) before lookup
+        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            ? model[..^2] : model;
+        if (ModelDefaults.TryGetValue(m, out var modelBands) &&
             modelBands.TryGetValue(band, out var specific))
         {
             return specific;
