@@ -149,7 +149,7 @@
                             }
                             else
                             {
-                                <span class="poll-label" style="opacity: 0.5">Connecting...</span>
+                                <span class="poll-label" style="opacity: 0.5; margin-left: 13px">Connecting...</span>
                             }
                         </span>
                         @if (!_isOwnDevice && _client is { IsWired: false })
@@ -889,7 +889,7 @@
                 _consecutiveFailures++;
                 try { await InvokeAsync(StateHasChanged); } catch { }
             }
-        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
