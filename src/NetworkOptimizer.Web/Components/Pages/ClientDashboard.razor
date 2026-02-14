@@ -21,7 +21,7 @@
     @* Page Header *@
     <div class="page-header">
         <h1>Client Performance</h1>
-        <p class="page-description">Live signal strength, speed test history, connection path tracing, and walk-test signal mapping for @(_isOwnDevice ? "your device" : "a specific Wi-Fi client").@(_isOwnDevice ? " Leave this page open while walking around to collect signal and location data." : "")</p>
+        <p class="page-description">Live signal strength, speed test history, connection path tracing, and walk-test signal mapping for @(_isOwnDevice ? "your device" : "a specific Wi-Fi client").@(_isOwnDevice && !_isInsecureContext ? " Leave this page open while walking around to collect signal and location data." : "")</p>
     </div>
 
     @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
