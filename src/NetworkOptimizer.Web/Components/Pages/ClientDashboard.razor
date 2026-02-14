@@ -31,7 +31,7 @@
                 <span class="banner-icon">!</span>
                 <div class="banner-text">
                     <strong>Not Connected</strong>
-                    <span>Unable to reach the UniFi controller. Signal polling is paused.</span>
+                    <span>Unable to reach the UniFi Console. Signal polling is paused.</span>
                 </div>
                 <a href="/settings" class="btn btn-primary btn-sm">Check Settings</a>
             </div>
@@ -50,7 +50,7 @@
         </div>
     }
 
-    @if (_isInsecureContext)
+    @if (_showGpsWarning)
     {
         <div class="connection-banner">
             <div class="banner-content">
@@ -90,7 +90,7 @@
     {
         <div class="card empty-state">
             <h3>Device Not Found</h3>
-            <p>Could not identify your device on the network. Make sure you're connected via Wi-Fi and the UniFi controller is reachable.</p>
+            <p>Could not identify your device on the network. Make sure you're connected and the UniFi Console is reachable.</p>
             <button class="btn btn-primary" @onclick="RetryIdentify">Retry</button>
         </div>
     }
@@ -784,6 +784,7 @@
     private double? _gpsLng;
     private int? _gpsAccuracy;
     private bool _isInsecureContext;
+    private bool _showGpsWarning;
 
     // Time filter options
     private static readonly (int hours, string label)[] _timeFilters = new[]
@@ -845,8 +846,12 @@
         // Identify client
         await IdentifyAndLoadAsync();
 
+        // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
+        _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
+        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client is { IsWired: false };
+
         // Request GPS location only for wireless clients viewing own device (data will be persisted)
-        if (_isOwnDevice && _client is { IsWired: false })
+        if (_isOwnDevice && _client is { IsWired: false } && !_isInsecureContext)
             _ = RequestGpsAsync();
 
         // Start polling every 5 seconds
@@ -1475,15 +1480,6 @@
     {
         try
         {
-            // Check if browser is in a secure context (HTTPS or localhost) - required for geolocation
-            var isSecure = await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
-            if (!isSecure)
-            {
-                _isInsecureContext = true;
-                await InvokeAsync(StateHasChanged);
-                return;
-            }
-
             // Wrap browser geolocation in a Promise for JS interop
             var js = "new Promise((resolve) => { " +
                 "if (!navigator.geolocation) { resolve(null); return; } " +
