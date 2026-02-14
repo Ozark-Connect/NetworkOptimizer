@@ -114,13 +114,13 @@
                             }
                         </div>
                     }
-                    @if (_pollCount > 0)
-                    {
-                        <span class="identity-live">
+                    <span class="identity-live">
+                        @if (_pollCount > 0)
+                        {
                             <span class="poll-dot"></span>
                             <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
-                        </span>
-                    }
+                        }
+                    </span>
                     @if (!_isOwnDevice)
                     {
                         <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
@@ -139,16 +139,14 @@
                         {<span class="detail-dim"> · @_client.ApModel</span>}
                     </span>
                     <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")</span>
-                    <span class="identity-detail identity-proto-tx">
-                        @FormatProtocol(_client.Protocol)
-                        @if (_client.TxRateKbps.HasValue)
-                        {
-                            <span class="rate-inline" data-tooltip="AP transmit rate (to device)">· TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
-                        }
-                    </span>
+                    <span class="identity-detail identity-proto">@FormatProtocol(_client.Protocol)</span>
                     @if (_client.RxRateKbps.HasValue)
                     {
-                        <span class="identity-detail" data-tooltip="AP receive rate (from device)">RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                        <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                    }
+                    @if (_client.TxRateKbps.HasValue)
+                    {
+                        <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                     }
                     @if (_client.IsMlo)
                     {
@@ -1920,13 +1918,11 @@
         display: flex;
         align-items: center;
         gap: 5px;
-        min-width: 25px;
     }
     .logging-toggle {
         font-size: 0.6875rem;
         padding: 2px 8px;
         height: 22px;
-        min-width: 25px;
     }
     .logging-toggle-desktop {
         margin-left: auto;
@@ -1947,6 +1943,7 @@
         font-size: 0.6875rem;
         text-transform: uppercase;
         letter-spacing: 0.3px;
+        min-width: 25px;
     }
     .identity-row-2 {
         display: flex;
@@ -1958,9 +1955,6 @@
     }
     .identity-detail {
         white-space: nowrap;
-    }
-    .rate-inline {
-        opacity: 0.85;
     }
     .detail-dim {
         opacity: 0.6;
