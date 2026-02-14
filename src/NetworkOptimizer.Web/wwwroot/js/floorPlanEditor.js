@@ -550,8 +550,8 @@ window.fpEditor = {
             if (isPlanned) {
                 // Planned APs: TX power changes persist directly to DB
                 if (activeRadio && activeRadio.txPowerDbm != null) {
-                    var minPower = activeRadio.minTxPower || 1;
-                    var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
+                    var minPower = activeRadio.minTxPowerDbm || 1;
+                    var maxPower = activeRadio.maxTxPowerDbm || activeRadio.txPowerDbm;
                     var currentPower = activeRadio.txPowerDbm;
                     var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
                     var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
@@ -573,8 +573,8 @@ window.fpEditor = {
                     var macKey = ap.mac.toLowerCase();
                     var overrideKey = macKey + ':' + self._heatmapBand;
                     var currentPower = (self._txPowerOverrides[overrideKey] != null) ? self._txPowerOverrides[overrideKey] : activeRadio.txPowerDbm;
-                    var minPower = activeRadio.minTxPowerDbm || activeRadio.minTxPower || 1;
-                    var maxPower = activeRadio.maxTxPowerDbm || activeRadio.maxTxPower || activeRadio.txPowerDbm;
+                    var minPower = activeRadio.minTxPowerDbm || 1;
+                    var maxPower = activeRadio.maxTxPowerDbm || activeRadio.txPowerDbm;
                     var isOverridden = self._txPowerOverrides[overrideKey] != null;
                     var safeKey = esc(overrideKey);
                     var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;

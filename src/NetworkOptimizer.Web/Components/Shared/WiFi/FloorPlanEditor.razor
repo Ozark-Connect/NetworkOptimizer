@@ -1690,8 +1690,8 @@
                 band = r.Band,
                 radioCode = r.RadioCode,
                 txPowerDbm = (int?)r.TxPowerDbm,
-                minTxPower = (int?)r.MinTxPowerDbm,
-                maxTxPower = (int?)r.MaxTxPowerDbm,
+                minTxPowerDbm = (int?)r.MinTxPowerDbm,
+                maxTxPowerDbm = (int?)r.MaxTxPowerDbm,
                 eirp = (int?)r.Eirp,
                 antennaMode = r.AntennaMode
             }).ToList()
@@ -1712,8 +1712,8 @@
                     band = band,
                     radioCode = radioCode,
                     txPowerDbm = (int?)txPower,
-                    minTxPower = (int?)bd.MinTxPowerDbm,
-                    maxTxPower = (int?)modeMaxTx,
+                    minTxPowerDbm = (int?)bd.MinTxPowerDbm,
+                    maxTxPowerDbm = (int?)modeMaxTx,
                     eirp = (int?)(txPower + modeGain),
                     antennaMode = pa.AntennaMode
                 };
