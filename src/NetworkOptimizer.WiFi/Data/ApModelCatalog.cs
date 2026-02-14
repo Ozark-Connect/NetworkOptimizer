@@ -151,9 +151,10 @@ public static class ApModelCatalog
         ["E7-Campus"] = new()
         {
             // Website specs (public.json had wrong values: 22/4, 29/6, 29/6)
+            // 6 GHz: 36 dBm EIRP cap with 12 dBi gain → max 24 dBm TX
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 9 },
             ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
-            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
+            ["6"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 12 },
         },
         ["E7-Audience"] = new()
         {
