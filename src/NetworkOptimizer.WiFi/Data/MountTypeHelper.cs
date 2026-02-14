@@ -7,7 +7,8 @@ public static class MountTypeHelper
 {
     private static readonly HashSet<string> WallModels = new(StringComparer.OrdinalIgnoreCase)
     {
-        "UAP-BeaconHD", "UDW", "UDB-Pro", "UDB-Pro-Sector", "UMA-D", "U6-Extender"
+        "UAP-BeaconHD", "UDW", "UDB-Pro", "UDB-Pro-Sector", "UMA-D", "U6-Extender",
+        "E7-Audience", "E7-Audience-EU", "E7-Campus", "E7-Campus-EU"
     };
 
     private static readonly HashSet<string> DesktopModels = new(StringComparer.OrdinalIgnoreCase)
