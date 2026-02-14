@@ -30,7 +30,11 @@ public class PlannedAp
     [MaxLength(20)]
     public string MountType { get; set; } = "ceiling";
 
-    public int? TxPowerDbm { get; set; }
+    public int? TxPower24Dbm { get; set; }
+
+    public int? TxPower5Dbm { get; set; }
+
+    public int? TxPower6Dbm { get; set; }
 
     [MaxLength(20)]
     public string? AntennaMode { get; set; }

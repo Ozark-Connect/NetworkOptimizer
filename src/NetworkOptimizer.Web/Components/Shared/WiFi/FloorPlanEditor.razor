@@ -1705,7 +1705,8 @@
                 var bd = ApModelCatalog.GetBandDefaults(pa.Model, band);
                 var (modeGain, modeMaxTx, modeDefaultTx) = ApModelCatalog.ResolveForMode(bd, pa.AntennaMode);
                 var radioCode = band == "2.4" ? "ng" : band == "6" ? "6e" : "na";
-                var txPower = pa.TxPowerDbm ?? modeDefaultTx;
+                var txPowerStored = band switch { "2.4" => pa.TxPower24Dbm, "6" => pa.TxPower6Dbm, _ => pa.TxPower5Dbm };
+                var txPower = txPowerStored ?? modeDefaultTx;
                 return new
                 {
                     band = band,
@@ -1941,9 +1942,9 @@
     }
 
     [JSInvokable]
-    public async Task OnPlannedApTxPowerChangedFromJs(int plannedId, int txPower)
+    public async Task OnPlannedApTxPowerChangedFromJs(int plannedId, string band, int txPower)
     {
-        await PlannedApSvc.UpdateTxPowerAsync(plannedId, txPower);
+        await PlannedApSvc.UpdateTxPowerAsync(plannedId, band, txPower);
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {

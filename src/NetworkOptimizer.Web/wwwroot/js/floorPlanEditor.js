@@ -548,17 +548,18 @@ window.fpEditor = {
                 if (activeRadio && activeRadio.txPowerDbm != null) {
                     var minPower = activeRadio.minTxPower || 1;
                     var maxPower = activeRadio.maxTxPower || activeRadio.txPowerDbm;
-                    var currentPower = Math.min(activeRadio.txPowerDbm, maxPower);
+                    var currentPower = activeRadio.txPowerDbm;
                     var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
                     var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
                     var eirpText = currentEirp != null ? ' / ' + currentEirp + ' dBm EIRP' : '';
+                    var bandStr = self._heatmapBand || '5';
                     txPowerHtml =
                         '<div class="fp-ap-popup-divider"></div>' +
                         '<div class="fp-ap-popup-row"><label>TX Power</label>' +
                         '<input type="range" data-tx-slider min="' + minPower + '" max="' + maxPower + '" value="' + currentPower + '" ' +
                         (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
                         'oninput="fpEditor._updateTxPowerLabel(this)" ' +
-                        'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApTxPowerChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
+                        'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApTxPowerChangedFromJs\',' + ap.plannedId + ',\'' + bandStr + '\',parseInt(this.value))" />' +
                         '</div>' +
                         '<div class="fp-ap-popup-tx-info">' + currentPower + ' dBm TX' + eirpText + '</div>';
                 }

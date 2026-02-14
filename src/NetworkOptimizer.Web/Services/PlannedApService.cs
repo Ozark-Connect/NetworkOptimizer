@@ -86,12 +86,17 @@ public class PlannedApService
         await db.SaveChangesAsync();
     }
 
-    public async Task UpdateTxPowerAsync(int id, int? txPower)
+    public async Task UpdateTxPowerAsync(int id, string band, int? txPower)
     {
         using var db = await _dbFactory.CreateDbContextAsync();
         var ap = await db.PlannedAps.FindAsync(id);
         if (ap == null) return;
-        ap.TxPowerDbm = txPower;
+        switch (band)
+        {
+            case "2.4": ap.TxPower24Dbm = txPower; break;
+            case "5": ap.TxPower5Dbm = txPower; break;
+            case "6": ap.TxPower6Dbm = txPower; break;
+        }
         ap.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
     }

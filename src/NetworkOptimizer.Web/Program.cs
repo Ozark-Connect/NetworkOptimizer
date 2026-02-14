@@ -1083,7 +1083,8 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     {
         var bandDefaults = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(pa.Model, bandFilter);
         var (modeGain, modeMaxTx, modeDefaultTx) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bandDefaults, pa.AntennaMode);
-        var txPower = pa.TxPowerDbm ?? modeDefaultTx;
+        var txPowerStored = bandFilter switch { "2.4" => pa.TxPower24Dbm, "6" => pa.TxPower6Dbm, _ => pa.TxPower5Dbm };
+        var txPower = txPowerStored ?? modeDefaultTx;
         // Only include planned APs that have the selected band
         var patternLoader = context.RequestServices.GetRequiredService<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
         var supportedBands = patternLoader.GetSupportedBands(pa.Model);
@@ -1187,8 +1188,8 @@ app.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext co
         await svc.UpdateOrientationAsync(id, deg.GetInt32());
     if (body.TryGetValue("mountType", out var mt))
         await svc.UpdateMountTypeAsync(id, mt.GetString() ?? "ceiling");
-    if (body.TryGetValue("txPowerDbm", out var tx))
-        await svc.UpdateTxPowerAsync(id, tx.ValueKind == System.Text.Json.JsonValueKind.Null ? null : tx.GetInt32());
+    if (body.TryGetValue("txPowerDbm", out var tx) && body.TryGetValue("band", out var band))
+        await svc.UpdateTxPowerAsync(id, band.GetString() ?? "5", tx.ValueKind == System.Text.Json.JsonValueKind.Null ? null : tx.GetInt32());
     if (body.TryGetValue("antennaMode", out var am))
         await svc.UpdateAntennaModeAsync(id, am.ValueKind == System.Text.Json.JsonValueKind.Null ? null : am.GetString());
     if (body.TryGetValue("name", out var name))
