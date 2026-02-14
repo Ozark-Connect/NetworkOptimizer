@@ -96,9 +96,10 @@ public static class ApModelCatalog
         },
         ["U7-Pro-XGS"] = new()
         {
+            // Website specs: 2.4 GHz 23/4, 5 GHz 29/6, 6 GHz 24/6 (public.json had 23 for 6 GHz)
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 4 },
             ["5"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
-            ["6"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 6 },
+            ["6"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 6 },
         },
         ["U7-Lite"] = new()
         {
