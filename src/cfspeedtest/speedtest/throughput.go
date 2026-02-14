@@ -126,6 +126,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 							continue
 						}
 					}
+					io.Copy(io.Discard, resp.Body)
 					resp.Body.Close()
 
 					if resp.StatusCode != http.StatusOK {
