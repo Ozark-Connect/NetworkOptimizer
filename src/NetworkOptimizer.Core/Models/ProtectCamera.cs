@@ -23,10 +23,16 @@ public sealed record ProtectCamera
     public string? ConnectionNetworkId { get; init; }
 
     /// <summary>
+    /// Whether this device is an NVR (UNVR, UNVR-Pro, Cloud Key).
+    /// NVRs are infrastructure devices that can legitimately be on Management or Security VLANs.
+    /// </summary>
+    public bool IsNvr { get; init; }
+
+    /// <summary>
     /// Create a ProtectCamera from MAC and name
     /// </summary>
-    public static ProtectCamera Create(string mac, string name, string? connectionNetworkId = null)
-        => new() { Mac = mac.ToLowerInvariant(), Name = name, ConnectionNetworkId = connectionNetworkId };
+    public static ProtectCamera Create(string mac, string name, string? connectionNetworkId = null, bool isNvr = false)
+        => new() { Mac = mac.ToLowerInvariant(), Name = name, ConnectionNetworkId = connectionNetworkId, IsNvr = isNvr };
 }
 
 /// <summary>
@@ -60,9 +66,9 @@ public sealed class ProtectCameraCollection
     /// <summary>
     /// Add a camera by MAC, name, and connection network ID
     /// </summary>
-    public void Add(string mac, string name, string? connectionNetworkId)
+    public void Add(string mac, string name, string? connectionNetworkId, bool isNvr = false)
     {
-        Add(ProtectCamera.Create(mac, name, connectionNetworkId));
+        Add(ProtectCamera.Create(mac, name, connectionNetworkId, isNvr));
     }
 
     /// <summary>
@@ -117,6 +123,16 @@ public sealed class ProtectCameraCollection
             return !string.IsNullOrEmpty(networkId);
         }
         return false;
+    }
+
+    /// <summary>
+    /// Check if a MAC address belongs to an NVR device
+    /// </summary>
+    public bool IsNvr(string? mac)
+    {
+        if (string.IsNullOrEmpty(mac))
+            return false;
+        return _cameras.TryGetValue(mac, out var camera) && camera.IsNvr;
     }
 
     /// <summary>

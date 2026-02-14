@@ -144,8 +144,19 @@ public class DeviceTypeDetectionService
         if (_protectCameras != null && !string.IsNullOrEmpty(client?.Mac) &&
             _protectCameras.TryGetName(client.Mac, out var protectCameraName))
         {
-            _logger?.LogDebug("[Detection] '{DisplayName}': UniFi Protect device '{CameraName}' (confirmed by controller)",
-                displayName, protectCameraName);
+            var isNvr = _protectCameras.IsNvr(client.Mac);
+            _logger?.LogDebug("[Detection] '{DisplayName}': UniFi Protect {DeviceType} '{CameraName}' (confirmed by controller)",
+                displayName, isNvr ? "NVR" : "device", protectCameraName);
+            var metadata = new Dictionary<string, object>
+            {
+                ["detection_method"] = "unifi_protect_api",
+                ["mac"] = client.Mac,
+                ["protect_name"] = protectCameraName ?? ""
+            };
+            if (isNvr)
+            {
+                metadata["is_nvr"] = true;
+            }
             return new DeviceDetectionResult
             {
                 Category = ClientDeviceCategory.Camera,  // All Protect security devices use Camera category for VLAN rules
@@ -154,12 +165,7 @@ public class DeviceTypeDetectionService
                 VendorName = "Ubiquiti",
                 ProductName = protectCameraName ?? "UniFi Protect",
                 RecommendedNetwork = NetworkPurpose.Security,
-                Metadata = new Dictionary<string, object>
-                {
-                    ["detection_method"] = "unifi_protect_api",
-                    ["mac"] = client.Mac,
-                    ["protect_name"] = protectCameraName ?? ""
-                }
+                Metadata = metadata
             };
         }
 

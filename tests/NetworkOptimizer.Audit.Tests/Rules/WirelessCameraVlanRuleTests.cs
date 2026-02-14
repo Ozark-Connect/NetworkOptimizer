@@ -323,6 +323,78 @@ public class WirelessCameraVlanRuleTests
 
     #endregion
 
+    #region NVR Tests - NVRs Allowed on Management VLAN
+
+    [Fact]
+    public void Evaluate_WirelessNvr_OnManagementVlan_ReturnsNull()
+    {
+        // Arrange - Wireless NVR (e.g., Cloud Key on WiFi) on Management VLAN should pass
+        var mgmtNetwork = new NetworkInfo { Id = "mgmt-net", Name = "Management", VlanId = 5, Purpose = NetworkPurpose.Management };
+        var client = CreateWirelessNvrClient(network: mgmtNetwork);
+        var networks = CreateNetworkList(mgmtNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - NVR correctly placed on Management VLAN
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_WirelessNvr_OnCorporateVlan_ReturnsCriticalIssue()
+    {
+        // Arrange - Wireless NVR on Corporate VLAN should be flagged
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessNvrClient(network: corpNetwork);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - NVR on wrong VLAN
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Critical);
+        result.Message.Should().StartWith("NVR");
+    }
+
+    private static WirelessClientInfo CreateWirelessNvrClient(
+        NetworkInfo? network = null,
+        string clientName = "Cloud Key Gen2",
+        string clientMac = "00:11:22:33:44:55")
+    {
+        var client = new UniFiClientResponse
+        {
+            Mac = clientMac,
+            Name = clientName,
+            IsWired = false,
+            NetworkId = network?.Id ?? string.Empty
+        };
+
+        var detection = new DeviceDetectionResult
+        {
+            Category = ClientDeviceCategory.Camera,
+            Source = DetectionSource.UniFiFingerprint,
+            ConfidenceScore = 100,
+            VendorName = "Ubiquiti",
+            ProductName = clientName,
+            Metadata = new Dictionary<string, object>
+            {
+                ["detection_method"] = "unifi_protect_api",
+                ["is_nvr"] = true
+            }
+        };
+
+        return new WirelessClientInfo
+        {
+            Client = client,
+            Network = network,
+            Detection = detection,
+            AccessPointName = "AP-Test"
+        };
+    }
+
+    #endregion
+
     #region Message Format Tests - For UI Title Generation
 
     [Fact]
