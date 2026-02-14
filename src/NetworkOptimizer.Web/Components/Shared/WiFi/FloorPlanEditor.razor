@@ -1506,6 +1506,8 @@
         _floors = _selectedBuilding?.Floors ?? new();
         _selectedFloorId = 0;
         _selectedFloor = null;
+        if (_mode == "aps" || _mode == "plan-aps")
+            await SetMapClickToPlaceMode(false);
         _mode = "view";
 
         if (_selectedBuilding != null && _floors.Count > 0)
@@ -2728,6 +2730,7 @@
         }
         else if (_mode == "aps" || _mode == "plan-aps")
         {
+            await SetMapClickToPlaceMode(false);
             _mode = "view";
             _selectedApForPlacement = null;
             _selectedCatalogModel = null;
@@ -2774,6 +2777,7 @@
         }
         else if (_mode == "aps" || _mode == "plan-aps")
         {
+            await SetMapClickToPlaceMode(false);
             _mode = "view";
             _selectedApForPlacement = null;
             _selectedCatalogModel = null;
