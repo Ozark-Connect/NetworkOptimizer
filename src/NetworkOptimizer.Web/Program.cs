@@ -1124,8 +1124,9 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
             {
                 ap.AntennaMode = overrideMode;
                 var bd = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(ap.Model, bandFilter);
-                var (gain, _, _) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bd, overrideMode);
+                var (gain, maxTx, _) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bd, overrideMode);
                 ap.AntennaGainDbi = gain;
+                ap.TxPowerDbm = Math.Min(ap.TxPowerDbm, maxTx);
             }
         }
     }

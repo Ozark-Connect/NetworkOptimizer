@@ -1687,15 +1687,31 @@
             iconUrl = DeviceIcon.GetIconPath(a.Model) ?? "/images/devices/default-ap.png",
             sameFloor = (a.Floor ?? 1) == _globalActiveFloor,
             isPlanned = false, plannedId = 0,
-            radios = a.Radios.Select(r => new
+            radios = a.Radios.Select(r =>
             {
-                band = r.Band,
-                radioCode = r.RadioCode,
-                txPowerDbm = (int?)r.TxPowerDbm,
-                minTxPowerDbm = (int?)r.MinTxPowerDbm,
-                maxTxPowerDbm = (int?)r.MaxTxPowerDbm,
-                eirp = (int?)r.Eirp,
-                antennaMode = r.AntennaMode
+                var bd = ApModelCatalog.GetBandDefaults(a.Model, r.Band);
+                // Include per-mode catalog limits so JS can clamp TX/gain when simulating mode changes
+                Dictionary<string, object>? catalogModes = null;
+                if (bd.ModeOverrides is { Count: > 0 })
+                {
+                    catalogModes = new Dictionary<string, object>
+                    {
+                        ["internal"] = new { maxTxPowerDbm = bd.MaxTxPowerDbm, antennaGainDbi = bd.AntennaGainDbi }
+                    };
+                    foreach (var (mk, mv) in bd.ModeOverrides)
+                        catalogModes[mk] = new { maxTxPowerDbm = mv.MaxTxPowerDbm ?? bd.MaxTxPowerDbm, antennaGainDbi = mv.AntennaGainDbi };
+                }
+                return new
+                {
+                    band = r.Band,
+                    radioCode = r.RadioCode,
+                    txPowerDbm = (int?)r.TxPowerDbm,
+                    minTxPowerDbm = (int?)r.MinTxPowerDbm,
+                    maxTxPowerDbm = (int?)r.MaxTxPowerDbm,
+                    eirp = (int?)r.Eirp,
+                    antennaMode = r.AntennaMode,
+                    catalogModes = (object?)catalogModes
+                };
             }).ToList()
         });
 
@@ -1717,7 +1733,8 @@
                     minTxPowerDbm = (int?)bd.MinTxPowerDbm,
                     maxTxPowerDbm = (int?)modeMaxTx,
                     eirp = (int?)(txPower + modeGain),
-                    antennaMode = pa.AntennaMode
+                    antennaMode = pa.AntennaMode,
+                    catalogModes = (object?)null
                 };
             }).ToList();
 

@@ -574,6 +574,21 @@ window.fpEditor = {
                     var isOverridden = self._txPowerOverrides[overrideKey] != null;
                     var safeKey = esc(overrideKey);
                     var antennaGain = (activeRadio.eirp != null) ? activeRadio.eirp - activeRadio.txPowerDbm : null;
+                    // When antenna mode is overridden, use catalog limits for the simulated mode
+                    var simMode = self._antennaModeOverrides[macKey];
+                    if (simMode && activeRadio.catalogModes) {
+                        var modeKey = simMode.toLowerCase();
+                        var modeCat = activeRadio.catalogModes[modeKey];
+                        if (modeCat) {
+                            maxPower = modeCat.maxTxPowerDbm;
+                            antennaGain = modeCat.antennaGainDbi;
+                            if (currentPower > maxPower) {
+                                currentPower = maxPower;
+                                if (self._txPowerOverrides[overrideKey] != null)
+                                    self._txPowerOverrides[overrideKey] = maxPower;
+                            }
+                        }
+                    }
                     var currentEirp = (antennaGain != null) ? currentPower + antennaGain : null;
                     var eirpText = currentEirp != null ? ' / ' + currentEirp + ' dBm EIRP' : '';
                     txPowerHtml =
