@@ -468,10 +468,6 @@ window.fpEditor = {
         var self = this;
         if (band) this._heatmapBand = band;
 
-        // Disable building click-to-select hit areas while in AP editing modes
-        var bgPaneEl = m.getPane('bgWallPane');
-        if (bgPaneEl) bgPaneEl.style.pointerEvents = draggable ? 'none' : 'auto';
-
         if (!this._apLayer) this._apLayer = L.layerGroup().addTo(m);
         if (!this._apGlowLayer) this._apGlowLayer = L.layerGroup().addTo(m);
 
@@ -873,9 +869,8 @@ window.fpEditor = {
             };
             m.on('click', this._placementHandler);
             m.getContainer().style.cursor = 'crosshair';
-            // Disable building click-to-select during placement
-            var bgPaneEl = m.getPane('bgWallPane');
-            if (bgPaneEl) bgPaneEl.style.pointerEvents = 'none';
+            // Remove building hit areas so they don't intercept clicks or show hover
+            if (this._bgHitAreaLayer) this._bgHitAreaLayer.clearLayers();
         } else {
             m.getContainer().style.cursor = '';
         }
@@ -912,6 +907,10 @@ window.fpEditor = {
         });
 
         // Clickable building hit areas in global view (convex hull of all wall points)
+        // Remove previous hit areas
+        if (this._bgHitAreaLayer) this._bgHitAreaLayer.clearLayers();
+        else this._bgHitAreaLayer = L.layerGroup().addTo(m);
+
         // Never enable building click-to-select while AP placement is active
         var effectiveClickable = clickable && !this._placementActive;
         if (effectiveClickable) {
@@ -927,7 +926,7 @@ window.fpEditor = {
                 if (latlngs.length < 3) return;
                 var poly = L.polygon(latlngs, {
                     color: '#64b5f6', weight: 0, fillOpacity: 0, interactive: true, pane: 'bgWallPane'
-                }).addTo(self._bgWallLayer);
+                }).addTo(self._bgHitAreaLayer);
                 var bldgId = parseInt(id);
                 poly.on('click', function () {
                     if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
@@ -935,11 +934,6 @@ window.fpEditor = {
                 poly.on('mouseover', function () { poly.setStyle({ fillOpacity: 0.15 }); });
                 poly.on('mouseout', function () { poly.setStyle({ fillOpacity: 0 }); });
             });
-            var bgPaneEl = m.getPane('bgWallPane');
-            if (bgPaneEl) bgPaneEl.style.pointerEvents = 'auto';
-        } else {
-            var bgPaneEl = m.getPane('bgWallPane');
-            if (bgPaneEl) bgPaneEl.style.pointerEvents = 'none';
         }
     },
 
