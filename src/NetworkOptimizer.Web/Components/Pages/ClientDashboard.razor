@@ -21,7 +21,7 @@
     @* Page Header *@
     <div class="page-header">
         <h1>Client Dashboard</h1>
-        <p class="page-description">Real-time signal quality, speed performance, and connection history for @(string.IsNullOrEmpty(IpParam) ? "your device" : "a specific device").</p>
+        <p class="page-description">Real-time signal quality, speed performance, and connection history for @(_isOwnDevice ? "your device" : "a specific device").</p>
     </div>
 
     @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
@@ -235,7 +235,7 @@
                     }
 
                     @* Speed Test Buttons *@
-                    @if (!string.IsNullOrEmpty(_openSpeedTestUrl))
+                    @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
                     {
                         <div class="speed-actions">
                             <a href="@(_openSpeedTestUrl)?Run" target="_blank" class="btn btn-primary btn-lg">
@@ -684,6 +684,7 @@
     public string? IpParam { get; set; }
 
     // State
+    private bool _isOwnDevice; // true when viewing own device (no ?ip= param)
     private bool _loading = true;
     private bool _tabLoading;
     private ClientIdentity? _client;
@@ -766,6 +767,8 @@
             };
         }
 
+        _isOwnDevice = string.IsNullOrEmpty(IpParam);
+
         // Build OpenSpeedTest URL
         BuildOpenSpeedTestUrl();
 
@@ -781,7 +784,7 @@
         await IdentifyAndLoadAsync();
 
         // Request GPS location only for wireless clients viewing own device (data will be persisted)
-        if (string.IsNullOrEmpty(IpParam) && _client is { IsWired: false })
+        if (_isOwnDevice && _client is { IsWired: false })
             _ = RequestGpsAsync();
 
         // Start polling every 5 seconds
@@ -837,7 +840,7 @@
     private async Task<ClientIdentity?> GetClientIdentityAsync()
     {
         // Use ?ip= query param if provided (for testing/linking to specific clients)
-        if (string.IsNullOrEmpty(_clientIp) && !string.IsNullOrEmpty(IpParam))
+        if (string.IsNullOrEmpty(_clientIp) && !_isOwnDevice)
         {
             _clientIp = IpParam;
         }
@@ -874,7 +877,7 @@
         {
             _latestPoll = await DashboardService.PollSignalAsync(
                 _clientIp, _gpsLat, _gpsLng, _gpsAccuracy,
-                persist: string.IsNullOrEmpty(IpParam));
+                persist: _isOwnDevice);
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
