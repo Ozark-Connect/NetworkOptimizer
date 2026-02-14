@@ -7166,12 +7166,21 @@ a.path-hop.hop-clickable:hover {
 
 .client-info-main {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 1rem;
 }
 
 .client-info-main .client-name {
     font-size: 1.1rem;
+}
+
+.client-info-main .client-dashboard-link {
+    color: var(--text-muted);
+    transition: color 0.15s;
+}
+
+.client-info-main .client-dashboard-link:hover {
+    color: var(--primary-color);
 }
 
 .client-name {
