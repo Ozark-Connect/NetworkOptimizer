@@ -1972,7 +1972,7 @@
     {
         await PlannedApSvc.UpdateNameAsync(plannedId, name);
         await LoadPlannedAps();
-        await InvokeAsync(StateHasChanged);
+        await UpdateApMarkers();
     }
 
     [JSInvokable]
