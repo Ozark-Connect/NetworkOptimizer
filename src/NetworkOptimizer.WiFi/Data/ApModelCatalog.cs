@@ -463,7 +463,7 @@ public static class ApModelCatalog
     {
         if (!string.IsNullOrEmpty(antennaMode) &&
             bandDefaults.ModeOverrides != null &&
-            bandDefaults.ModeOverrides.TryGetValue(antennaMode, out var mode))
+            bandDefaults.ModeOverrides.TryGetValue(antennaMode.ToLowerInvariant(), out var mode))
         {
             return (
                 mode.AntennaGainDbi,
