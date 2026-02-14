@@ -752,6 +752,9 @@
         ConfigureLatencyChart();
         ConfigureSignalChart();
 
+        // Wait for UniFi controller connection (needed for client identity + AP data on signal map)
+        await ConnectionService.WaitForConnectionAsync();
+
         // Identify client
         await IdentifyAndLoadAsync();
 
