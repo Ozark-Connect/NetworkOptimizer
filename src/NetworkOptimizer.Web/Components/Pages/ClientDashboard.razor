@@ -848,7 +848,8 @@
         try
         {
             _latestPoll = await DashboardService.PollSignalAsync(
-                _clientIp, _gpsLat, _gpsLng, _gpsAccuracy);
+                _clientIp, _gpsLat, _gpsLng, _gpsAccuracy,
+                persist: string.IsNullOrEmpty(IpParam));
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;

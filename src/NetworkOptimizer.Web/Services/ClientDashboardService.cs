@@ -95,7 +95,8 @@ public class ClientDashboardService
         string clientIp,
         double? gpsLat = null,
         double? gpsLng = null,
-        int? gpsAccuracy = null)
+        int? gpsAccuracy = null,
+        bool persist = true)
     {
         // Seed trace hashes from DB on first use (survives restarts)
         if (!_traceHashesSeeded)
@@ -152,20 +153,23 @@ public class ClientDashboardService
                     _lastTraceHashes[identity.Mac] = result.TraceHash;
                 }
 
-                // Store signal log
-                await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                // Store signal log (only when viewing own device, not remote ?ip= viewing)
+                if (persist)
+                    await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
             }
             else
             {
                 // Store without trace
                 result.TraceChanged = false;
-                await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                if (persist)
+                    await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Trace failed for {Ip}, storing signal-only log", clientIp);
-            await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+            if (persist)
+                await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
         }
 
         return result;
