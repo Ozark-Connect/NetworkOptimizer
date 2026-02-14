@@ -22,8 +22,8 @@ public partial class CloudflareSpeedTestService
     private const string DownloadPath = "__down?bytes=";
     private const string UploadPath = "__up";
 
-    // Concurrency and duration settings (matching cloudflare-speed-cli defaults)
-    private const int Concurrency = 6;
+    // Concurrency and duration settings
+    private const int Concurrency = 8;
     private static readonly TimeSpan DownloadDuration = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan UploadDuration = TimeSpan.FromSeconds(10);
     private const int DownloadBytesPerRequest = 10_000_000; // 10 MB per request (matches cloudflare-speed-cli)
@@ -98,7 +98,7 @@ public partial class CloudflareSpeedTestService
 
     /// <summary>
     /// Run a full Cloudflare WAN speed test with progress reporting.
-    /// Uses 6 concurrent connections per direction, similar to cloudflare-speed-cli.
+    /// Uses multiple concurrent connections per direction, similar to cloudflare-speed-cli.
     /// Test state is tracked on the service so UI components can navigate away and
     /// poll CurrentProgress / LastCompletedResult when they return.
     /// </summary>
@@ -562,6 +562,8 @@ public partial class CloudflareSpeedTestService
                                 Interlocked.Add(ref totalBytes, bytesWritten));
                             using var uploadResponse = await workerClient.PostAsync(url, content, linked.Token);
                             Interlocked.Increment(ref requestCount);
+                            // Drain response body to enable TCP connection reuse (HTTP/1.1)
+                            await uploadResponse.Content.CopyToAsync(Stream.Null, linked.Token);
                             if (!uploadResponse.IsSuccessStatusCode)
                             {
                                 Interlocked.Increment(ref errorCount);
