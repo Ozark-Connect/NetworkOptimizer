@@ -105,6 +105,12 @@ public static class ApModelCatalog
             ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
             ["6"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 6 },
         },
+        ["U7-Pro-Outdoor-EU"] = new()
+        {
+            // No 6 GHz in EU variant. Gain null in public.json - using base model estimates
+            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 4 },
+            ["5"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
+        },
 
         // === Wi-Fi 6E / Enterprise APs ===
         ["E7"] = new()
@@ -124,6 +130,18 @@ public static class ApModelCatalog
             // 5+6 GHz only (no 2.4 GHz radio). Gain null in public.json - estimated from wide-angle antenna pattern
             ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
             ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
+        },
+        ["E7-Audience-EU"] = new()
+        {
+            // Same specs as E7-Audience (gain null in public.json - estimated from wide-angle antenna pattern)
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
+            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
+        },
+        ["E7-Campus-EU"] = new()
+        {
+            // Different gains/power from base E7-Campus (higher directional gains for EU regulatory)
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 9 },
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 12 },
         },
         ["U6-Enterprise"] = new()
         {
