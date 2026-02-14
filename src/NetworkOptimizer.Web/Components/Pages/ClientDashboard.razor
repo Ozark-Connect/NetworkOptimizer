@@ -406,6 +406,17 @@
                         </div>
                     }
 
+                    @* Signal Map (wireless only, GPS data available) *@
+                    @if (_signalMapPoints.Count > 0 && !(_client?.IsWired == true))
+                    {
+                        <div class="card chart-card">
+                            <h3>Signal Map</h3>
+                            <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor ReadOnly="true"
+                                             SignalLogMarkers="_signalMapPoints"
+                                             MapHeight="350px" />
+                        </div>
+                    }
+
                     @* Signal History Chart (wireless only) *@
                     @if (_signalChartData.Count > 0 && !(_client?.IsWired == true))
                     {
@@ -684,6 +695,7 @@
     // Signal tab
     private List<SignalHistoryEntry> _signalHistory = new();
     private List<SignalChartPoint> _signalChartData = new();
+    private List<SignalMapPoint> _signalMapPoints = new();
     private ApexChart<SignalChartPoint>? _signalChart;
     private ApexChartOptions<SignalChartPoint> _signalChartOptions = new();
 
@@ -860,6 +872,21 @@
                         _signalChartData.RemoveAt(0);
 
                     try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
+
+                    // Add live signal map point when GPS is available
+                    if (_gpsLat.HasValue && _gpsLng.HasValue)
+                    {
+                        _signalMapPoints.Add(new SignalMapPoint
+                        {
+                            Latitude = _gpsLat.Value,
+                            Longitude = _gpsLng.Value,
+                            SignalDbm = _client.SignalDbm.Value,
+                            Timestamp = _latestPoll.Timestamp,
+                            Band = _client.Band,
+                            Channel = _client.Channel,
+                            ApName = _client.ApName
+                        });
+                    }
                 }
 
                 // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
@@ -930,6 +957,21 @@
         _signalChartData.AddRange(_signalHistory
             .Where(h => h.SignalDbm.HasValue)
             .Select(h => new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value)));
+
+        // Build signal map points from entries with GPS data
+        _signalMapPoints = _signalHistory
+            .Where(h => h.Latitude.HasValue && h.Longitude.HasValue && h.SignalDbm.HasValue)
+            .Select(h => new SignalMapPoint
+            {
+                Latitude = h.Latitude!.Value,
+                Longitude = h.Longitude!.Value,
+                SignalDbm = h.SignalDbm!.Value,
+                Timestamp = h.Timestamp,
+                Band = h.Band,
+                Channel = h.Channel,
+                ApName = h.ApName
+            })
+            .ToList();
 
         // Build chart annotations for band/AP changes
         BuildSignalAnnotations();

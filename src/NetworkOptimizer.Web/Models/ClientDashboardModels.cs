@@ -121,3 +121,17 @@ public class TraceChangeEntry
     public double? BottleneckLinkSpeedMbps { get; set; }
     public PathAnalysisResult? PathAnalysis { get; set; }
 }
+
+/// <summary>
+/// A GPS-located signal measurement point for display on the floor plan map.
+/// </summary>
+public class SignalMapPoint
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public int SignalDbm { get; set; }
+    public DateTime Timestamp { get; set; }
+    public string? Band { get; set; }
+    public int? Channel { get; set; }
+    public string? ApName { get; set; }
+}
