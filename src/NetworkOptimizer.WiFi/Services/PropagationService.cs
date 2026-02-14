@@ -176,7 +176,9 @@ public class PropagationService
         // patterns are measured flat (ceiling orientation), so we adjust accordingly.
         var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
         var patternMountOffset = patternNativeMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
-        var actualMountOffset = ap.MountType switch { "wall" => -90, "desktop" => 180, _ => 0 };
+        // IW and Wall APs on a "desktop" stand sit upright (same as wall-mounted)
+        var effectiveMount = ap.MountType == "desktop" && IsStandMountModel(ap.Model) ? "wall" : ap.MountType;
+        var actualMountOffset = effectiveMount switch { "wall" => -90, "desktop" => 180, _ => 0 };
         var elevationOffset = actualMountOffset - patternMountOffset;
         elevationDeg = ((elevationDeg + elevationOffset) % 359 + 359) % 359;
 
@@ -188,7 +190,7 @@ public class PropagationService
         // rotates to horizontal, and its azimuth plane (horizontal for ceiling) rotates to vertical.
         // So horizontal directionality comes from the elevation pattern, and vertical from azimuth.
         float azGain, elGain;
-        if (ap.MountType == "wall")
+        if (effectiveMount == "wall")
         {
             azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, elevationDeg, ap.AntennaMode);
@@ -392,6 +394,18 @@ public class PropagationService
         }
 
         return "ceiling"; // all directional patterns are measured flat
+    }
+
+    /// <summary>
+    /// IW and Wall APs can sit on a desk stand in the same upright orientation as wall-mounted.
+    /// "Desktop" for these models means wall orientation, not flipped like ceiling-mount APs.
+    /// </summary>
+    private static bool IsStandMountModel(string model)
+    {
+        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase) ? model[..^2] : model;
+        return m.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
+               m.Contains("-Wall", StringComparison.OrdinalIgnoreCase) ||
+               m.Equals("U7-Pro-Wall", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
