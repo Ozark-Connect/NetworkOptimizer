@@ -49,19 +49,28 @@ public class ApMapService
                 MountType = MountTypeHelper.Resolve(savedLocation?.MountType, ap.Model),
                 IsOnline = ap.IsOnline,
                 TotalClients = ap.TotalClients,
-                Radios = ap.Radios.Select(r => new ApRadioSummary
+                Radios = ap.Radios.Select(r =>
                 {
-                    Band = r.Band.ToDisplayString(),
-                    RadioCode = r.Band.ToUniFiCode(),
-                    Channel = r.Channel,
-                    ChannelWidth = r.ChannelWidth,
-                    TxPowerDbm = r.TxPower,
-                    MinTxPowerDbm = r.MinTxPower,
-                    MaxTxPowerDbm = r.MaxTxPower,
-                    Eirp = r.Eirp,
-                    Clients = r.ClientCount,
-                    Utilization = r.ChannelUtilization,
-                    AntennaMode = r.AntennaMode
+                    var bandStr = r.Band.ToDisplayString();
+                    var catalogDefaults = ApModelCatalog.GetBandDefaults(ap.Model, bandStr);
+                    var catalogMax = catalogDefaults.MaxTxPowerDbm;
+                    var apiMax = r.MaxTxPower;
+                    // Clamp API max to catalog max when API reports unrealistically high values
+                    var clampedMax = (apiMax.HasValue && apiMax.Value > catalogMax) ? catalogMax : apiMax;
+                    return new ApRadioSummary
+                    {
+                        Band = bandStr,
+                        RadioCode = r.Band.ToUniFiCode(),
+                        Channel = r.Channel,
+                        ChannelWidth = r.ChannelWidth,
+                        TxPowerDbm = r.TxPower,
+                        MinTxPowerDbm = r.MinTxPower,
+                        MaxTxPowerDbm = clampedMax,
+                        Eirp = r.Eirp,
+                        Clients = r.ClientCount,
+                        Utilization = r.ChannelUtilization,
+                        AntennaMode = r.AntennaMode
+                    };
                 }).ToList()
             };
         }).ToList();
