@@ -254,11 +254,14 @@ public class ClientDashboardService
             }).ToList();
         }
 
-        // Group into time buckets per client
+        // Group into time buckets per client, breaking on AP/band/channel changes
         return logs
             .GroupBy(l => new
             {
                 l.ClientMac,
+                l.ApName,
+                l.Band,
+                l.Channel,
                 Bucket = new DateTime(
                     l.Timestamp.Ticks - (l.Timestamp.Ticks % (TimeSpan.TicksPerSecond * bucketSeconds)),
                     DateTimeKind.Utc)
@@ -273,9 +276,9 @@ public class ClientDashboardService
                     Longitude = last.Longitude!.Value,
                     SignalDbm = (int)Math.Round(items.Average(i => (double)i.SignalDbm!.Value)),
                     Timestamp = g.Key.Bucket,
-                    Band = items.GroupBy(i => i.Band).OrderByDescending(bg => bg.Count()).First().Key,
-                    Channel = items.GroupBy(i => i.Channel).OrderByDescending(bg => bg.Count()).First().Key,
-                    ApName = items.GroupBy(i => i.ApName).OrderByDescending(bg => bg.Count()).First().Key,
+                    Band = g.Key.Band,
+                    Channel = g.Key.Channel,
+                    ApName = g.Key.ApName,
                     ClientIp = last.ClientIp,
                     DeviceName = last.DeviceName
                 };
