@@ -1229,9 +1229,15 @@ public class DeviceTypeDetectionService
 
             if (isGenericFingerprint)
             {
+                _logger?.LogDebug("[VendorOverride] Apple device with generic fingerprint detected: OUI='{Oui}', DevCat={DevCat}, MAC={Mac}",
+                    oui, devCat, mac);
+
                 var macOuiResult = _macOuiDetector.Detect(mac);
                 if (macOuiResult.Category != ClientDeviceCategory.Unknown)
                 {
+                    _logger?.LogDebug("[VendorOverride] MAC OUI lookup successful: {MacPrefix} → {Category} ({VendorName})",
+                        mac.Substring(0, Math.Min(8, mac.Length)), macOuiResult.Category, macOuiResult.VendorName);
+
                     // MAC OUI database has a specific match for this Apple device
                     return new DeviceDetectionResult
                     {
@@ -1248,6 +1254,11 @@ public class DeviceTypeDetectionService
                             ["mac_oui_category"] = macOuiResult.Category.ToString()
                         }
                     };
+                }
+                else
+                {
+                    _logger?.LogDebug("[VendorOverride] MAC OUI lookup found no match for {MacPrefix} - falling back to fingerprint",
+                        mac.Substring(0, Math.Min(8, mac.Length)));
                 }
             }
         }
