@@ -17,16 +17,16 @@
     <!-- Toolbar -->
     <div class="fp-toolbar">
         <div class="fp-toolbar-left">
-            <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged"
-                    disabled="@(_mode == "walls")">
-                <option value="0">Select Building...</option>
-                @foreach (var b in _buildings)
-                {
-                    <option value="@b.Id">@b.Name</option>
-                }
-            </select>
             @if (!ReadOnly)
             {
+                <select class="fp-select" value="@_selectedBuildingId" @onchange="OnBuildingChanged"
+                        disabled="@(_mode == "walls")">
+                    <option value="0">Select Building...</option>
+                    @foreach (var b in _buildings)
+                    {
+                        <option value="@b.Id">@b.Name</option>
+                    }
+                </select>
                 @if (_selectedBuilding != null)
                 {
                     <button class="fp-btn" @onclick="DeselectBuilding">Done Editing</button>
@@ -1764,7 +1764,7 @@
 
         var wallsJson = System.Text.Json.JsonSerializer.Serialize(bgWalls);
         var colorsJson = System.Text.Json.JsonSerializer.Serialize(MaterialAttenuation.MaterialColors);
-        var clickable = _selectedBuilding == null;
+        var clickable = _selectedBuilding == null && !ReadOnly;
         await JS.InvokeVoidAsync("fpEditor.updateBackgroundWalls", wallsJson, colorsJson, clickable);
 
         // Same-building adjacent floor walls (for length snap when drawing first shape)
@@ -2472,6 +2472,7 @@
     [JSInvokable]
     public async Task OnBgBuildingClicked(int buildingId)
     {
+        if (ReadOnly) return; // No building editing in read-only mode
         if (_selectedBuilding != null) return; // Only from global view
         await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
     }
