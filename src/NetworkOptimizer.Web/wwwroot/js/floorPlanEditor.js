@@ -516,7 +516,7 @@ window.fpEditor = {
                 iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -16]
             });
             var marker = L.marker([ap.lat, ap.lng], {
-                icon: icon, draggable: draggable && ap.sameFloor, pane: 'apIconPane'
+                icon: icon, draggable: draggable, pane: 'apIconPane'
             }).addTo(self._apLayer);
             marker._apMac = ap.mac;
 
@@ -655,7 +655,7 @@ window.fpEditor = {
             disableApHtml = disableHeader +
                 '<div class="fp-ap-popup-row" style="margin-top:4px">' +
                 '<button class="fp-disable-ap-btn' + (isDisabled ? ' active' : '') + '" ' +
-                'data-tooltip="Simulate removing this AP to test coverage with a replacement" ' +
+                'data-tooltip="Simulate removing this AP to test coverage with a replacement" data-tooltip-hover-only ' +
                 'onclick="fpEditor._toggleDisableAp(\'' + esc(macLower) + '\')">' +
                 (isDisabled ? 'Enable AP' : 'Disable AP') +
                 '</button></div>';
@@ -768,6 +768,15 @@ window.fpEditor = {
                         }
                     });
                 })(glowMarker, ap);
+            } else if (draggable && !ap.sameFloor) {
+                (function (origLatLng) {
+                    marker.on('dragstart', function () {
+                        self._showDrawWarning('Switch to this AP\'s floor to move it');
+                    });
+                    marker.on('dragend', function (e) {
+                        e.target.setLatLng(origLatLng);
+                    });
+                })(L.latLng(ap.lat, ap.lng));
             }
         });
 
