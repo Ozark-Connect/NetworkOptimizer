@@ -163,7 +163,7 @@ public partial class CloudflareSpeedTestService
             Report("Download complete", 55, $"Down: {downloadMbps:F1} Mbps");
 
             // Reclaim download phase memory before starting upload
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false);
             GC.WaitForPendingFinalizers();
 
             // Phase 4: Upload (55-95%) - concurrent connections + latency probes
@@ -237,10 +237,9 @@ public partial class CloudflareSpeedTestService
             Report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
             lock (_lock) _lastCompletedResult = result;
 
-            // Reclaim upload phase memory and return to OS
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            // Reclaim upload phase memory
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false);
             GC.WaitForPendingFinalizers();
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 
             // Trigger background path analysis with Cloudflare-reported WAN IP and pre-resolved WAN group
             var cfWanIp = metadata.Ip;
