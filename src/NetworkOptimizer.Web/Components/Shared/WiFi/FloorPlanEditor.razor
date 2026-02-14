@@ -231,19 +231,19 @@
                 @if (_selectedBuilding != null)
                 {
                     <div class="fp-editing-chip" @onclick="DeselectBuilding">
-                        Editing @_selectedBuilding.Name <span>&times;</span>
+                        Editing @_selectedBuilding.Name <span class="fp-chip-close">&times;</span>
                     </div>
                 }
                 @if (_mode == "aps")
                 {
                     <div class="fp-editing-chip" @onclick="ToggleApEditMode">
-                        Editing APs <span>&times;</span>
+                        Editing APs <span class="fp-chip-close">&times;</span>
                     </div>
                 }
                 @if (_showSignalData)
                 {
                     <div class="fp-editing-chip" @onclick="ToggleSignalData">
-                        Showing Signal Data <span>&times;</span>
+                        Showing Signal Data <span class="fp-chip-close">&times;</span>
                     </div>
                 }
             </div>
@@ -797,6 +797,11 @@
         align-items: center;
         gap: 0.5rem;
         white-space: nowrap;
+    }
+
+    .fp-editing-chip .fp-chip-close {
+        margin-left: auto;
+        margin-top: -2px;
     }
 
     .fp-editing-chip:hover {
