@@ -1271,28 +1271,6 @@ public class DeviceTypeDetectionService
             };
         }
 
-        // Apple HomePods with IoTGeneric fingerprint (DevCat=51) - override based on name containing "homepod" or "siri"
-        // Note: This is now redundant with the generic check above, but kept for explicit name-based detection
-        if (ouiLower.Contains("apple") && devCat == 51 &&
-            (nameLower.Contains("homepod") || nameLower.Contains("siri")))
-        {
-            return new DeviceDetectionResult
-            {
-                Category = ClientDeviceCategory.SmartSpeaker,
-                Source = DetectionSource.UniFiFingerprint,
-                ConfidenceScore = 98, // Very high confidence - vendor + name + fingerprint all match
-                VendorName = "Apple HomePod",
-                RecommendedNetwork = NetworkPurpose.IoT,
-                Metadata = new Dictionary<string, object>
-                {
-                    ["override_reason"] = "Apple device with IoTGeneric fingerprint and HomePod/Siri name",
-                    ["oui"] = oui ?? "",
-                    ["dev_cat"] = devCat ?? 0,
-                    ["name"] = name ?? hostname ?? ""
-                }
-            };
-        }
-
         // GoPro action cameras use the same devCat (106) as security cameras - they're not security devices
         // This OUI check is a fallback; primary detection is in FingerprintDetector via vendor ID
         if (ouiLower.Contains("gopro") && devCat == 106)
