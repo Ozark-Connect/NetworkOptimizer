@@ -54,13 +54,16 @@ public class ApMapService
                 Radios = ap.Radios.Select(r =>
                 {
                     var bandStr = r.Band.ToDisplayString();
-                    var catalogDefaults = ApModelCatalog.GetBandDefaults(ap.Model, bandStr);
-                    var catalogMax = catalogDefaults.MaxTxPowerDbm;
                     var apiMax = r.MaxTxPower;
-                    // Clamp API max to catalog max when API reports unrealistically high values
-                    var clampedMax = (apiMax.HasValue && apiMax.Value > catalogMax) ? catalogMax : apiMax;
-                    _logger.LogDebug("AP {Name} model='{Model}' band={Band} catalogMax={CatalogMax} apiMax={ApiMax} clampedMax={ClampedMax}",
-                        ap.Name, ap.Model, bandStr, catalogMax, apiMax, clampedMax);
+                    // Only clamp API max to catalog max when we have real catalog data for this model
+                    int? clampedMax = apiMax;
+                    if (ApModelCatalog.TryGetBandDefaults(ap.Model, bandStr, out var catalogDefaults) &&
+                        apiMax.HasValue && apiMax.Value > catalogDefaults.MaxTxPowerDbm)
+                    {
+                        clampedMax = catalogDefaults.MaxTxPowerDbm;
+                    }
+                    _logger.LogDebug("AP {Name} model='{Model}' band={Band} apiMax={ApiMax} clampedMax={ClampedMax}",
+                        ap.Name, ap.Model, bandStr, apiMax, clampedMax);
                     return new ApRadioSummary
                     {
                         Band = bandStr,

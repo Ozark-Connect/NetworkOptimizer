@@ -446,19 +446,51 @@ public static class ApModelCatalog
         // Strip color suffix (e.g., "-B" for black) before lookup
         var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
             ? model[..^2] : model;
+        // Normalize display strings like "5 GHz" to catalog keys like "5"
+        var b = NormalizeBandKey(band);
         if (ModelDefaults.TryGetValue(m, out var modelBands) &&
-            modelBands.TryGetValue(band, out var specific))
+            modelBands.TryGetValue(b, out var specific))
         {
             return specific;
         }
 
-        return band switch
+        return b switch
         {
             "2.4" => Default24,
             "6" => Default6,
             _ => Default5
         };
     }
+
+    /// <summary>
+    /// Try to get catalog band defaults for a specific model. Returns false if the model
+    /// is not in the catalog (caller should not trust the defaults for clamping).
+    /// </summary>
+    public static bool TryGetBandDefaults(string model, string band, out BandDefaults defaults)
+    {
+        var m = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase)
+            ? model[..^2] : model;
+        var b = NormalizeBandKey(band);
+        if (ModelDefaults.TryGetValue(m, out var modelBands) &&
+            modelBands.TryGetValue(b, out var specific))
+        {
+            defaults = specific;
+            return true;
+        }
+        defaults = b switch
+        {
+            "2.4" => Default24,
+            "6" => Default6,
+            _ => Default5
+        };
+        return false;
+    }
+
+    /// <summary>
+    /// Normalize band strings like "2.4 GHz", "5 GHz", "6 GHz" to catalog keys "2.4", "5", "6".
+    /// </summary>
+    private static string NormalizeBandKey(string band) =>
+        band.Replace(" GHz", "", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Resolve effective gain, max TX, and default TX for a specific antenna mode.
