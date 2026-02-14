@@ -1598,10 +1598,10 @@
 
     private static string GetSignalClass(int dbm) => dbm switch
     {
-        >= -55 => "signal-excellent",
-        >= -67 => "signal-good",
+        >= -60 => "signal-excellent",
+        >= -70 => "signal-good",
         >= -75 => "signal-fair",
-        >= -80 => "signal-weak",
+        >= -82 => "signal-weak",
         _ => "signal-poor"
     };
 
