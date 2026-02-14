@@ -2338,4 +2338,104 @@ public class DeviceTypeDetectionServiceTests
     }
 
     #endregion
+
+    #region NVR Detection Metadata Tests
+
+    [Fact]
+    public void DetectDeviceType_ProtectNvr_SetsIsNvrMetadata()
+    {
+        // Arrange - NVR in Protect collection should get is_nvr metadata
+        var service = new DeviceTypeDetectionService();
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "UNVR-Pro", null, isNvr: true);
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "00:11:22:33:44:55",
+            Name = "UNVR-Pro"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Should have is_nvr metadata
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.ConfidenceScore.Should().Be(100);
+        result.Metadata.Should().ContainKey("is_nvr");
+        result.Metadata!["is_nvr"].Should().Be(true);
+    }
+
+    [Fact]
+    public void DetectDeviceType_ProtectCamera_DoesNotSetIsNvrMetadata()
+    {
+        // Arrange - Regular camera in Protect collection should NOT get is_nvr metadata
+        var service = new DeviceTypeDetectionService();
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "G4 Pro"); // Not an NVR
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "00:11:22:33:44:55",
+            Name = "G4 Pro"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Should NOT have is_nvr metadata
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.ConfidenceScore.Should().Be(100);
+        result.Metadata.Should().NotContainKey("is_nvr");
+    }
+
+    #endregion
+
+    #region ProtectCameraCollection IsNvr Tests
+
+    [Fact]
+    public void ProtectCameraCollection_IsNvr_ReturnsTrueForNvr()
+    {
+        // Arrange
+        var collection = new ProtectCameraCollection();
+        collection.Add("00:11:22:33:44:55", "UNVR", null, isNvr: true);
+
+        // Act & Assert
+        collection.IsNvr("00:11:22:33:44:55").Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtectCameraCollection_IsNvr_ReturnsFalseForCamera()
+    {
+        // Arrange
+        var collection = new ProtectCameraCollection();
+        collection.Add("00:11:22:33:44:55", "G4 Pro"); // Not an NVR
+
+        // Act & Assert
+        collection.IsNvr("00:11:22:33:44:55").Should().BeFalse();
+    }
+
+    [Fact]
+    public void ProtectCameraCollection_IsNvr_ReturnsFalseForUnknownMac()
+    {
+        // Arrange
+        var collection = new ProtectCameraCollection();
+        collection.Add("00:11:22:33:44:55", "UNVR", null, isNvr: true);
+
+        // Act & Assert
+        collection.IsNvr("AA:BB:CC:DD:EE:FF").Should().BeFalse();
+    }
+
+    [Fact]
+    public void ProtectCameraCollection_IsNvr_ReturnsFalseForNull()
+    {
+        // Arrange
+        var collection = new ProtectCameraCollection();
+
+        // Act & Assert
+        collection.IsNvr(null).Should().BeFalse();
+    }
+
+    #endregion
 }

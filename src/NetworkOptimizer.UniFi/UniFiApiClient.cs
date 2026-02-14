@@ -678,7 +678,7 @@ public class UniFiApiClient : IDisposable
             if (device.RequiresSecurityVlan)
             {
                 var name = !string.IsNullOrEmpty(device.Name) ? device.Name : device.Model ?? "Protect Device";
-                result.Add(device.Mac, name, device.ConnectionNetworkId);
+                result.Add(device.Mac, name, device.ConnectionNetworkId, device.IsNvr);
 
                 var deviceType = device.IsCamera ? "camera" :
                                  device.IsDoorbell ? "doorbell" :

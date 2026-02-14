@@ -201,34 +201,65 @@ public static class VlanPlacementChecker
 
     /// <summary>
     /// Check if a camera/surveillance device is correctly placed on a Security VLAN.
+    /// NVRs are also accepted on Management VLANs since they are infrastructure devices.
     /// </summary>
     /// <param name="currentNetwork">The network the device is currently on</param>
     /// <param name="allNetworks">All available networks</param>
     /// <param name="defaultScoreImpact">Default score impact (cameras are always high-risk)</param>
+    /// <param name="isNvr">Whether this device is an NVR (allowed on Management VLAN)</param>
     /// <returns>Placement result with recommendation</returns>
     public static PlacementResult CheckCameraPlacement(
         NetworkInfo? currentNetwork,
         List<NetworkInfo> allNetworks,
-        int defaultScoreImpact = 8)
+        int defaultScoreImpact = 8,
+        bool isNvr = false)
     {
         // Cameras should only be on Security networks
-        var isCorrectlyPlaced = currentNetwork?.Purpose == NetworkPurpose.Security;
+        // NVRs are also accepted on Management VLANs (they are infrastructure devices)
+        var isCorrectlyPlaced = currentNetwork?.Purpose == NetworkPurpose.Security
+            || (isNvr && currentNetwork?.Purpose == NetworkPurpose.Management);
 
-        // Find the Security network to recommend (prefer lower VLAN number)
+        // Find networks to recommend
         var securityNetwork = allNetworks
             .Where(n => n.Purpose == NetworkPurpose.Security)
             .OrderBy(n => n.VlanId)
             .FirstOrDefault();
 
-        var recommendedLabel = securityNetwork != null
-            ? $"{securityNetwork.Name} ({securityNetwork.VlanId})"
-            : "Security VLAN";
+        string recommendedLabel;
+        NetworkInfo? recommendedNetwork;
 
-        // Cameras are always high-risk - always Critical severity
+        if (isNvr)
+        {
+            // For NVRs, recommend Management VLAN as the primary target
+            var managementNetwork = allNetworks
+                .Where(n => n.Purpose == NetworkPurpose.Management)
+                .OrderBy(n => n.VlanId)
+                .FirstOrDefault();
+
+            recommendedNetwork = managementNetwork ?? securityNetwork;
+
+            if (managementNetwork != null && securityNetwork != null)
+                recommendedLabel = $"{managementNetwork.Name} ({managementNetwork.VlanId}) or {securityNetwork.Name} ({securityNetwork.VlanId})";
+            else if (managementNetwork != null)
+                recommendedLabel = $"{managementNetwork.Name} ({managementNetwork.VlanId})";
+            else if (securityNetwork != null)
+                recommendedLabel = $"{securityNetwork.Name} ({securityNetwork.VlanId})";
+            else
+                recommendedLabel = "Management or Security VLAN";
+        }
+        else
+        {
+            recommendedNetwork = securityNetwork;
+            recommendedLabel = securityNetwork != null
+                ? $"{securityNetwork.Name} ({securityNetwork.VlanId})"
+                : "Security VLAN";
+        }
+
+        // Cameras and NVRs are always high-risk - always Critical severity
         return new PlacementResult(
             IsCorrectlyPlaced: isCorrectlyPlaced,
             IsLowRisk: false,
-            RecommendedNetwork: securityNetwork,
+            RecommendedNetwork: recommendedNetwork,
             RecommendedNetworkLabel: recommendedLabel,
             Severity: AuditSeverity.Critical,
             ScoreImpact: defaultScoreImpact);

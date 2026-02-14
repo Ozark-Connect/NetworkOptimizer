@@ -71,8 +71,11 @@ public class CameraVlanRule : AuditRuleBase
         if (network == null)
             return null;
 
+        // Check if this is an NVR (allowed on Management VLAN)
+        var isNvr = detection.Metadata?.ContainsKey("is_nvr") == true;
+
         // Check placement using shared logic
-        var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact);
+        var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact, isNvr: isNvr);
 
         if (placement.IsCorrectlyPlaced)
             return null;
@@ -159,7 +162,9 @@ public class CameraVlanRule : AuditRuleBase
             }
         }
 
-        var message = $"{detection.CategoryName} on {network.Name} VLAN - should be on security VLAN";
+        var message = isNvr
+            ? $"NVR on {network.Name} VLAN - should be on management or security VLAN"
+            : $"{detection.CategoryName} on {network.Name} VLAN - should be on security VLAN";
 
         return new AuditIssue
         {

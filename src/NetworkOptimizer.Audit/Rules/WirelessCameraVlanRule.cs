@@ -33,14 +33,21 @@ public class WirelessCameraVlanRule : WirelessAuditRuleBase
         if (network == null)
             return null;
 
+        // Check if this is an NVR (allowed on Management VLAN)
+        var isNvr = client.Detection.Metadata?.ContainsKey("is_nvr") == true;
+
         // Check placement using shared logic
-        var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact);
+        var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact, isNvr: isNvr);
 
         if (placement.IsCorrectlyPlaced)
             return null;
 
+        var message = isNvr
+            ? $"NVR on {network.Name} VLAN - should be on management or security VLAN"
+            : $"{client.Detection.CategoryName} on {network.Name} VLAN - should be on security VLAN";
+
         return CreateIssue(
-            $"{client.Detection.CategoryName} on {network.Name} VLAN - should be on security VLAN",
+            message,
             client,
             recommendedNetwork: placement.RecommendedNetwork?.Name,
             recommendedVlan: placement.RecommendedNetwork?.VlanId,

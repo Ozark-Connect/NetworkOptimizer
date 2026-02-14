@@ -1314,4 +1314,198 @@ public class CameraVlanRuleTests
     }
 
     #endregion
+
+    #region NVR Tests - NVRs Allowed on Management VLAN
+
+    [Fact]
+    public void Evaluate_ProtectNvr_OnManagementVlan_ReturnsNull()
+    {
+        // Arrange - NVR on Management VLAN should pass (NVRs are infrastructure devices)
+        var mgmtNetwork = new NetworkInfo { Id = "mgmt-net", Name = "Management", VlanId = 5, Purpose = NetworkPurpose.Management };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "UNVR-Pro", null, isNvr: true);
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", mgmtNetwork, "Server Rack Switch");
+        var networks = CreateNetworkList(mgmtNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - NVR correctly placed on Management VLAN
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProtectNvr_OnSecurityVlan_ReturnsNull()
+    {
+        // Arrange - NVR on Security VLAN should also pass
+        var securityNetwork = new NetworkInfo { Id = "sec-net", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "UNVR", null, isNvr: true);
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", securityNetwork, "Camera Switch");
+        var networks = CreateNetworkList(securityNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - NVR correctly placed on Security VLAN
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProtectNvr_OnCorporateVlan_ReturnsCriticalIssue()
+    {
+        // Arrange - NVR on Corporate VLAN should be flagged
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "UNVR-Pro", null, isNvr: true);
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", corpNetwork, "Office Switch");
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - NVR on wrong VLAN
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Critical);
+    }
+
+    [Fact]
+    public void Evaluate_ProtectNvr_OnIoTVlan_ReturnsCriticalIssue()
+    {
+        // Arrange - NVR on IoT VLAN should be flagged
+        var iotNetwork = new NetworkInfo { Id = "iot-net", Name = "IoT", VlanId = 40, Purpose = NetworkPurpose.IoT };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "Cloud Key Gen2 Plus", null, isNvr: true);
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", iotNetwork, "Test Switch");
+        var networks = CreateNetworkList(iotNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - NVR on wrong VLAN
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Critical);
+    }
+
+    [Fact]
+    public void Evaluate_ProtectNvr_OnGuestVlan_ReturnsCriticalIssue()
+    {
+        // Arrange - NVR on Guest VLAN should be flagged
+        var guestNetwork = new NetworkInfo { Id = "guest-net", Name = "Guest", VlanId = 50, Purpose = NetworkPurpose.Guest };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "UNVR", null, isNvr: true);
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", guestNetwork, "Test Switch");
+        var networks = CreateNetworkList(guestNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - NVR on wrong VLAN
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Critical);
+    }
+
+    [Fact]
+    public void Evaluate_ProtectNvr_IssueMessageStartsWithNvr()
+    {
+        // Arrange - NVR issue message should start with "NVR" for correct UI title mapping
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "UNVR-Pro", null, isNvr: true);
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", corpNetwork, "Office Switch");
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Message must start with "NVR" for correct UI title
+        result.Should().NotBeNull();
+        result!.Message.Should().StartWith("NVR");
+        result.Message.Should().Contain("management or security");
+    }
+
+    [Fact]
+    public void Evaluate_ProtectNvr_RecommendsManagementOrSecurity()
+    {
+        // Arrange - NVR recommendation should mention both Management and Security VLANs
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var mgmtNetwork = new NetworkInfo { Id = "mgmt-net", Name = "Management", VlanId = 5, Purpose = NetworkPurpose.Management };
+        var securityNetwork = new NetworkInfo { Id = "sec-net", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "UNVR", null, isNvr: true);
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", corpNetwork, "Office Switch");
+        var networks = new List<NetworkInfo> { corpNetwork, mgmtNetwork, securityNetwork };
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Recommendation should mention both networks
+        result.Should().NotBeNull();
+        result!.RecommendedAction.Should().Contain("Management");
+        result.RecommendedAction.Should().Contain("Security");
+    }
+
+    [Fact]
+    public void Evaluate_ProtectCamera_StillFlaggedOnManagementVlan()
+    {
+        // Arrange - Regular cameras should NOT be allowed on Management VLAN (regression guard)
+        var mgmtNetwork = new NetworkInfo { Id = "mgmt-net", Name = "Management", VlanId = 5, Purpose = NetworkPurpose.Management };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("00:11:22:33:44:55", "G4 Pro"); // Not an NVR
+        _detectionService.SetProtectCameras(protectCameras);
+
+        var port = CreateProtectPort("00:11:22:33:44:55", mgmtNetwork, "Test Switch");
+        var networks = CreateNetworkList(mgmtNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Regular camera should still be flagged on Management VLAN
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Critical);
+        result.Message.Should().NotStartWith("NVR");
+    }
+
+    /// <summary>
+    /// Create a port with a Protect device connected (for NVR tests)
+    /// </summary>
+    private static PortInfo CreateProtectPort(string mac, NetworkInfo network, string switchName)
+    {
+        var switchInfo = new SwitchInfo { Name = switchName, Model = "USW-24", Type = "usw" };
+        var connectedClient = new UniFiClientResponse
+        {
+            Mac = mac,
+            Name = string.Empty,
+            Hostname = string.Empty,
+            IsWired = true,
+            NetworkId = network.Id
+        };
+
+        return new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = network.Id,
+            Switch = switchInfo,
+            ConnectedClient = connectedClient
+        };
+    }
+
+    #endregion
 }
