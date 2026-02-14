@@ -118,8 +118,15 @@
                     {
                         <span class="identity-live">
                             <span class="poll-dot"></span>
-                            <span class="poll-label">Live</span>
+                            <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
                         </span>
+                    }
+                    @if (!_isOwnDevice)
+                    {
+                        <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle"
+                                @onclick="ToggleLogging">
+                            @(_isLogging ? "Stop Logging" : "Start Logging")
+                        </button>
                     }
                 </div>
             </div>
@@ -685,6 +692,7 @@
 
     // State
     private bool _isOwnDevice; // true when viewing own device (no ?ip= param)
+    private bool _isLogging; // true when actively persisting signal data
     private bool _loading = true;
     private bool _tabLoading;
     private ClientIdentity? _client;
@@ -768,6 +776,7 @@
         }
 
         _isOwnDevice = string.IsNullOrEmpty(IpParam);
+        _isLogging = _isOwnDevice; // own device always logs; remote starts paused
 
         // Build OpenSpeedTest URL
         BuildOpenSpeedTestUrl();
@@ -877,7 +886,7 @@
         {
             _latestPoll = await DashboardService.PollSignalAsync(
                 _clientIp, _gpsLat, _gpsLng, _gpsAccuracy,
-                persist: _isOwnDevice);
+                persist: _isLogging);
             if (_latestPoll != null)
             {
                 _client = _latestPoll.Client;
@@ -1110,6 +1119,11 @@
             StateHasChanged();
             await UpdateActiveChartsAsync();
         });
+    }
+
+    private void ToggleLogging()
+    {
+        _isLogging = !_isLogging;
     }
 
     private void SetTimeFilter(int hours)
@@ -1895,6 +1909,12 @@
         display: flex;
         align-items: center;
         gap: 5px;
+    }
+    .logging-toggle {
+        margin-left: 4px;
+        font-size: 0.6875rem;
+        padding: 2px 8px;
+        height: 22px;
     }
     .poll-dot {
         width: 8px;
