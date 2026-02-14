@@ -98,6 +98,8 @@ public class ClientDashboardService
         int? gpsAccuracy = null,
         bool persist = true)
     {
+        var pollSw = System.Diagnostics.Stopwatch.StartNew();
+
         // Seed trace hashes from DB on first use (survives restarts)
         if (!_traceHashesSeeded)
         {
@@ -105,6 +107,7 @@ public class ClientDashboardService
         }
 
         var identity = await IdentifyClientAsync(clientIp);
+        var identifyMs = pollSw.ElapsedMilliseconds;
         if (identity == null)
             return null;
 
@@ -171,6 +174,9 @@ public class ClientDashboardService
             if (persist)
                 await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
         }
+
+        _logger.LogDebug("Poll for {Ip}: identify={IdentifyMs}ms, total={TotalMs}ms",
+            clientIp, identifyMs, pollSw.ElapsedMilliseconds);
 
         return result;
     }
