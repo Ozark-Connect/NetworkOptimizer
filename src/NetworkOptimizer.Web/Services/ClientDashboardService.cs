@@ -237,11 +237,16 @@ public class ClientDashboardService
         if (!string.IsNullOrEmpty(mac))
             query = query.Where(l => l.ClientMac == mac);
 
-        var logs = await query.OrderBy(l => l.Timestamp).ToListAsync();
+        // Sort by client then timestamp so dedup works per-client
+        var logs = await query
+            .OrderBy(l => l.ClientMac)
+            .ThenBy(l => l.Timestamp)
+            .ToListAsync();
 
         // Deduplicate consecutive entries with same AP/band/channel/signal/position
         var result = new List<SignalMapPoint>();
         SignalMapPoint? prev = null;
+        string? prevMac = null;
 
         foreach (var l in logs)
         {
@@ -258,6 +263,13 @@ public class ClientDashboardService
                 ClientIp = l.ClientIp,
                 DeviceName = l.DeviceName
             };
+
+            // Reset dedup when switching to a different client
+            if (l.ClientMac != prevMac)
+            {
+                prev = null;
+                prevMac = l.ClientMac;
+            }
 
             if (prev != null
                 && prev.ApName == point.ApName

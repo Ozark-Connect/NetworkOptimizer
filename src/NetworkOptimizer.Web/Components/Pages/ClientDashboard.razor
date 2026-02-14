@@ -1162,9 +1162,15 @@
         {
             _tabLoading = true;
             StateHasChanged();
-            await LoadTabDataAsync();
-            _tabLoading = false;
-            StateHasChanged();
+            try
+            {
+                await LoadTabDataAsync();
+            }
+            finally
+            {
+                _tabLoading = false;
+                StateHasChanged();
+            }
             await UpdateActiveChartsAsync();
         });
     }
@@ -1187,9 +1193,15 @@
         {
             _tabLoading = true;
             StateHasChanged();
-            await LoadTabDataAsync();
-            _tabLoading = false;
-            StateHasChanged();
+            try
+            {
+                await LoadTabDataAsync();
+            }
+            finally
+            {
+                _tabLoading = false;
+                StateHasChanged();
+            }
             await UpdateActiveChartsAsync();
         });
     }
