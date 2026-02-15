@@ -115,9 +115,6 @@ func run(cfg speedtest.Config) speedtest.Result {
 	result.Success = true
 	result.Streams = cfg.Streams
 	result.DurationSeconds = int(cfg.Duration.Seconds())
-	if !cfg.DownloadOnly && !cfg.UploadOnly {
-		result.DurationSeconds *= 2
-	}
 
 	return result
 }
