@@ -12,6 +12,7 @@ Production deployment guide for Network Optimizer.
 | NAS + Docker | Synology, QNAP, Unraid | [NAS Deployment](#2-nas-deployment-docker) |
 | macOS Native | Mac servers, multi-gigabit speed testing | [macOS Installation](../docs/MACOS-INSTALLATION.md) |
 | Linux Native | Maximum performance, no Docker | [Native Guide](NATIVE-DEPLOYMENT.md#linux-deployment) |
+| Home Assistant | Add-ons | [Home Assistant](#home-assistant) |
 
 ---
 
@@ -44,6 +45,14 @@ http://<container-ip>:8042
 ```
 
 For advanced configuration, troubleshooting, and manual installation see the [full Proxmox guide](../scripts/proxmox/README.md).
+
+---
+
+### Home Assistant
+
+Network Optimizer can be installed as two Home Assistant add-ons. See [issue #201](https://github.com/Ozark-Connect/NetworkOptimizer/issues/201) for setup instructions and discussion.
+
+For the initial admin password, check the add-on's **Log** tab instead of using the `docker logs` command.
 
 ---
 

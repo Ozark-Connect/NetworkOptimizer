@@ -133,6 +133,7 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 | Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#2-nas-deployment-docker) |
 | macOS | Native (best performance) | [macOS Installation](docs/MACOS-INSTALLATION.md) |
 | Linux | Native (no Docker) | [Linux Native](docker/NATIVE-DEPLOYMENT.md#linux-deployment) |
+| Home Assistant | Add-ons | [Home Assistant](docker/DEPLOYMENT.md#home-assistant) |
 
 Docker Desktop on macOS and Windows limits network throughput for speed testing. For accurate multi-gigabit measurements, use native deployment.
 
