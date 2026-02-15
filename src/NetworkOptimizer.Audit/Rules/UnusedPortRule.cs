@@ -39,6 +39,7 @@ public class UnusedPortRule : AuditRuleBase
     public override string Description => "Unused ports should be disabled (forward: disabled) to prevent unauthorized access";
     public override AuditSeverity Severity => AuditSeverity.Recommended;
     public override int ScoreImpact => 2;
+    public override bool AppliesToLagChildPorts => true;
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {

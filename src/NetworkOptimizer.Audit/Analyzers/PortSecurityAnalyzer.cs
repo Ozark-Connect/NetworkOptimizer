@@ -500,6 +500,17 @@ public class PortSecurityAnalyzer
         if (portIdx < 0)
             return null;
 
+        // Detect LAG child ports - they are assimilated into a parent LAG port
+        // and their individual config is irrelevant for most audit rules.
+        // A child port has both lag_idx (number) and aggregated_by (number = parent port index).
+        var isLagChild = port.TryGetProperty("lag_idx", out var lagIdx) && lagIdx.ValueKind == JsonValueKind.Number &&
+            port.TryGetProperty("aggregated_by", out var aggregatedBy) && aggregatedBy.ValueKind == JsonValueKind.Number;
+        if (isLagChild)
+        {
+            _logger.LogDebug("LAG child port {Port} on {Switch} (aggregated by port {Parent}, LAG {LagIdx})",
+                portIdx, switchInfo.Name, port.GetIntOrDefault("aggregated_by"), port.GetIntOrDefault("lag_idx"));
+        }
+
         var portName = port.GetStringOrDefault("name", $"Port {portIdx}");
         var forwardMode = port.GetStringOrDefault("forward", "all");
 
@@ -645,7 +656,8 @@ public class PortSecurityAnalyzer
             LastConnectionSeen = lastConnectionSeen,
             HistoricalClient = historicalClient,
             ConnectedDeviceType = connectedDeviceType,
-            AssignedPortProfile = assignedProfile
+            AssignedPortProfile = assignedProfile,
+            IsLagChild = isLagChild
         };
     }
 
@@ -677,7 +689,8 @@ public class PortSecurityAnalyzer
             foreach (var port in switchInfo.Ports)
             {
                 // Run all enabled rules against this port
-                foreach (var rule in _rules.Where(r => r.Enabled))
+                // LAG child ports are only evaluated by rules that opt in (e.g., unused port detection)
+                foreach (var rule in _rules.Where(r => r.Enabled && (!port.IsLagChild || r.AppliesToLagChildPorts)))
                 {
                     var issue = rule.Evaluate(port, networks, allNetworks);
                     if (issue != null)
