@@ -42,6 +42,13 @@ public interface IAuditRule
     bool Enabled { get; }
 
     /// <summary>
+    /// Whether this rule should evaluate LAG child ports.
+    /// Most rules should skip LAG children since their config is controlled
+    /// by the parent LAG port. Defaults to false.
+    /// </summary>
+    bool AppliesToLagChildPorts { get; }
+
+    /// <summary>
     /// Evaluate this rule against a port configuration
     /// </summary>
     /// <param name="port">Port to evaluate</param>
@@ -61,6 +68,7 @@ public abstract class AuditRuleBase : IAuditRule
     public abstract AuditSeverity Severity { get; }
     public virtual int ScoreImpact { get; } = 5;
     public virtual bool Enabled { get; set; } = true;
+    public virtual bool AppliesToLagChildPorts => false;
 
     /// <summary>
     /// Device type detection service for enhanced detection

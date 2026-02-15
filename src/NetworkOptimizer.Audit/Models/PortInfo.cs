@@ -127,4 +127,12 @@ public class PortInfo
     /// Used to detect intentional configurations like unrestricted access ports.
     /// </summary>
     public UniFiPortProfile? AssignedPortProfile { get; init; }
+
+    /// <summary>
+    /// Whether this port is a LAG (Link Aggregation Group) child port.
+    /// Child ports are assimilated into a parent LAG port and their individual
+    /// configuration is irrelevant for most audit rules. Only specific rules
+    /// (like unused port detection) should evaluate LAG child ports.
+    /// </summary>
+    public bool IsLagChild { get; init; }
 }

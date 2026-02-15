@@ -1442,6 +1442,198 @@ public class PortSecurityAnalyzerTests
 
     #endregion
 
+    #region LAG Child Port Filtering Tests
+
+    [Fact]
+    public void ExtractSwitches_LagChildPort_MarkedAsLagChild()
+    {
+        // Port 9 is a LAG child (aggregated_by=4, lag_idx=1) and should be marked
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false },
+                    { ""port_idx"": 9, ""name"": ""SFP+ 1"", ""up"": false, ""forward"": ""all"", ""lag_idx"": 1, ""aggregated_by"": 4, ""masked"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().HaveCount(1);
+        result[0].Ports.Should().HaveCount(2);
+        result[0].Ports.Single(p => p.PortIndex == 4).IsLagChild.Should().BeFalse("Parent LAG port should not be marked as child");
+        result[0].Ports.Single(p => p.PortIndex == 9).IsLagChild.Should().BeTrue("LAG child port should be marked");
+    }
+
+    [Fact]
+    public void ExtractSwitches_LagParentPort_NotMarkedAsLagChild()
+    {
+        // Port 4 is the LAG parent (aggregated_by=false, lag_idx=1) - should not be marked
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false, ""forward"": ""native"", ""tagged_vlan_mgmt"": ""block_all"" },
+                    { ""port_idx"": 9, ""name"": ""SFP+ 1"", ""up"": false, ""forward"": ""all"", ""lag_idx"": 1, ""aggregated_by"": 4 }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        var parentPort = result[0].Ports.Single(p => p.PortIndex == 4);
+        parentPort.IsLagChild.Should().BeFalse();
+        parentPort.ForwardMode.Should().Be("native");
+    }
+
+    [Fact]
+    public void ExtractSwitches_MultipleLagChildPorts_AllMarked()
+    {
+        // LAG with 3 member ports: port 4 is parent, ports 9 and 10 are children
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true },
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false },
+                    { ""port_idx"": 9, ""name"": ""SFP+ 1"", ""up"": false, ""lag_idx"": 1, ""aggregated_by"": 4 },
+                    { ""port_idx"": 10, ""name"": ""SFP+ 2"", ""up"": false, ""lag_idx"": 1, ""aggregated_by"": 4 }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result[0].Ports.Should().HaveCount(4);
+        result[0].Ports.Where(p => p.IsLagChild).Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 9, 10 });
+        result[0].Ports.Where(p => !p.IsLagChild).Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 1, 4 });
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithLagIdxButNoAggregatedBy_NotMarkedAsLagChild()
+    {
+        // Port has lag_idx but aggregated_by is missing - not a child port
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""up"": true, ""lag_idx"": 1 }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result[0].Ports.Should().HaveCount(1);
+        result[0].Ports[0].IsLagChild.Should().BeFalse("Port with lag_idx but no aggregated_by is not a LAG child");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithAggregatedByFalse_NotMarkedAsLagChild()
+    {
+        // Port has aggregated_by=false (boolean) - this is the parent, not a child
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result[0].Ports[0].IsLagChild.Should().BeFalse("Parent LAG port (aggregated_by=false) is not a child");
+    }
+
+    [Fact]
+    public void ExtractSwitches_RegularPortsUnaffectedByLagDetection()
+    {
+        // Regular ports without any LAG properties should not be affected
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true },
+                    { ""port_idx"": 2, ""name"": ""Port 2"", ""up"": false },
+                    { ""port_idx"": 3, ""name"": ""Port 3"", ""up"": true, ""aggregated_by"": false }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result[0].Ports.Should().HaveCount(3);
+        result[0].Ports.Should().AllSatisfy(p => p.IsLagChild.Should().BeFalse());
+    }
+
+    [Fact]
+    public void AnalyzePorts_LagChildPortWithForwardAll_DoesNotTriggerVlanAudit()
+    {
+        // This is the actual bug scenario: LAG child port has forward="all" which
+        // would trigger AccessPortVlanRule if not filtered out
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""up"": true, ""forward"": ""native"", ""tagged_vlan_mgmt"": ""block_all"", ""lag_idx"": 1, ""aggregated_by"": false },
+                    { ""port_idx"": 9, ""name"": ""SFP+ 1"", ""up"": false, ""forward"": ""all"", ""lag_idx"": 1, ""aggregated_by"": 4, ""masked"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 },
+            new() { Id = "net-3", Name = "Guest", VlanId = 30 }
+        };
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        issues.Where(i => i.Port == "9" && i.Type == IssueTypes.AccessPortVlan).Should().BeEmpty(
+            "LAG child port should not trigger AccessPortVlanRule");
+    }
+
+    [Fact]
+    public void AnalyzePorts_LagChildPort_StillCheckedByUnusedPortRule()
+    {
+        // LAG child port that is down and not disabled should still trigger unused port rule
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 4, ""name"": ""Port 4"", ""up"": true, ""lag_idx"": 1, ""aggregated_by"": false },
+                    { ""port_idx"": 9, ""name"": ""SFP+ 1"", ""up"": false, ""forward"": ""all"", ""lag_idx"": 1, ""aggregated_by"": 4, ""masked"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        issues.Where(i => i.Port == "9" && i.Type == IssueTypes.UnusedPort).Should().HaveCount(1,
+            "LAG child port should still be checked by UnusedPortRule");
+    }
+
+    #endregion
+
     #region AddRule Tests
 
     [Fact]
