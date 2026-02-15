@@ -213,7 +213,7 @@ public partial class CloudflareSpeedTestService
                 TestTime = DateTime.UtcNow,
                 Success = true,
                 ParallelStreams = Concurrency,
-                DurationSeconds = (int)(DownloadDuration + UploadDuration).TotalSeconds,
+                DurationSeconds = (int)DownloadDuration.TotalSeconds,
             };
 
             // Identify which WAN connection was used based on Cloudflare-reported IP.
