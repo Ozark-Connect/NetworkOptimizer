@@ -337,6 +337,38 @@ configure_application() {
     read -rp "Reverse proxy hostname (e.g., optimizer.example.com): " APP_REVERSE_PROXY_HOST
     APP_REVERSE_PROXY_HOST=${APP_REVERSE_PROXY_HOST:-}
 
+    # Geo location tagging
+    APP_GEOLOCATION="false"
+    APP_OPENSPEEDTEST_HOST=""
+
+    echo -e "\n${WH}Geo Location Tagging${CL}"
+    echo -e "${DIM}Tag speed tests and Wi-Fi signal levels with GPS coordinates to map${CL}"
+    echo -e "${DIM}coverage and identify dead zones across your property.${CL}"
+    read -rp "Set up geo location tagging? [y/N]: " geolocation_response
+    if [[ "${geolocation_response,,}" =~ ^(y|yes)$ ]]; then
+        echo -e "\n${DIM}Geo location requires HTTPS (browser security requirement), and OpenSpeedTest${CL}"
+        echo -e "${DIM}needs HTTP/1.1 for accurate speed results. Set up an HTTP/1.1 reverse proxy${CL}"
+        echo -e "${DIM}(Caddy, nginx, etc.) pointing at the speed test server (port ${APP_SPEEDTEST_PORT}).${CL}"
+        echo -e "${DIM}See .env.example in /opt/network-optimizer for a sample Caddy config.${CL}"
+        echo ""
+        read -rp "Speed test HTTPS hostname (e.g., speedtest.example.com): " APP_OPENSPEEDTEST_HOST
+        if [[ -n "$APP_OPENSPEEDTEST_HOST" ]]; then
+            APP_GEOLOCATION="true"
+            # Mixed content check - main app also needs HTTPS
+            if [[ -z "$APP_REVERSE_PROXY_HOST" ]]; then
+                echo -e "\n${YW}The main app also needs HTTPS to avoid mixed content blocking.${CL}"
+                echo -e "${DIM}Speed test results won't save unless the main app is behind HTTPS too.${CL}"
+                read -rp "Main app HTTPS hostname (e.g., optimizer.example.com): " APP_REVERSE_PROXY_HOST
+                APP_REVERSE_PROXY_HOST=${APP_REVERSE_PROXY_HOST:-}
+                if [[ -z "$APP_REVERSE_PROXY_HOST" ]]; then
+                    msg_warn "No main app hostname set. Speed test results may not save from HTTPS."
+                fi
+            fi
+        else
+            msg_warn "Hostname required for geo location. Skipping geo location setup."
+        fi
+    fi
+
     # SSH access
     echo -e "\n${WH}SSH Access${CL}"
     echo -e "${DIM}Enable SSH root login for direct container access (alternative to pct enter).${CL}"
@@ -398,6 +430,11 @@ confirm_settings() {
         echo -e "  Reverse Proxy:  ${GN}$APP_REVERSE_PROXY_HOST${CL}"
     else
         echo -e "  Reverse Proxy:  ${DIM}none${CL}"
+    fi
+    if [[ "$APP_GEOLOCATION" == "true" ]]; then
+        echo -e "  Geo Location:   ${GN}${APP_OPENSPEEDTEST_HOST}${CL} ${DIM}(HTTPS)${CL}"
+    else
+        echo -e "  Geo Location:   ${DIM}disabled${CL}"
     fi
     if [[ -n "$APP_PASSWORD" ]]; then
         echo -e "  Password:       ${GN}(set)${CL}"
@@ -684,6 +721,14 @@ IPERF3_SERVER_ENABLED=${APP_IPERF3_ENABLED}"
 REVERSE_PROXIED_HOST_NAME=${APP_REVERSE_PROXY_HOST}"
     fi
 
+    if [[ "$APP_GEOLOCATION" == "true" ]]; then
+        env_content="${env_content}
+
+# Geo location tagging (HTTPS speed test)
+OPENSPEEDTEST_HTTPS=true
+OPENSPEEDTEST_HOST=${APP_OPENSPEEDTEST_HOST}"
+    fi
+
     if [[ -n "$APP_PASSWORD" ]]; then
         env_content="${env_content}
 
@@ -757,6 +802,9 @@ show_completion() {
     fi
     if [[ -n "$APP_REVERSE_PROXY_HOST" ]]; then
         echo -e "  Reverse Proxy: ${CY}https://${APP_REVERSE_PROXY_HOST}${CL}"
+    fi
+    if [[ "$APP_GEOLOCATION" == "true" ]]; then
+        echo -e "  Speed Test:    ${CY}https://${APP_OPENSPEEDTEST_HOST}${CL} ${DIM}(geo location enabled)${CL}"
     fi
 
     if [[ -z "$APP_PASSWORD" ]]; then
