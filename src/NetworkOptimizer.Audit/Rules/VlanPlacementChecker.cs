@@ -313,6 +313,62 @@ public static class VlanPlacementChecker
     public const string ReclassifyHint = "If a device is misclassified, change its Device Icon / Fingerprint in UniFi Network.";
 
     /// <summary>
+    /// Hint text for warning-level issues on device types that have a configurable allowance setting.
+    /// </summary>
+    public const string SettingsAllowHint = "or allow this device type in Settings";
+
+    /// <summary>
+    /// Hint text for info-level issues where user has allowed a device type in settings.
+    /// </summary>
+    public const string SettingsIsolateHint = "Change in Settings if you want to isolate this device type.";
+
+    /// <summary>
+    /// Check if a device category has a user-configurable allowance setting.
+    /// </summary>
+    public static bool HasConfigurableSetting(ClientDeviceCategory category) => category switch
+    {
+        ClientDeviceCategory.StreamingDevice => true,
+        ClientDeviceCategory.SmartTV => true,
+        ClientDeviceCategory.SmartSpeaker => true,
+        ClientDeviceCategory.MediaPlayer => true,
+        ClientDeviceCategory.Printer => true,
+        _ => false
+    };
+
+    /// <summary>
+    /// Build the message and recommended action for an IoT device VLAN placement issue.
+    /// Centralizes messaging logic shared between wired and wireless IoT rules.
+    /// </summary>
+    public static (string Message, string RecommendedAction) GetIoTMessaging(
+        PlacementResult placement,
+        ClientDeviceCategory category,
+        string categoryName,
+        string networkName)
+    {
+        if (placement.IsAllowedBySettings)
+        {
+            return (
+                $"{categoryName} allowed per Settings on {networkName} VLAN",
+                SettingsIsolateHint);
+        }
+
+        var message = $"{categoryName} on {networkName} VLAN - should be isolated";
+        string recommendedAction;
+
+        if (HasConfigurableSetting(category))
+        {
+            var moveAction = GetMoveRecommendation(placement.RecommendedNetworkLabel, includeReclassifyHint: false);
+            recommendedAction = $"{moveAction} {SettingsAllowHint}. {ReclassifyHint}";
+        }
+        else
+        {
+            recommendedAction = GetMoveRecommendation(placement.RecommendedNetworkLabel);
+        }
+
+        return (message, recommendedAction);
+    }
+
+    /// <summary>
     /// Build a VLAN move recommendation with optional reclassify hint.
     /// </summary>
     /// <param name="networkLabel">Target network label (e.g., "IoT (64)" or "Security VLAN")</param>

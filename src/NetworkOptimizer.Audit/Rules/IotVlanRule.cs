@@ -159,19 +159,8 @@ public class IotVlanRule : AuditRuleBase
             }
         }
 
-        // Different messaging for allowed vs not-allowed devices
-        string message;
-        string recommendedAction;
-        if (placement.IsAllowedBySettings)
-        {
-            message = $"{detection.CategoryName} allowed per Settings on {network.Name} VLAN";
-            recommendedAction = "Change in Settings if you want to isolate this device type.";
-        }
-        else
-        {
-            message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated";
-            recommendedAction = VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel);
-        }
+        var (message, recommendedAction) = VlanPlacementChecker.GetIoTMessaging(
+            placement, detection.Category, detection.CategoryName, network.Name);
 
         var metadata = VlanPlacementChecker.BuildMetadata(detection, network);
         if (placement.IsAllowedBySettings)
