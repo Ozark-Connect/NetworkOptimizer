@@ -440,8 +440,8 @@ show_result() {
         echo ""
         echo -e "  Temporary password: ${CY}${BLD}${password}${CL}"
         echo ""
-        echo "  Open http://localhost:8042 and log in with this password."
-        echo "  Go to Settings to set a permanent password."
+        echo "  Log in to Network Optimizer with this password,"
+        echo "  then go to Settings to set a permanent one."
         echo ""
     else
         msg_warn "Password reset completed, but could not extract the new password from logs."

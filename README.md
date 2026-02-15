@@ -211,15 +211,15 @@ In progress: Time-series metrics, cable modem monitoring, WiFi analysis, multi-s
 
 If you forget the admin password, use the reset script for your platform:
 
+**Docker / macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.sh | bash
+```
+
 **Windows (PowerShell as Administrator):**
 ```powershell
 irm https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.ps1 -OutFile reset-password.ps1
 .\reset-password.ps1
-```
-
-**Docker / macOS / Linux:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.sh | bash
 ```
 
 The script stops the service, clears the password, restarts, and shows you the new temporary password.
