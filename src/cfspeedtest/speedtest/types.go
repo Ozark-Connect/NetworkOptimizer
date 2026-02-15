@@ -51,7 +51,7 @@ type Config struct {
 // DefaultConfig returns sensible defaults matching the C# service.
 func DefaultConfig() Config {
 	return Config{
-		Streams:      6,
+		Streams:      8,
 		Duration:     10 * time.Second,
 		DownloadSize: 10_000_000, // 10 MB
 		UploadSize:   5_000_000,  // 5 MB

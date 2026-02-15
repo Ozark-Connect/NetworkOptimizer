@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net;
-using System.Runtime;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -22,8 +21,8 @@ public partial class CloudflareSpeedTestService
     private const string DownloadPath = "__down?bytes=";
     private const string UploadPath = "__up";
 
-    // Concurrency and duration settings (matching cloudflare-speed-cli defaults)
-    private const int Concurrency = 6;
+    // Concurrency and duration settings
+    private const int Concurrency = 8;
     private static readonly TimeSpan DownloadDuration = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan UploadDuration = TimeSpan.FromSeconds(10);
     private const int DownloadBytesPerRequest = 10_000_000; // 10 MB per request (matches cloudflare-speed-cli)
@@ -35,6 +34,7 @@ public partial class CloudflareSpeedTestService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly IConfiguration _configuration;
+    private readonly Iperf3ServerService _iperf3ServerService;
 
     // Observable test state (polled by UI components)
     private readonly object _lock = new();
@@ -82,13 +82,15 @@ public partial class CloudflareSpeedTestService
         IHttpClientFactory httpClientFactory,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        Iperf3ServerService iperf3ServerService)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _dbFactory = dbFactory;
         _pathAnalyzer = pathAnalyzer;
         _configuration = configuration;
+        _iperf3ServerService = iperf3ServerService;
     }
 
     /// <summary>
@@ -98,7 +100,7 @@ public partial class CloudflareSpeedTestService
 
     /// <summary>
     /// Run a full Cloudflare WAN speed test with progress reporting.
-    /// Uses 6 concurrent connections per direction, similar to cloudflare-speed-cli.
+    /// Uses multiple concurrent connections per direction, similar to cloudflare-speed-cli.
     /// Test state is tracked on the service so UI components can navigate away and
     /// poll CurrentProgress / LastCompletedResult when they return.
     /// </summary>
@@ -119,6 +121,14 @@ public partial class CloudflareSpeedTestService
 
         try
         {
+            // Pause iperf3 server during WAN speed test to free pipe handles.
+            // GC compaction while iperf3 pipe readers are active causes AccessViolationException.
+            if (_iperf3ServerService.IsRunning)
+            {
+                _logger.LogInformation("Pausing iperf3 server for WAN speed test");
+                await _iperf3ServerService.PauseAsync();
+            }
+
             _logger.LogInformation("Starting Cloudflare WAN speed test ({Concurrency} concurrent connections)", Concurrency);
 
             // Wrap progress to always update service-level state (for navigate-away polling)
@@ -161,10 +171,6 @@ public partial class CloudflareSpeedTestService
             _logger.LogInformation("Download: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
                 downloadMbps, downloadBytes, Concurrency, dlLatencyMs);
             Report("Download complete", 55, $"Down: {downloadMbps:F1} Mbps");
-
-            // Reclaim download phase memory before starting upload
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-            GC.WaitForPendingFinalizers();
 
             // Phase 4: Upload (55-95%) - concurrent connections + latency probes
             Report("Testing upload", 56, null);
@@ -237,11 +243,6 @@ public partial class CloudflareSpeedTestService
             Report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
             lock (_lock) _lastCompletedResult = result;
 
-            // Reclaim upload phase memory and return to OS
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-            GC.WaitForPendingFinalizers();
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-
             // Trigger background path analysis with Cloudflare-reported WAN IP and pre-resolved WAN group
             var cfWanIp = metadata.Ip;
             var resolvedWanGroup = result.WanNetworkGroup;
@@ -288,6 +289,8 @@ public partial class CloudflareSpeedTestService
         }
         finally
         {
+            // Resume iperf3 server after WAN speed test completes (or fails/cancels)
+            await _iperf3ServerService.ResumeAsync();
             lock (_lock) _isRunning = false;
         }
     }
@@ -562,6 +565,8 @@ public partial class CloudflareSpeedTestService
                                 Interlocked.Add(ref totalBytes, bytesWritten));
                             using var uploadResponse = await workerClient.PostAsync(url, content, linked.Token);
                             Interlocked.Increment(ref requestCount);
+                            // Drain response body to enable TCP connection reuse (HTTP/1.1)
+                            await uploadResponse.Content.CopyToAsync(Stream.Null, linked.Token);
                             if (!uploadResponse.IsSuccessStatusCode)
                             {
                                 Interlocked.Increment(ref errorCount);

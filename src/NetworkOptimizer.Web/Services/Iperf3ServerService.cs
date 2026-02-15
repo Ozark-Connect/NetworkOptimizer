@@ -18,6 +18,10 @@ public class Iperf3ServerService : BackgroundService
     private Process? _iperf3Process;
     private const int Iperf3Port = 5201;
 
+    // Pause/resume support (used during WAN speed tests to free pipe handles)
+    private volatile bool _isPaused;
+    private TaskCompletionSource? _resumeTcs;
+
     public Iperf3ServerService(
         ILogger<Iperf3ServerService> logger,
         ClientSpeedTestService clientSpeedTestService,
@@ -43,6 +47,47 @@ public class Iperf3ServerService : BackgroundService
     /// </summary>
     public string? FailureMessage { get; private set; }
 
+    /// <summary>
+    /// Pause the iperf3 server (kills the process and prevents restart).
+    /// Used during WAN speed tests to free pipe handles that interfere with GC compaction.
+    /// </summary>
+    public async Task PauseAsync()
+    {
+        if (_isPaused) return;
+        _isPaused = true;
+        _resumeTcs = new TaskCompletionSource();
+
+        // Kill current iperf3 process
+        if (_iperf3Process is { HasExited: false })
+        {
+            try { _iperf3Process.Kill(entireProcessTree: true); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Error killing iperf3 process during pause"); }
+        }
+
+        // Also kill orphans to ensure port is free when we resume
+        await KillOrphanedIperf3ProcessesAsync();
+
+        _logger.LogInformation("iperf3 server paused");
+    }
+
+    /// <summary>
+    /// Resume the iperf3 server after a pause.
+    /// Kills any orphaned iperf3 processes and waits for the port to be released.
+    /// </summary>
+    public async Task ResumeAsync()
+    {
+        if (!_isPaused) return;
+
+        // Kill any orphaned iperf3 still holding the port, then wait for OS to release it
+        await KillOrphanedIperf3ProcessesAsync();
+        await Task.Delay(1000);
+
+        _isPaused = false;
+        _resumeTcs?.TrySetResult();
+        _resumeTcs = null;
+        _logger.LogInformation("iperf3 server resumed");
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Check if iperf3 server mode is enabled
@@ -60,6 +105,22 @@ public class Iperf3ServerService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // Wait if paused (e.g., during WAN speed test to free pipe handles)
+            if (_isPaused && _resumeTcs != null)
+            {
+                _logger.LogDebug("iperf3 server paused, waiting for resume signal");
+                try
+                {
+                    await _resumeTcs.Task.WaitAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                consecutiveImmediateExits = 0;
+                continue;
+            }
+
             try
             {
                 var ranSuccessfully = await RunIperf3ServerAsync(stoppingToken);
