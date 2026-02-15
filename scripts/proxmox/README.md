@@ -18,7 +18,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOpt
 
 The script will guide you through:
 1. Container configuration (ID, hostname, resources, network)
-2. Application settings (timezone, ports, optional password)
+2. Application settings (timezone, ports, reverse proxy, geo location, optional password)
 3. Automatic installation of Docker and Network Optimizer
 
 ## Requirements
@@ -58,6 +58,7 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 | iperf3 Server | Disabled | CLI-based speed testing (port 5201) |
 | Host Redirect | Disabled | Redirect IP access to hostname (requires local DNS) |
 | Reverse Proxy | None | Optional hostname for reverse proxy setup |
+| Geo Location | Disabled | GPS tagging for speed tests and signal levels (requires HTTPS) |
 | Timezone | America/New_York | Container timezone |
 
 ## Post-Installation
