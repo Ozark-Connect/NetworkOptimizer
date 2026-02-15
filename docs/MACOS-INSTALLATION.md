@@ -80,6 +80,35 @@ git pull
 
 The install script preserves your database, encryption keys, and `start.sh` configuration by backing them up before reinstalling.
 
+## Troubleshooting
+
+### Reset Admin Password
+
+If you forget the admin password, use the reset script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.sh | bash
+```
+
+The script auto-detects the macOS native installation, clears the password, restarts the service, and displays the new temporary password.
+
+**Manual fallback:**
+
+```bash
+# Stop the service
+launchctl unload ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
+
+# Clear the password
+sqlite3 ~/Library/Application\ Support/NetworkOptimizer/network_optimizer.db \
+    "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+
+# Restart
+launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
+
+# View the new password
+grep "Password:" ~/network-optimizer/logs/stdout.log | tail -1
+```
+
 ## Uninstalling
 
 ```bash
