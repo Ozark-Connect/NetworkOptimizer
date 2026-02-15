@@ -243,8 +243,6 @@ public partial class CloudflareSpeedTestService
             Report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
             lock (_lock) _lastCompletedResult = result;
 
-
-
             // Trigger background path analysis with Cloudflare-reported WAN IP and pre-resolved WAN group
             var cfWanIp = metadata.Ip;
             var resolvedWanGroup = result.WanNetworkGroup;
