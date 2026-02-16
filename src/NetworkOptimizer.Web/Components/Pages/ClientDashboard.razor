@@ -282,7 +282,7 @@
                     else
                     {
                         <div class="empty-state">
-                            <p>No speed tests yet. Run a test to see results here.</p>
+                            <p>No speed tests found for this time range.</p>
                         </div>
                     }
 
@@ -390,7 +390,7 @@
                                                     <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
                                                     <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
                                                 }
-                                                <td>@(r.PingMs?.ToString("F1") ?? "-") ms</td>
+                                                <td>@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
