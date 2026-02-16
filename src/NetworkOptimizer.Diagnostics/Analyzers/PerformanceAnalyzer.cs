@@ -32,14 +32,23 @@ public class PerformanceAnalyzer
         List<UniFiNetworkConfig> networks,
         List<UniFiClientResponse> clients,
         JsonDocument? settingsData,
-        JsonDocument? qosRulesData)
+        JsonDocument? qosRulesData,
+        bool runPerformanceChecks = true,
+        bool runCellularChecks = true)
     {
         var issues = new List<PerformanceIssue>();
 
-        issues.AddRange(CheckHardwareAcceleration(devices));
-        issues.AddRange(CheckJumboFrames(devices, settingsData));
-        issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData));
-        issues.AddRange(CheckCellularQos(devices, qosRulesData));
+        if (runPerformanceChecks)
+        {
+            issues.AddRange(CheckHardwareAcceleration(devices));
+            issues.AddRange(CheckJumboFrames(devices, settingsData));
+            issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData));
+        }
+
+        if (runCellularChecks)
+        {
+            issues.AddRange(CheckCellularQos(devices, networks, qosRulesData));
+        }
 
         return issues;
     }
@@ -105,7 +114,7 @@ public class PerformanceAnalyzer
                 Description = $"You have {highSpeedAccessPorts} access ports running at 2.5 GbE or higher, " +
                     "but jumbo frames are not enabled. Jumbo frames (MTU 9000) reduce per-packet overhead " +
                     "and can improve throughput by 10-30% for large transfers on high-speed links.",
-                Recommendation = "Enable jumbo frames in UniFi Settings > Networks > Global Switch Settings (at the bottom). " +
+                Recommendation = "Enable jumbo frames in UniFi Network Settings > Networks > Global Switch Settings (at the bottom). " +
                     "Ensure all devices on the path support jumbo frames to avoid fragmentation.",
                 Severity = PerformanceSeverity.Info,
                 Category = PerformanceCategory.Performance
@@ -182,7 +191,7 @@ public class PerformanceAnalyzer
         {
             Title = "Flow Control Not Enabled",
             Description = description,
-            Recommendation = "Enable flow control in UniFi Settings > Internet (at the bottom). " +
+            Recommendation = "Enable flow control in UniFi Network Settings > Internet (at the bottom). " +
                 "This uses IEEE 802.3x pause frames to prevent buffer overflows between ports.",
             Severity = PerformanceSeverity.Info,
             Category = PerformanceCategory.Performance
@@ -196,6 +205,7 @@ public class PerformanceAnalyzer
     /// </summary>
     internal List<PerformanceIssue> CheckCellularQos(
         List<UniFiDeviceResponse> devices,
+        List<UniFiNetworkConfig> networks,
         JsonDocument? qosRulesData)
     {
         var issues = new List<PerformanceIssue>();
@@ -207,18 +217,35 @@ public class PerformanceAnalyzer
         }
 
         var wanInterfaces = gateway.GetWanInterfaces();
-        bool hasCellular = wanInterfaces.Any(w => w.IsCellular);
+        var cellularWan = wanInterfaces.FirstOrDefault(w => w.IsCellular);
 
-        if (!hasCellular)
+        if (cellularWan == null)
         {
             _logger?.LogDebug("No cellular WAN detected, skipping QoS check");
             return issues;
         }
 
-        _logger?.LogInformation("Cellular WAN detected, checking QoS rule coverage");
+        // Determine if the cellular WAN is failover-only or in the load balancing mix.
+        // Failover = more likely to have a small data plan, so Recommendation severity.
+        // Load balanced = actively used, so also Recommendation but different description.
+        bool isFailover = IsCellularFailover(cellularWan, networks);
+        _logger?.LogInformation("Cellular WAN detected ({Key}, type={Type}, failover={Failover}), checking QoS rule coverage",
+            cellularWan.Key, cellularWan.Type, isFailover);
+
+        // If cellular is failover-only, severity is Info (less urgent since it's not primary)
+        // If cellular is in the load balancing mix, severity is Recommendation (actively burning data)
+        var severity = isFailover ? PerformanceSeverity.Info : PerformanceSeverity.Recommendation;
+
+        string cellularContext = isFailover
+            ? "Your cellular WAN is configured as failover"
+            : "Your cellular WAN is in the load balancing mix";
 
         // Parse existing QoS rules to find which app categories are covered
-        var coveredCategories = GetCoveredCategories(qosRulesData);
+        var coveredCategories = GetCoveredCategories(qosRulesData, _logger);
+
+        _logger?.LogDebug("QoS coverage: {Categories}", coveredCategories.Count > 0
+            ? string.Join(", ", coveredCategories)
+            : "none");
 
         // Check each category
         if (!coveredCategories.Contains("streaming"))
@@ -227,11 +254,11 @@ public class PerformanceAnalyzer
             issues.Add(new PerformanceIssue
             {
                 Title = "Streaming Video Not Rate-Limited",
-                Description = "Your network has a cellular WAN connection, but streaming video apps " +
+                Description = $"{cellularContext}, but streaming video apps " +
                     $"({examples}) don't have bandwidth limits. Streaming can quickly exhaust cellular data caps.",
-                Recommendation = "Create a QoS rule in UniFi Settings > Traffic Management to limit " +
+                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit " +
                     "streaming video apps when on cellular. Consider setting a bandwidth cap per client.",
-                Severity = PerformanceSeverity.Recommendation,
+                Severity = severity,
                 Category = PerformanceCategory.CellularDataSavings,
                 DeviceName = gateway.Name
             });
@@ -243,11 +270,11 @@ public class PerformanceAnalyzer
             issues.Add(new PerformanceIssue
             {
                 Title = "Cloud Sync Not Rate-Limited",
-                Description = "Your network has a cellular WAN connection, but cloud storage apps " +
+                Description = $"{cellularContext}, but cloud storage apps " +
                     $"({examples}) don't have bandwidth limits. Background sync can consume significant data.",
-                Recommendation = "Create a QoS rule to limit cloud storage sync speed when on cellular. " +
+                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
                     "This prevents large uploads/downloads from burning through your data plan.",
-                Severity = PerformanceSeverity.Recommendation,
+                Severity = severity,
                 Category = PerformanceCategory.CellularDataSavings,
                 DeviceName = gateway.Name
             });
@@ -259,11 +286,11 @@ public class PerformanceAnalyzer
             issues.Add(new PerformanceIssue
             {
                 Title = "Game/App Downloads Not Rate-Limited",
-                Description = "Your network has a cellular WAN connection, but game stores and large download " +
+                Description = $"{cellularContext}, but game stores and large download " +
                     $"platforms ({examples}) don't have bandwidth limits. A single game update can be 50+ GB.",
-                Recommendation = "Create a QoS rule to limit or block game/app downloads when on cellular. " +
+                Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
                     "Game updates alone can exceed monthly data caps in a single download.",
-                Severity = PerformanceSeverity.Recommendation,
+                Severity = severity,
                 Category = PerformanceCategory.CellularDataSavings,
                 DeviceName = gateway.Name
             });
@@ -273,6 +300,30 @@ public class PerformanceAnalyzer
     }
 
     #region Helper Methods
+
+    /// <summary>
+    /// Determines if the cellular WAN is configured as failover-only (not load balanced).
+    /// Matches the cellular WAN interface key (e.g., "wan2") to a WAN network config
+    /// via the wan_networkgroup field (e.g., "WAN2").
+    /// </summary>
+    internal static bool IsCellularFailover(GatewayWanInterface cellularWan, List<UniFiNetworkConfig> networks)
+    {
+        // Match the interface key (e.g., "wan2") to the network group (e.g., "WAN2")
+        var wanNetworks = networks
+            .Where(n => n.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var cellularNetwork = wanNetworks.FirstOrDefault(n =>
+            n.WanNetworkgroup?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) == true);
+
+        if (cellularNetwork == null)
+        {
+            // Can't determine, assume failover (more conservative)
+            return true;
+        }
+
+        return cellularNetwork.WanLoadBalanceType?.Equals("failover-only", StringComparison.OrdinalIgnoreCase) == true;
+    }
 
     /// <summary>
     /// Reads a boolean property from the global_switch settings object.
@@ -384,12 +435,15 @@ public class PerformanceAnalyzer
     /// <summary>
     /// Parse QoS rules to determine which app categories are covered by limiting rules.
     /// </summary>
-    internal static HashSet<string> GetCoveredCategories(JsonDocument? qosRulesData)
+    internal static HashSet<string> GetCoveredCategories(JsonDocument? qosRulesData, ILogger? logger = null)
     {
         var covered = new HashSet<string>();
 
         if (qosRulesData == null)
+        {
+            logger?.LogDebug("QoS rules data is null");
             return covered;
+        }
 
         // QoS rules response can be either a flat array or wrapped in a data property
         JsonElement rulesArray;
@@ -404,46 +458,77 @@ public class PerformanceAnalyzer
         }
         else
         {
+            logger?.LogDebug("QoS rules: unexpected JSON structure (kind={Kind})", qosRulesData.RootElement.ValueKind);
             return covered;
         }
+
+        int ruleCount = 0;
+        foreach (var _ in rulesArray.EnumerateArray()) ruleCount++;
+        logger?.LogDebug("QoS rules: found {Count} rules total", ruleCount);
 
         // Collect all app IDs targeted by enabled limiting rules
         var targetedAppIds = new HashSet<int>();
 
         foreach (var rule in rulesArray.EnumerateArray())
         {
+            string? ruleName = rule.TryGetProperty("description", out var desc) ? desc.GetString() : null;
+
             // Must be enabled
             if (!rule.TryGetProperty("enabled", out var enabled) || !enabled.GetBoolean())
+            {
+                logger?.LogDebug("QoS rule '{Name}': skipped (disabled)", ruleName ?? "unnamed");
                 continue;
+            }
 
             // Must be a limiting rule
-            if (!rule.TryGetProperty("objective", out var objective) ||
-                objective.GetString()?.Equals("LIMIT", StringComparison.OrdinalIgnoreCase) != true)
+            string? objectiveStr = rule.TryGetProperty("objective", out var objective) ? objective.GetString() : null;
+            if (objectiveStr?.Equals("LIMIT", StringComparison.OrdinalIgnoreCase) != true)
+            {
+                logger?.LogDebug("QoS rule '{Name}': skipped (objective={Objective})", ruleName ?? "unnamed", objectiveStr ?? "null");
                 continue;
+            }
 
             // Collect app IDs from destination
             if (rule.TryGetProperty("destination", out var destination) &&
                 destination.TryGetProperty("app_ids", out var appIds) &&
                 appIds.ValueKind == JsonValueKind.Array)
             {
+                var ruleAppIds = new List<int>();
                 foreach (var appId in appIds.EnumerateArray())
                 {
                     if (appId.TryGetInt32(out int id))
+                    {
                         targetedAppIds.Add(id);
+                        ruleAppIds.Add(id);
+                    }
                 }
+                logger?.LogDebug("QoS rule '{Name}': LIMIT with {Count} app IDs: [{Ids}]",
+                    ruleName ?? "unnamed", ruleAppIds.Count, string.Join(", ", ruleAppIds));
+            }
+            else
+            {
+                logger?.LogDebug("QoS rule '{Name}': LIMIT but no destination.app_ids found", ruleName ?? "unnamed");
             }
         }
 
+        logger?.LogDebug("QoS: {Count} total targeted app IDs across all LIMIT rules", targetedAppIds.Count);
+
         // Check coverage for each category
         int streamingHits = targetedAppIds.Count(id => StreamingAppIds.StreamingVideo.Contains(id));
+        logger?.LogDebug("QoS coverage: streaming {Hits}/{Required} (need {Min})",
+            streamingHits, StreamingAppIds.StreamingVideo.Count, StreamingAppIds.MinAppsForCoverage);
         if (streamingHits >= StreamingAppIds.MinAppsForCoverage)
             covered.Add("streaming");
 
         int cloudHits = targetedAppIds.Count(id => StreamingAppIds.CloudStorage.Contains(id));
+        logger?.LogDebug("QoS coverage: cloud {Hits}/{Required} (need {Min})",
+            cloudHits, StreamingAppIds.CloudStorage.Count, StreamingAppIds.MinAppsForCoverage);
         if (cloudHits >= StreamingAppIds.MinAppsForCoverage)
             covered.Add("cloud");
 
         int downloadHits = targetedAppIds.Count(id => StreamingAppIds.LargeDownloads.Contains(id));
+        logger?.LogDebug("QoS coverage: downloads {Hits}/{Required} (need {Min})",
+            downloadHits, StreamingAppIds.LargeDownloads.Count, StreamingAppIds.MinAppsForCoverage);
         if (downloadHits >= StreamingAppIds.MinAppsForCoverage)
             covered.Add("downloads");
 

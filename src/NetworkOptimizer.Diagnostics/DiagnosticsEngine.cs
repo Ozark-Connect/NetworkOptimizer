@@ -34,9 +34,14 @@ public class DiagnosticsOptions
     public bool RunPortProfile8021xAnalyzer { get; set; } = true;
 
     /// <summary>
-    /// Run the Performance analyzer (hardware accel, jumbo frames, flow control, cellular QoS)
+    /// Run the Performance analyzer (hardware accel, jumbo frames, flow control)
     /// </summary>
     public bool RunPerformanceAnalyzer { get; set; } = true;
+
+    /// <summary>
+    /// Run the Cellular Data Savings analyzer (QoS rules for 5G/LTE WANs)
+    /// </summary>
+    public bool RunCellularDataSavings { get; set; } = true;
 }
 
 /// <summary>
@@ -175,13 +180,15 @@ public class DiagnosticsEngine
         }
 
         // Run Performance Analyzer
-        if (options.RunPerformanceAnalyzer)
+        if (options.RunPerformanceAnalyzer || options.RunCellularDataSavings)
         {
             _logger?.LogDebug("Running Performance Analyzer");
             try
             {
                 result.PerformanceIssues = _performanceAnalyzer.Analyze(
-                    deviceList, networkList, clientList, settingsData, qosRulesData);
+                    deviceList, networkList, clientList, settingsData, qosRulesData,
+                    runPerformanceChecks: options.RunPerformanceAnalyzer,
+                    runCellularChecks: options.RunCellularDataSavings);
                 _logger?.LogDebug("Performance Analyzer found {Count} issues", result.PerformanceIssues.Count);
             }
             catch (Exception ex)

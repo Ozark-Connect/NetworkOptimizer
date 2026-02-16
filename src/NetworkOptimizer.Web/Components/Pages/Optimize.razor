@@ -70,6 +70,10 @@
                         <input type="checkbox" @bind="_runPerformanceSuggestions" />
                         <span>Performance Suggestions</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runCellularDataSavings" />
+                        <span>Cellular Data Savings</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -413,6 +417,7 @@
     private bool _runTrunkConsistency = true;
     private bool _runPortProfileSuggestions = true;
     private bool _runPerformanceSuggestions = true;
+    private bool _runCellularDataSavings = true;
 
     // Collapsible section state
     private bool _apLockCollapsed;
@@ -537,7 +542,8 @@
                 RunTrunkConsistencyAnalyzer = _runTrunkConsistency,
                 RunPortProfileSuggestionAnalyzer = _runPortProfileSuggestions,
                 RunPortProfile8021xAnalyzer = _runPortProfileSuggestions, // Runs with port profile suggestions
-                RunPerformanceAnalyzer = _runPerformanceSuggestions
+                RunPerformanceAnalyzer = _runPerformanceSuggestions,
+                RunCellularDataSavings = _runCellularDataSavings
             };
 
             _result = await DiagnosticsService.RunDiagnosticsAsync(options);
