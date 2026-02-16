@@ -788,7 +788,7 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckJumboFrames_GlobalOn_ExcludedDeviceOn_NoIssue()
+    public void CheckJumboFrames_GlobalOn_ExcludedDeviceOn_SuggestsAbsorbingGlobal()
     {
         var device = CreateSwitch("switch1", "Switch 1");
         device.Mac = "aa:bb:cc:00:00:01";
@@ -801,7 +801,11 @@ public class PerformanceAnalyzerTests
 
         var result = _analyzer.CheckJumboFrames(new List<UniFiDeviceResponse> { device }, settings);
 
-        result.Should().BeEmpty();
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Contain("Per-Device");
+        result[0].Title.Should().Contain("Switch 1");
+        result[0].Severity.Should().Be(PerformanceSeverity.Info);
+        result[0].Description.Should().Contain("Global Switch Settings");
     }
 
     [Fact]
@@ -894,6 +898,39 @@ public class PerformanceAnalyzerTests
         result.Should().HaveCount(1);
         result[0].Title.Should().Be("Flow Control Set Per-Device");
         result[0].Severity.Should().Be(PerformanceSeverity.Info);
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_ExcludedGateway_IgnoresGateway()
+    {
+        var gateway = CreateGateway();
+        gateway.Mac = "aa:bb:cc:00:00:01";
+        gateway.FlowControlEnabled = false;
+        var settings = CreateSettings(flowCtrlEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { gateway }, CreateWanNetwork(1000),
+            new List<UniFiClientResponse>(), settings);
+
+        // Gateway should not get a flow control mismatch issue
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOff_ExcludedGatewayOn_IgnoresGateway()
+    {
+        var gateway = CreateGateway();
+        gateway.Mac = "aa:bb:cc:00:00:01";
+        gateway.FlowControlEnabled = true;
+        // Use slow WAN so the general "Flow Control Not Enabled" check doesn't trigger
+        var settings = CreateSettings(flowCtrlEnabled: false, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { gateway }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings);
+
+        // Gateway should not trigger "Flow Control Set Per-Device" issue
+        result.Should().BeEmpty();
     }
 
     #endregion

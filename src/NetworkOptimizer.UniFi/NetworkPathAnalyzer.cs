@@ -769,7 +769,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 if (settings != null)
                 {
                     hop.JumboFramesEnabled = settings.GetEffectiveJumboFrames(device);
-                    hop.FlowControlEnabled = settings.GetEffectiveFlowControl(device);
+
+                    // Flow Control is a switch-only feature - gateways don't support it
+                    if (hop.Type != HopType.Gateway)
+                    {
+                        hop.FlowControlEnabled = settings.GetEffectiveFlowControl(device);
+                    }
                 }
 
                 if (hop.Type == HopType.Gateway)
