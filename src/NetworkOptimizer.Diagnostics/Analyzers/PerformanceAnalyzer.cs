@@ -43,7 +43,6 @@ public class PerformanceAnalyzer
         bool runPerformanceChecks = true,
         bool runCellularChecks = true)
     {
-        CellularWanDetected = false;
         var issues = new List<PerformanceIssue>();
 
         if (runPerformanceChecks)
