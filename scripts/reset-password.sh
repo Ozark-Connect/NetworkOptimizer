@@ -293,10 +293,17 @@ reset_macos() {
     check_sqlite3
     confirm
 
+    # Record log size before restart so we only read new output
+    local log_size_before=0
+    if [[ -f "$log_file" ]]; then
+        log_size_before=$(wc -c < "$log_file")
+    fi
+
     # Stop service
     if [[ -f "$plist" ]]; then
         msg_info "Stopping service..."
         launchctl unload "$plist" 2>/dev/null || true
+        sleep 2
         msg_ok "Service stopped"
     else
         msg_warn "LaunchAgent plist not found at $plist"
@@ -320,13 +327,21 @@ reset_macos() {
     # Wait for health
     wait_for_health || true
 
-    # Extract password from log
+    # Poll for new password in log (up to 15s)
     echo ""
     local password=""
     if [[ -f "$log_file" ]]; then
-        password=$(tail -100 "$log_file" \
-            | grep "Password:" | tail -1 \
-            | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
+        local deadline=$((SECONDS + 15))
+        while [[ $SECONDS -lt $deadline ]]; do
+            local new_bytes=$(( $(wc -c < "$log_file") - log_size_before ))
+            if [[ $new_bytes -gt 0 ]]; then
+                password=$(tail -c "$new_bytes" "$log_file" \
+                    | grep "Password:" | tail -1 \
+                    | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
+                if [[ -n "$password" ]]; then break; fi
+            fi
+            sleep 1
+        done
     fi
 
     show_result "$password"
@@ -394,6 +409,13 @@ reset_linux() {
     check_sqlite3
     confirm
 
+    # Record log size before restart so we only read new output
+    local log_file="$install_dir/logs/stdout.log"
+    local log_size_before=0
+    if [[ -f "$log_file" ]]; then
+        log_size_before=$(wc -c < "$log_file")
+    fi
+
     # Stop service
     if [[ -n "$service_name" ]]; then
         msg_info "Stopping service ($service_name)..."
@@ -428,24 +450,29 @@ reset_linux() {
     # Wait for health
     wait_for_health || true
 
-    # Extract password from journalctl or log file
+    # Poll for new password in journalctl or log file (up to 15s)
     echo ""
     local password=""
-    if [[ -n "$service_name" ]]; then
-        password=$(journalctl -u "$service_name" --since "2 minutes ago" --no-pager 2>/dev/null \
-            | grep "Password:" | tail -1 \
-            | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
-    fi
-
-    # Fallback: check log file
-    if [[ -z "$password" ]]; then
-        local log_file="$install_dir/logs/stdout.log"
-        if [[ -f "$log_file" ]]; then
-            password=$(tail -100 "$log_file" \
+    local deadline=$((SECONDS + 15))
+    while [[ $SECONDS -lt $deadline ]] && [[ -z "$password" ]]; do
+        if [[ -n "$service_name" ]]; then
+            password=$(journalctl -u "$service_name" --since "2 minutes ago" --no-pager 2>/dev/null \
                 | grep "Password:" | tail -1 \
                 | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
         fi
-    fi
+
+        # Fallback: check new log output only
+        if [[ -z "$password" ]] && [[ -f "$log_file" ]]; then
+            local new_bytes=$(( $(wc -c < "$log_file") - log_size_before ))
+            if [[ $new_bytes -gt 0 ]]; then
+                password=$(tail -c "$new_bytes" "$log_file" \
+                    | grep "Password:" | tail -1 \
+                    | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
+            fi
+        fi
+
+        if [[ -z "$password" ]]; then sleep 1; fi
+    done
 
     show_result "$password"
 }
