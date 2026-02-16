@@ -485,7 +485,10 @@
             .Where(i => i.Category == PerformanceCategory.Performance).ToList();
         _cellularIssues = _result.PerformanceIssues
             .Where(i => i.Category == PerformanceCategory.CellularDataSavings).ToList();
-        _hasCellularWan = _result.CellularWanDetected;
+        // Only upgrade _hasCellularWan to true, never downgrade - unchecking
+        // the cellular checkbox skips detection, so the result would be false
+        if (_result.CellularWanDetected)
+            _hasCellularWan = true;
 
         var apLockCount = _result.ApLockIssues.Count;
         var trunkCount = _result.TrunkConsistencyIssues.Count;
