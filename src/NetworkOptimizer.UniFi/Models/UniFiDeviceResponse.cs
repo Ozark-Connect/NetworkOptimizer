@@ -205,7 +205,7 @@ public class UniFiDeviceResponse
     public ConfigNetworkLan? ConfigNetworkLan { get; set; }
 
     /// <summary>
-    /// Whether hardware offload (packet acceleration) is enabled on the gateway.
+    /// Whether Hardware Acceleration is enabled on the gateway.
     /// Only present on gateway devices.
     /// </summary>
     [JsonPropertyName("hardware_offload")]
