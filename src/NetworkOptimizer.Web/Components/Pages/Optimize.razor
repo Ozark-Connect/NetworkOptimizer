@@ -70,10 +70,13 @@
                         <input type="checkbox" @bind="_runPerformanceSuggestions" />
                         <span>Performance Suggestions</span>
                     </label>
+                    @if (_hasCellularWan)
+                    {
                     <label class="checkbox-label">
                         <input type="checkbox" @bind="_runCellularDataSavings" />
                         <span>Cellular Data Savings</span>
                     </label>
+                    }
                 </div>
             </div>
         </div>
