@@ -247,9 +247,10 @@ public class UniFiDeviceResponse
                     result.Add(info);
                 }
             }
-            catch
+            catch (JsonException ex)
             {
-                // Skip malformed WAN interface objects
+                System.Diagnostics.Debug.WriteLine(
+                    $"Failed to deserialize WAN interface '{kvp.Key}': {ex.Message}");
             }
         }
 
