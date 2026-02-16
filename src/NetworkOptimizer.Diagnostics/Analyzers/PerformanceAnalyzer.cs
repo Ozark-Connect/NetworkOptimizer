@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Diagnostics.Analyzers;
 
 /// <summary>
 /// Analyzes network configuration for performance optimization opportunities:
-/// hardware acceleration, jumbo frames, flow control, and cellular QoS.
+/// Hardware Acceleration, Jumbo Frames, Flow Control, and cellular QoS.
 /// </summary>
 public class PerformanceAnalyzer
 {
@@ -61,7 +61,7 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
-    /// Check if hardware acceleration (packet offload) is enabled on the gateway.
+    /// Check if Hardware Acceleration (packet offload) is enabled on the gateway.
     /// </summary>
     internal List<PerformanceIssue> CheckHardwareAcceleration(List<UniFiDeviceResponse> devices)
     {
@@ -70,7 +70,7 @@ public class PerformanceAnalyzer
         var gateway = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
         if (gateway == null)
         {
-            _logger?.LogDebug("No gateway found, skipping hardware acceleration check");
+            _logger?.LogDebug("No gateway found, skipping Hardware Acceleration check");
             return issues;
         }
 
@@ -94,7 +94,7 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
-    /// Check jumbo frames configuration using exclusion-aware global switch settings.
+    /// Check Jumbo Frames configuration using exclusion-aware global switch settings.
     /// Three scenarios: global off (suggest enabling), global on with excluded device off (mismatch),
     /// global off but all excluded devices on (suggest using global).
     /// </summary>
@@ -106,7 +106,7 @@ public class PerformanceAnalyzer
         var settings = GlobalSwitchSettings.FromSettingsJson(settingsData);
         bool globalJumbo = settings?.JumboFramesEnabled ?? false;
 
-        // Find excluded devices and their jumbo frames status
+        // Find excluded devices and their Jumbo Frames status
         var excludedDevices = GetExcludedDevicesWithSetting(devices, settings,
             d => settings?.GetEffectiveJumboFrames(d) ?? false);
 
@@ -120,11 +120,11 @@ public class PerformanceAnalyzer
                     issues.Add(new PerformanceIssue
                     {
                         Title = $"Jumbo Frames Disabled on {device.Name}",
-                        Description = $"Jumbo frames are enabled globally, but {device.Name} is using device-specific " +
-                            "settings with jumbo frames disabled. This creates an MTU mismatch that can cause " +
+                        Description = $"Jumbo Frames are enabled globally, but {device.Name} is using device-specific " +
+                            "settings with Jumbo Frames disabled. This creates an MTU mismatch that can cause " +
                             "fragmentation and reduced throughput on paths through this device.",
-                        Recommendation = "Either re-enable global switch settings on this device, or enable jumbo frames " +
-                            "in its device-specific settings.",
+                        Recommendation = "Enable Global Switch Settings on this device in UniFi Devices > " +
+                            $"{device.Name}, or enable Jumbo Frames in its device-specific settings.",
                         Severity = PerformanceSeverity.Recommendation,
                         Category = PerformanceCategory.Performance,
                         DeviceName = device.Name
@@ -144,10 +144,10 @@ public class PerformanceAnalyzer
                 issues.Add(new PerformanceIssue
                 {
                     Title = "Jumbo Frames Set Per-Device",
-                    Description = "Jumbo frames are enabled on all your devices individually, but the global switch " +
-                        "setting is off. If a new device is added, it won't have jumbo frames unless manually configured.",
-                    Recommendation = "Consider enabling jumbo frames in Global Switch Settings for consistent " +
-                        "coverage across all current and future devices.",
+                    Description = "Jumbo Frames are enabled on all your devices individually, but the global switch " +
+                        "setting is off. If a new device is added, it won't have Jumbo Frames unless manually configured.",
+                    Recommendation = "Consider enabling Jumbo Frames in UniFi Network Settings > Networks > " +
+                        "Global Switch Settings (at the bottom) for consistent coverage across all current and future devices.",
                     Severity = PerformanceSeverity.Info,
                     Category = PerformanceCategory.Performance
                 });
@@ -166,14 +166,14 @@ public class PerformanceAnalyzer
                     {
                         var deviceNames = string.Join(", ", excludedWithJumboOn.Select(e => e.Device.Name));
                         description = $"You have {highSpeedAccessPorts} access ports running at 2.5 GbE or higher. " +
-                            $"Jumbo frames are enabled on {deviceNames} but not on the remaining devices, " +
+                            $"Jumbo Frames are enabled on {deviceNames} but not on the remaining devices, " +
                             "creating an MTU mismatch that can cause fragmentation.";
                         severity = PerformanceSeverity.Recommendation;
                     }
                     else
                     {
                         description = $"You have {highSpeedAccessPorts} access ports running at 2.5 GbE or higher, " +
-                            "but jumbo frames are not enabled. Jumbo frames (MTU 9000) reduce per-packet overhead " +
+                            "but Jumbo Frames are not enabled. Jumbo Frames (MTU 9000) reduce per-packet overhead " +
                             "and can improve throughput by 10-30% for large transfers on high-speed links.";
                         severity = PerformanceSeverity.Info;
                     }
@@ -182,7 +182,8 @@ public class PerformanceAnalyzer
                     {
                         Title = "Jumbo Frames Not Enabled",
                         Description = description,
-                        Recommendation = "Enable jumbo frames in Global Switch Settings, or enable it on each device individually.",
+                        Recommendation = "Enable Jumbo Frames in UniFi Network Settings > Networks > Global Switch Settings (at the bottom). " +
+                            "Ensure all devices on the path support Jumbo Frames to avoid fragmentation.",
                         Severity = severity,
                         Category = PerformanceCategory.Performance
                     });
@@ -194,7 +195,7 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
-    /// Check flow control configuration using exclusion-aware global switch settings.
+    /// Check Flow Control configuration using exclusion-aware global switch settings.
     /// Three scenarios: global off (suggest enabling), global on with excluded device off (mismatch),
     /// global off but all excluded devices on (suggest using global).
     /// </summary>
@@ -208,7 +209,7 @@ public class PerformanceAnalyzer
         var settings = GlobalSwitchSettings.FromSettingsJson(settingsData);
         bool globalFlowCtrl = settings?.FlowControlEnabled ?? false;
 
-        // Find excluded devices and their flow control status
+        // Find excluded devices and their Flow Control status
         var excludedDevices = GetExcludedDevicesWithSetting(devices, settings,
             d => settings?.GetEffectiveFlowControl(d) ?? false);
 
@@ -222,11 +223,11 @@ public class PerformanceAnalyzer
                     issues.Add(new PerformanceIssue
                     {
                         Title = $"Flow Control Disabled on {device.Name}",
-                        Description = $"Flow control is enabled globally, but {device.Name} is using device-specific " +
-                            "settings with flow control disabled. This means this device won't send or respond to " +
+                        Description = $"Flow Control is enabled globally, but {device.Name} is using device-specific " +
+                            "settings with Flow Control disabled. This means this device won't send or respond to " +
                             "pause frames, which can lead to packet loss during traffic bursts.",
-                        Recommendation = "Either re-enable global switch settings on this device, or enable flow control " +
-                            "in its device-specific settings.",
+                        Recommendation = "Enable Global Switch Settings on this device in UniFi Devices > " +
+                            $"{device.Name}, or enable Flow Control in its device-specific settings.",
                         Severity = PerformanceSeverity.Recommendation,
                         Category = PerformanceCategory.Performance,
                         DeviceName = device.Name
@@ -246,9 +247,10 @@ public class PerformanceAnalyzer
                 issues.Add(new PerformanceIssue
                 {
                     Title = "Flow Control Set Per-Device",
-                    Description = "Flow control is enabled on all your devices individually, but the global switch " +
-                        "setting is off. New devices won't have flow control unless manually configured.",
-                    Recommendation = "Consider enabling flow control in Global Switch Settings for consistent coverage.",
+                    Description = "Flow Control is enabled on all your devices individually, but the global switch " +
+                        "setting is off. New devices won't have Flow Control unless manually configured.",
+                    Recommendation = "Consider enabling Flow Control in UniFi Network Settings > Internet (at the bottom) " +
+                        "for consistent coverage.",
                     Severity = PerformanceSeverity.Info,
                     Category = PerformanceCategory.Performance
                 });
@@ -284,19 +286,19 @@ public class PerformanceAnalyzer
                     if (hasFastWan && mixedSpeedCondition)
                     {
                         description = "Your network has a fast WAN connection (> 800 Mbps) and mixed-speed switch ports " +
-                            $"with {wifiUserDeviceCount} wireless user devices. Flow control is enabled on {deviceNames} " +
+                            $"with {wifiUserDeviceCount} wireless user devices. Flow Control is enabled on {deviceNames} " +
                             "but not on the remaining devices, creating inconsistent burst handling.";
                     }
                     else if (hasFastWan)
                     {
-                        description = $"Your WAN speed exceeds 800 Mbps. Flow control is enabled on {deviceNames} " +
+                        description = $"Your WAN speed exceeds 800 Mbps. Flow Control is enabled on {deviceNames} " +
                             "but not on the remaining devices.";
                     }
                     else
                     {
                         var speedList = string.Join(", ", accessPortSpeeds.OrderBy(s => s).Select(s => $"{s} Mbps"));
                         description = $"Your network has mixed port speeds ({speedList}) and {wifiUserDeviceCount} " +
-                            $"wireless user devices. Flow control is enabled on {deviceNames} but not on the remaining devices.";
+                            $"wireless user devices. Flow Control is enabled on {deviceNames} but not on the remaining devices.";
                     }
                 }
                 else
@@ -306,12 +308,12 @@ public class PerformanceAnalyzer
                     if (hasFastWan && mixedSpeedCondition)
                     {
                         description = "Your network has a fast WAN connection (> 800 Mbps) and mixed-speed switch ports " +
-                            $"with {wifiUserDeviceCount} wireless user devices. Flow control helps prevent packet loss " +
+                            $"with {wifiUserDeviceCount} wireless user devices. Flow Control helps prevent packet loss " +
                             "when faster ports overwhelm slower ones during bursts.";
                     }
                     else if (hasFastWan)
                     {
-                        description = "Your WAN speed exceeds 800 Mbps. Enabling flow control can help prevent packet loss " +
+                        description = "Your WAN speed exceeds 800 Mbps. Enabling Flow Control can help prevent packet loss " +
                             "during traffic bursts when your gateway receives data faster than it can forward to slower LAN devices. " +
                             "This is most beneficial with multi-gigabit WAN connections (1.5+ Gbps).";
                     }
@@ -319,7 +321,7 @@ public class PerformanceAnalyzer
                     {
                         var speedList = string.Join(", ", accessPortSpeeds.OrderBy(s => s).Select(s => $"{s} Mbps"));
                         description = $"Your network has mixed port speeds ({speedList}) and {wifiUserDeviceCount} " +
-                            "wireless user devices. Flow control helps prevent packet loss when faster ports send " +
+                            "wireless user devices. Flow Control helps prevent packet loss when faster ports send " +
                             "to slower ones during bursts.";
                     }
                 }
@@ -328,7 +330,8 @@ public class PerformanceAnalyzer
                 {
                     Title = "Flow Control Not Enabled",
                     Description = description,
-                    Recommendation = "Enable flow control in Global Switch Settings, or enable it per-device.",
+                    Recommendation = "If you are noticing internet performance deficiency on certain devices, " +
+                        "consider enabling Flow Control in UniFi Network Settings > Internet (at the bottom).",
                     Severity = severity,
                     Category = PerformanceCategory.Performance
                 });
