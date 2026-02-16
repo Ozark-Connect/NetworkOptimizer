@@ -369,7 +369,7 @@ public class PerformanceAnalyzer
 
                 issues.Add(new PerformanceIssue
                 {
-                    Title = "Flow Control Not Enabled",
+                    Title = "Consider Flow Control",
                     Description = description,
                     Recommendation = "If you are noticing internet performance deficiency on certain devices, " +
                         "consider enabling Flow Control in UniFi Network Settings > Internet (at the bottom).",

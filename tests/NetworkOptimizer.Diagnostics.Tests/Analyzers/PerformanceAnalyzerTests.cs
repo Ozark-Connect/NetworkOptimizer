@@ -195,7 +195,7 @@ public class PerformanceAnalyzerTests
         var result = _analyzer.CheckFlowControl(devices, networks, new List<UniFiClientResponse>(), settings);
 
         result.Should().HaveCount(1);
-        result[0].Title.Should().Be("Flow Control Not Enabled");
+        result[0].Title.Should().Be("Consider Flow Control");
         result[0].Description.Should().Contain("800 Mbps");
         result[0].Severity.Should().Be(PerformanceSeverity.Info);
         result[0].Category.Should().Be(PerformanceCategory.Performance);
