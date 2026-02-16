@@ -237,8 +237,8 @@ if ($password) {
     Write-Host ""
     Write-Host "  Temporary password: $password" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  Open http://localhost:8042 and log in with this password."
-    Write-Host "  Go to Settings to set a permanent password."
+    Write-Host "  Log in to Network Optimizer with this password,"
+    Write-Host "  then go to Settings to set a permanent one."
     Write-Host ""
 } else {
     Write-Host "Password reset completed, but could not extract the new password from logs." -ForegroundColor Yellow
