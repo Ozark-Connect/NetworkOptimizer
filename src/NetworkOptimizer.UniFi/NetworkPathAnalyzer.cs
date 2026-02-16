@@ -72,11 +72,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private const string TopologyCacheKey = "NetworkTopology";
     private const string ServerPositionCacheKey = "ServerPosition";
     private const string RawDevicesCacheKey = "RawDevices";
+    private const string GlobalSwitchSettingsCacheKey = "GlobalSwitchSettings";
 
     // Cache duration
     private static readonly TimeSpan TopologyCacheDuration = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ServerPositionCacheDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RawDevicesCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan GlobalSwitchSettingsCacheDuration = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// Empirical realistic maximum throughput by link speed (Mbps).
@@ -152,6 +154,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         _cache.Remove(TopologyCacheKey);
         _cache.Remove(ServerPositionCacheKey);
         _cache.Remove(RawDevicesCacheKey);
+        _cache.Remove(GlobalSwitchSettingsCacheKey);
         _logger.LogDebug("Topology cache invalidated");
     }
 
@@ -758,8 +761,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             if (deviceHops.Count == 0)
                 return;
 
-            using var settingsDoc = await _clientProvider.Client.GetSettingsRawAsync(cancellationToken);
-            var settings = GlobalSwitchSettings.FromSettingsJson(settingsDoc);
+            if (!_cache.TryGetValue(GlobalSwitchSettingsCacheKey, out GlobalSwitchSettings? settings))
+            {
+                using var settingsDoc = await _clientProvider.Client.GetSettingsRawAsync(cancellationToken);
+                settings = GlobalSwitchSettings.FromSettingsJson(settingsDoc);
+                if (settings != null)
+                    _cache.Set(GlobalSwitchSettingsCacheKey, settings, GlobalSwitchSettingsCacheDuration);
+            }
 
             foreach (var hop in deviceHops)
             {
