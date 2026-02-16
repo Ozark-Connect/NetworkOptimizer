@@ -374,6 +374,76 @@ public class DeviceTypeDetectionServiceTests
         result.ConfidenceScore.Should().Be(95); // Normal fingerprint confidence
     }
 
+    [Theory]
+    [InlineData("E0:2B:96:9C:03:1E", 51)] // HomePod OUI + IoTGeneric
+    [InlineData("9C:3E:53:2A:72:5A", 47)] // Apple TV OUI + SmartTV
+    public void DetectDeviceType_AppleWithUserOverride_MacOuiDoesNotOverride(string mac, int devCat)
+    {
+        // Arrange - User manually set device type in UniFi (dev_id_override).
+        // MAC OUI should NOT override the user's choice.
+        var client = new UniFiClientResponse
+        {
+            Mac = mac,
+            Name = "Device",
+            Oui = "Apple, Inc.",
+            DevCat = devCat,
+            DevIdOverride = 9999 // User set a specific device type
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - MAC OUI override should be skipped; detection falls through
+        // to fingerprint which handles dev_id_override at 98% confidence
+        result.Source.Should().NotBe(DetectionSource.MacOui);
+    }
+
+    [Fact]
+    public void DetectDeviceType_AppleHomePodUnknownMac_VendorOverrideFallback()
+    {
+        // Arrange - Apple HomePod with a MAC prefix not in our OUI database.
+        // VendorOverride (vendor 320 + devCat 51) should catch it as SmartSpeaker.
+        var client = new UniFiClientResponse
+        {
+            Mac = "AA:BB:CC:DD:EE:FF", // Unknown MAC prefix
+            Name = "Some-Speaker",
+            Oui = "Apple, Inc.",
+            DevVendor = 320,
+            DevCat = 51 // Smart Device (IoTGeneric) → VendorOverride → SmartSpeaker
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - VendorOverride catches it even without MAC OUI match
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+        result.ConfidenceScore.Should().Be(95);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
+    [Fact]
+    public void DetectDeviceType_AppleTVUnknownMac_VendorOverrideFallback()
+    {
+        // Arrange - Apple TV with a MAC prefix not in our OUI database.
+        // VendorOverride (vendor 320 + devCat 47) should catch it as StreamingDevice.
+        var client = new UniFiClientResponse
+        {
+            Mac = "AA:BB:CC:DD:EE:FF", // Unknown MAC prefix
+            Name = "Some-Media",
+            Oui = "Apple, Inc.",
+            DevVendor = 320,
+            DevCat = 47 // Smart TV → VendorOverride → StreamingDevice
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - VendorOverride catches it even without MAC OUI match
+        result.Category.Should().Be(ClientDeviceCategory.StreamingDevice);
+        result.ConfidenceScore.Should().Be(95);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
     #endregion
 
     #region Camera Name Override Tests (Nest/Google cameras)

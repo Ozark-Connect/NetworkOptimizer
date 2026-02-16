@@ -398,6 +398,14 @@ public class FingerprintDetector
         // GoPro action cameras use devTypeId 106 (Camera) but are not security cameras
         // They're consumer electronics - treat as IoT (low-risk, no VLAN move recommendation)
         { (567, 106), new VendorOverride(ClientDeviceCategory.IoTGeneric, NetworkPurpose.IoT, "GoPro action camera - not a security camera") },
+
+        // Apple (vendor 320) + devTypeId 51 (Smart Device / IoTGeneric) = HomePod
+        // UniFi fingerprints HomePods as generic "Smart Device" - reclassify as SmartSpeaker
+        { (320, 51), new VendorOverride(ClientDeviceCategory.SmartSpeaker, NetworkPurpose.IoT, "Apple Smart Device (dev_type_id 51) is typically HomePod") },
+
+        // Apple (vendor 320) + devTypeId 47 (Smart TV & Set-top box) = Apple TV
+        // UniFi fingerprints Apple TVs as SmartTV - reclassify as StreamingDevice
+        { (320, 47), new VendorOverride(ClientDeviceCategory.StreamingDevice, NetworkPurpose.IoT, "Apple Smart TV (dev_type_id 47) is typically Apple TV") },
     };
 
     /// <summary>

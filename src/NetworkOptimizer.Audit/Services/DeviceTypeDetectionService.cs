@@ -183,7 +183,7 @@ public class DeviceTypeDetectionService
         // - Cync/Wyze/GE have camera fingerprints but most devices are actually plugs/bulbs
         // - Apple with SmartSensor fingerprint is likely Apple Watch
         // - Apple with generic fingerprints (SmartTV, IoTGeneric) should use MAC OUI for specific device type
-        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat, client?.Mac);
+        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat, client?.Mac, client?.DevIdOverride);
         if (vendorOverrideResult != null)
         {
             _logger?.LogDebug("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
@@ -1219,7 +1219,7 @@ public class DeviceTypeDetectionService
     /// - Apple devices with SmartSensor fingerprint are usually Apple Watches (Smartphone).
     /// - GoPro action cameras share devCat 106 with security cameras but aren't security devices.
     /// </summary>
-    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat, string? mac)
+    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat, string? mac, int? devIdOverride = null)
     {
         var ouiLower = oui?.ToLowerInvariant() ?? "";
         var nameLower = (name ?? hostname ?? "").ToLowerInvariant();
@@ -1227,7 +1227,8 @@ public class DeviceTypeDetectionService
         // Apple devices with generic fingerprints should check MAC OUI for specific device type
         // Apple controls their hardware tightly, so MAC OUI is highly reliable for Apple devices
         // This catches Apple TVs (SmartTV fingerprint) and HomePods (IoTGeneric) even without specific names
-        if (ouiLower.Contains("apple") && !string.IsNullOrEmpty(mac))
+        // Skip if user has manually set device type in UniFi (dev_id_override) - let fingerprint handle it
+        if (ouiLower.Contains("apple") && !string.IsNullOrEmpty(mac) && !devIdOverride.HasValue)
         {
             var isGenericFingerprint = devCat == 51 || // IoTGeneric
                                        devCat == 7 ||   // SmartTV (generic)
