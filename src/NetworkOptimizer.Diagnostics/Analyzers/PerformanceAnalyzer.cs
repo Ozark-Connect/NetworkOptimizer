@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Services;
@@ -118,14 +119,15 @@ public class PerformanceAnalyzer
                 if (!effectiveValue)
                 {
                     // Excluded device has Jumbo OFF - MTU mismatch
+                    var eName = HtmlEncode(device.Name);
                     issues.Add(new PerformanceIssue
                     {
                         Title = $"Jumbo Frames Disabled on {device.Name}",
                         Description = $"Jumbo Frames are enabled globally, but {device.Name} is using device-specific " +
                             "settings with Jumbo Frames disabled. This creates an MTU mismatch that can cause " +
                             "fragmentation and reduced throughput on paths through this device.",
-                        Recommendation = "Enable Global Switch Settings on this device in UniFi Devices > " +
-                            $"{device.Name}, or enable Jumbo Frames in its device-specific settings.",
+                        Recommendation = $"Enable Global Switch Settings on this device in UniFi Devices > " +
+                            $"{eName}, or enable Jumbo Frames in its device-specific settings.",
                         Severity = PerformanceSeverity.Recommendation,
                         Category = PerformanceCategory.Performance,
                         DeviceName = device.Name
@@ -134,14 +136,15 @@ public class PerformanceAnalyzer
                 else
                 {
                     // Excluded device has Jumbo ON but not inheriting global - suggest absorbing
+                    var eName2 = HtmlEncode(device.Name);
                     issues.Add(new PerformanceIssue
                     {
                         Title = $"Jumbo Frames Set Per-Device on {device.Name}",
                         Description = $"Jumbo Frames are enabled both globally and on {device.Name}, but {device.Name} " +
                             "is using device-specific settings instead of inheriting from Global Switch Settings. " +
                             "If the global setting changes, this device won't follow.",
-                        Recommendation = $"Enable Global Switch Settings on {device.Name} in UniFi Devices > " +
-                            $"{device.Name} so it automatically inherits global settings.",
+                        Recommendation = $"Enable Global Switch Settings on {eName2} in UniFi Devices > " +
+                            $"{eName2} so it automatically inherits global settings.",
                         Severity = PerformanceSeverity.Info,
                         Category = PerformanceCategory.Performance,
                         DeviceName = device.Name
@@ -238,6 +241,7 @@ public class PerformanceAnalyzer
             // Scenario 2: Global ON, check for excluded devices
             foreach (var (device, effectiveValue) in excludedDevices)
             {
+                var eName = HtmlEncode(device.Name);
                 if (!effectiveValue)
                 {
                     // Excluded device has Flow Control OFF - mismatch
@@ -247,8 +251,8 @@ public class PerformanceAnalyzer
                         Description = $"Flow Control is enabled globally, but {device.Name} is using device-specific " +
                             "settings with Flow Control disabled. This means this device won't send or respond to " +
                             "pause frames, which can lead to packet loss during traffic bursts.",
-                        Recommendation = "Enable Global Switch Settings on this device in UniFi Devices > " +
-                            $"{device.Name}, or enable Flow Control in its device-specific settings.",
+                        Recommendation = $"Enable Global Switch Settings on this device in UniFi Devices > " +
+                            $"{eName}, or enable Flow Control in its device-specific settings.",
                         Severity = PerformanceSeverity.Recommendation,
                         Category = PerformanceCategory.Performance,
                         DeviceName = device.Name
@@ -263,8 +267,8 @@ public class PerformanceAnalyzer
                         Description = $"Flow Control is enabled both globally and on {device.Name}, but {device.Name} " +
                             "is using device-specific settings instead of inheriting from Global Switch Settings. " +
                             "If the global setting changes, this device won't follow.",
-                        Recommendation = $"Enable Global Switch Settings on {device.Name} in UniFi Devices > " +
-                            $"{device.Name} so it automatically inherits global settings.",
+                        Recommendation = $"Enable Global Switch Settings on {eName} in UniFi Devices > " +
+                            $"{eName} so it automatically inherits global settings.",
                         Severity = PerformanceSeverity.Info,
                         Category = PerformanceCategory.Performance,
                         DeviceName = device.Name
@@ -417,7 +421,7 @@ public class PerformanceAnalyzer
         _logger?.LogInformation(
             "Cellular WAN detected ({Key}, type={Type}, failover={Failover}, dataLimit={Limit}), checking QoS rule coverage",
             cellularWan.Key, cellularWan.Type, isFailover,
-            dataLimit.Enabled ? $"{dataLimit.Bytes / (1024 * 1024 * 1024)} GB" : "none");
+            dataLimit.Enabled ? $"{dataLimit.Bytes / (1024L * 1024 * 1024)} GB" : "none");
 
         // Failover or small data plan → Recommendation (more urgent)
         // Load balanced with large/no data cap → Info
@@ -494,51 +498,57 @@ public class PerformanceAnalyzer
     #region Helper Methods
 
     /// <summary>
-    /// Determines if the cellular WAN is configured as failover-only (not load balanced).
-    /// Uses the enriched WAN config (v2 API) which has wan_load_balance_type and wan_networkgroup.
-    /// Matches the cellular WAN interface key (e.g., "wan3") to wan_networkgroup (e.g., "WAN3").
+    /// HTML-encode a value for safe inclusion in recommendation strings rendered as MarkupString.
     /// </summary>
-    internal static bool IsCellularFailover(GatewayWanInterface cellularWan, JsonDocument? wanEnrichedData)
+    private static string HtmlEncode(string? value) => WebUtility.HtmlEncode(value ?? "") ?? "";
+
+    /// <summary>
+    /// Finds the enriched WAN configuration entry matching the given WAN interface key.
+    /// The enriched config is an array of objects with a "configuration" property containing
+    /// wan_networkgroup (e.g., "WAN3") which maps to the interface key (e.g., "wan3").
+    /// </summary>
+    internal static JsonElement? FindMatchingWanConfig(GatewayWanInterface cellularWan, JsonDocument? wanEnrichedData)
     {
         if (wanEnrichedData == null)
-            return true; // Can't determine, assume failover (more conservative)
+            return null;
 
-        // The enriched config is an array of objects with a "configuration" property
         JsonElement configArray;
         if (wanEnrichedData.RootElement.ValueKind == JsonValueKind.Array)
-        {
             configArray = wanEnrichedData.RootElement;
-        }
         else if (wanEnrichedData.RootElement.TryGetProperty("data", out var data) &&
                  data.ValueKind == JsonValueKind.Array)
-        {
             configArray = data;
-        }
         else
-        {
-            return true;
-        }
+            return null;
 
         foreach (var entry in configArray.EnumerateArray())
         {
             if (!entry.TryGetProperty("configuration", out var config))
                 continue;
 
-            // Match wan_networkgroup (e.g., "WAN3") to the interface key (e.g., "wan3")
             if (!config.TryGetProperty("wan_networkgroup", out var networkGroup))
                 continue;
 
-            if (networkGroup.GetString()?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) != true)
-                continue;
-
-            // Found the matching WAN config - check load balance type
-            if (config.TryGetProperty("wan_load_balance_type", out var lbType))
-            {
-                return lbType.GetString()?.Equals("failover-only", StringComparison.OrdinalIgnoreCase) == true;
-            }
+            if (networkGroup.GetString()?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) == true)
+                return config;
         }
 
-        return true; // Can't determine, assume failover
+        return null;
+    }
+
+    /// <summary>
+    /// Determines if the cellular WAN is configured as failover-only (not load balanced).
+    /// </summary>
+    internal static bool IsCellularFailover(GatewayWanInterface cellularWan, JsonDocument? wanEnrichedData)
+    {
+        var config = FindMatchingWanConfig(cellularWan, wanEnrichedData);
+        if (config == null)
+            return true; // Can't determine, assume failover (more conservative)
+
+        if (config.Value.TryGetProperty("wan_load_balance_type", out var lbType))
+            return lbType.GetString()?.Equals("failover-only", StringComparison.OrdinalIgnoreCase) == true;
+
+        return true;
     }
 
     /// <summary>
@@ -682,39 +692,14 @@ public class PerformanceAnalyzer
 
     /// <summary>
     /// Extracts the cellular WAN's network config _id from the enriched WAN config.
-    /// Matches the cellular WAN interface key (e.g., "wan3") to wan_networkgroup (e.g., "WAN3").
     /// </summary>
     internal static string? GetCellularWanConfigId(GatewayWanInterface cellularWan, JsonDocument? wanEnrichedData)
     {
-        if (wanEnrichedData == null)
+        var config = FindMatchingWanConfig(cellularWan, wanEnrichedData);
+        if (config == null)
             return null;
 
-        JsonElement configArray;
-        if (wanEnrichedData.RootElement.ValueKind == JsonValueKind.Array)
-            configArray = wanEnrichedData.RootElement;
-        else if (wanEnrichedData.RootElement.TryGetProperty("data", out var data) &&
-                 data.ValueKind == JsonValueKind.Array)
-            configArray = data;
-        else
-            return null;
-
-        foreach (var entry in configArray.EnumerateArray())
-        {
-            if (!entry.TryGetProperty("configuration", out var config))
-                continue;
-
-            if (!config.TryGetProperty("wan_networkgroup", out var networkGroup))
-                continue;
-
-            if (networkGroup.GetString()?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) != true)
-                continue;
-
-            // Found the matching WAN config - return its _id
-            if (config.TryGetProperty("_id", out var idProp))
-                return idProp.GetString();
-        }
-
-        return null;
+        return config.Value.TryGetProperty("_id", out var idProp) ? idProp.GetString() : null;
     }
 
     /// <summary>
@@ -748,9 +733,7 @@ public class PerformanceAnalyzer
             return targetedAppIds;
         }
 
-        int ruleCount = 0;
-        foreach (var _ in rulesArray.EnumerateArray()) ruleCount++;
-        logger?.LogDebug("QoS rules: found {Count} rules total", ruleCount);
+        logger?.LogDebug("QoS rules: found {Count} rules total", rulesArray.GetArrayLength());
 
         foreach (var rule in rulesArray.EnumerateArray())
         {

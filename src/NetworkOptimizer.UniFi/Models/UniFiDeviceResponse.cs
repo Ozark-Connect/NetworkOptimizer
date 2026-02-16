@@ -256,7 +256,7 @@ public class UniFiDeviceResponse
 
             try
             {
-                var info = JsonSerializer.Deserialize<GatewayWanInterface>(kvp.Value.GetRawText());
+                var info = JsonSerializer.Deserialize<GatewayWanInterface>(kvp.Value);
                 if (info != null)
                 {
                     info.Key = kvp.Key;
