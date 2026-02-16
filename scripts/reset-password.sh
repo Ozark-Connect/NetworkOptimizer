@@ -266,7 +266,21 @@ reset_macos() {
     local plist="$HOME/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist"
     local db_dir="${DATA_DIR:-$HOME/Library/Application Support/NetworkOptimizer}"
     local db_path="$db_dir/network_optimizer.db"
-    local log_file="$HOME/network-optimizer/logs/stdout.log"
+
+    # Detect install directory from plist WorkingDirectory or running process
+    local install_dir=""
+    if [[ -f "$plist" ]]; then
+        install_dir=$(/usr/libexec/PlistBuddy -c "Print :WorkingDirectory" "$plist" 2>/dev/null || true)
+    fi
+    if [[ -z "$install_dir" ]]; then
+        install_dir=$(ps aux | grep 'NetworkOptimizer.Web' | grep -v grep | awk '{for(i=11;i<=NF;i++) printf "%s ",$i}' | sed 's|/NetworkOptimizer.Web.*||' | tr -d '[:space:]')
+    fi
+    if [[ -z "$install_dir" ]]; then
+        install_dir="$HOME/network-optimizer"
+    fi
+
+    local log_file="$install_dir/logs/stdout.log"
+    msg_info "Install directory: $install_dir"
 
     # Verify database
     if [[ ! -f "$db_path" ]]; then
@@ -278,12 +292,6 @@ reset_macos() {
 
     check_sqlite3
     confirm
-
-    # Snapshot log position before restart so we only search new lines
-    local log_lines_before=0
-    if [[ -f "$log_file" ]]; then
-        log_lines_before=$(wc -l < "$log_file")
-    fi
 
     # Stop service
     if [[ -f "$plist" ]]; then
@@ -312,11 +320,11 @@ reset_macos() {
     # Wait for health
     wait_for_health || true
 
-    # Extract password from new log lines only
+    # Extract password from log
     echo ""
     local password=""
     if [[ -f "$log_file" ]]; then
-        password=$(tail -n +"$((log_lines_before + 1))" "$log_file" \
+        password=$(tail -100 "$log_file" \
             | grep "Password:" | tail -1 \
             | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
     fi
@@ -370,18 +378,21 @@ reset_linux() {
     fi
     msg_ok "Database found: $db_path"
 
+    # Detect install directory from systemd or running process
+    local install_dir=""
+    if [[ -n "$service_name" ]]; then
+        install_dir=$(systemctl show "$service_name" -p WorkingDirectory --value 2>/dev/null || true)
+    fi
+    if [[ -z "$install_dir" ]]; then
+        install_dir=$(readlink -f /proc/$(pgrep -f "NetworkOptimizer.Web" | head -1)/cwd 2>/dev/null || true)
+    fi
+    if [[ -z "$install_dir" ]]; then
+        install_dir="/opt/network-optimizer"
+    fi
+    msg_info "Install directory: $install_dir"
+
     check_sqlite3
     confirm
-
-    # Snapshot log positions before restart so we only search new lines
-    declare -A log_lines_before
-    for lf in \
-        "/opt/network-optimizer/logs/stdout.log" \
-        "$HOME/.local/share/NetworkOptimizer/logs/stdout.log"; do
-        if [[ -f "$lf" ]]; then
-            log_lines_before["$lf"]=$(wc -l < "$lf")
-        fi
-    done
 
     # Stop service
     if [[ -n "$service_name" ]]; then
@@ -426,19 +437,14 @@ reset_linux() {
             | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
     fi
 
-    # Fallback: check log files (only new lines since restart)
+    # Fallback: check log file
     if [[ -z "$password" ]]; then
-        for log_file in \
-            "/opt/network-optimizer/logs/stdout.log" \
-            "$HOME/.local/share/NetworkOptimizer/logs/stdout.log"; do
-            if [[ -f "$log_file" ]]; then
-                local skip=${log_lines_before["$log_file"]:-0}
-                password=$(tail -n +"$((skip + 1))" "$log_file" \
-                    | grep "Password:" | tail -1 \
-                    | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
-                if [[ -n "$password" ]]; then break; fi
-            fi
-        done
+        local log_file="$install_dir/logs/stdout.log"
+        if [[ -f "$log_file" ]]; then
+            password=$(tail -100 "$log_file" \
+                | grep "Password:" | tail -1 \
+                | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
+        fi
     fi
 
     show_result "$password"
