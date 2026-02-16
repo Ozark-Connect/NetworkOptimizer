@@ -235,11 +235,12 @@ public class PerformanceAnalyzer
 
         if (globalFlowCtrl)
         {
-            // Scenario 2: Global ON, check for excluded devices with it OFF
+            // Scenario 2: Global ON, check for excluded devices
             foreach (var (device, effectiveValue) in excludedDevices)
             {
                 if (!effectiveValue)
                 {
+                    // Excluded device has Flow Control OFF - mismatch
                     issues.Add(new PerformanceIssue
                     {
                         Title = $"Flow Control Disabled on {device.Name}",
@@ -249,6 +250,22 @@ public class PerformanceAnalyzer
                         Recommendation = "Enable Global Switch Settings on this device in UniFi Devices > " +
                             $"{device.Name}, or enable Flow Control in its device-specific settings.",
                         Severity = PerformanceSeverity.Recommendation,
+                        Category = PerformanceCategory.Performance,
+                        DeviceName = device.Name
+                    });
+                }
+                else
+                {
+                    // Excluded device has Flow Control ON but not inheriting global - suggest absorbing
+                    issues.Add(new PerformanceIssue
+                    {
+                        Title = $"Flow Control Set Per-Device on {device.Name}",
+                        Description = $"Flow Control is enabled both globally and on {device.Name}, but {device.Name} " +
+                            "is using device-specific settings instead of inheriting from Global Switch Settings. " +
+                            "If the global setting changes, this device won't follow.",
+                        Recommendation = $"Enable Global Switch Settings on {device.Name} in UniFi Devices > " +
+                            $"{device.Name} so it automatically inherits global settings.",
+                        Severity = PerformanceSeverity.Info,
                         Category = PerformanceCategory.Performance,
                         DeviceName = device.Name
                     });

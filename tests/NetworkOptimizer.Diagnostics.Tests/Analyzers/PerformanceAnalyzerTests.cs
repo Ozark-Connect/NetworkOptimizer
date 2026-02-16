@@ -901,6 +901,29 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
+    public void CheckFlowControl_GlobalOn_ExcludedDeviceOn_SuggestsAbsorbingGlobal()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.Mac = "aa:bb:cc:00:00:01";
+        device.FlowControlEnabled = true;
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 1000, Up = true, IsUplink = false }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(1000),
+            new List<UniFiClientResponse>(), settings);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Contain("Per-Device");
+        result[0].Title.Should().Contain("Switch 1");
+        result[0].Severity.Should().Be(PerformanceSeverity.Info);
+        result[0].Description.Should().Contain("Global Switch Settings");
+    }
+
+    [Fact]
     public void CheckFlowControl_GlobalOn_ExcludedGateway_IgnoresGateway()
     {
         var gateway = CreateGateway();
