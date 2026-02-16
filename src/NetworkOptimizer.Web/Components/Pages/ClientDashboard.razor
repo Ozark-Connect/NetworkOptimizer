@@ -17,6 +17,8 @@
 @inject IJSRuntime JS
 @inject IHttpContextAccessor HttpContextAccessor
 
+<PageTitle>Client Performance - Network Optimizer</PageTitle>
+
 <div class="client-dashboard-page">
     @* Page Header *@
     <div class="page-header">
@@ -282,7 +284,7 @@
                     else
                     {
                         <div class="empty-state">
-                            <p>No speed tests yet. Run a test to see results here.</p>
+                            <p>No speed tests found for this time range.</p>
                         </div>
                     }
 
@@ -383,14 +385,14 @@
                                             <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
                                                 <td>@r.TestTime.ToLocalTime().ToString("g")</td>
-                                                <td class="speed-down">@r.DownloadMbps.ToString("F1") Mbps</td>
-                                                <td class="speed-up">@r.UploadMbps.ToString("F1") Mbps</td>
+                                                <td><span class="speed-down">@r.DownloadMbps.ToString("F1")</span> Mbps</td>
+                                                <td><span class="speed-up">@r.UploadMbps.ToString("F1")</span> Mbps</td>
                                                 @if (!(_client?.IsWired == true))
                                                 {
                                                     <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
                                                     <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
                                                 }
-                                                <td>@(r.PingMs?.ToString("F1") ?? "-") ms</td>
+                                                <td>@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
                                                 <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
@@ -740,6 +742,9 @@
     [SupplyParameterFromQuery(Name = "ip")]
     public string? IpParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "range")]
+    public string? RangeParam { get; set; }
+
     // State
     private bool _isOwnDevice; // true when viewing own device (no ?ip= param)
     private bool _isLogging; // true when actively persisting signal data
@@ -848,6 +853,14 @@
                 "connection" => "connection",
                 _ => "speed"
             };
+        }
+
+        // Parse time range from URL (e.g. ?range=30d, ?range=7d, ?range=6h)
+        if (!string.IsNullOrEmpty(RangeParam))
+        {
+            var match = _timeFilters.FirstOrDefault(tf => tf.label.Equals(RangeParam, StringComparison.OrdinalIgnoreCase));
+            if (match != default)
+                _selectedTimeFilter = match.hours;
         }
 
         _isOwnDevice = string.IsNullOrEmpty(IpParam);

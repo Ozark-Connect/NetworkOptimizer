@@ -5717,7 +5717,7 @@ a.path-hop.hop-clickable:hover {
 .diagnostics-container {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1rem;
 }
 
 .diagnostics-controls {
@@ -5896,6 +5896,24 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--text-secondary);
+}
+
+.issue-count-badge.has-warnings {
+    background: rgba(231, 150, 19, 0.15);
+    color: var(--warning-color);
+}
+
+.issue-count-badge.has-info {
+    background: rgba(71, 151, 255, 0.15);
+    color: var(--info-color);
+}
+
+.card-header-collapsible.header-warning {
+    border-left: 3px solid var(--warning-color);
+}
+
+.card-header-collapsible.header-info {
+    border-left: 3px solid var(--info-color);
 }
 
 /* No Issues Success State */

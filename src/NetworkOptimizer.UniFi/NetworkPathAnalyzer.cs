@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.UniFi;
@@ -71,11 +72,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private const string TopologyCacheKey = "NetworkTopology";
     private const string ServerPositionCacheKey = "ServerPosition";
     private const string RawDevicesCacheKey = "RawDevices";
+    private const string GlobalSwitchSettingsCacheKey = "GlobalSwitchSettings";
 
     // Cache duration
     private static readonly TimeSpan TopologyCacheDuration = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ServerPositionCacheDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RawDevicesCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan GlobalSwitchSettingsCacheDuration = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// Empirical realistic maximum throughput by link speed (Mbps).
@@ -151,6 +154,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         _cache.Remove(TopologyCacheKey);
         _cache.Remove(ServerPositionCacheKey);
         _cache.Remove(RawDevicesCacheKey);
+        _cache.Remove(GlobalSwitchSettingsCacheKey);
         _logger.LogDebug("Topology cache invalidated");
     }
 
@@ -468,6 +472,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Set MLO status on AP hops based on which WLANs each AP broadcasts
             await SetApMloStatusAsync(path.Hops, cancellationToken);
 
+            // Enrich hops with device settings (jumbo frames, flow control, HW accel)
+            await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+
             // Calculate bottleneck
             CalculateBottleneck(path);
 
@@ -552,6 +559,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             };
 
             path.Hops = new List<NetworkHop> { wanHop, gatewayHop };
+
+            // Enrich hops with device settings (jumbo frames, flow control, HW accel)
+            await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+
             CalculateBottleneck(path);
 
             _logger.LogInformation("Gateway direct path: WAN {Down}/{Up} Mbps", wanDownloadMbps, wanUploadMbps);
@@ -726,6 +737,71 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             _logger.LogDebug(ex, "Failed to check MLO status for AP hops");
             foreach (var hop in apHops)
                 hop.MloEnabled = false;
+        }
+    }
+
+    /// <summary>
+    /// Enriches hops with device-level settings (jumbo frames, flow control, hardware acceleration).
+    /// Uses global switch settings with exclusion-aware resolution per device.
+    /// </summary>
+    private async Task EnrichDeviceSettingsAsync(
+        List<NetworkHop> hops,
+        Dictionary<string, UniFiDeviceResponse> rawDevices,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!_clientProvider.IsConnected || _clientProvider.Client == null)
+                return;
+
+            var deviceHops = hops.Where(h =>
+                (h.Type == HopType.Switch || h.Type == HopType.Gateway) &&
+                !string.IsNullOrEmpty(h.DeviceMac)).ToList();
+
+            if (deviceHops.Count == 0)
+                return;
+
+            if (!_cache.TryGetValue(GlobalSwitchSettingsCacheKey, out GlobalSwitchSettings? settings))
+            {
+                using var settingsDoc = await _clientProvider.Client.GetSettingsRawAsync(cancellationToken);
+                settings = GlobalSwitchSettings.FromSettingsJson(settingsDoc);
+                if (settings != null)
+                    _cache.Set(GlobalSwitchSettingsCacheKey, settings, GlobalSwitchSettingsCacheDuration);
+            }
+
+            foreach (var hop in deviceHops)
+            {
+                if (!rawDevices.TryGetValue(hop.DeviceMac, out var device))
+                    continue;
+
+                if (settings != null)
+                {
+                    // Jumbo frames and flow control are switch/gateway features.
+                    // APs don't have these properties in the API and don't participate
+                    // in global switch settings - skip them to avoid false positives.
+                    if (hop.Type == HopType.Switch || hop.Type == HopType.Gateway)
+                    {
+                        hop.JumboFramesEnabled = settings.GetEffectiveJumboFrames(device);
+                    }
+
+                    // Flow control is switch-only - gateways and APs don't support it
+                    if (hop.Type == HopType.Switch)
+                    {
+                        hop.FlowControlEnabled = settings.GetEffectiveFlowControl(device);
+                    }
+                }
+
+                if (hop.Type == HopType.Gateway)
+                {
+                    hop.HardwareAccelerationEnabled = device.HardwareOffload;
+                }
+            }
+
+            _logger.LogDebug("Enriched {Count} hops with device settings", deviceHops.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enrich hops with device settings");
         }
     }
 

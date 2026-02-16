@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Diagnostics.Analyzers;
@@ -31,6 +32,16 @@ public class DiagnosticsOptions
     /// Run the Port Profile 802.1X analyzer
     /// </summary>
     public bool RunPortProfile8021xAnalyzer { get; set; } = true;
+
+    /// <summary>
+    /// Run the Performance analyzer (hardware accel, jumbo frames, flow control)
+    /// </summary>
+    public bool RunPerformanceAnalyzer { get; set; } = true;
+
+    /// <summary>
+    /// Run the Cellular Data Savings analyzer (QoS rules for 5G/LTE WANs)
+    /// </summary>
+    public bool RunCellularDataSavings { get; set; } = true;
 }
 
 /// <summary>
@@ -42,6 +53,7 @@ public class DiagnosticsEngine
     private readonly TrunkConsistencyAnalyzer _trunkConsistencyAnalyzer;
     private readonly PortProfileSuggestionAnalyzer _portProfileSuggestionAnalyzer;
     private readonly PortProfile8021xAnalyzer _portProfile8021xAnalyzer;
+    private readonly PerformanceAnalyzer _performanceAnalyzer;
     private readonly ILogger<DiagnosticsEngine>? _logger;
 
     public DiagnosticsEngine(
@@ -50,12 +62,14 @@ public class DiagnosticsEngine
         ILogger<ApLockAnalyzer>? apLockLogger = null,
         ILogger<TrunkConsistencyAnalyzer>? trunkConsistencyLogger = null,
         ILogger<PortProfileSuggestionAnalyzer>? portProfileSuggestionLogger = null,
-        ILogger<PortProfile8021xAnalyzer>? portProfile8021xLogger = null)
+        ILogger<PortProfile8021xAnalyzer>? portProfile8021xLogger = null,
+        ILogger<PerformanceAnalyzer>? performanceLogger = null)
     {
         _apLockAnalyzer = new ApLockAnalyzer(deviceTypeDetection, apLockLogger);
         _trunkConsistencyAnalyzer = new TrunkConsistencyAnalyzer(trunkConsistencyLogger);
         _portProfileSuggestionAnalyzer = new PortProfileSuggestionAnalyzer(portProfileSuggestionLogger);
         _portProfile8021xAnalyzer = new PortProfile8021xAnalyzer(portProfile8021xLogger);
+        _performanceAnalyzer = new PerformanceAnalyzer(deviceTypeDetection, performanceLogger);
         _logger = logger;
     }
 
@@ -68,6 +82,8 @@ public class DiagnosticsEngine
     /// <param name="networks">All network configurations</param>
     /// <param name="options">Options to control which analyzers run</param>
     /// <param name="clientHistory">Optional historical clients for offline device detection</param>
+    /// <param name="settingsData">Raw settings JSON for global switch settings</param>
+    /// <param name="qosRulesData">Raw QoS rules JSON for cellular bandwidth checks</param>
     /// <returns>Complete diagnostics result</returns>
     public DiagnosticsResult RunDiagnostics(
         IEnumerable<UniFiClientResponse> clients,
@@ -75,7 +91,10 @@ public class DiagnosticsEngine
         IEnumerable<UniFiPortProfile> portProfiles,
         IEnumerable<UniFiNetworkConfig> networks,
         DiagnosticsOptions? options = null,
-        IEnumerable<UniFiClientDetailResponse>? clientHistory = null)
+        IEnumerable<UniFiClientDetailResponse>? clientHistory = null,
+        JsonDocument? settingsData = null,
+        JsonDocument? qosRulesData = null,
+        JsonDocument? wanEnrichedData = null)
     {
         options ??= new DiagnosticsOptions();
         var stopwatch = Stopwatch.StartNew();
@@ -161,19 +180,39 @@ public class DiagnosticsEngine
             }
         }
 
+        // Run Performance Analyzer
+        if (options.RunPerformanceAnalyzer || options.RunCellularDataSavings)
+        {
+            _logger?.LogDebug("Running Performance Analyzer");
+            try
+            {
+                result.PerformanceIssues = _performanceAnalyzer.Analyze(
+                    deviceList, networkList, clientList, settingsData, qosRulesData, wanEnrichedData,
+                    runPerformanceChecks: options.RunPerformanceAnalyzer,
+                    runCellularChecks: options.RunCellularDataSavings);
+                result.CellularWanDetected = _performanceAnalyzer.CellularWanDetected;
+                _logger?.LogDebug("Performance Analyzer found {Count} issues", result.PerformanceIssues.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Performance Analyzer failed");
+            }
+        }
+
         stopwatch.Stop();
         result.Duration = stopwatch.Elapsed;
         result.Timestamp = DateTime.UtcNow;
 
         _logger?.LogInformation(
             "Diagnostics completed in {Duration}ms - {Total} issues found " +
-            "(AP Lock: {ApLock}, Trunk: {Trunk}, Profile: {Profile}, 802.1X: {Dot1x})",
+            "(AP Lock: {ApLock}, Trunk: {Trunk}, Profile: {Profile}, 802.1X: {Dot1x}, Performance: {Perf})",
             stopwatch.ElapsedMilliseconds,
             result.TotalIssueCount,
             result.ApLockIssues.Count,
             result.TrunkConsistencyIssues.Count,
             result.PortProfileSuggestions.Count,
-            result.PortProfile8021xIssues.Count);
+            result.PortProfile8021xIssues.Count,
+            result.PerformanceIssues.Count);
 
         return result;
     }

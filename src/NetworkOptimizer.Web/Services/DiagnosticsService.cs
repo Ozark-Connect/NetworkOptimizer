@@ -94,14 +94,21 @@ public class DiagnosticsService
             var networksTask = _connectionService.Client.GetNetworkConfigsAsync();
             var portProfilesTask = _connectionService.Client.GetPortProfilesAsync();
             var clientHistoryTask = _connectionService.Client.GetClientHistoryAsync(withinHours: 720); // 30 days
+            var settingsTask = _connectionService.Client.GetSettingsRawAsync();
+            var qosRulesTask = _connectionService.Client.GetQosRulesRawAsync();
+            var wanEnrichedTask = _connectionService.Client.GetWanEnrichedConfigRawAsync();
 
-            await Task.WhenAll(devicesTask, clientsTask, networksTask, portProfilesTask, clientHistoryTask);
+            await Task.WhenAll(devicesTask, clientsTask, networksTask, portProfilesTask, clientHistoryTask,
+                settingsTask, qosRulesTask, wanEnrichedTask);
 
             var devices = await devicesTask;
             var clients = await clientsTask;
             var networks = await networksTask;
             var portProfiles = await portProfilesTask;
             var clientHistory = await clientHistoryTask;
+            using var settingsDoc = await settingsTask;
+            using var qosRulesDoc = await qosRulesTask;
+            using var wanEnrichedDoc = await wanEnrichedTask;
 
             _logger.LogInformation(
                 "Fetched data for diagnostics: {DeviceCount} devices, {ClientCount} clients, " +
@@ -124,9 +131,11 @@ public class DiagnosticsService
                 _loggerFactory.CreateLogger<DiagnosticsEngine>(),
                 _loggerFactory.CreateLogger<Diagnostics.Analyzers.ApLockAnalyzer>(),
                 _loggerFactory.CreateLogger<Diagnostics.Analyzers.TrunkConsistencyAnalyzer>(),
-                _loggerFactory.CreateLogger<Diagnostics.Analyzers.PortProfileSuggestionAnalyzer>());
+                _loggerFactory.CreateLogger<Diagnostics.Analyzers.PortProfileSuggestionAnalyzer>(),
+                performanceLogger: _loggerFactory.CreateLogger<Diagnostics.Analyzers.PerformanceAnalyzer>());
 
-            var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options, clientHistory);
+            var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options, clientHistory,
+                settingsDoc, qosRulesDoc, wanEnrichedDoc);
 
             // Cache the result
             _cache.Set(CacheKeyLastResult, result);

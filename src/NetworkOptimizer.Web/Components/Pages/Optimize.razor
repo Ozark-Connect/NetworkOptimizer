@@ -66,6 +66,17 @@
                         <input type="checkbox" @bind="_runPortProfileSuggestions" />
                         <span>Ethernet Port Profile Suggestions</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runPerformanceSuggestions" />
+                        <span>Performance Suggestions</span>
+                    </label>
+                    @if (_hasCellularWan)
+                    {
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runCellularDataSavings" />
+                        <span>Cellular Data Savings</span>
+                    </label>
+                    }
                 </div>
             </div>
         </div>
@@ -100,10 +111,14 @@
         </div>
 
         <!-- AP Locked Devices -->
+        @if (_ranApLock)
+        {
+            var apHasWarnings = _result.ApLockIssues.Any(i => i.Severity == ApLockSeverity.Warning);
+            var apHasInfo = _result.ApLockIssues.Any(i => i.Severity == ApLockSeverity.Info);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="ToggleApLockSection">
+            <div class="card-header card-header-collapsible @(apHasWarnings ? "header-warning" : apHasInfo ? "header-info" : "")" @onclick="ToggleApLockSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
+                    <span class="issue-count-badge @(apHasWarnings ? "has-warnings" : apHasInfo ? "has-info" : "")">@_result.ApLockIssues.Count</span>
                     <h2 class="card-title">AP Locked Devices</h2>
                 </div>
                 <span class="issue-type-chevron">@(_apLockCollapsed ? "▼" : "▲")</span>
@@ -159,12 +174,17 @@
                 </div>
             </div>
         </div>
+        }
 
         <!-- Trunk Consistency Issues -->
+        @if (_ranTrunkConsistency)
+        {
+            var trunkHasWarnings = _result.TrunkConsistencyIssues.Any(i => i.Confidence is DiagnosticConfidence.High or DiagnosticConfidence.Medium);
+            var trunkHasInfo = _result.TrunkConsistencyIssues.Any(i => i.Confidence == DiagnosticConfidence.Low);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="ToggleTrunkSection">
+            <div class="card-header card-header-collapsible @(trunkHasWarnings ? "header-warning" : trunkHasInfo ? "header-info" : "")" @onclick="ToggleTrunkSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_result.TrunkConsistencyIssues.Count</span>
+                    <span class="issue-count-badge @(trunkHasWarnings ? "has-warnings" : trunkHasInfo ? "has-info" : "")">@_result.TrunkConsistencyIssues.Count</span>
                     <h2 class="card-title">Trunk VLAN Consistency</h2>
                 </div>
                 <span class="issue-type-chevron">@(_trunkCollapsed ? "▼" : "▲")</span>
@@ -206,12 +226,17 @@
                 </div>
             </div>
         </div>
+        }
 
         <!-- Ethernet Port Profile Suggestions -->
+        @if (_ranPortProfileSuggestions)
+        {
+            var portHasWarnings = _result.PortProfileSuggestions.Any(s => s.Severity == PortProfileSuggestionSeverity.Recommendation) || _result.PortProfile8021xIssues.Count > 0;
+            var portHasInfo = _result.PortProfileSuggestions.Any(s => s.Severity == PortProfileSuggestionSeverity.Info);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
+            <div class="card-header card-header-collapsible @(portHasWarnings ? "header-warning" : portHasInfo ? "header-info" : "")" @onclick="TogglePortProfileSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@(_result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count)</span>
+                    <span class="issue-count-badge @(portHasWarnings ? "has-warnings" : portHasInfo ? "has-info" : "")">@(_result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count)</span>
                     <h2 class="card-title">Ethernet Port Profile Suggestions</h2>
                 </div>
                 <span class="issue-type-chevron">@(_portProfileCollapsed ? "▼" : "▲")</span>
@@ -286,6 +311,119 @@
                 </div>
             </div>
         </div>
+        }
+
+        <!-- Performance Suggestions -->
+        @if (_ranPerformanceSuggestions)
+        {
+            var perfHasWarnings = _performanceIssues.Any(i => i.Severity == PerformanceSeverity.Recommendation);
+            var perfHasInfo = _performanceIssues.Any(i => i.Severity == PerformanceSeverity.Info);
+        <div class="card">
+            <div class="card-header card-header-collapsible @(perfHasWarnings ? "header-warning" : perfHasInfo ? "header-info" : "")" @onclick="TogglePerformanceSection">
+                <div class="card-header-left">
+                    <span class="issue-count-badge @(perfHasWarnings ? "has-warnings" : perfHasInfo ? "has-info" : "")">@_performanceIssues.Count</span>
+                    <h2 class="card-title">Performance Suggestions</h2>
+                </div>
+                <span class="issue-type-chevron">@(_performanceCollapsed ? "▼" : "▲")</span>
+            </div>
+            <div class="expand-wrapper @(!_performanceCollapsed ? "expanded" : "")">
+                <div class="expand-content">
+                    <div class="card-body">
+                    @if (_performanceIssues.Count == 0)
+                    {
+                        <p class="empty-section-text">No performance suggestions - your settings look good.</p>
+                    }
+                    else
+                    {
+                        <div class="issues-list">
+                            @foreach (var issue in _performanceIssues)
+                            {
+                                var isRec = issue.Severity == PerformanceSeverity.Recommendation;
+                                <div class="issue-item @(isRec ? "issue-warning" : "issue-info")">
+                                    <div class="issue-icon">
+                                        @((MarkupString)(isRec ? WarningIcon : InfoIcon))
+                                    </div>
+                                    <div class="issue-body">
+                                        <div class="issue-header">
+                                            <span class="issue-severity">@(isRec ? "Recommendation" : "Info")</span>
+                                        </div>
+                                        <div class="issue-title">@issue.Title</div>
+                                        <div class="issue-context">
+                                            @if (!string.IsNullOrEmpty(issue.DeviceName))
+                                            {
+                                                <span class="context-item"><strong>Device:</strong> @issue.DeviceName</span>
+                                            }
+                                            <span class="context-item">@issue.Description</span>
+                                        </div>
+                                        <div class="issue-recommendation">
+                                            <strong>Recommendation:</strong> @((MarkupString)issue.Recommendation)
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    </div>
+                </div>
+            </div>
+        </div>
+        }
+
+        <!-- Cellular Data Savings (only shown when cellular WAN detected and check was run) -->
+        @if (_hasCellularWan && _ranCellularDataSavings)
+        {
+            var cellHasWarnings = _cellularIssues.Any(i => i.Severity == PerformanceSeverity.Recommendation);
+            var cellHasInfo = _cellularIssues.Any(i => i.Severity == PerformanceSeverity.Info);
+        <div class="card">
+            <div class="card-header card-header-collapsible @(cellHasWarnings ? "header-warning" : cellHasInfo ? "header-info" : "")" @onclick="ToggleCellularSection">
+                <div class="card-header-left">
+                    <span class="issue-count-badge @(cellHasWarnings ? "has-warnings" : cellHasInfo ? "has-info" : "")">@_cellularIssues.Count</span>
+                    <h2 class="card-title">Cellular Data Savings</h2>
+                </div>
+                <span class="issue-type-chevron">@(_cellularCollapsed ? "▼" : "▲")</span>
+            </div>
+            <div class="expand-wrapper @(!_cellularCollapsed ? "expanded" : "")">
+                <div class="expand-content">
+                    <div class="card-body">
+                    @if (_cellularIssues.Count == 0)
+                    {
+                        <p class="empty-section-text">No cellular data savings suggestions. Your QoS rules look good.</p>
+                    }
+                    else
+                    {
+                        <div class="issues-list">
+                            @foreach (var issue in _cellularIssues)
+                            {
+                                var isRec = issue.Severity == PerformanceSeverity.Recommendation;
+                                <div class="issue-item @(isRec ? "issue-warning" : "issue-info")">
+                                    <div class="issue-icon">
+                                        @((MarkupString)(isRec ? WarningIcon : InfoIcon))
+                                    </div>
+                                    <div class="issue-body">
+                                        <div class="issue-header">
+                                            <span class="issue-severity">@(isRec ? "Recommendation" : "Info")</span>
+                                        </div>
+                                        <div class="issue-title">@issue.Title</div>
+                                        <div class="issue-context">
+                                            @if (!string.IsNullOrEmpty(issue.DeviceName))
+                                            {
+                                                <span class="context-item"><strong>Device:</strong> @issue.DeviceName</span>
+                                            }
+                                            <span class="context-item">@issue.Description</span>
+                                        </div>
+                                        <div class="issue-recommendation">
+                                            <strong>Recommendation:</strong> @((MarkupString)issue.Recommendation)
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    </div>
+                </div>
+            </div>
+        </div>
+        }
 
     }
     else if (!_isRunning)
@@ -308,11 +446,27 @@
     private bool _runApLockAnalyzer = true;
     private bool _runTrunkConsistency = true;
     private bool _runPortProfileSuggestions = true;
+    private bool _runPerformanceSuggestions = true;
+    private bool _runCellularDataSavings = true;
 
     // Collapsible section state
     private bool _apLockCollapsed;
     private bool _trunkCollapsed;
     private bool _portProfileCollapsed;
+    private bool _performanceCollapsed;
+    private bool _cellularCollapsed;
+
+    // Snapshot of which checks were run (for section visibility)
+    private bool _ranApLock = true;
+    private bool _ranTrunkConsistency = true;
+    private bool _ranPortProfileSuggestions = true;
+    private bool _ranPerformanceSuggestions = true;
+    private bool _ranCellularDataSavings = true;
+
+    // Cached filtered lists (set when result changes)
+    private List<PerformanceIssue> _performanceIssues = new();
+    private List<PerformanceIssue> _cellularIssues = new();
+    private bool _hasCellularWan;
 
     // SVG Icons matching the Audit page style
     private const string WarningIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""";
@@ -326,20 +480,57 @@
 
         _result = DiagnosticsService.LastResult;
         InitializeCollapsedState();
+
+        // Detect cellular WAN: use cached result if available, otherwise check devices
+        if (_result != null)
+        {
+            _hasCellularWan = _result.CellularWanDetected;
+        }
+        else if (ConnectionService.IsConnected && ConnectionService.Client != null)
+        {
+            try
+            {
+                var devices = await ConnectionService.Client.GetDevicesAsync();
+                _hasCellularWan = devices.Any(d =>
+                    d.Type.Equals("umbb", StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                _hasCellularWan = false;
+            }
+        }
+        else
+        {
+            _hasCellularWan = false;
+        }
     }
 
     private void InitializeCollapsedState()
     {
         if (_result == null) return;
 
+        // Cache filtered performance issue lists by category
+        _performanceIssues = _result.PerformanceIssues
+            .Where(i => i.Category == PerformanceCategory.Performance).ToList();
+        _cellularIssues = _result.PerformanceIssues
+            .Where(i => i.Category == PerformanceCategory.CellularDataSavings).ToList();
+        // Only upgrade _hasCellularWan to true, never downgrade - unchecking
+        // the cellular checkbox skips detection, so the result would be false
+        if (_result.CellularWanDetected)
+            _hasCellularWan = true;
+
         var apLockCount = _result.ApLockIssues.Count;
         var trunkCount = _result.TrunkConsistencyIssues.Count;
         var profileCount = _result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count;
+        var perfInfoCount = _performanceIssues.Count;
+        var cellularCount = _cellularIssues.Count;
 
-        // Count how many categories have items
+        // Count how many categories have items (only count cellular if WAN detected)
         var categoriesWithItems = (apLockCount > 0 ? 1 : 0) +
                                   (trunkCount > 0 ? 1 : 0) +
-                                  (profileCount > 0 ? 1 : 0);
+                                  (profileCount > 0 ? 1 : 0) +
+                                  (perfInfoCount > 0 ? 1 : 0) +
+                                  (_hasCellularWan && cellularCount > 0 ? 1 : 0);
 
         // If only one category has items, expand it (no point collapsing the only content)
         if (categoriesWithItems == 1)
@@ -347,6 +538,8 @@
             _apLockCollapsed = apLockCount == 0;
             _trunkCollapsed = trunkCount == 0;
             _portProfileCollapsed = profileCount == 0;
+            _performanceCollapsed = perfInfoCount == 0;
+            _cellularCollapsed = cellularCount == 0;
             return;
         }
 
@@ -365,11 +558,16 @@
             _result.PortProfile8021xIssues.Count > 0; // 802.1X issues are always recommendations
         _portProfileCollapsed = profileCount == 0 ||
                                (profileCount > 3 && !hasProfileRecommendations);
+
+        _performanceCollapsed = perfInfoCount == 0;
+        _cellularCollapsed = cellularCount == 0;
     }
 
     private void ToggleApLockSection() => _apLockCollapsed = !_apLockCollapsed;
     private void ToggleTrunkSection() => _trunkCollapsed = !_trunkCollapsed;
     private void TogglePortProfileSection() => _portProfileCollapsed = !_portProfileCollapsed;
+    private void TogglePerformanceSection() => _performanceCollapsed = !_performanceCollapsed;
+    private void ToggleCellularSection() => _cellularCollapsed = !_cellularCollapsed;
 
     private IEnumerable<ApLockIssue> GetSortedApLockIssues()
     {
@@ -399,6 +597,14 @@
     private async Task RunDiagnostics()
     {
         _isRunning = true;
+
+        // Snapshot which checks are being run (for section visibility)
+        _ranApLock = _runApLockAnalyzer;
+        _ranTrunkConsistency = _runTrunkConsistency;
+        _ranPortProfileSuggestions = _runPortProfileSuggestions;
+        _ranPerformanceSuggestions = _runPerformanceSuggestions;
+        _ranCellularDataSavings = _runCellularDataSavings;
+
         StateHasChanged();
 
         try
@@ -408,7 +614,9 @@
                 RunApLockAnalyzer = _runApLockAnalyzer,
                 RunTrunkConsistencyAnalyzer = _runTrunkConsistency,
                 RunPortProfileSuggestionAnalyzer = _runPortProfileSuggestions,
-                RunPortProfile8021xAnalyzer = _runPortProfileSuggestions // Runs with port profile suggestions
+                RunPortProfile8021xAnalyzer = _runPortProfileSuggestions, // Runs with port profile suggestions
+                RunPerformanceAnalyzer = _runPerformanceSuggestions,
+                RunCellularDataSavings = _runCellularDataSavings
             };
 
             _result = await DiagnosticsService.RunDiagnosticsAsync(options);
@@ -521,4 +729,5 @@
 
         return lastSeen.ToLocalTime().ToString("MMM d");
     }
+
 }

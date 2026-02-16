@@ -43,7 +43,7 @@
             <div class="detail-actions" @onclick:stopPropagation="true">
                 @if (!string.IsNullOrEmpty(Result.DeviceHost))
                 {
-                    <a href="/client-dashboard?ip=@Result.DeviceHost&tab=speed" class="btn-action-icon"
+                    <a href="/client-dashboard?ip=@Result.DeviceHost&tab=speed&range=30d" class="btn-action-icon"
                        data-tooltip="View full speed and signal history" data-tooltip-hover-only>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
@@ -662,6 +662,23 @@
         {
             var mloStatus = hop.MloEnabled.Value ? "Enabled" : "Disabled";
             lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>MLO:</span> {mloStatus}</div>");
+        }
+
+        // Show device settings
+        if (hop.HardwareAccelerationEnabled.HasValue)
+        {
+            var status = hop.HardwareAccelerationEnabled.Value ? "Enabled" : "Disabled";
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Hardware Acceleration:</span> {status}</div>");
+        }
+        if (hop.JumboFramesEnabled.HasValue)
+        {
+            var status = hop.JumboFramesEnabled.Value ? "Enabled" : "Disabled";
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Jumbo Frames:</span> {status}</div>");
+        }
+        if (hop.FlowControlEnabled.HasValue)
+        {
+            var status = hop.FlowControlEnabled.Value ? "Enabled" : "Disabled";
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Flow Control:</span> {status}</div>");
         }
 
         return string.Join("", lines);
