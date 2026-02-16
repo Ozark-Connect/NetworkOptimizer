@@ -111,7 +111,7 @@
         </div>
 
         <!-- AP Locked Devices -->
-        @if (_runApLockAnalyzer)
+        @if (_ranApLock)
         {
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="ToggleApLockSection">
@@ -175,7 +175,7 @@
         }
 
         <!-- Trunk Consistency Issues -->
-        @if (_runTrunkConsistency)
+        @if (_ranTrunkConsistency)
         {
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="ToggleTrunkSection">
@@ -225,7 +225,7 @@
         }
 
         <!-- Ethernet Port Profile Suggestions -->
-        @if (_runPortProfileSuggestions)
+        @if (_ranPortProfileSuggestions)
         {
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
@@ -308,7 +308,7 @@
         }
 
         <!-- Performance Suggestions -->
-        @if (_runPerformanceSuggestions)
+        @if (_ranPerformanceSuggestions)
         {
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="TogglePerformanceSection">
@@ -361,8 +361,8 @@
         </div>
         }
 
-        <!-- Cellular Data Savings (only shown when cellular WAN detected and check enabled) -->
-        @if (_hasCellularWan && _runCellularDataSavings)
+        <!-- Cellular Data Savings (only shown when cellular WAN detected and check was run) -->
+        @if (_hasCellularWan && _ranCellularDataSavings)
         {
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="ToggleCellularSection">
@@ -445,6 +445,13 @@
     private bool _portProfileCollapsed;
     private bool _performanceCollapsed;
     private bool _cellularCollapsed;
+
+    // Snapshot of which checks were run (for section visibility)
+    private bool _ranApLock = true;
+    private bool _ranTrunkConsistency = true;
+    private bool _ranPortProfileSuggestions = true;
+    private bool _ranPerformanceSuggestions = true;
+    private bool _ranCellularDataSavings = true;
 
     // Cached filtered lists (set when result changes)
     private List<PerformanceIssue> _performanceIssues = new();
@@ -580,6 +587,14 @@
     private async Task RunDiagnostics()
     {
         _isRunning = true;
+
+        // Snapshot which checks are being run (for section visibility)
+        _ranApLock = _runApLockAnalyzer;
+        _ranTrunkConsistency = _runTrunkConsistency;
+        _ranPortProfileSuggestions = _runPortProfileSuggestions;
+        _ranPerformanceSuggestions = _runPerformanceSuggestions;
+        _ranCellularDataSavings = _runCellularDataSavings;
+
         StateHasChanged();
 
         try
