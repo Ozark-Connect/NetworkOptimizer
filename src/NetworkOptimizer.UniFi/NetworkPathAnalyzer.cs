@@ -752,7 +752,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 return;
 
             var deviceHops = hops.Where(h =>
-                (h.Type == HopType.Switch || h.Type == HopType.Gateway || h.Type == HopType.AccessPoint) &&
+                (h.Type == HopType.Switch || h.Type == HopType.Gateway) &&
                 !string.IsNullOrEmpty(h.DeviceMac)).ToList();
 
             if (deviceHops.Count == 0)
@@ -768,10 +768,16 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 if (settings != null)
                 {
-                    hop.JumboFramesEnabled = settings.GetEffectiveJumboFrames(device);
+                    // Jumbo frames and flow control are switch/gateway features.
+                    // APs don't have these properties in the API and don't participate
+                    // in global switch settings - skip them to avoid false positives.
+                    if (hop.Type == HopType.Switch || hop.Type == HopType.Gateway)
+                    {
+                        hop.JumboFramesEnabled = settings.GetEffectiveJumboFrames(device);
+                    }
 
-                    // Flow Control is a switch-only feature - gateways don't support it
-                    if (hop.Type != HopType.Gateway)
+                    // Flow control is switch-only - gateways and APs don't support it
+                    if (hop.Type == HopType.Switch)
                     {
                         hop.FlowControlEnabled = settings.GetEffectiveFlowControl(device);
                     }
