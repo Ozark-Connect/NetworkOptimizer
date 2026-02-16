@@ -273,7 +273,7 @@ public class PerformanceAnalyzer
             issues.Add(new PerformanceIssue
             {
                 Title = "Streaming Video Not Rate-Limited",
-                Description = streamingGap + " Streaming can quickly exhaust cellular data caps.",
+                Description = streamingGap,
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit " +
                     "streaming video apps when on cellular. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
@@ -290,7 +290,7 @@ public class PerformanceAnalyzer
             issues.Add(new PerformanceIssue
             {
                 Title = "Cloud Sync Not Rate-Limited",
-                Description = cloudGap + " Background sync can consume significant cellular data.",
+                Description = cloudGap,
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
                     "This prevents large uploads/downloads from burning through your data plan. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
@@ -307,7 +307,7 @@ public class PerformanceAnalyzer
             issues.Add(new PerformanceIssue
             {
                 Title = "Game/App Downloads Not Rate-Limited",
-                Description = downloadGap + " A single game update can be 50+ GB.",
+                Description = downloadGap,
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
                     "Game updates alone can exceed monthly data caps in a single download. " +
                     "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
