@@ -251,7 +251,7 @@ reset_docker() {
     local password
     password=$(docker logs --since 2m "$CONTAINER" 2>&1 \
         | grep "Password:" | tail -1 \
-        | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
+        | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
 
     show_result "$password"
 }
@@ -326,7 +326,7 @@ reset_macos() {
     if [[ -f "$log_file" ]]; then
         password=$(tail -100 "$log_file" \
             | grep "Password:" | tail -1 \
-            | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
+            | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
     fi
 
     show_result "$password"
@@ -434,7 +434,7 @@ reset_linux() {
     if [[ -n "$service_name" ]]; then
         password=$(journalctl -u "$service_name" --since "2 minutes ago" --no-pager 2>/dev/null \
             | grep "Password:" | tail -1 \
-            | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
+            | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
     fi
 
     # Fallback: check log file
@@ -443,7 +443,7 @@ reset_linux() {
         if [[ -f "$log_file" ]]; then
             password=$(tail -100 "$log_file" \
                 | grep "Password:" | tail -1 \
-                | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
+                | sed -E 's/.*Password:[[:space:]]+//' | tr -d '[:space:]')
         fi
     fi
 
