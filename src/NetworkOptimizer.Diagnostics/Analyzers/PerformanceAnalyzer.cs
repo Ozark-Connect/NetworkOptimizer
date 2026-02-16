@@ -182,8 +182,9 @@ public class PerformanceAnalyzer
         }
         else if (hasFastWan)
         {
-            description = "Your WAN connection exceeds 800 Mbps. Flow control helps prevent packet loss " +
-                "at speed boundaries between your WAN and LAN during traffic bursts.";
+            description = "Your WAN speed exceeds 800 Mbps. Enabling flow control can help prevent packet loss " +
+                "during traffic bursts when your gateway receives data faster than it can forward to slower LAN devices. " +
+                "This is most beneficial with multi-gigabit WAN connections (1.5+ Gbps).";
         }
         else
         {
@@ -197,8 +198,8 @@ public class PerformanceAnalyzer
         {
             Title = "Flow Control Not Enabled",
             Description = description,
-            Recommendation = "Enable flow control in UniFi Network Settings > Internet (at the bottom). " +
-                "This uses IEEE 802.3x pause frames to prevent buffer overflows between ports.",
+            Recommendation = "If you are noticing internet performance deficiency on certain devices, " +
+                "consider enabling Flow Control in UniFi Network Settings > Internet (at the bottom).",
             Severity = PerformanceSeverity.Info,
             Category = PerformanceCategory.Performance
         });
@@ -659,27 +660,25 @@ public class PerformanceAnalyzer
         if (coveredIds.Count >= minForCoverage)
             return null; // Fully covered
 
-        var coveredNames = coveredIds
-            .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : null)
-            .Where(n => n != null).ToList();
-        var uncoveredNames = uncoveredIds
-            .Take(4)
-            .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : id.ToString())
-            .ToList();
-
         if (coveredIds.Count > 0)
         {
             // Partial coverage - show what's covered and what's missing
+            var coveredNames = coveredIds
+                .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : null)
+                .Where(n => n != null).ToList();
+            var uncoveredNames = uncoveredIds
+                .Take(4)
+                .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : id.ToString())
+                .ToList();
+
             return $"{cellularContext}. Your QoS rules cover {string.Join(", ", coveredNames)}, " +
                 $"but {string.Join(", ", uncoveredNames)}" +
                 (uncoveredIds.Count > 4 ? $" and {uncoveredIds.Count - 4} more" : "") +
                 " don't have bandwidth limits.";
         }
 
-        // No coverage at all
-        var examples = string.Join(", ", categoryAppIds.Take(4)
-            .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : id.ToString()));
-        return $"{cellularContext}, but {categoryLabel} ({examples}) don't have bandwidth limits.";
+        // No coverage at all - don't list specific apps
+        return $"{cellularContext}, but {categoryLabel} don't have bandwidth limits.";
     }
 
     #endregion
