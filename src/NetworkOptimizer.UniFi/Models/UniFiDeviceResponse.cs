@@ -212,6 +212,22 @@ public class UniFiDeviceResponse
     public bool? HardwareOffload { get; set; }
 
     /// <summary>
+    /// Whether jumbo frames are enabled on this device.
+    /// When the device is NOT in switch_exclusions, this shows false regardless of the global setting.
+    /// Use GlobalSwitchSettings.GetEffectiveJumboFrames() to resolve the effective value.
+    /// </summary>
+    [JsonPropertyName("jumboframe_enabled")]
+    public bool? JumboFrameEnabled { get; set; }
+
+    /// <summary>
+    /// Whether flow control is enabled on this device.
+    /// When the device is NOT in switch_exclusions, this shows false regardless of the global setting.
+    /// Use GlobalSwitchSettings.GetEffectiveFlowControl() to resolve the effective value.
+    /// </summary>
+    [JsonPropertyName("flowctrl_enabled")]
+    public bool? FlowControlEnabled { get; set; }
+
+    /// <summary>
     /// Captures additional JSON properties not mapped to typed properties.
     /// Used to extract WAN interface objects (wan, wan1, wan2, etc.) which are dynamic keys.
     /// </summary>

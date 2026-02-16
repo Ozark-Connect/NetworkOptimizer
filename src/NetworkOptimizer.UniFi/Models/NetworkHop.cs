@@ -29,6 +29,15 @@ public class NetworkHop
     /// </summary>
     public bool? MloEnabled { get; set; }
 
+    /// <summary>Whether jumbo frames are enabled on this device at test time</summary>
+    public bool? JumboFramesEnabled { get; set; }
+
+    /// <summary>Whether hardware acceleration (packet offload) is enabled. Only on gateways.</summary>
+    public bool? HardwareAccelerationEnabled { get; set; }
+
+    /// <summary>Whether flow control is enabled on this device at test time</summary>
+    public bool? FlowControlEnabled { get; set; }
+
     /// <summary>IP address of the device</summary>
     public string DeviceIp { get; set; } = "";
 

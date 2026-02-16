@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.UniFi;
@@ -468,6 +469,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Set MLO status on AP hops based on which WLANs each AP broadcasts
             await SetApMloStatusAsync(path.Hops, cancellationToken);
 
+            // Enrich hops with device settings (jumbo frames, flow control, HW accel)
+            await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+
             // Calculate bottleneck
             CalculateBottleneck(path);
 
@@ -552,6 +556,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             };
 
             path.Hops = new List<NetworkHop> { wanHop, gatewayHop };
+
+            // Enrich hops with device settings (jumbo frames, flow control, HW accel)
+            await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+
             CalculateBottleneck(path);
 
             _logger.LogInformation("Gateway direct path: WAN {Down}/{Up} Mbps", wanDownloadMbps, wanUploadMbps);
@@ -726,6 +734,55 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             _logger.LogDebug(ex, "Failed to check MLO status for AP hops");
             foreach (var hop in apHops)
                 hop.MloEnabled = false;
+        }
+    }
+
+    /// <summary>
+    /// Enriches hops with device-level settings (jumbo frames, flow control, hardware acceleration).
+    /// Uses global switch settings with exclusion-aware resolution per device.
+    /// </summary>
+    private async Task EnrichDeviceSettingsAsync(
+        List<NetworkHop> hops,
+        Dictionary<string, UniFiDeviceResponse> rawDevices,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!_clientProvider.IsConnected || _clientProvider.Client == null)
+                return;
+
+            var deviceHops = hops.Where(h =>
+                (h.Type == HopType.Switch || h.Type == HopType.Gateway || h.Type == HopType.AccessPoint) &&
+                !string.IsNullOrEmpty(h.DeviceMac)).ToList();
+
+            if (deviceHops.Count == 0)
+                return;
+
+            using var settingsDoc = await _clientProvider.Client.GetSettingsRawAsync(cancellationToken);
+            var settings = GlobalSwitchSettings.FromSettingsJson(settingsDoc);
+
+            foreach (var hop in deviceHops)
+            {
+                if (!rawDevices.TryGetValue(hop.DeviceMac, out var device))
+                    continue;
+
+                if (settings != null)
+                {
+                    hop.JumboFramesEnabled = settings.GetEffectiveJumboFrames(device);
+                    hop.FlowControlEnabled = settings.GetEffectiveFlowControl(device);
+                }
+
+                if (hop.Type == HopType.Gateway)
+                {
+                    hop.HardwareAccelerationEnabled = device.HardwareOffload;
+                }
+            }
+
+            _logger.LogDebug("Enriched {Count} hops with device settings", deviceHops.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enrich hops with device settings");
         }
     }
 

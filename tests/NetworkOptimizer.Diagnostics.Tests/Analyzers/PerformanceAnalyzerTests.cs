@@ -4,6 +4,7 @@ using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Diagnostics.Analyzers;
 using NetworkOptimizer.Diagnostics.Models;
+using NetworkOptimizer.UniFi.Helpers;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
@@ -679,44 +680,220 @@ public class PerformanceAnalyzerTests
 
     #endregion
 
-    #region GetGlobalSwitchSetting
+    #region GlobalSwitchSettings
 
     [Fact]
-    public void GetGlobalSwitchSetting_NullSettings_ReturnsFalse()
+    public void GlobalSwitchSettings_NullSettings_ReturnsNull()
     {
-        var result = PerformanceAnalyzer.GetGlobalSwitchSetting(null, "jumboframe_enabled");
+        var result = GlobalSwitchSettings.FromSettingsJson(null);
 
-        result.Should().BeFalse();
+        result.Should().BeNull();
     }
 
     [Fact]
-    public void GetGlobalSwitchSetting_PropertyTrue_ReturnsTrue()
+    public void GlobalSwitchSettings_ParsesJumboEnabled()
     {
         var settings = CreateSettings(jumboEnabled: true);
 
-        var result = PerformanceAnalyzer.GetGlobalSwitchSetting(settings, "jumboframe_enabled");
+        var result = GlobalSwitchSettings.FromSettingsJson(settings);
 
-        result.Should().BeTrue();
+        result.Should().NotBeNull();
+        result!.JumboFramesEnabled.Should().BeTrue();
     }
 
     [Fact]
-    public void GetGlobalSwitchSetting_PropertyFalse_ReturnsFalse()
+    public void GlobalSwitchSettings_ParsesFlowControlEnabled()
     {
-        var settings = CreateSettings(jumboEnabled: false);
+        var settings = CreateSettings(flowCtrlEnabled: true);
 
-        var result = PerformanceAnalyzer.GetGlobalSwitchSetting(settings, "jumboframe_enabled");
+        var result = GlobalSwitchSettings.FromSettingsJson(settings);
 
-        result.Should().BeFalse();
+        result.Should().NotBeNull();
+        result!.FlowControlEnabled.Should().BeTrue();
     }
 
     [Fact]
-    public void GetGlobalSwitchSetting_MissingProperty_ReturnsFalse()
+    public void GlobalSwitchSettings_ParsesExclusions()
     {
-        var settings = CreateSettings(jumboEnabled: true);
+        var settings = CreateSettings(jumboEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
 
-        var result = PerformanceAnalyzer.GetGlobalSwitchSetting(settings, "nonexistent_property");
+        var result = GlobalSwitchSettings.FromSettingsJson(settings);
 
-        result.Should().BeFalse();
+        result.Should().NotBeNull();
+        result!.IsExcluded("aa:bb:cc:00:00:01").Should().BeTrue();
+        result!.IsExcluded("aa:bb:cc:00:00:02").Should().BeFalse();
+    }
+
+    [Fact]
+    public void GlobalSwitchSettings_ExclusionsCaseInsensitive()
+    {
+        var settings = CreateSettings(jumboEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = GlobalSwitchSettings.FromSettingsJson(settings);
+
+        result!.IsExcluded("AA:BB:CC:00:00:01").Should().BeTrue();
+    }
+
+    [Fact]
+    public void GlobalSwitchSettings_GetEffectiveJumboFrames_NonExcludedUsesGlobal()
+    {
+        var settings = CreateSettings(jumboEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:99" });
+        var gss = GlobalSwitchSettings.FromSettingsJson(settings)!;
+        var device = new UniFiDeviceResponse { Mac = "aa:bb:cc:00:00:01", JumboFrameEnabled = false };
+
+        gss.GetEffectiveJumboFrames(device).Should().BeTrue(); // uses global
+    }
+
+    [Fact]
+    public void GlobalSwitchSettings_GetEffectiveJumboFrames_ExcludedUsesDeviceLevel()
+    {
+        var settings = CreateSettings(jumboEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+        var gss = GlobalSwitchSettings.FromSettingsJson(settings)!;
+        var device = new UniFiDeviceResponse { Mac = "aa:bb:cc:00:00:01", JumboFrameEnabled = false };
+
+        gss.GetEffectiveJumboFrames(device).Should().BeFalse(); // uses device
+    }
+
+    [Fact]
+    public void GlobalSwitchSettings_GetEffectiveFlowControl_ExcludedUsesDeviceLevel()
+    {
+        var settings = CreateSettings(flowCtrlEnabled: false, exclusions: new[] { "aa:bb:cc:00:00:01" });
+        var gss = GlobalSwitchSettings.FromSettingsJson(settings)!;
+        var device = new UniFiDeviceResponse { Mac = "aa:bb:cc:00:00:01", FlowControlEnabled = true };
+
+        gss.GetEffectiveFlowControl(device).Should().BeTrue(); // uses device
+    }
+
+    #endregion
+
+    #region Jumbo Frames - Exclusion Scenarios
+
+    [Fact]
+    public void CheckJumboFrames_GlobalOn_ExcludedDeviceOff_ReturnsMismatchIssue()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.Mac = "aa:bb:cc:00:00:01";
+        device.JumboFrameEnabled = false;
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 2500, Up = true, IsUplink = false }
+        };
+        var settings = CreateSettings(jumboEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckJumboFrames(new List<UniFiDeviceResponse> { device }, settings);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Contain("Switch 1");
+        result[0].Severity.Should().Be(PerformanceSeverity.Recommendation);
+    }
+
+    [Fact]
+    public void CheckJumboFrames_GlobalOn_ExcludedDeviceOn_NoIssue()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.Mac = "aa:bb:cc:00:00:01";
+        device.JumboFrameEnabled = true;
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 2500, Up = true, IsUplink = false }
+        };
+        var settings = CreateSettings(jumboEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckJumboFrames(new List<UniFiDeviceResponse> { device }, settings);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckJumboFrames_GlobalOff_AllExcludedOn_ReturnsPerDeviceIssue()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.Mac = "aa:bb:cc:00:00:01";
+        device.JumboFrameEnabled = true;
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 2500, Up = true, IsUplink = false }
+        };
+        var settings = CreateSettings(jumboEnabled: false, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckJumboFrames(new List<UniFiDeviceResponse> { device }, settings);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Be("Jumbo Frames Set Per-Device");
+        result[0].Severity.Should().Be(PerformanceSeverity.Info);
+    }
+
+    [Fact]
+    public void CheckJumboFrames_GlobalOff_SomeExcludedOn_ReturnsMismatchWithHighSpeedPorts()
+    {
+        var switch1 = CreateSwitch("switch1", "Switch A");
+        switch1.Mac = "aa:bb:cc:00:00:01";
+        switch1.JumboFrameEnabled = true;
+        switch1.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 2500, Up = true, IsUplink = false }
+        };
+        var switch2 = CreateSwitch("switch2", "Switch B");
+        switch2.Mac = "aa:bb:cc:00:00:02";
+        switch2.JumboFrameEnabled = false;
+        switch2.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 2500, Up = true, IsUplink = false }
+        };
+        var settings = CreateSettings(jumboEnabled: false, exclusions: new[] { "aa:bb:cc:00:00:01", "aa:bb:cc:00:00:02" });
+
+        var result = _analyzer.CheckJumboFrames(new List<UniFiDeviceResponse> { switch1, switch2 }, settings);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Be("Jumbo Frames Not Enabled");
+        result[0].Severity.Should().Be(PerformanceSeverity.Recommendation);
+        result[0].Description.Should().Contain("Switch A");
+    }
+
+    #endregion
+
+    #region Flow Control - Exclusion Scenarios
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_ExcludedDeviceOff_ReturnsMismatchIssue()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.Mac = "aa:bb:cc:00:00:01";
+        device.FlowControlEnabled = false;
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 1000, Up = true, IsUplink = false }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(1000),
+            new List<UniFiClientResponse>(), settings);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Contain("Switch 1");
+        result[0].Severity.Should().Be(PerformanceSeverity.Recommendation);
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOff_AllExcludedOn_ReturnsPerDeviceIssue()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.Mac = "aa:bb:cc:00:00:01";
+        device.FlowControlEnabled = true;
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Speed = 1000, Up = true, IsUplink = false }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: false, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(1000),
+            new List<UniFiClientResponse>(), settings);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Be("Flow Control Set Per-Device");
+        result[0].Severity.Should().Be(PerformanceSeverity.Info);
     }
 
     #endregion
@@ -946,19 +1123,22 @@ public class PerformanceAnalyzerTests
         }).ToList();
     }
 
-    private static JsonDocument CreateSettings(bool jumboEnabled = false, bool flowCtrlEnabled = false)
+    private static JsonDocument CreateSettings(
+        bool jumboEnabled = false, bool flowCtrlEnabled = false, string[]? exclusions = null)
     {
+        var globalSwitch = new Dictionary<string, object>
+        {
+            ["key"] = "global_switch",
+            ["jumboframe_enabled"] = jumboEnabled,
+            ["flowctrl_enabled"] = flowCtrlEnabled
+        };
+
+        if (exclusions != null)
+            globalSwitch["switch_exclusions"] = exclusions;
+
         return JsonDocument.Parse(JsonSerializer.Serialize(new
         {
-            data = new object[]
-            {
-                new
-                {
-                    key = "global_switch",
-                    jumboframe_enabled = jumboEnabled,
-                    flowctrl_enabled = flowCtrlEnabled
-                }
-            }
+            data = new object[] { globalSwitch }
         }));
     }
 
