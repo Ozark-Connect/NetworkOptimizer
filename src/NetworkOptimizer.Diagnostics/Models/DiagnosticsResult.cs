@@ -46,6 +46,12 @@ public class DiagnosticsResult
     public List<PerformanceIssue> PerformanceIssues { get; set; } = new();
 
     /// <summary>
+    /// Whether a cellular WAN was detected during the performance analysis.
+    /// Used by the UI to show appropriate empty state text.
+    /// </summary>
+    public bool CellularWanDetected { get; set; }
+
+    /// <summary>
     /// Total number of issues found
     /// </summary>
     public int TotalIssueCount =>

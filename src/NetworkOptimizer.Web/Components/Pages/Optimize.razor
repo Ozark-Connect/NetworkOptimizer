@@ -70,10 +70,13 @@
                         <input type="checkbox" @bind="_runPerformanceSuggestions" />
                         <span>Performance Suggestions</span>
                     </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="_runCellularDataSavings" />
-                        <span>Cellular Data Savings</span>
-                    </label>
+                    @if (_hasCellularWan)
+                    {
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_runCellularDataSavings" />
+                            <span>Cellular Data Savings</span>
+                        </label>
+                    }
                 </div>
             </div>
         </div>
@@ -345,7 +348,9 @@
             </div>
         </div>
 
-        <!-- Cellular Data Savings -->
+        <!-- Cellular Data Savings (only shown when cellular WAN detected) -->
+        @if (_hasCellularWan)
+        {
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="ToggleCellularSection">
                 <div class="card-header-left">
@@ -359,20 +364,21 @@
                     <div class="card-body">
                     @if (_cellularIssues.Count == 0)
                     {
-                        <p class="empty-section-text">No cellular data savings suggestions. @(HasCellularWan() ? "Your QoS rules look good." : "No cellular WAN detected.")</p>
+                        <p class="empty-section-text">No cellular data savings suggestions. Your QoS rules look good.</p>
                     }
                     else
                     {
                         <div class="issues-list">
                             @foreach (var issue in _cellularIssues)
                             {
-                                <div class="issue-item issue-warning">
+                                var isRec = issue.Severity == PerformanceSeverity.Recommendation;
+                                <div class="issue-item @(isRec ? "issue-warning" : "issue-info")">
                                     <div class="issue-icon">
-                                        @((MarkupString)WarningIcon)
+                                        @((MarkupString)(isRec ? WarningIcon : InfoIcon))
                                     </div>
                                     <div class="issue-body">
                                         <div class="issue-header">
-                                            <span class="issue-severity">Recommendation</span>
+                                            <span class="issue-severity">@(isRec ? "Recommendation" : "Info")</span>
                                         </div>
                                         <div class="issue-title">@issue.Title</div>
                                         <div class="issue-context">
@@ -394,6 +400,7 @@
                 </div>
             </div>
         </div>
+        }
 
     }
     else if (!_isRunning)
@@ -429,6 +436,7 @@
     // Cached filtered lists (set when result changes)
     private List<PerformanceIssue> _perfInfoIssues = new();
     private List<PerformanceIssue> _cellularIssues = new();
+    private bool _hasCellularWan;
 
     // SVG Icons matching the Audit page style
     private const string WarningIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""";
@@ -453,6 +461,7 @@
             .Where(i => i.Category == PerformanceCategory.Performance).ToList();
         _cellularIssues = _result.PerformanceIssues
             .Where(i => i.Category == PerformanceCategory.CellularDataSavings).ToList();
+        _hasCellularWan = _result.CellularWanDetected;
 
         var apLockCount = _result.ApLockIssues.Count;
         var trunkCount = _result.TrunkConsistencyIssues.Count;
@@ -460,12 +469,12 @@
         var perfInfoCount = _perfInfoIssues.Count;
         var cellularCount = _cellularIssues.Count;
 
-        // Count how many categories have items
+        // Count how many categories have items (only count cellular if WAN detected)
         var categoriesWithItems = (apLockCount > 0 ? 1 : 0) +
                                   (trunkCount > 0 ? 1 : 0) +
                                   (profileCount > 0 ? 1 : 0) +
                                   (perfInfoCount > 0 ? 1 : 0) +
-                                  (cellularCount > 0 ? 1 : 0);
+                                  (_hasCellularWan && cellularCount > 0 ? 1 : 0);
 
         // If only one category has items, expand it (no point collapsing the only content)
         if (categoriesWithItems == 1)
@@ -657,8 +666,4 @@
         return lastSeen.ToLocalTime().ToString("MMM d");
     }
 
-    private bool HasCellularWan()
-    {
-        return _cellularIssues.Count > 0;
-    }
 }

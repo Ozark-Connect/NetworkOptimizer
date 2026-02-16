@@ -190,6 +190,7 @@ public class DiagnosticsEngine
                     deviceList, networkList, clientList, settingsData, qosRulesData, wanEnrichedData,
                     runPerformanceChecks: options.RunPerformanceAnalyzer,
                     runCellularChecks: options.RunCellularDataSavings);
+                result.CellularWanDetected = _performanceAnalyzer.CellularWanDetected;
                 _logger?.LogDebug("Performance Analyzer found {Count} issues", result.PerformanceIssues.Count);
             }
             catch (Exception ex)

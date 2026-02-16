@@ -16,6 +16,11 @@ public class PerformanceAnalyzer
     private readonly DeviceTypeDetectionService _deviceTypeDetection;
     private readonly ILogger<PerformanceAnalyzer>? _logger;
 
+    /// <summary>
+    /// Set after Analyze() runs - indicates whether a cellular WAN was detected.
+    /// </summary>
+    public bool CellularWanDetected { get; private set; }
+
     public PerformanceAnalyzer(
         DeviceTypeDetectionService deviceTypeDetection,
         ILogger<PerformanceAnalyzer>? logger = null)
@@ -226,6 +231,8 @@ public class PerformanceAnalyzer
             return issues;
         }
 
+        CellularWanDetected = true;
+
         // Determine if the cellular WAN is failover-only or in the load balancing mix.
         // Failover = more likely to have a small data plan, so Recommendation severity.
         // Load balanced = actively used, so also Recommendation but different description.
@@ -241,22 +248,18 @@ public class PerformanceAnalyzer
             ? "Your cellular WAN is configured as failover"
             : "Your cellular WAN is in the load balancing mix";
 
-        // Parse existing QoS rules to find which app categories are covered
-        var coveredCategories = GetCoveredCategories(qosRulesData, _logger);
+        // Parse existing QoS rules to find which apps are targeted by LIMIT rules
+        var targetedAppIds = GetTargetedAppIds(qosRulesData, _logger);
 
-        _logger?.LogDebug("QoS coverage: {Categories}", coveredCategories.Count > 0
-            ? string.Join(", ", coveredCategories)
-            : "none");
-
-        // Check each category
-        if (!coveredCategories.Contains("streaming"))
+        // Check each category - build context-aware descriptions showing partial coverage
+        var streamingGap = BuildCategoryGapDescription(cellularContext, targetedAppIds,
+            StreamingAppIds.StreamingVideo, StreamingAppIds.MinStreamingForCoverage, "streaming video apps");
+        if (streamingGap != null)
         {
-            var examples = GetTopAppNames(StreamingAppIds.StreamingVideo, 4);
             issues.Add(new PerformanceIssue
             {
                 Title = "Streaming Video Not Rate-Limited",
-                Description = $"{cellularContext}, but streaming video apps " +
-                    $"({examples}) don't have bandwidth limits. Streaming can quickly exhaust cellular data caps.",
+                Description = streamingGap + " Streaming can quickly exhaust cellular data caps.",
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit " +
                     "streaming video apps when on cellular. Consider setting a bandwidth cap per client.",
                 Severity = severity,
@@ -265,14 +268,14 @@ public class PerformanceAnalyzer
             });
         }
 
-        if (!coveredCategories.Contains("cloud"))
+        var cloudGap = BuildCategoryGapDescription(cellularContext, targetedAppIds,
+            StreamingAppIds.CloudStorage, StreamingAppIds.MinCloudForCoverage, "cloud storage apps");
+        if (cloudGap != null)
         {
-            var examples = GetTopAppNames(StreamingAppIds.CloudStorage, 4);
             issues.Add(new PerformanceIssue
             {
                 Title = "Cloud Sync Not Rate-Limited",
-                Description = $"{cellularContext}, but cloud storage apps " +
-                    $"({examples}) don't have bandwidth limits. Background sync can consume significant data.",
+                Description = cloudGap + " Background sync can consume significant cellular data.",
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
                     "This prevents large uploads/downloads from burning through your data plan.",
                 Severity = severity,
@@ -281,14 +284,14 @@ public class PerformanceAnalyzer
             });
         }
 
-        if (!coveredCategories.Contains("downloads"))
+        var downloadGap = BuildCategoryGapDescription(cellularContext, targetedAppIds,
+            StreamingAppIds.LargeDownloads, StreamingAppIds.MinDownloadsForCoverage, "game stores and large download platforms");
+        if (downloadGap != null)
         {
-            var examples = GetTopAppNames(StreamingAppIds.LargeDownloads, 3);
             issues.Add(new PerformanceIssue
             {
                 Title = "Game/App Downloads Not Rate-Limited",
-                Description = $"{cellularContext}, but game stores and large download " +
-                    $"platforms ({examples}) don't have bandwidth limits. A single game update can be 50+ GB.",
+                Description = downloadGap + " A single game update can be 50+ GB.",
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
                     "Game updates alone can exceed monthly data caps in a single download.",
                 Severity = severity,
@@ -458,16 +461,16 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
-    /// Parse QoS rules to determine which app categories are covered by limiting rules.
+    /// Parse QoS rules and return all app IDs targeted by enabled LIMIT rules.
     /// </summary>
-    internal static HashSet<string> GetCoveredCategories(JsonDocument? qosRulesData, ILogger? logger = null)
+    internal static HashSet<int> GetTargetedAppIds(JsonDocument? qosRulesData, ILogger? logger = null)
     {
-        var covered = new HashSet<string>();
+        var targetedAppIds = new HashSet<int>();
 
         if (qosRulesData == null)
         {
             logger?.LogDebug("QoS rules data is null");
-            return covered;
+            return targetedAppIds;
         }
 
         // QoS rules response can be either a flat array or wrapped in a data property
@@ -484,15 +487,12 @@ public class PerformanceAnalyzer
         else
         {
             logger?.LogDebug("QoS rules: unexpected JSON structure (kind={Kind})", qosRulesData.RootElement.ValueKind);
-            return covered;
+            return targetedAppIds;
         }
 
         int ruleCount = 0;
         foreach (var _ in rulesArray.EnumerateArray()) ruleCount++;
         logger?.LogDebug("QoS rules: found {Count} rules total", ruleCount);
-
-        // Collect all app IDs targeted by enabled limiting rules
-        var targetedAppIds = new HashSet<int>();
 
         foreach (var rule in rulesArray.EnumerateArray())
         {
@@ -537,40 +537,44 @@ public class PerformanceAnalyzer
         }
 
         logger?.LogDebug("QoS: {Count} total targeted app IDs across all LIMIT rules", targetedAppIds.Count);
-
-        // Check coverage for each category (per-category thresholds)
-        int streamingHits = targetedAppIds.Count(id => StreamingAppIds.StreamingVideo.Contains(id));
-        logger?.LogDebug("QoS coverage: streaming {Hits}/{Total} (need {Min})",
-            streamingHits, StreamingAppIds.StreamingVideo.Count, StreamingAppIds.MinStreamingForCoverage);
-        if (streamingHits >= StreamingAppIds.MinStreamingForCoverage)
-            covered.Add("streaming");
-
-        int cloudHits = targetedAppIds.Count(id => StreamingAppIds.CloudStorage.Contains(id));
-        logger?.LogDebug("QoS coverage: cloud {Hits}/{Total} (need {Min})",
-            cloudHits, StreamingAppIds.CloudStorage.Count, StreamingAppIds.MinCloudForCoverage);
-        if (cloudHits >= StreamingAppIds.MinCloudForCoverage)
-            covered.Add("cloud");
-
-        int downloadHits = targetedAppIds.Count(id => StreamingAppIds.LargeDownloads.Contains(id));
-        logger?.LogDebug("QoS coverage: downloads {Hits}/{Total} (need {Min})",
-            downloadHits, StreamingAppIds.LargeDownloads.Count, StreamingAppIds.MinDownloadsForCoverage);
-        if (downloadHits >= StreamingAppIds.MinDownloadsForCoverage)
-            covered.Add("downloads");
-
-        return covered;
+        return targetedAppIds;
     }
 
     /// <summary>
-    /// Get top N app names from a set for display in recommendations.
+    /// Check category coverage and build a description with context about partial coverage.
+    /// Returns null if the category is fully covered, otherwise returns a description string.
     /// </summary>
-    private static string GetTopAppNames(HashSet<int> appIds, int count)
+    private static string? BuildCategoryGapDescription(
+        string cellularContext, HashSet<int> targetedAppIds,
+        HashSet<int> categoryAppIds, int minForCoverage, string categoryLabel)
     {
-        var names = appIds
-            .Take(count)
-            .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var name) ? name : id.ToString())
+        var coveredIds = categoryAppIds.Where(id => targetedAppIds.Contains(id)).ToList();
+        var uncoveredIds = categoryAppIds.Where(id => !targetedAppIds.Contains(id)).ToList();
+
+        if (coveredIds.Count >= minForCoverage)
+            return null; // Fully covered
+
+        var coveredNames = coveredIds
+            .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : null)
+            .Where(n => n != null).ToList();
+        var uncoveredNames = uncoveredIds
+            .Take(4)
+            .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : id.ToString())
             .ToList();
 
-        return string.Join(", ", names);
+        if (coveredIds.Count > 0)
+        {
+            // Partial coverage - show what's covered and what's missing
+            return $"{cellularContext}. Your QoS rules cover {string.Join(", ", coveredNames)}, " +
+                $"but {string.Join(", ", uncoveredNames)}" +
+                (uncoveredIds.Count > 4 ? $" and {uncoveredIds.Count - 4} more" : "") +
+                " don't have bandwidth limits.";
+        }
+
+        // No coverage at all
+        var examples = string.Join(", ", categoryAppIds.Take(4)
+            .Select(id => StreamingAppIds.AppNames.TryGetValue(id, out var n) ? n : id.ToString()));
+        return $"{cellularContext}, but {categoryLabel} ({examples}) don't have bandwidth limits.";
     }
 
     #endregion
