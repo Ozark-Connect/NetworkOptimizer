@@ -21,9 +21,15 @@ internal static class StreamingAppIds
         262228, // Crunchyroll
         262268, // Vudu
         262274, // Spotify
-        262219, // Pandora
-        262224, // SoundCloud
-        262418, // Peacock
+        262219, // Amazon Prime Music
+        262224, // Web Streaming
+        262418, // Apple TV+
+        262392, // TikTok
+        262350, // Plex.tv
+        262420, // fuboTV
+        262186, // Apple Music
+        262154, // iTunes/App Store
+        262174, // BBC iPlayer
     };
 
     /// <summary>
@@ -34,7 +40,6 @@ internal static class StreamingAppIds
         196623, // Google Drive
         196629, // OneDrive
         196692, // Dropbox
-        196676, // Box
         196758, // iCloud
         196764, // Backblaze
     };
@@ -45,10 +50,12 @@ internal static class StreamingAppIds
     public static readonly HashSet<int> LargeDownloads = new()
     {
         524399, // Valve Steam
-        852104, // Epic Games
-        524350, // Battle.net
-        524510, // GOG
-        917513, // Xbox Live
+        524567, // Epic Games
+        524356, // Battle.net
+        524350, // Xbox
+        524430, // Sony PlayStation
+        917513, // Windows Update
+        852104, // Microsoft Store
     };
 
     /// <summary>
@@ -66,20 +73,27 @@ internal static class StreamingAppIds
         [262228] = "Crunchyroll",
         [262268] = "Vudu",
         [262274] = "Spotify",
-        [262219] = "Pandora",
-        [262224] = "SoundCloud",
-        [262418] = "Peacock",
+        [262219] = "Amazon Prime Music",
+        [262224] = "Web Streaming",
+        [262418] = "Apple TV+",
+        [262392] = "TikTok",
+        [262350] = "Plex",
+        [262420] = "fuboTV",
+        [262186] = "Apple Music",
+        [262154] = "iTunes/App Store",
+        [262174] = "BBC iPlayer",
         [196623] = "Google Drive",
         [196629] = "OneDrive",
         [196692] = "Dropbox",
-        [196676] = "Box",
         [196758] = "iCloud",
         [196764] = "Backblaze",
         [524399] = "Steam",
-        [852104] = "Epic Games",
-        [524350] = "Battle.net",
-        [524510] = "GOG",
-        [917513] = "Xbox Live",
+        [524567] = "Epic Games",
+        [524356] = "Battle.net",
+        [524350] = "Xbox",
+        [524430] = "PlayStation",
+        [917513] = "Windows Update",
+        [852104] = "Microsoft Store",
     };
 
     /// <summary>
