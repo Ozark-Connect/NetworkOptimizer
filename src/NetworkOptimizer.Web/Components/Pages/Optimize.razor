@@ -113,10 +113,12 @@
         <!-- AP Locked Devices -->
         @if (_ranApLock)
         {
+            var apHasWarnings = _result.ApLockIssues.Any(i => i.Severity == ApLockSeverity.Warning);
+            var apHasInfo = _result.ApLockIssues.Any(i => i.Severity == ApLockSeverity.Info);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="ToggleApLockSection">
+            <div class="card-header card-header-collapsible @(apHasWarnings ? "header-warning" : apHasInfo ? "header-info" : "")" @onclick="ToggleApLockSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
+                    <span class="issue-count-badge @(apHasWarnings ? "has-warnings" : apHasInfo ? "has-info" : "")">@_result.ApLockIssues.Count</span>
                     <h2 class="card-title">AP Locked Devices</h2>
                 </div>
                 <span class="issue-type-chevron">@(_apLockCollapsed ? "▼" : "▲")</span>
@@ -177,10 +179,12 @@
         <!-- Trunk Consistency Issues -->
         @if (_ranTrunkConsistency)
         {
+            var trunkHasWarnings = _result.TrunkConsistencyIssues.Any(i => i.Confidence is DiagnosticConfidence.High or DiagnosticConfidence.Medium);
+            var trunkHasInfo = _result.TrunkConsistencyIssues.Any(i => i.Confidence == DiagnosticConfidence.Low);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="ToggleTrunkSection">
+            <div class="card-header card-header-collapsible @(trunkHasWarnings ? "header-warning" : trunkHasInfo ? "header-info" : "")" @onclick="ToggleTrunkSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_result.TrunkConsistencyIssues.Count</span>
+                    <span class="issue-count-badge @(trunkHasWarnings ? "has-warnings" : trunkHasInfo ? "has-info" : "")">@_result.TrunkConsistencyIssues.Count</span>
                     <h2 class="card-title">Trunk VLAN Consistency</h2>
                 </div>
                 <span class="issue-type-chevron">@(_trunkCollapsed ? "▼" : "▲")</span>
@@ -227,10 +231,12 @@
         <!-- Ethernet Port Profile Suggestions -->
         @if (_ranPortProfileSuggestions)
         {
+            var portHasWarnings = _result.PortProfileSuggestions.Any(s => s.Severity == PortProfileSuggestionSeverity.Recommendation) || _result.PortProfile8021xIssues.Count > 0;
+            var portHasInfo = _result.PortProfileSuggestions.Any(s => s.Severity == PortProfileSuggestionSeverity.Info);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
+            <div class="card-header card-header-collapsible @(portHasWarnings ? "header-warning" : portHasInfo ? "header-info" : "")" @onclick="TogglePortProfileSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@(_result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count)</span>
+                    <span class="issue-count-badge @(portHasWarnings ? "has-warnings" : portHasInfo ? "has-info" : "")">@(_result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count)</span>
                     <h2 class="card-title">Ethernet Port Profile Suggestions</h2>
                 </div>
                 <span class="issue-type-chevron">@(_portProfileCollapsed ? "▼" : "▲")</span>
@@ -310,10 +316,12 @@
         <!-- Performance Suggestions -->
         @if (_ranPerformanceSuggestions)
         {
+            var perfHasWarnings = _performanceIssues.Any(i => i.Severity == PerformanceSeverity.Recommendation);
+            var perfHasInfo = _performanceIssues.Any(i => i.Severity == PerformanceSeverity.Info);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="TogglePerformanceSection">
+            <div class="card-header card-header-collapsible @(perfHasWarnings ? "header-warning" : perfHasInfo ? "header-info" : "")" @onclick="TogglePerformanceSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_performanceIssues.Count</span>
+                    <span class="issue-count-badge @(perfHasWarnings ? "has-warnings" : perfHasInfo ? "has-info" : "")">@_performanceIssues.Count</span>
                     <h2 class="card-title">Performance Suggestions</h2>
                 </div>
                 <span class="issue-type-chevron">@(_performanceCollapsed ? "▼" : "▲")</span>
@@ -364,10 +372,12 @@
         <!-- Cellular Data Savings (only shown when cellular WAN detected and check was run) -->
         @if (_hasCellularWan && _ranCellularDataSavings)
         {
+            var cellHasWarnings = _cellularIssues.Any(i => i.Severity == PerformanceSeverity.Recommendation);
+            var cellHasInfo = _cellularIssues.Any(i => i.Severity == PerformanceSeverity.Info);
         <div class="card">
-            <div class="card-header card-header-collapsible" @onclick="ToggleCellularSection">
+            <div class="card-header card-header-collapsible @(cellHasWarnings ? "header-warning" : cellHasInfo ? "header-info" : "")" @onclick="ToggleCellularSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_cellularIssues.Count</span>
+                    <span class="issue-count-badge @(cellHasWarnings ? "has-warnings" : cellHasInfo ? "has-info" : "")">@_cellularIssues.Count</span>
                     <h2 class="card-title">Cellular Data Savings</h2>
                 </div>
                 <span class="issue-type-chevron">@(_cellularCollapsed ? "▼" : "▲")</span>
