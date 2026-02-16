@@ -93,7 +93,8 @@ public class DiagnosticsEngine
         DiagnosticsOptions? options = null,
         IEnumerable<UniFiClientDetailResponse>? clientHistory = null,
         JsonDocument? settingsData = null,
-        JsonDocument? qosRulesData = null)
+        JsonDocument? qosRulesData = null,
+        JsonDocument? wanEnrichedData = null)
     {
         options ??= new DiagnosticsOptions();
         var stopwatch = Stopwatch.StartNew();
@@ -186,7 +187,7 @@ public class DiagnosticsEngine
             try
             {
                 result.PerformanceIssues = _performanceAnalyzer.Analyze(
-                    deviceList, networkList, clientList, settingsData, qosRulesData,
+                    deviceList, networkList, clientList, settingsData, qosRulesData, wanEnrichedData,
                     runPerformanceChecks: options.RunPerformanceAnalyzer,
                     runCellularChecks: options.RunCellularDataSavings);
                 _logger?.LogDebug("Performance Analyzer found {Count} issues", result.PerformanceIssues.Count);

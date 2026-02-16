@@ -33,6 +33,7 @@ public class PerformanceAnalyzer
         List<UniFiClientResponse> clients,
         JsonDocument? settingsData,
         JsonDocument? qosRulesData,
+        JsonDocument? wanEnrichedData = null,
         bool runPerformanceChecks = true,
         bool runCellularChecks = true)
     {
@@ -47,7 +48,7 @@ public class PerformanceAnalyzer
 
         if (runCellularChecks)
         {
-            issues.AddRange(CheckCellularQos(devices, networks, qosRulesData));
+            issues.AddRange(CheckCellularQos(devices, qosRulesData, wanEnrichedData));
         }
 
         return issues;
@@ -205,8 +206,8 @@ public class PerformanceAnalyzer
     /// </summary>
     internal List<PerformanceIssue> CheckCellularQos(
         List<UniFiDeviceResponse> devices,
-        List<UniFiNetworkConfig> networks,
-        JsonDocument? qosRulesData)
+        JsonDocument? qosRulesData,
+        JsonDocument? wanEnrichedData)
     {
         var issues = new List<PerformanceIssue>();
 
@@ -228,7 +229,7 @@ public class PerformanceAnalyzer
         // Determine if the cellular WAN is failover-only or in the load balancing mix.
         // Failover = more likely to have a small data plan, so Recommendation severity.
         // Load balanced = actively used, so also Recommendation but different description.
-        bool isFailover = IsCellularFailover(cellularWan, networks);
+        bool isFailover = IsCellularFailover(cellularWan, wanEnrichedData);
         _logger?.LogInformation("Cellular WAN detected ({Key}, type={Type}, failover={Failover}), checking QoS rule coverage",
             cellularWan.Key, cellularWan.Type, isFailover);
 
@@ -303,26 +304,50 @@ public class PerformanceAnalyzer
 
     /// <summary>
     /// Determines if the cellular WAN is configured as failover-only (not load balanced).
-    /// Matches the cellular WAN interface key (e.g., "wan2") to a WAN network config
-    /// via the wan_networkgroup field (e.g., "WAN2").
+    /// Uses the enriched WAN config (v2 API) which has wan_load_balance_type and wan_networkgroup.
+    /// Matches the cellular WAN interface key (e.g., "wan3") to wan_networkgroup (e.g., "WAN3").
     /// </summary>
-    internal static bool IsCellularFailover(GatewayWanInterface cellularWan, List<UniFiNetworkConfig> networks)
+    internal static bool IsCellularFailover(GatewayWanInterface cellularWan, JsonDocument? wanEnrichedData)
     {
-        // Match the interface key (e.g., "wan2") to the network group (e.g., "WAN2")
-        var wanNetworks = networks
-            .Where(n => n.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        if (wanEnrichedData == null)
+            return true; // Can't determine, assume failover (more conservative)
 
-        var cellularNetwork = wanNetworks.FirstOrDefault(n =>
-            n.WanNetworkgroup?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) == true);
-
-        if (cellularNetwork == null)
+        // The enriched config is an array of objects with a "configuration" property
+        JsonElement configArray;
+        if (wanEnrichedData.RootElement.ValueKind == JsonValueKind.Array)
         {
-            // Can't determine, assume failover (more conservative)
+            configArray = wanEnrichedData.RootElement;
+        }
+        else if (wanEnrichedData.RootElement.TryGetProperty("data", out var data) &&
+                 data.ValueKind == JsonValueKind.Array)
+        {
+            configArray = data;
+        }
+        else
+        {
             return true;
         }
 
-        return cellularNetwork.WanLoadBalanceType?.Equals("failover-only", StringComparison.OrdinalIgnoreCase) == true;
+        foreach (var entry in configArray.EnumerateArray())
+        {
+            if (!entry.TryGetProperty("configuration", out var config))
+                continue;
+
+            // Match wan_networkgroup (e.g., "WAN3") to the interface key (e.g., "wan3")
+            if (!config.TryGetProperty("wan_networkgroup", out var networkGroup))
+                continue;
+
+            if (!networkGroup.GetString()?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) == true)
+                continue;
+
+            // Found the matching WAN config - check load balance type
+            if (config.TryGetProperty("wan_load_balance_type", out var lbType))
+            {
+                return lbType.GetString()?.Equals("failover-only", StringComparison.OrdinalIgnoreCase) == true;
+            }
+        }
+
+        return true; // Can't determine, assume failover
     }
 
     /// <summary>
@@ -471,7 +496,7 @@ public class PerformanceAnalyzer
 
         foreach (var rule in rulesArray.EnumerateArray())
         {
-            string? ruleName = rule.TryGetProperty("description", out var desc) ? desc.GetString() : null;
+            string? ruleName = rule.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
 
             // Must be enabled
             if (!rule.TryGetProperty("enabled", out var enabled) || !enabled.GetBoolean())
@@ -513,23 +538,23 @@ public class PerformanceAnalyzer
 
         logger?.LogDebug("QoS: {Count} total targeted app IDs across all LIMIT rules", targetedAppIds.Count);
 
-        // Check coverage for each category
+        // Check coverage for each category (per-category thresholds)
         int streamingHits = targetedAppIds.Count(id => StreamingAppIds.StreamingVideo.Contains(id));
-        logger?.LogDebug("QoS coverage: streaming {Hits}/{Required} (need {Min})",
-            streamingHits, StreamingAppIds.StreamingVideo.Count, StreamingAppIds.MinAppsForCoverage);
-        if (streamingHits >= StreamingAppIds.MinAppsForCoverage)
+        logger?.LogDebug("QoS coverage: streaming {Hits}/{Total} (need {Min})",
+            streamingHits, StreamingAppIds.StreamingVideo.Count, StreamingAppIds.MinStreamingForCoverage);
+        if (streamingHits >= StreamingAppIds.MinStreamingForCoverage)
             covered.Add("streaming");
 
         int cloudHits = targetedAppIds.Count(id => StreamingAppIds.CloudStorage.Contains(id));
-        logger?.LogDebug("QoS coverage: cloud {Hits}/{Required} (need {Min})",
-            cloudHits, StreamingAppIds.CloudStorage.Count, StreamingAppIds.MinAppsForCoverage);
-        if (cloudHits >= StreamingAppIds.MinAppsForCoverage)
+        logger?.LogDebug("QoS coverage: cloud {Hits}/{Total} (need {Min})",
+            cloudHits, StreamingAppIds.CloudStorage.Count, StreamingAppIds.MinCloudForCoverage);
+        if (cloudHits >= StreamingAppIds.MinCloudForCoverage)
             covered.Add("cloud");
 
         int downloadHits = targetedAppIds.Count(id => StreamingAppIds.LargeDownloads.Contains(id));
-        logger?.LogDebug("QoS coverage: downloads {Hits}/{Required} (need {Min})",
-            downloadHits, StreamingAppIds.LargeDownloads.Count, StreamingAppIds.MinAppsForCoverage);
-        if (downloadHits >= StreamingAppIds.MinAppsForCoverage)
+        logger?.LogDebug("QoS coverage: downloads {Hits}/{Total} (need {Min})",
+            downloadHits, StreamingAppIds.LargeDownloads.Count, StreamingAppIds.MinDownloadsForCoverage);
+        if (downloadHits >= StreamingAppIds.MinDownloadsForCoverage)
             covered.Add("downloads");
 
         return covered;

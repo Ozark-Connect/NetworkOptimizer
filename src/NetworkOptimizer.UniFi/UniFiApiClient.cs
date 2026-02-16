@@ -1476,6 +1476,36 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET v2/api/site/{site}/wan/enriched-configuration - Get enriched WAN configuration
+    /// Includes load balance type (failover-only vs weighted) and provider details.
+    /// </summary>
+    public async Task<JsonDocument?> GetWanEnrichedConfigRawAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching WAN enriched config from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var url = BuildV2ApiPath($"site/{_site}/wan/enriched-configuration");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogDebug("Retrieved WAN enriched config ({Length} bytes)", json.Length);
+                return JsonDocument.Parse(json);
+            }
+
+            _logger.LogWarning("Failed to retrieve WAN enriched config: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/firewall-policies - Get firewall policies (new v2 API)
     /// This endpoint provides detailed firewall policy configuration including DNS blocking rules
     /// </summary>

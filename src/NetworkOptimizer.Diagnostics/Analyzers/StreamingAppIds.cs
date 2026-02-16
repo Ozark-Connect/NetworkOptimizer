@@ -83,8 +83,11 @@ internal static class StreamingAppIds
     };
 
     /// <summary>
-    /// Minimum number of apps from a category that a QoS rule must target
-    /// for that category to be considered "covered".
+    /// Minimum number of apps that must be targeted for each category to count as "covered".
+    /// Streaming has many popular services so we require more coverage.
+    /// Cloud storage: even one service covered is sufficient since most people use 1-2.
     /// </summary>
-    public const int MinAppsForCoverage = 3;
+    public const int MinStreamingForCoverage = 3;
+    public const int MinCloudForCoverage = 1;
+    public const int MinDownloadsForCoverage = 2;
 }

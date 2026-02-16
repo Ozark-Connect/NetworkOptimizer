@@ -96,9 +96,10 @@ public class DiagnosticsService
             var clientHistoryTask = _connectionService.Client.GetClientHistoryAsync(withinHours: 720); // 30 days
             var settingsTask = _connectionService.Client.GetSettingsRawAsync();
             var qosRulesTask = _connectionService.Client.GetQosRulesRawAsync();
+            var wanEnrichedTask = _connectionService.Client.GetWanEnrichedConfigRawAsync();
 
             await Task.WhenAll(devicesTask, clientsTask, networksTask, portProfilesTask, clientHistoryTask,
-                settingsTask, qosRulesTask);
+                settingsTask, qosRulesTask, wanEnrichedTask);
 
             var devices = await devicesTask;
             var clients = await clientsTask;
@@ -107,6 +108,7 @@ public class DiagnosticsService
             var clientHistory = await clientHistoryTask;
             var settingsDoc = await settingsTask;
             var qosRulesDoc = await qosRulesTask;
+            var wanEnrichedDoc = await wanEnrichedTask;
 
             _logger.LogInformation(
                 "Fetched data for diagnostics: {DeviceCount} devices, {ClientCount} clients, " +
@@ -133,7 +135,7 @@ public class DiagnosticsService
                 performanceLogger: _loggerFactory.CreateLogger<Diagnostics.Analyzers.PerformanceAnalyzer>());
 
             var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options, clientHistory,
-                settingsDoc, qosRulesDoc);
+                settingsDoc, qosRulesDoc, wanEnrichedDoc);
 
             // Cache the result
             _cache.Set(CacheKeyLastResult, result);
