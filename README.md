@@ -207,6 +207,23 @@ All core functionality is working and tested on many combinations of UniFi Gatew
 
 In progress: Time-series metrics, cable modem monitoring, WiFi analysis, multi-site support.
 
+## Password Reset
+
+If you forget the admin password, use the reset script for your platform:
+
+**Windows (PowerShell as Administrator):**
+```powershell
+irm https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.ps1 -OutFile reset-password.ps1
+.\reset-password.ps1
+```
+
+**Docker / macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.sh | bash
+```
+
+The script stops the service, clears the password, restarts, and shows you the new temporary password.
+
 ## Contributing
 
 If you find issues, report them via GitHub Issues. Include your UniFi device models and controller version. Sanitize credentials and IPs before attaching logs.

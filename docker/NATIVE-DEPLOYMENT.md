@@ -611,6 +611,34 @@ journalctl -u network-optimizer -f
 type C:\NetworkOptimizer\logs\stdout.log
 ```
 
+### Reset Admin Password
+
+If you forget the admin password, use the reset script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.sh | bash
+```
+
+The script auto-detects macOS or Linux native installations, clears the password, restarts the service, and displays the new temporary password. Use `--macos` or `--linux` to force a specific mode.
+
+**Manual fallback:**
+
+```bash
+# macOS
+launchctl unload ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
+sqlite3 ~/Library/Application\ Support/NetworkOptimizer/network_optimizer.db \
+    "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
+grep "Password:" ~/network-optimizer/logs/stdout.log | tail -1
+
+# Linux
+sudo systemctl stop network-optimizer
+sqlite3 /opt/network-optimizer/data/network_optimizer.db \
+    "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+sudo systemctl start network-optimizer
+journalctl -u network-optimizer --since "2 minutes ago" | grep "Password:"
+```
+
 ---
 
 ## Support

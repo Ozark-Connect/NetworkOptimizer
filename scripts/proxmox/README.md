@@ -297,6 +297,27 @@ pct exec <CT_ID> -- ls -la /opt/network-optimizer/
 pct exec <CT_ID> -- chown -R 1000:1000 /opt/network-optimizer/data
 ```
 
+### Reset Admin Password
+
+If you forget the admin password:
+
+```bash
+pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/reset-password.sh | bash -s -- --force"
+```
+
+**Manual fallback:**
+
+```bash
+# Clear the password
+pct exec <CT_ID> -- docker exec network-optimizer sqlite3 /app/data/network_optimizer.db \
+    "UPDATE AdminSettings SET Password = NULL, Enabled = 0;"
+
+# Restart and view the new password
+pct exec <CT_ID> -- docker restart network-optimizer
+sleep 10
+pct exec <CT_ID> -- docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
+```
+
 ## Uninstall
 
 To completely remove Network Optimizer:
