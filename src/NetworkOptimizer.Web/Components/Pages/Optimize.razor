@@ -302,7 +302,7 @@
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="TogglePerformanceSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_perfInfoIssues.Count</span>
+                    <span class="issue-count-badge">@_performanceIssues.Count</span>
                     <h2 class="card-title">Performance Suggestions</h2>
                 </div>
                 <span class="issue-type-chevron">@(_performanceCollapsed ? "▼" : "▲")</span>
@@ -310,14 +310,14 @@
             <div class="expand-wrapper @(!_performanceCollapsed ? "expanded" : "")">
                 <div class="expand-content">
                     <div class="card-body">
-                    @if (_perfInfoIssues.Count == 0)
+                    @if (_performanceIssues.Count == 0)
                     {
                         <p class="empty-section-text">No performance suggestions - your settings look good.</p>
                     }
                     else
                     {
                         <div class="issues-list">
-                            @foreach (var issue in _perfInfoIssues)
+                            @foreach (var issue in _performanceIssues)
                             {
                                 var isRec = issue.Severity == PerformanceSeverity.Recommendation;
                                 <div class="issue-item @(isRec ? "issue-warning" : "issue-info")">
@@ -435,7 +435,7 @@
     private bool _cellularCollapsed;
 
     // Cached filtered lists (set when result changes)
-    private List<PerformanceIssue> _perfInfoIssues = new();
+    private List<PerformanceIssue> _performanceIssues = new();
     private List<PerformanceIssue> _cellularIssues = new();
     private bool _hasCellularWan;
 
@@ -481,7 +481,7 @@
         if (_result == null) return;
 
         // Cache filtered performance issue lists by category
-        _perfInfoIssues = _result.PerformanceIssues
+        _performanceIssues = _result.PerformanceIssues
             .Where(i => i.Category == PerformanceCategory.Performance).ToList();
         _cellularIssues = _result.PerformanceIssues
             .Where(i => i.Category == PerformanceCategory.CellularDataSavings).ToList();
@@ -490,7 +490,7 @@
         var apLockCount = _result.ApLockIssues.Count;
         var trunkCount = _result.TrunkConsistencyIssues.Count;
         var profileCount = _result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count;
-        var perfInfoCount = _perfInfoIssues.Count;
+        var perfInfoCount = _performanceIssues.Count;
         var cellularCount = _cellularIssues.Count;
 
         // Count how many categories have items (only count cellular if WAN detected)
