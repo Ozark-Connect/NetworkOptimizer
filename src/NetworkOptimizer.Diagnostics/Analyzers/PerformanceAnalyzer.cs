@@ -233,16 +233,25 @@ public class PerformanceAnalyzer
 
         CellularWanDetected = true;
 
-        // Determine if the cellular WAN is failover-only or in the load balancing mix.
-        // Failover = more likely to have a small data plan, so Recommendation severity.
-        // Load balanced = actively used, so also Recommendation but different description.
+        // Check WAN failover mode from enriched config
         bool isFailover = IsCellularFailover(cellularWan, wanEnrichedData);
-        _logger?.LogInformation("Cellular WAN detected ({Key}, type={Type}, failover={Failover}), checking QoS rule coverage",
-            cellularWan.Key, cellularWan.Type, isFailover);
 
-        // If cellular is failover-only, severity is Info (less urgent since it's not primary)
-        // If cellular is in the load balancing mix, severity is Recommendation (actively burning data)
-        var severity = isFailover ? PerformanceSeverity.Info : PerformanceSeverity.Recommendation;
+        // Check data limits from the modem device (umbb)
+        var modem = devices.FirstOrDefault(d =>
+            d.Type.Equals("umbb", StringComparison.OrdinalIgnoreCase));
+        var dataLimit = GetModemDataLimit(modem);
+        bool hasSmallDataPlan = dataLimit.Enabled && dataLimit.Bytes < 500L * 1024 * 1024 * 1024;
+
+        _logger?.LogInformation(
+            "Cellular WAN detected ({Key}, type={Type}, failover={Failover}, dataLimit={Limit}), checking QoS rule coverage",
+            cellularWan.Key, cellularWan.Type, isFailover,
+            dataLimit.Enabled ? $"{dataLimit.Bytes / (1024 * 1024 * 1024)} GB" : "none");
+
+        // Failover or small data plan → Recommendation (more urgent)
+        // Load balanced with large/no data cap → Info
+        var severity = (isFailover || hasSmallDataPlan)
+            ? PerformanceSeverity.Recommendation
+            : PerformanceSeverity.Info;
 
         string cellularContext = isFailover
             ? "Your cellular WAN is configured as failover"
@@ -351,6 +360,45 @@ public class PerformanceAnalyzer
         }
 
         return true; // Can't determine, assume failover
+    }
+
+    /// <summary>
+    /// Extracts data limit info from the cellular modem's mbb_overrides.
+    /// Uses the primary SIM slot's data_limit_enabled and data_soft_limit_bytes.
+    /// </summary>
+    internal static (bool Enabled, long Bytes) GetModemDataLimit(UniFiDeviceResponse? modem)
+    {
+        if (modem?.AdditionalData == null)
+            return (false, 0);
+
+        if (!modem.AdditionalData.TryGetValue("mbb_overrides", out var overridesEl))
+            return (false, 0);
+
+        if (!overridesEl.TryGetProperty("sim", out var simArray) ||
+            simArray.ValueKind != JsonValueKind.Array)
+            return (false, 0);
+
+        // Find the primary slot, or use slot 1 as default
+        int primarySlot = 1;
+        if (overridesEl.TryGetProperty("primary_slot", out var primaryEl) &&
+            primaryEl.TryGetInt32(out int ps))
+        {
+            primarySlot = ps;
+        }
+
+        foreach (var sim in simArray.EnumerateArray())
+        {
+            int slot = sim.TryGetProperty("slot", out var slotEl) && slotEl.TryGetInt32(out int s) ? s : 0;
+            if (slot != primarySlot)
+                continue;
+
+            bool enabled = sim.TryGetProperty("data_limit_enabled", out var dle) && dle.GetBoolean();
+            long bytes = sim.TryGetProperty("data_soft_limit_bytes", out var dsl) && dsl.TryGetInt64(out long b) ? b : 0;
+
+            return (enabled, bytes);
+        }
+
+        return (false, 0);
     }
 
     /// <summary>
