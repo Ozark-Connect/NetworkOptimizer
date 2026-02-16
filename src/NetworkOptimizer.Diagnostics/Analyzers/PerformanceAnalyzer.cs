@@ -257,8 +257,12 @@ public class PerformanceAnalyzer
             ? "Your cellular WAN is configured as failover"
             : "Your cellular WAN is in the load balancing mix";
 
-        // Parse existing QoS rules to find which apps are targeted by LIMIT rules
-        var targetedAppIds = GetTargetedAppIds(qosRulesData, _logger);
+        // Get the cellular WAN's network config _id so we only count QoS rules assigned to it
+        string? cellularWanConfigId = GetCellularWanConfigId(cellularWan, wanEnrichedData);
+        _logger?.LogDebug("Cellular WAN config ID: {Id}", cellularWanConfigId ?? "not found");
+
+        // Parse existing QoS rules to find which apps are targeted by LIMIT rules on the cellular WAN
+        var targetedAppIds = GetTargetedAppIds(qosRulesData, cellularWanConfigId, _logger);
 
         // Check each category - build context-aware descriptions showing partial coverage
         var streamingGap = BuildCategoryGapDescription(cellularContext, targetedAppIds,
@@ -270,7 +274,8 @@ public class PerformanceAnalyzer
                 Title = "Streaming Video Not Rate-Limited",
                 Description = streamingGap + " Streaming can quickly exhaust cellular data caps.",
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit " +
-                    "streaming video apps when on cellular. Consider setting a bandwidth cap per client.",
+                    "streaming video apps when on cellular. " +
+                    "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,
                 Category = PerformanceCategory.CellularDataSavings,
                 DeviceName = gateway.Name
@@ -286,7 +291,8 @@ public class PerformanceAnalyzer
                 Title = "Cloud Sync Not Rate-Limited",
                 Description = cloudGap + " Background sync can consume significant cellular data.",
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit cloud storage sync speed when on cellular. " +
-                    "This prevents large uploads/downloads from burning through your data plan.",
+                    "This prevents large uploads/downloads from burning through your data plan. " +
+                    "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,
                 Category = PerformanceCategory.CellularDataSavings,
                 DeviceName = gateway.Name
@@ -302,7 +308,8 @@ public class PerformanceAnalyzer
                 Title = "Game/App Downloads Not Rate-Limited",
                 Description = downloadGap + " A single game update can be 50+ GB.",
                 Recommendation = "Create a QoS Rule under Policy Engine > Policy Table > QoS Rules to limit or block game/app downloads when on cellular. " +
-                    "Game updates alone can exceed monthly data caps in a single download.",
+                    "Game updates alone can exceed monthly data caps in a single download. " +
+                    "<br><a href=\"https://ozarkconnect.net/blog/unifi-5g-backup-qos\" target=\"_blank\">How-To Guide</a>",
                 Severity = severity,
                 Category = PerformanceCategory.CellularDataSavings,
                 DeviceName = gateway.Name
@@ -509,9 +516,47 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
-    /// Parse QoS rules and return all app IDs targeted by enabled LIMIT rules.
+    /// Extracts the cellular WAN's network config _id from the enriched WAN config.
+    /// Matches the cellular WAN interface key (e.g., "wan3") to wan_networkgroup (e.g., "WAN3").
     /// </summary>
-    internal static HashSet<int> GetTargetedAppIds(JsonDocument? qosRulesData, ILogger? logger = null)
+    internal static string? GetCellularWanConfigId(GatewayWanInterface cellularWan, JsonDocument? wanEnrichedData)
+    {
+        if (wanEnrichedData == null)
+            return null;
+
+        JsonElement configArray;
+        if (wanEnrichedData.RootElement.ValueKind == JsonValueKind.Array)
+            configArray = wanEnrichedData.RootElement;
+        else if (wanEnrichedData.RootElement.TryGetProperty("data", out var data) &&
+                 data.ValueKind == JsonValueKind.Array)
+            configArray = data;
+        else
+            return null;
+
+        foreach (var entry in configArray.EnumerateArray())
+        {
+            if (!entry.TryGetProperty("configuration", out var config))
+                continue;
+
+            if (!config.TryGetProperty("wan_networkgroup", out var networkGroup))
+                continue;
+
+            if (networkGroup.GetString()?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) != true)
+                continue;
+
+            // Found the matching WAN config - return its _id
+            if (config.TryGetProperty("_id", out var idProp))
+                return idProp.GetString();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Parse QoS rules and return all app IDs targeted by enabled LIMIT rules
+    /// that are assigned to the specified WAN network.
+    /// </summary>
+    internal static HashSet<int> GetTargetedAppIds(JsonDocument? qosRulesData, string? cellularWanConfigId, ILogger? logger = null)
     {
         var targetedAppIds = new HashSet<int>();
 
@@ -561,6 +606,18 @@ public class PerformanceAnalyzer
                 continue;
             }
 
+            // Must be assigned to the cellular WAN (has wan_or_vpn_network matching the cellular config ID)
+            if (cellularWanConfigId != null)
+            {
+                string? ruleWan = rule.TryGetProperty("wan_or_vpn_network", out var wanProp) ? wanProp.GetString() : null;
+                if (ruleWan == null || !ruleWan.Equals(cellularWanConfigId, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger?.LogDebug("QoS rule '{Name}': skipped (wan_or_vpn_network={Wan}, need {Need})",
+                        ruleName ?? "unnamed", ruleWan ?? "none", cellularWanConfigId);
+                    continue;
+                }
+            }
+
             // Collect app IDs from destination
             if (rule.TryGetProperty("destination", out var destination) &&
                 destination.TryGetProperty("app_ids", out var appIds) &&
@@ -584,7 +641,7 @@ public class PerformanceAnalyzer
             }
         }
 
-        logger?.LogDebug("QoS: {Count} total targeted app IDs across all LIMIT rules", targetedAppIds.Count);
+        logger?.LogDebug("QoS: {Count} total targeted app IDs across cellular WAN LIMIT rules", targetedAppIds.Count);
         return targetedAppIds;
     }
 
