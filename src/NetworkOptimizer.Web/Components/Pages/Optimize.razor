@@ -70,13 +70,10 @@
                         <input type="checkbox" @bind="_runPerformanceSuggestions" />
                         <span>Performance Suggestions</span>
                     </label>
-                    @if (_hasCellularWan)
-                    {
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="_runCellularDataSavings" />
-                            <span>Cellular Data Savings</span>
-                        </label>
-                    }
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runCellularDataSavings" />
+                        <span>Cellular Data Savings</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -436,7 +433,7 @@
     // Cached filtered lists (set when result changes)
     private List<PerformanceIssue> _perfInfoIssues = new();
     private List<PerformanceIssue> _cellularIssues = new();
-    private bool _hasCellularWan;
+    private bool _hasCellularWan = true; // Show by default, hide after a run confirms no cellular WAN
 
     // SVG Icons matching the Audit page style
     private const string WarningIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""";
