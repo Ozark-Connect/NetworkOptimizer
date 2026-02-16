@@ -316,13 +316,14 @@
                         <div class="issues-list">
                             @foreach (var issue in _perfInfoIssues)
                             {
-                                <div class="issue-item issue-info">
+                                var isRec = issue.Severity == PerformanceSeverity.Recommendation;
+                                <div class="issue-item @(isRec ? "issue-warning" : "issue-info")">
                                     <div class="issue-icon">
-                                        @((MarkupString)InfoIcon)
+                                        @((MarkupString)(isRec ? WarningIcon : InfoIcon))
                                     </div>
                                     <div class="issue-body">
                                         <div class="issue-header">
-                                            <span class="issue-severity">Info</span>
+                                            <span class="issue-severity">@(isRec ? "Recommendation" : "Info")</span>
                                         </div>
                                         <div class="issue-title">@issue.Title</div>
                                         <div class="issue-context">

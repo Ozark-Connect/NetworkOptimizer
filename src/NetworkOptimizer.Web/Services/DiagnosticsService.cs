@@ -106,9 +106,9 @@ public class DiagnosticsService
             var networks = await networksTask;
             var portProfiles = await portProfilesTask;
             var clientHistory = await clientHistoryTask;
-            var settingsDoc = await settingsTask;
-            var qosRulesDoc = await qosRulesTask;
-            var wanEnrichedDoc = await wanEnrichedTask;
+            using var settingsDoc = await settingsTask;
+            using var qosRulesDoc = await qosRulesTask;
+            using var wanEnrichedDoc = await wanEnrichedTask;
 
             _logger.LogInformation(
                 "Fetched data for diagnostics: {DeviceCount} devices, {ClientCount} clients, " +
