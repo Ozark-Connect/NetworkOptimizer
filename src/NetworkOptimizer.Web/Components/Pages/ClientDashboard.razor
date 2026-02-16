@@ -740,6 +740,9 @@
     [SupplyParameterFromQuery(Name = "ip")]
     public string? IpParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "range")]
+    public string? RangeParam { get; set; }
+
     // State
     private bool _isOwnDevice; // true when viewing own device (no ?ip= param)
     private bool _isLogging; // true when actively persisting signal data
@@ -848,6 +851,14 @@
                 "connection" => "connection",
                 _ => "speed"
             };
+        }
+
+        // Parse time range from URL (e.g. ?range=30d, ?range=7d, ?range=6h)
+        if (!string.IsNullOrEmpty(RangeParam))
+        {
+            var match = _timeFilters.FirstOrDefault(tf => tf.label.Equals(RangeParam, StringComparison.OrdinalIgnoreCase));
+            if (match != default)
+                _selectedTimeFilter = match.hours;
         }
 
         _isOwnDevice = string.IsNullOrEmpty(IpParam);

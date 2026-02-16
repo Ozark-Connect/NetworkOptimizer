@@ -1515,7 +1515,7 @@
         if (ShowDashboardLinks && !string.IsNullOrEmpty(result.DeviceHost))
         {
             var ip = System.Net.WebUtility.HtmlEncode(result.DeviceHost);
-            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed' class='map-popup-link'>Client Performance \u2192</a>";
+            html += $"<a href='/client-dashboard?ip={ip}&amp;tab=speed&amp;range=30d' class='map-popup-link'>Client Performance \u2192</a>";
         }
         html += "</span>";
         html += "</div>";
