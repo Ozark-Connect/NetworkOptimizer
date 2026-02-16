@@ -357,7 +357,7 @@ public class PerformanceAnalyzer
             if (!config.TryGetProperty("wan_networkgroup", out var networkGroup))
                 continue;
 
-            if (!networkGroup.GetString()?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) == true)
+            if (networkGroup.GetString()?.Equals(cellularWan.Key, StringComparison.OrdinalIgnoreCase) != true)
                 continue;
 
             // Found the matching WAN config - check load balance type
