@@ -1447,6 +1447,35 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET v2/api/site/{site}/qos-rules - Get QoS rules (traffic shaping, app-based bandwidth limits)
+    /// </summary>
+    public async Task<JsonDocument?> GetQosRulesRawAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching QoS rules from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var url = BuildV2ApiPath($"site/{_site}/qos-rules");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogDebug("Retrieved QoS rules ({Length} bytes)", json.Length);
+                return JsonDocument.Parse(json);
+            }
+
+            _logger.LogWarning("Failed to retrieve QoS rules: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/firewall-policies - Get firewall policies (new v2 API)
     /// This endpoint provides detailed firewall policy configuration including DNS blocking rules
     /// </summary>

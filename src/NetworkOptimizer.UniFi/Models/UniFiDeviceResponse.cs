@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.UniFi.Models;
@@ -201,6 +203,97 @@ public class UniFiDeviceResponse
     /// </summary>
     [JsonPropertyName("config_network_lan")]
     public ConfigNetworkLan? ConfigNetworkLan { get; set; }
+
+    /// <summary>
+    /// Whether hardware offload (packet acceleration) is enabled on the gateway.
+    /// Only present on gateway devices.
+    /// </summary>
+    [JsonPropertyName("hardware_offload")]
+    public bool? HardwareOffload { get; set; }
+
+    /// <summary>
+    /// Captures additional JSON properties not mapped to typed properties.
+    /// Used to extract WAN interface objects (wan, wan1, wan2, etc.) which are dynamic keys.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalData { get; set; }
+
+    private static readonly Regex WanKeyPattern = new(@"^wan\d*$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Extracts WAN interface objects from AdditionalData.
+    /// Matches any key starting with "wan" followed by optional digits (wan, wan1, wan2, wan3, etc.)
+    /// </summary>
+    public List<GatewayWanInterface> GetWanInterfaces()
+    {
+        var result = new List<GatewayWanInterface>();
+        if (AdditionalData == null)
+            return result;
+
+        foreach (var kvp in AdditionalData)
+        {
+            if (!WanKeyPattern.IsMatch(kvp.Key))
+                continue;
+
+            if (kvp.Value.ValueKind != JsonValueKind.Object)
+                continue;
+
+            try
+            {
+                var info = JsonSerializer.Deserialize<GatewayWanInterface>(kvp.Value.GetRawText());
+                if (info != null)
+                {
+                    info.Key = kvp.Key;
+                    result.Add(info);
+                }
+            }
+            catch
+            {
+                // Skip malformed WAN interface objects
+            }
+        }
+
+        return result;
+    }
+}
+
+/// <summary>
+/// Represents a WAN interface from the gateway device JSON.
+/// These appear as dynamic keys (wan, wan1, wan2, wan3, etc.) on the device object.
+/// </summary>
+public class GatewayWanInterface
+{
+    /// <summary>
+    /// The JSON key this was parsed from (e.g., "wan1", "wan2")
+    /// </summary>
+    [JsonIgnore]
+    public string Key { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// WAN type: "ethernet", "wireless_5g", "lte", "wireless_lte"
+    /// </summary>
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
+    [JsonPropertyName("up")]
+    public bool Up { get; set; }
+
+    [JsonPropertyName("ip")]
+    public string? Ip { get; set; }
+
+    [JsonPropertyName("latency")]
+    public int? Latency { get; set; }
+
+    [JsonPropertyName("availability")]
+    public int? Availability { get; set; }
+
+    /// <summary>
+    /// Whether this is a cellular WAN interface (5G, LTE)
+    /// </summary>
+    public bool IsCellular => Type is "wireless_5g" or "lte" or "wireless_lte";
 }
 
 public class EthernetPort

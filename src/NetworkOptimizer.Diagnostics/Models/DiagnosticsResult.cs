@@ -41,6 +41,11 @@ public class DiagnosticsResult
     public List<PortProfile8021xIssue> PortProfile8021xIssues { get; set; } = new();
 
     /// <summary>
+    /// Performance optimization suggestions (hardware accel, jumbo frames, flow control, cellular QoS)
+    /// </summary>
+    public List<PerformanceIssue> PerformanceIssues { get; set; } = new();
+
+    /// <summary>
     /// Total number of issues found
     /// </summary>
     public int TotalIssueCount =>
@@ -48,7 +53,8 @@ public class DiagnosticsResult
         PortProfileSuggestions.Count +
         ApLockIssues.Count +
         AccessPortVlanIssues.Count +
-        PortProfile8021xIssues.Count;
+        PortProfile8021xIssues.Count +
+        PerformanceIssues.Count;
 
     /// <summary>
     /// Count of warning/recommendation-level issues
@@ -58,7 +64,8 @@ public class DiagnosticsResult
         AccessPortVlanIssues.Count(i => i.Severity == DiagnosticSeverity.Warning) +
         TrunkConsistencyIssues.Count(i => i.Confidence == DiagnosticConfidence.High || i.Confidence == DiagnosticConfidence.Medium) +
         PortProfileSuggestions.Count(s => s.Severity == PortProfileSuggestionSeverity.Recommendation) +
-        PortProfile8021xIssues.Count; // All 802.1X issues are recommendations
+        PortProfile8021xIssues.Count + // All 802.1X issues are recommendations
+        PerformanceIssues.Count(i => i.Severity == PerformanceSeverity.Recommendation);
 
     /// <summary>
     /// Count of info-level issues
@@ -67,5 +74,6 @@ public class DiagnosticsResult
         ApLockIssues.Count(i => i.Severity == ApLockSeverity.Info) +
         AccessPortVlanIssues.Count(i => i.Severity == DiagnosticSeverity.Info) +
         TrunkConsistencyIssues.Count(i => i.Confidence == DiagnosticConfidence.Low) +
-        PortProfileSuggestions.Count(s => s.Severity == PortProfileSuggestionSeverity.Info);
+        PortProfileSuggestions.Count(s => s.Severity == PortProfileSuggestionSeverity.Info) +
+        PerformanceIssues.Count(i => i.Severity == PerformanceSeverity.Info);
 }
