@@ -279,6 +279,12 @@ reset_macos() {
     check_sqlite3
     confirm
 
+    # Snapshot log position before restart so we only search new lines
+    local log_lines_before=0
+    if [[ -f "$log_file" ]]; then
+        log_lines_before=$(wc -l < "$log_file")
+    fi
+
     # Stop service
     if [[ -f "$plist" ]]; then
         msg_info "Stopping service..."
@@ -306,11 +312,11 @@ reset_macos() {
     # Wait for health
     wait_for_health || true
 
-    # Extract password from log
+    # Extract password from new log lines only
     echo ""
     local password=""
     if [[ -f "$log_file" ]]; then
-        password=$(tail -100 "$log_file" \
+        password=$(tail -n +"$((log_lines_before + 1))" "$log_file" \
             | grep "Password:" | tail -1 \
             | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
     fi
@@ -367,6 +373,16 @@ reset_linux() {
     check_sqlite3
     confirm
 
+    # Snapshot log positions before restart so we only search new lines
+    declare -A log_lines_before
+    for lf in \
+        "/opt/network-optimizer/logs/stdout.log" \
+        "$HOME/.local/share/NetworkOptimizer/logs/stdout.log"; do
+        if [[ -f "$lf" ]]; then
+            log_lines_before["$lf"]=$(wc -l < "$lf")
+        fi
+    done
+
     # Stop service
     if [[ -n "$service_name" ]]; then
         msg_info "Stopping service ($service_name)..."
@@ -410,13 +426,14 @@ reset_linux() {
             | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
     fi
 
-    # Fallback: check log files
+    # Fallback: check log files (only new lines since restart)
     if [[ -z "$password" ]]; then
         for log_file in \
             "/opt/network-optimizer/logs/stdout.log" \
             "$HOME/.local/share/NetworkOptimizer/logs/stdout.log"; do
             if [[ -f "$log_file" ]]; then
-                password=$(tail -100 "$log_file" \
+                local skip=${log_lines_before["$log_file"]:-0}
+                password=$(tail -n +"$((skip + 1))" "$log_file" \
                     | grep "Password:" | tail -1 \
                     | sed -E 's/.*Password:\s+//' | tr -d '[:space:]')
                 if [[ -n "$password" ]]; then break; fi
