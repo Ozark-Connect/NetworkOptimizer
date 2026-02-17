@@ -2312,7 +2312,7 @@
                 {
                     statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
                         $"but Adaptive SQM needs up to {profile.AbsoluteMaxDownloadMbps} Mbps. " +
-                        $"Increase the rate in UniFi Network > Settings > Internet > {wanConfig.config.Name} > Advanced > Smart Queues.";
+                        $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
                     statusSuccess = false;
                     isDeploying = false;
                     StateHasChanged();
