@@ -2119,10 +2119,6 @@
             gatewaySettings = await GatewaySshService.SaveSettingsAsync(settings);
             tcMonitorMessage = "Port saved";
             tcMonitorMessageClass = "success";
-            StateHasChanged();
-
-            // Test after save to show current status
-            await TestTcMonitor();
         }
         catch (Exception ex)
         {
