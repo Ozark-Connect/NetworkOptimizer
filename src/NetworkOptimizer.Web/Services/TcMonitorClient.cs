@@ -16,6 +16,7 @@ public class TcMonitorClient : ITcMonitorClient
 
     // Cache to avoid hammering the single-threaded TC Monitor server
     private static TcMonitorResponse? _cachedResponse;
+    private static string? _cachedUrl;
     private static DateTime _cacheTime = DateTime.MinValue;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
 
@@ -39,24 +40,24 @@ public class TcMonitorClient : ITcMonitorClient
     {
         var url = $"http://{host}:{port}/";
 
-        // Return cached if valid and not forcing refresh
-        if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
+        // Return cached if valid, not forcing refresh, and same endpoint
+        if (!forceRefresh && _cachedResponse != null && _cachedUrl == url && DateTime.UtcNow - _cacheTime < CacheDuration)
         {
             _logger.LogDebug("Returning cached TC stats (age: {Age:F1}s)", (DateTime.UtcNow - _cacheTime).TotalSeconds);
             return _cachedResponse;
         }
 
-        // Serialize requests - if another is in progress, return cached data
+        // Serialize requests - if another is in progress, return cached data (only if same endpoint)
         if (!await _requestLock.WaitAsync(TimeSpan.FromMilliseconds(100)))
         {
             _logger.LogDebug("TC monitor request already in progress, returning cached data");
-            return _cachedResponse;
+            return _cachedUrl == url ? _cachedResponse : null;
         }
 
         try
         {
             // Double-check cache after acquiring lock
-            if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
+            if (!forceRefresh && _cachedResponse != null && _cachedUrl == url && DateTime.UtcNow - _cacheTime < CacheDuration)
             {
                 return _cachedResponse;
             }
@@ -78,6 +79,7 @@ public class TcMonitorClient : ITcMonitorClient
                     {
                         _logger.LogDebug("TC stats received: {InterfaceCount} interfaces", response.GetAllInterfaces().Count);
                         _cachedResponse = response;
+                        _cachedUrl = url;
                         _cacheTime = DateTime.UtcNow;
                         return response;
                     }
@@ -104,7 +106,7 @@ public class TcMonitorClient : ITcMonitorClient
                 }
             }
 
-            return _cachedResponse; // Return stale cache on failure
+            return _cachedUrl == url ? _cachedResponse : null; // Return stale cache only if same endpoint
         }
         finally
         {
