@@ -115,17 +115,17 @@ Time-series metrics with historical trending and alerting. Cable modem stats (si
 
 ## Requirements
 
-**Basic (Security Audit only):**
+**No SSH required:**
 - UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted UniFi Network Server
 - Network access to your UniFi controller API (HTTPS)
+- Includes: Security Audit, Config Optimizer, Wi-Fi Optimizer, Client Speed Test, WAN Speed Test (server-based)
 
-**Full Functionality (Adaptive SQM, LAN Speed Testing):**
-- SSH access enabled on your UniFi gateway and devices (configured via web interface, not mobile app)
+**SSH required (for full functionality):**
+- SSH access enabled on your UniFi gateway and/or devices (configured via web interface, not mobile app)
 - **Console SSH:** Settings > Control Plane > Console > SSH
 - **Device SSH:** UniFi Devices > Device Updates and Settings > Device SSH Settings
+- Adds: Adaptive SQM, LAN Speed Test, WAN Speed Test (gateway-based, recommended for multi-WAN)
 - See [Deployment Guide](docker/DEPLOYMENT.md#unifi-ssh-configuration) for detailed instructions (UniFi Network 9.5+)
-
-Without SSH access, Security Audit works fully, but you cannot run gateway/device LAN speed tests, gateway-based WAN speed tests, or deploy Adaptive SQM configurations.
 
 ## Installation
 
