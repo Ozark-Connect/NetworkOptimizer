@@ -7,13 +7,6 @@ namespace NetworkOptimizer.Web.Services;
 public interface ISqmService
 {
     /// <summary>
-    /// Configure the TC monitor endpoint to poll.
-    /// </summary>
-    /// <param name="host">The hostname or IP address of the gateway running TC monitor.</param>
-    /// <param name="port">The port number for TC monitor (default: 8088).</param>
-    void ConfigureTcMonitor(string host, int port = 8088);
-
-    /// <summary>
     /// Get current SQM status including live TC rates if available.
     /// Results are cached for 2 minutes to avoid repeated HTTP calls.
     /// </summary>

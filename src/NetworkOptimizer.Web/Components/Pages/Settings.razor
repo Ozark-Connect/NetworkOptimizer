@@ -246,7 +246,7 @@
     <!-- 3. Gateway SSH -->
     <div class="card" id="gateway-ssh">
         <div class="card-header">
-            <h2 class="card-title">Gateway SSH</h2>
+            <h2 class="card-title">Gateway SSH (Optional)</h2>
             <span class="status-badge status-@(gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
                 @(gatewaySettings?.Enabled == true ? "Configured" : "Not Configured")
             </span>
@@ -254,8 +254,8 @@
         <div class="card-body">
             <p class="section-description">
                 Configure SSH credentials for your UniFi Gateway or UniFi OS Device. Used for
-                iperf3 speed tests against the gateway and Adaptive SQM. Not required for
-                Security Audit or LAN Speed Tests to other devices.
+                iperf3 speed tests against the gateway, Adaptive SQM, and gateway-based WAN speed testing.
+                Not required for Security Audit, Client Speed Tests, or LAN Speed Tests to other devices.
             </p>
 
             <div class="form-row">
@@ -411,7 +411,7 @@
     <!-- 4. Device SSH -->
     <div class="card" id="device-ssh">
         <div class="card-header">
-            <h2 class="card-title">Device SSH</h2>
+            <h2 class="card-title">Device SSH (Optional)</h2>
             <span class="status-badge status-@(sshSettings?.Enabled == true ? "connected" : "disconnected")">
                 @(sshSettings?.Enabled == true ? "Configured" : "Not Configured")
             </span>
@@ -420,8 +420,9 @@
             <p class="section-description">
                 Configure shared SSH credentials for UniFi network devices (Access Points, Switches, Modems).
                 All UniFi devices on a network share the same SSH credentials.
-                These credentials are used for cellular modem monitoring and speed tests, and provide the
-                default credentials for custom speed test devices.
+                These credentials are used for UniFi device speed tests (LAN Speed Test) and other SSH-based device testing,
+                and provide the default credentials for custom speed test devices.
+                Not needed for Security Audit, Client Speed Tests, WAN Speed Tests, etc.
             </p>
 
             <div class="form-row">
@@ -517,14 +518,15 @@
     </div>
 
     <!-- 5. Adaptive SQM Monitor -->
-    <div class="card">
+    <div class="card" id="sqm-monitor">
         <div class="card-header">
-            <h2 class="card-title">Adaptive SQM Monitor</h2>
+            <h2 class="card-title">Adaptive SQM Monitor (Optional)</h2>
             <span class="status-badge status-@tcMonitorStatus.ToLower()">@tcMonitorStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
-                The Adaptive SQM Monitor runs on your gateway and exposes current SQM rates via HTTP for the dashboard. Deploy it from the SQM Manager page.
+                The Adaptive SQM Monitor runs on your gateway and reports current SQM rates to the dashboard.
+                It's deployed automatically from the Adaptive SQM page. Only change this if you need to use a different port (default: 8088).
             </p>
 
             <div class="form-row">
@@ -533,6 +535,17 @@
                     <input type="number" class="form-control" @bind="tcMonitorPort" min="1" max="65535" />
                 </div>
                 <div class="action-buttons">
+                    <button class="btn btn-secondary" @onclick="SaveTcMonitorPort" disabled="@savingTcMonitorPort">
+                        @if (savingTcMonitorPort)
+                        {
+                            <span class="spinner"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>Save</span>
+                        }
+                    </button>
                     <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
                         @if (testingTcMonitor)
                         {
@@ -1186,6 +1199,7 @@
     private int tcMonitorPort = 8088;
     private string tcMonitorStatus = "Unknown";
     private bool testingTcMonitor = false;
+    private bool savingTcMonitorPort = false;
     private string tcMonitorMessage = "";
     private string tcMonitorMessageClass = "";
 
@@ -2088,6 +2102,32 @@
         finally
         {
             loadingSites = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveTcMonitorPort()
+    {
+        savingTcMonitorPort = true;
+        tcMonitorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var settings = gatewaySettings ?? new GatewaySshSettings();
+            settings.TcMonitorPort = tcMonitorPort;
+            gatewaySettings = await GatewaySshService.SaveSettingsAsync(settings);
+            tcMonitorMessage = "Port saved";
+            tcMonitorMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            tcMonitorMessage = $"Error saving port: {ex.Message}";
+            tcMonitorMessageClass = "danger";
+        }
+        finally
+        {
+            savingTcMonitorPort = false;
             StateHasChanged();
         }
     }

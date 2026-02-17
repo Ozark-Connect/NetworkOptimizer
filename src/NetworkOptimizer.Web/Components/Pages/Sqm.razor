@@ -89,10 +89,20 @@
                     </div>
                     <div class="metric">
                         <div class="metric-label">SQM Monitor</div>
-                        <div class="metric-value">
-                            <span class="status-indicator @(deploymentStatus?.TcMonitorRunning == true ? "status-active" : "status-inactive")"></span>
-                            @(deploymentStatus?.TcMonitorRunning == true ? "Running" : "Stopped")
-                        </div>
+                        @if (sqmMonitorData == null && deploymentStatus?.TcMonitorDeployed == true)
+                        {
+                            <div class="metric-value" data-tooltip="Check that the port is correct in <a href='/settings#sqm-monitor'>Settings</a>. Otherwise, try redeploying the SQM Monitor below." data-tooltip-interactive>
+                                <span class="status-indicator status-danger"></span>
+                                Not Responding
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="metric-value">
+                                <span class="status-indicator @(sqmMonitorData != null ? "status-active" : "status-inactive")"></span>
+                                @(sqmMonitorData != null ? "Responding" : "Not Deployed")
+                            </div>
+                        }
                     </div>
                     <div class="metric">
                         <div class="metric-label">Cron Jobs</div>
@@ -2041,10 +2051,10 @@
                 // Only poll TC Monitor if scripts are deployed (avoids 15s timeout when not deployed)
                 if (deploymentStatus?.IsDeployed == true)
                 {
-                    var gatewayHost = await GetGatewayHostAsync();
+                    var (gatewayHost, tcPort) = await GetGatewayConnectionAsync();
                     if (!string.IsNullOrEmpty(gatewayHost))
                     {
-                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
+                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true);
                         tcInterfaces = sqmMonitorData?.GetAllInterfaces();
                     }
                 }
@@ -2261,16 +2271,10 @@
 
         try
         {
-            // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
-            deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
+            // Re-fetch WAN data from controller for current SmartQ status and rates
+            deploymentSteps.Add("Checking Smart Queue configuration...");
             await ScrollDeploymentLog();
-            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync();
-            if (!cleanResult.success)
-            {
-                throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
-            }
-            deploymentSteps.Add("Existing scripts cleaned");
-            await ScrollDeploymentLog();
+            wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
 
             // Validate WANs still have Smart Queues enabled - disable any that don't
             var availableInterfaces = sqmEligibleWans.Select(w => w.Interface).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -2286,6 +2290,45 @@
                 deploymentSteps.Add($"Skipping {wan2Config.Name} - Smart Queues no longer enabled in UniFi");
                 await ScrollDeploymentLog();
             }
+
+            // Validate Smart Queue download rates are high enough for Adaptive SQM
+            foreach (var wanConfig in new[] { (config: wan1Config, ready: wan1Config.Enabled), (config: wan2Config, ready: wan2Config.Enabled) })
+            {
+                if (!wanConfig.ready) continue;
+
+                var wanInfo = wanInterfaces.FirstOrDefault(w =>
+                    w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
+                if (wanInfo?.SmartqDownRateMbps == null) continue;
+
+                var profile = new ConnectionProfile
+                {
+                    Type = wanConfig.config.ConnectionType,
+                    NominalDownloadMbps = wanConfig.config.NominalDownload,
+                    NominalUploadMbps = wanConfig.config.NominalUpload
+                };
+
+                if (wanInfo.SmartqDownRateMbps < profile.AbsoluteMaxDownloadMbps)
+                {
+                    statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
+                        $"but Adaptive SQM needs up to {profile.AbsoluteMaxDownloadMbps} Mbps. " +
+                        $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
+                    statusSuccess = false;
+                    isDeploying = false;
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
+            deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
+            await ScrollDeploymentLog();
+            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync();
+            if (!cleanResult.success)
+            {
+                throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
+            }
+            deploymentSteps.Add("Existing scripts cleaned");
+            await ScrollDeploymentLog();
 
             // Save WAN configs to database (after validation so disabled WANs are persisted)
             await SaveWanConfigsAsync();
@@ -2371,7 +2414,7 @@
                 }
                 else
                 {
-                    deploymentSteps.Add("SQM Monitor deployed successfully");
+                    deploymentSteps.Add("SQM Monitor deployed successfully (port configurable in Settings)");
                 }
             }
 
@@ -2450,7 +2493,7 @@
 
             if (success)
             {
-                deploymentSteps.Add("SQM Monitor deployed successfully");
+                deploymentSteps.Add("SQM Monitor deployed successfully (port configurable in Settings)");
                 statusMessage = "SQM Monitor deployed!";
                 statusSuccess = true;
                 InvalidateCache();
@@ -2657,16 +2700,16 @@
         return min;
     }
 
-    private async Task<string?> GetGatewayHostAsync()
+    private async Task<(string? Host, int Port)> GetGatewayConnectionAsync()
     {
         try
         {
             var settings = await SpeedTestRepository.GetGatewaySshSettingsAsync();
-            return settings?.Host;
+            return (settings?.Host, settings?.TcMonitorPort ?? 8088);
         }
         catch
         {
-            return null;
+            return (null, 8088);
         }
     }
 
@@ -2674,7 +2717,7 @@
     {
         // Only poll if SQM is deployed or we have saved enabled WAN configs
         var shouldPoll = deploymentStatus?.IsDeployed == true ||
-                         deploymentStatus?.TcMonitorRunning == true ||
+                         deploymentStatus?.TcMonitorDeployed == true ||
                          (wan1HasSavedConfig && wan1Config.Enabled) ||
                          (wan2HasSavedConfig && wan2Config.Enabled);
 
@@ -2685,10 +2728,10 @@
 
         try
         {
-            var gatewayHost = await GetGatewayHostAsync();
+            var (gatewayHost, tcPort) = await GetGatewayConnectionAsync();
             if (!string.IsNullOrEmpty(gatewayHost))
             {
-                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
+                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true);
                 tcInterfaces = sqmMonitorData?.GetAllInterfaces();
 
                 // Adjust polling rate based on speedtest status

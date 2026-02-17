@@ -21,10 +21,6 @@ public class SqmService : ISqmService
     private TcMonitorResponse? _lastTcStats;
     private DateTime? _lastPollTime;
 
-    // TC Monitor settings
-    private string? _tcMonitorHost;
-    private int _tcMonitorPort = TcMonitorClient.DefaultPort;
-
     // Cache for SQM status (avoids repeated HTTP calls)
     private static readonly TimeSpan StatusCacheDuration = TimeSpan.FromMinutes(2);
     private static SqmStatusData? _cachedStatusData;
@@ -40,16 +36,6 @@ public class SqmService : ISqmService
         _connectionService = connectionService;
         _tcMonitorClient = tcMonitorClient;
         _serviceProvider = serviceProvider;
-    }
-
-    /// <summary>
-    /// Configure the TC monitor endpoint to poll
-    /// </summary>
-    public void ConfigureTcMonitor(string host, int port = 8088)
-    {
-        _tcMonitorHost = host;
-        _tcMonitorPort = port;
-        _logger.LogInformation("TC Monitor configured: {Host}:{Port}", host, port);
     }
 
     /// <summary>
@@ -69,8 +55,8 @@ public class SqmService : ISqmService
 
         SqmStatusData result;
 
-        // Gateway host from database settings - doesn't require active controller connection
-        var gatewayHost = _tcMonitorHost ?? await GetGatewayHostAsync();
+        // Gateway host and port from database settings - doesn't require active controller connection
+        var (gatewayHost, tcMonitorPort) = await GetGatewaySettingsAsync();
 
         if (string.IsNullOrEmpty(gatewayHost))
         {
@@ -83,7 +69,7 @@ public class SqmService : ISqmService
             return result;
         }
 
-        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, _tcMonitorPort);
+        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, tcMonitorPort);
 
         if (tcStats != null)
         {
@@ -145,17 +131,12 @@ public class SqmService : ISqmService
     /// </summary>
     private async Task<TcMonitorResponse?> PollTcStatsAsync()
     {
-        // If no explicit host configured, try to use the gateway SSH host
-        var host = _tcMonitorHost;
-        if (string.IsNullOrEmpty(host))
-        {
-            host = await GetGatewayHostAsync();
-        }
+        var (host, port) = await GetGatewaySettingsAsync();
 
         if (string.IsNullOrEmpty(host))
             return null;
 
-        var stats = await _tcMonitorClient.GetTcStatsAsync(host, _tcMonitorPort);
+        var stats = await _tcMonitorClient.GetTcStatsAsync(host, port);
 
         if (stats != null)
         {
@@ -167,9 +148,9 @@ public class SqmService : ISqmService
     }
 
     /// <summary>
-    /// Get the gateway host from SSH settings
+    /// Get the gateway host and TC monitor port from SSH settings
     /// </summary>
-    private async Task<string?> GetGatewayHostAsync()
+    private async Task<(string? Host, int Port)> GetGatewaySettingsAsync()
     {
         try
         {
@@ -178,15 +159,15 @@ public class SqmService : ISqmService
             var settings = await repository.GetGatewaySshSettingsAsync();
             if (!string.IsNullOrEmpty(settings?.Host))
             {
-                _logger.LogDebug("Using gateway SSH host for TC monitor: {Host}", settings.Host);
-                return settings.Host;
+                _logger.LogDebug("Using gateway SSH host for TC monitor: {Host}:{Port}", settings.Host, settings.TcMonitorPort);
+                return (settings.Host, settings.TcMonitorPort);
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to get gateway SSH settings");
         }
-        return null;
+        return (null, TcMonitorClient.DefaultPort);
     }
 
     /// <summary>
@@ -194,28 +175,13 @@ public class SqmService : ISqmService
     /// </summary>
     public async Task<(bool Available, string? Error)> TestTcMonitorAsync(string? host = null, int? port = null)
     {
-        var testHost = host ?? _tcMonitorHost;
-        var testPort = port ?? _tcMonitorPort;
+        var (gwHost, gwPort) = await GetGatewaySettingsAsync();
+        var testHost = host ?? gwHost;
+        var testPort = port ?? gwPort;
 
         if (string.IsNullOrEmpty(testHost))
         {
-            // Try controller host
-            var controllerUrl = _connectionService.CurrentConfig?.ControllerUrl;
-            if (!string.IsNullOrEmpty(controllerUrl))
-            {
-                try
-                {
-                    testHost = new Uri(controllerUrl).Host;
-                }
-                catch
-                {
-                    return (false, "No host configured and cannot parse controller URL");
-                }
-            }
-            else
-            {
-                return (false, "No host configured");
-            }
+            return (false, "Gateway SSH not configured");
         }
 
         var available = await _tcMonitorClient.IsMonitorAvailableAsync(testHost, testPort);
@@ -225,7 +191,7 @@ public class SqmService : ISqmService
             return (true, null);
         }
 
-        return (false, $"TC Monitor not responding at {testHost}:{testPort}");
+        return (false, $"Adaptive SQM Monitor not responding at http://{testHost}:{testPort}");
     }
 
     /// <summary>
@@ -276,6 +242,11 @@ public class SqmService : ISqmService
                 .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
                 .ToDictionary(w => w.WanNetworkgroup!, w => w.WanSmartqEnabled, StringComparer.OrdinalIgnoreCase);
 
+            // Build lookup by wan_networkgroup for SmartQ download rate (kbps -> Mbps)
+            var networkGroupToSmartqDownRate = wanConfigs
+                .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup) && w.WanSmartqDownRate.HasValue)
+                .ToDictionary(w => w.WanNetworkgroup!, w => w.WanSmartqDownRate!.Value / 1000, StringComparer.OrdinalIgnoreCase);
+
             // Build lookup by wan_networkgroup for friendly name
             var networkGroupToName = wanConfigs
                 .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
@@ -293,7 +264,7 @@ public class SqmService : ISqmService
                     .Select(w => w.WanNetworkgroup!),
                 StringComparer.OrdinalIgnoreCase);
 
-            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName, networkGroupToWanType, enabledNetworkGroups);
+            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToSmartqDownRate, networkGroupToName, networkGroupToWanType, enabledNetworkGroups);
 
             _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
         }
@@ -315,6 +286,7 @@ public class SqmService : ISqmService
         string deviceJson,
         Dictionary<string, string> ipToName,
         Dictionary<string, bool> networkGroupToSmartq,
+        Dictionary<string, int> networkGroupToSmartqDownRate,
         Dictionary<string, string> networkGroupToName,
         Dictionary<string, string> networkGroupToWanType,
         HashSet<string> enabledNetworkGroups)
@@ -450,6 +422,14 @@ public class SqmService : ISqmService
                         var smartqEnabled = !string.IsNullOrEmpty(networkGroup) &&
                             networkGroupToSmartq.TryGetValue(networkGroup, out var sqEnabled) && sqEnabled;
 
+                        // Get Smart Queue download rate (Mbps) if configured
+                        int? smartqDownRateMbps = null;
+                        if (!string.IsNullOrEmpty(networkGroup) &&
+                            networkGroupToSmartqDownRate.TryGetValue(networkGroup, out var downRate))
+                        {
+                            smartqDownRateMbps = downRate;
+                        }
+
                         // Get the actual WAN type from network config (dhcp, static, pppoe)
                         var wanType = "dhcp"; // default
                         if (!string.IsNullOrEmpty(networkGroup) &&
@@ -468,7 +448,8 @@ public class SqmService : ISqmService
                             LoadBalanceType = null,
                             LoadBalanceWeight = null,
                             SuggestedPingIp = suggestedPingIp,
-                            SmartqEnabled = smartqEnabled
+                            SmartqEnabled = smartqEnabled,
+                            SmartqDownRateMbps = smartqDownRateMbps
                         });
 
                         _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (NetworkGroup: {NG}, SmartQ: {SQ}, WanType: {WT})",
@@ -723,4 +704,7 @@ public class WanInterfaceInfo
 
     /// <summary>Whether UniFi Smart Queues (SQM) is enabled for this WAN in the controller</summary>
     public bool SmartqEnabled { get; set; }
+
+    /// <summary>Smart Queue download rate in Mbps (from UniFi config, converted from kbps)</summary>
+    public int? SmartqDownRateMbps { get; set; }
 }
