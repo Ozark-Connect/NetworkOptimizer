@@ -131,13 +131,13 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 
 | Platform | Method | Guide |
 |----------|--------|-------|
-| Windows | Installer (recommended) | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md) |
 | Proxmox VE | LXC one-liner | [Proxmox Guide](scripts/proxmox/README.md) |
-| Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#2-nas-deployment-docker) |
+| Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#3-nas-deployment-docker) |
+| Home Assistant | Add-ons | [Home Assistant](docker/DEPLOYMENT.md#5-home-assistant) |
+| Windows | Installer (recommended) | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | macOS | Native (best performance) | [macOS Installation](docs/MACOS-INSTALLATION.md) |
 | Linux | Native (no Docker) | [Linux Native](docker/NATIVE-DEPLOYMENT.md#linux-deployment) |
-| Home Assistant | Add-ons | [Home Assistant](docker/DEPLOYMENT.md#home-assistant) |
 
 Docker Desktop on macOS and Windows limits network throughput for speed testing. For accurate multi-gigabit measurements, use native deployment.
 
@@ -191,14 +191,18 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOp
 
 ```
 src/
-├── NetworkOptimizer.Web        # Blazor web UI
-├── NetworkOptimizer.Audit      # Security audit engine
-├── NetworkOptimizer.UniFi      # UniFi API client
-├── NetworkOptimizer.Storage    # SQLite database
-├── NetworkOptimizer.Monitoring # SNMP/SSH polling
-├── NetworkOptimizer.Sqm        # Adaptive bandwidth management
-├── NetworkOptimizer.Agents     # Agent deployment
-└── NetworkOptimizer.Reports    # PDF/Markdown generation
+├── NetworkOptimizer.Web         # Blazor web UI
+├── NetworkOptimizer.Audit       # Security Audit
+├── NetworkOptimizer.Core        # Shared helpers and utilities
+├── NetworkOptimizer.Diagnostics # Config Optimizer
+├── NetworkOptimizer.Monitoring  # SNMP/SSH polling
+├── NetworkOptimizer.Reports     # PDF/Markdown report generation
+├── NetworkOptimizer.Sqm         # Adaptive SQM
+├── NetworkOptimizer.Storage     # SQLite database
+├── NetworkOptimizer.UniFi       # UniFi API client
+├── NetworkOptimizer.WiFi        # Wi-Fi Optimizer
+├── cfspeedtest/                 # WAN Speed Test (binary for gateway)
+└── OpenSpeedTest/               # Client Speed Test
 ```
 
 ## Tech Stack
