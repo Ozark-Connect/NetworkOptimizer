@@ -38,14 +38,17 @@ RUN dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     --no-restore \
     -p:MinVerVersionOverride=${VERSION}
 
-# Stage 2: Build cfspeedtest Go binary for gateway-direct WAN speed tests
-FROM golang:1.22-alpine AS cfspeedtest-build
+# Stage 2: Build uwnspeedtest Go binary for gateway-direct WAN speed tests
+FROM golang:1.22-alpine AS uwnspeedtest-build
 ARG VERSION=0.0.0
 WORKDIR /src
-COPY src/cfspeedtest/ .
+# Copy both modules (uwnspeedtest imports cfspeedtest/speedtest)
+COPY src/cfspeedtest/ cfspeedtest/
+COPY src/uwnspeedtest/ uwnspeedtest/
+WORKDIR /src/uwnspeedtest
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION}" \
-    -o /cfspeedtest .
+    -o /uwnspeedtest .
 
 # Stage 3: Build iperf3 from source for latest version
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS iperf-build
@@ -90,9 +93,9 @@ RUN ldconfig
 # Copy published application
 COPY --from=build /app/publish .
 
-# Copy cfspeedtest binary for gateway deployment
+# Copy uwnspeedtest binary for gateway deployment
 RUN mkdir -p /app/tools
-COPY --from=cfspeedtest-build /cfspeedtest /app/tools/cfspeedtest-linux-arm64
+COPY --from=uwnspeedtest-build /uwnspeedtest /app/tools/uwnspeedtest-linux-arm64
 
 # Create directories for volumes
 RUN mkdir -p /app/data /app/ssh-keys /app/logs

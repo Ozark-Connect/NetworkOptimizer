@@ -8,7 +8,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.UniFi
-@inject CloudflareSpeedTestService WanSpeedTestService
+@inject UwnSpeedTestService WanSpeedTestService
 @inject GatewayWanSpeedTestService GatewayWanTestService
 @inject SqmService SqmService
 @inject IGatewaySshService GatewaySshService
@@ -26,7 +26,7 @@
     @* Run Test Card *@
     <div class="card">
         <div class="card-body">
-            <p class="wan-test-description">Measures your internet speed using Cloudflare's global edge network with multiple concurrent connections.</p>
+            <p class="wan-test-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
             <div class="wan-test-options">
                 @* Gateway (Direct) Option - Primary *@
                 <div class="wan-test-option @(_gatewayAvailable ? "" : "wan-test-option-unavailable")">
@@ -104,7 +104,7 @@
                     <div class="wan-test-option-hint">
                         @if (_hasMultipleWans)
                         {
-                            <text>Tests from this server through the LAN. Uses whichever WAN routes to speed.cloudflare.com, configurable via Policy-Based Routes.</text>
+                            <text>Tests from this server through the LAN. Results show the server IP used - steer it to a specific WAN with Policy-Based Routes.</text>
                         }
                         else
                         {
@@ -123,17 +123,20 @@
             {
                 <div class="wan-metadata">
                     <div class="metadata-item">
-                        <span class="metadata-label">Test Server</span>
-                        <span class="metadata-value">@_metadata.Colo</span>
+                        <span class="metadata-label">Test Servers</span>
+                        <span class="metadata-value">@_metadata.ServerInfo</span>
                     </div>
                     <div class="metadata-item">
                         <span class="metadata-label">Location</span>
-                        <span class="metadata-value">@_metadata.City, @_metadata.Country</span>
+                        <span class="metadata-value">@_metadata.Location</span>
                     </div>
-                    <div class="metadata-item">
-                        <span class="metadata-label">WAN IP</span>
-                        <span class="metadata-value">@_metadata.Ip</span>
-                    </div>
+                    @if (!string.IsNullOrEmpty(_metadata.WanIp))
+                    {
+                        <div class="metadata-item">
+                            <span class="metadata-label">WAN IP</span>
+                            <span class="metadata-value">@_metadata.WanIp</span>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -286,7 +289,7 @@
                                             @GetWanDisplayName(result)
                                         </td>
                                     }
-                                    <td>@(result.DeviceName ?? "Cloudflare")</td>
+                                    <td>@(result.DeviceName ?? "WAN")</td>
                                     <td class="hide-mobile">@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
                                     <td class="hide-mobile">@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
                                     <td class="show-mobile">
@@ -391,7 +394,7 @@
             {
                 <div class="empty-state">
                     <p>No WAN speed tests recorded yet.</p>
-                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from Server" above to measure your internet connection speed via Cloudflare.</p>
+                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from Server" above to measure your internet connection speed.</p>
                 </div>
             }
         </div>
@@ -407,7 +410,7 @@
     private string? _gatewayStatus;
     private string? _serverStatus;
     private string? _errorMessage;
-    private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
+    private WanTestMetadata? _metadata;
     private Iperf3Result? _latestResult;
     private bool _hasMultipleWans;
     private List<WanOption> _availableWans = new();
@@ -1144,7 +1147,8 @@
     private async Task HandleDeleteResult(int resultId)
     {
         var result = _testHistory.FirstOrDefault(r => r.Id == resultId);
-        var deleted = result?.Direction == SpeedTestDirection.CloudflareWanGateway
+        var isGateway = result?.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+        var deleted = isGateway
             ? await GatewayWanTestService.DeleteResultAsync(resultId)
             : await WanSpeedTestService.DeleteResultAsync(resultId);
         if (deleted)
@@ -1166,7 +1170,8 @@
     private async Task HandleNotesChanged((int Id, string? Notes) args)
     {
         var result = _testHistory.FirstOrDefault(r => r.Id == args.Id);
-        if (result?.Direction == SpeedTestDirection.CloudflareWanGateway)
+        var isGateway = result?.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+        if (isGateway)
             await GatewayWanTestService.UpdateNotesAsync(args.Id, args.Notes);
         else
             await WanSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
@@ -1175,7 +1180,8 @@
     private async Task HandleWanReassigned((int Id, string NetworkGroup, string? Name) args)
     {
         var result = _testHistory.FirstOrDefault(r => r.Id == args.Id);
-        if (result?.Direction == SpeedTestDirection.CloudflareWanGateway)
+        var isGateway = result?.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+        if (isGateway)
             await GatewayWanTestService.UpdateWanAssignmentAsync(args.Id, args.NetworkGroup, args.Name);
         else
             await WanSpeedTestService.UpdateWanAssignmentAsync(args.Id, args.NetworkGroup, args.Name);
@@ -1207,7 +1213,8 @@
 
         try
         {
-            var path = result.Direction == SpeedTestDirection.CloudflareWanGateway
+            var isGateway = result.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+            var path = isGateway
                 ? await PathAnalyzer.CalculateGatewayDirectPathAsync(resolvedWanGroup: result.WanNetworkGroup)
                 : await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
             var analysis = PathAnalyzer.AnalyzeSpeedTest(

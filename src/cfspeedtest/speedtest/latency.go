@@ -77,9 +77,9 @@ func MeasureLatency(ctx context.Context, client *http.Client) (*LatencyResult, e
 	}, nil
 }
 
-// computeLatencyStats computes median and jitter from a slice of latency samples.
+// ComputeLatencyStats computes median and jitter from a slice of latency samples.
 // Used for loaded latency during throughput tests.
-func computeLatencyStats(samples []float64) (median, jitter float64) {
+func ComputeLatencyStats(samples []float64) (median, jitter float64) {
 	if len(samples) == 0 {
 		return 0, 0
 	}

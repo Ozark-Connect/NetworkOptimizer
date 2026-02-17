@@ -10,13 +10,14 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Service for running WAN speed tests directly on the gateway via SSH.
-/// Deploys the cfspeedtest binary to the gateway and runs it on a specific WAN interface.
+/// Deploys the uwnspeedtest binary to the gateway and runs it on a specific WAN interface,
+/// using UWN's distributed HTTP speed test network for accurate measurement.
 /// This measures true WAN throughput without LAN traversal overhead.
 /// </summary>
 public class GatewayWanSpeedTestService
 {
-    private const string RemoteBinaryPath = "/data/cfspeedtest";
-    private const string LocalBinaryName = "cfspeedtest-linux-arm64";
+    private const string RemoteBinaryPath = "/data/uwnspeedtest";
+    private const string LocalBinaryName = "uwnspeedtest-linux-arm64";
 
     private readonly ILogger<GatewayWanSpeedTestService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
@@ -68,7 +69,7 @@ public class GatewayWanSpeedTestService
     }
 
     /// <summary>
-    /// Check if the cfspeedtest binary is deployed and up to date.
+    /// Check if the uwnspeedtest binary is deployed and up to date.
     /// Compares MD5 hash of remote binary against local to detect updates.
     /// </summary>
     public async Task<(bool Deployed, bool NeedsUpdate)> CheckBinaryStatusAsync()
@@ -99,7 +100,7 @@ public class GatewayWanSpeedTestService
                     var remoteHash = hashResult.output.Trim();
                     if (!string.Equals(localHash, remoteHash, StringComparison.OrdinalIgnoreCase))
                     {
-                        _logger.LogInformation("cfspeedtest binary hash mismatch (local: {Local}, remote: {Remote}) - update needed",
+                        _logger.LogInformation("uwnspeedtest binary hash mismatch (local: {Local}, remote: {Remote}) - update needed",
                             localHash, remoteHash);
                         return (true, true);
                     }
@@ -110,7 +111,7 @@ public class GatewayWanSpeedTestService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to check cfspeedtest binary status on gateway");
+            _logger.LogDebug(ex, "Failed to check uwnspeedtest binary status on gateway");
             return (false, false);
         }
     }
@@ -123,7 +124,7 @@ public class GatewayWanSpeedTestService
     }
 
     /// <summary>
-    /// Deploy or update the cfspeedtest binary to the gateway via SFTP.
+    /// Deploy or update the uwnspeedtest binary to the gateway via SFTP.
     /// </summary>
     public async Task<(bool Success, string? Error)> DeployBinaryAsync(CancellationToken ct = default)
     {
@@ -132,7 +133,7 @@ public class GatewayWanSpeedTestService
             var localPath = Path.Combine(AppContext.BaseDirectory, "tools", LocalBinaryName);
             if (!File.Exists(localPath))
             {
-                _logger.LogWarning("cfspeedtest binary not found at {Path}", localPath);
+                _logger.LogWarning("uwnspeedtest binary not found at {Path}", localPath);
                 return (false, "Gateway speed test binary not found. It may not be included in this build.");
             }
 
@@ -143,7 +144,7 @@ public class GatewayWanSpeedTestService
             // Get connection info for SFTP upload
             var connection = GetConnectionInfo(settings);
 
-            _logger.LogInformation("Deploying cfspeedtest binary to gateway {Host}", settings.Host);
+            _logger.LogInformation("Deploying uwnspeedtest binary to gateway {Host}", settings.Host);
             await _sshClient.UploadBinaryAsync(connection, localPath, RemoteBinaryPath, ct);
 
             // Make executable
@@ -152,7 +153,7 @@ public class GatewayWanSpeedTestService
 
             if (!chmodResult.success)
             {
-                _logger.LogWarning("Failed to chmod cfspeedtest: {Output}", chmodResult.output);
+                _logger.LogWarning("Failed to chmod uwnspeedtest: {Output}", chmodResult.output);
                 return (false, $"Failed to set binary permissions: {chmodResult.output}");
             }
 
@@ -162,7 +163,7 @@ public class GatewayWanSpeedTestService
 
             if (versionResult.success)
             {
-                _logger.LogInformation("cfspeedtest binary deployed successfully: {Version}", versionResult.output.Trim());
+                _logger.LogInformation("uwnspeedtest binary deployed successfully: {Version}", versionResult.output.Trim());
                 return (true, null);
             }
 
@@ -170,7 +171,7 @@ public class GatewayWanSpeedTestService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deploy cfspeedtest binary to gateway");
+            _logger.LogError(ex, "Failed to deploy uwnspeedtest binary to gateway");
             return (false, ex.Message);
         }
     }
@@ -324,8 +325,10 @@ public class GatewayWanSpeedTestService
     public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
+        // Include historical Cloudflare gateway results alongside new UWN results
         var query = db.Iperf3Results
-            .Where(r => r.Direction == SpeedTestDirection.CloudflareWanGateway);
+            .Where(r => r.Direction == SpeedTestDirection.UwnWanGateway
+                      || r.Direction == SpeedTestDirection.CloudflareWanGateway);
 
         if (hours > 0)
         {
@@ -348,7 +351,8 @@ public class GatewayWanSpeedTestService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWanGateway)
+        if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
+                            && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
         db.Iperf3Results.Remove(result);
@@ -364,7 +368,8 @@ public class GatewayWanSpeedTestService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWanGateway)
+        if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
+                            && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
         result.Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
@@ -379,7 +384,8 @@ public class GatewayWanSpeedTestService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWanGateway)
+        if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
+                            && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
         result.WanNetworkGroup = wanNetworkGroup;
@@ -397,7 +403,7 @@ public class GatewayWanSpeedTestService
     {
         try
         {
-            var json = JsonSerializer.Deserialize<CfSpeedTestResult>(jsonOutput, JsonOptions);
+            var json = JsonSerializer.Deserialize<WanSpeedTestResult>(jsonOutput, JsonOptions);
             if (json == null) return null;
 
             if (!json.Success)
@@ -405,8 +411,8 @@ public class GatewayWanSpeedTestService
                 _logger.LogWarning("Gateway speed test reported failure: {Error}", json.Error);
                 return new Iperf3Result
                 {
-                    Direction = SpeedTestDirection.CloudflareWanGateway,
-                    DeviceHost = "speed.cloudflare.com",
+                    Direction = SpeedTestDirection.UwnWanGateway,
+                    DeviceHost = "sp-dir.uwn.com",
                     DeviceName = $"Gateway ({interfaceName})",
                     DeviceType = "WAN",
                     WanNetworkGroup = wanNetworkGroup,
@@ -417,16 +423,14 @@ public class GatewayWanSpeedTestService
                 };
             }
 
-            var colo = json.Metadata?.Colo ?? "";
-            var country = json.Metadata?.Country ?? "";
-            var edgeInfo = !string.IsNullOrEmpty(colo)
-                ? $"{colo} - {CloudflareSpeedTestService.GetCityName(colo)}, {country}"
-                : "Cloudflare";
+            // UWN binary puts server descriptions in the Colo field (e.g. "Denver/US (12ms), Dallas/US (18ms)")
+            var serverInfo = json.Metadata?.Colo ?? "";
+            var edgeInfo = !string.IsNullOrEmpty(serverInfo) ? serverInfo : "UWN";
 
             return new Iperf3Result
             {
-                Direction = SpeedTestDirection.CloudflareWanGateway,
-                DeviceHost = "speed.cloudflare.com",
+                Direction = SpeedTestDirection.UwnWanGateway,
+                DeviceHost = "sp-dir.uwn.com",
                 DeviceName = edgeInfo,
                 DeviceType = "WAN",
                 DownloadBitsPerSecond = json.Download?.Bps ?? 0,
@@ -449,7 +453,7 @@ public class GatewayWanSpeedTestService
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "Failed to parse cfspeedtest JSON output");
+            _logger.LogError(ex, "Failed to parse uwnspeedtest JSON output");
             return null;
         }
     }
@@ -460,8 +464,8 @@ public class GatewayWanSpeedTestService
         {
             var failedResult = new Iperf3Result
             {
-                Direction = SpeedTestDirection.CloudflareWanGateway,
-                DeviceHost = "speed.cloudflare.com",
+                Direction = SpeedTestDirection.UwnWanGateway,
+                DeviceHost = "sp-dir.uwn.com",
                 DeviceName = "Gateway",
                 DeviceType = "WAN",
                 WanNetworkGroup = wanNetworkGroup,
@@ -539,32 +543,32 @@ public class GatewayWanSpeedTestService
     };
 
     // JSON deserialization models matching the Go binary output
-    private sealed class CfSpeedTestResult
+    private sealed class WanSpeedTestResult
     {
         public bool Success { get; set; }
         public string? Error { get; set; }
-        public CfMetadata? Metadata { get; set; }
-        public CfLatency? Latency { get; set; }
-        public CfThroughput? Download { get; set; }
-        public CfThroughput? Upload { get; set; }
+        public WanMetadata? Metadata { get; set; }
+        public WanLatency? Latency { get; set; }
+        public WanThroughput? Download { get; set; }
+        public WanThroughput? Upload { get; set; }
         public int Streams { get; set; }
         public int DurationSeconds { get; set; }
     }
 
-    private sealed class CfMetadata
+    private sealed class WanMetadata
     {
         public string Ip { get; set; } = "";
         public string Colo { get; set; } = "";
         public string Country { get; set; } = "";
     }
 
-    private sealed class CfLatency
+    private sealed class WanLatency
     {
         public double UnloadedMs { get; set; }
         public double JitterMs { get; set; }
     }
 
-    private sealed class CfThroughput
+    private sealed class WanThroughput
     {
         public double Bps { get; set; }
         public long Bytes { get; set; }

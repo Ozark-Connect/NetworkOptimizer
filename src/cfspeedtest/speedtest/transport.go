@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// newTransport creates an HTTP transport that forces HTTP/1.1 (separate TCP
+// NewTransport creates an HTTP transport that forces HTTP/1.1 (separate TCP
 // connections per worker) and optionally binds to a specific network interface.
-func newTransport(ifaceName string) (*http.Transport, error) {
+func NewTransport(ifaceName string) (*http.Transport, error) {
 	t := &http.Transport{
 		ForceAttemptHTTP2:   false,
 		MaxIdleConnsPerHost: 1,
@@ -35,7 +35,7 @@ func newTransport(ifaceName string) (*http.Transport, error) {
 // NewClient creates an HTTP client bound to the configured interface (if any).
 // Used for metadata and latency phases which share a single client.
 func NewClient(cfg Config, timeout time.Duration) (*http.Client, error) {
-	t, err := newTransport(cfg.Interface)
+	t, err := NewTransport(cfg.Interface)
 	if err != nil {
 		return nil, err
 	}
