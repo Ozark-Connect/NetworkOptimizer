@@ -940,6 +940,11 @@ a.stat-card-link:active {
     background: var(--text-muted);
 }
 
+.status-indicator.status-danger {
+    background: var(--danger-color);
+    box-shadow: 0 0 8px var(--danger-color);
+}
+
 .learning-badge {
     background: var(--info-color);
     color: white;
