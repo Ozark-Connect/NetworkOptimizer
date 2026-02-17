@@ -114,6 +114,50 @@ WantedBy=multi-user.target
     }
 
     /// <summary>
+    /// Parse SSH output delimited by ---KEY--- markers into a dictionary.
+    /// </summary>
+    private static Dictionary<string, string> ParseDelimitedOutput(string output)
+    {
+        var sections = new Dictionary<string, string>();
+        var lines = output.Split('\n');
+        string? currentKey = null;
+        var currentValue = new List<string>();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("---") && trimmed.EndsWith("---") && trimmed.Length > 6)
+            {
+                // Save previous section
+                if (currentKey != null)
+                {
+                    sections[currentKey] = string.Join("\n", currentValue);
+                }
+                currentKey = trimmed.Trim('-');
+                currentValue.Clear();
+            }
+            else if (currentKey != null)
+            {
+                currentValue.Add(line);
+            }
+        }
+
+        // Save last section
+        if (currentKey != null)
+        {
+            sections[currentKey] = string.Join("\n", currentValue);
+        }
+
+        return sections;
+    }
+
+    /// <summary>
+    /// Get a section value from parsed delimited output, returning empty string if not found.
+    /// </summary>
+    private static string GetSection(Dictionary<string, string> sections, string key)
+        => sections.TryGetValue(key, out var value) ? value : "";
+
+    /// <summary>
     /// Check if SQM scripts are already deployed
     /// </summary>
     public async Task<SqmDeploymentStatus> CheckDeploymentStatusAsync()
@@ -122,70 +166,51 @@ WantedBy=multi-user.target
 
         try
         {
-            // Launch SSH checks in 2 batches to avoid overwhelming SSH server
-            // Batch 1: udm-boot, script existence, and monitor checks
-            var udmBootCheckTask = RunCommandAsync(
-                "test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'");
-            var udmBootEnabledTask = RunCommandAsync(
-                "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
-            var sqmBootCheckTask = RunCommandAsync(
-                $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l");
-            var sqmScriptsCheckTask = RunCommandAsync(
-                $"ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l");
-            var sqmMonitorCheckTask = RunCommandAsync(
-                $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
+            // Run all status checks in a single SSH connection using delimiters
+            var combinedCommand =
+                "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
+                "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
+                $"echo '---SQM_BOOT_SCRIPTS---'; ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l; " +
+                $"echo '---SQM_SPEEDTEST_SCRIPTS---'; ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l; " +
+                $"echo '---SQM_MONITOR_CHECK---'; test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'; " +
+                "echo '---WATCHDOG_RUNNING---'; systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'; " +
+                "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
+                "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
+                "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'";
 
-            await Task.WhenAll(udmBootCheckTask, udmBootEnabledTask, sqmBootCheckTask, sqmScriptsCheckTask, sqmMonitorCheckTask);
-
-            // Batch 2: service status and dependency checks
-            var watchdogRunningTask = RunCommandAsync(
-                "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
-            var cronCheckTask = RunCommandAsync(
-                "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
-            var speedtestCliCheckTask = RunCommandAsync(
-                "which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
-            var bcCheckTask = RunCommandAsync(
-                "which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
-
-            await Task.WhenAll(watchdogRunningTask, cronCheckTask, speedtestCliCheckTask, bcCheckTask);
+            var result = await RunCommandAsync(combinedCommand);
+            var sections = ParseDelimitedOutput(result.output);
 
             // Process results
-            var udmBootCheck = udmBootCheckTask.Result;
-            status.UdmBootInstalled = udmBootCheck.success && udmBootCheck.output.Contains("installed");
+            status.UdmBootInstalled = result.success && GetSection(sections, "UDM_BOOT_CHECK").Contains("installed");
+            status.UdmBootEnabled = result.success && GetSection(sections, "UDM_BOOT_ENABLED").Trim() == "enabled";
 
-            var udmBootEnabled = udmBootEnabledTask.Result;
-            status.UdmBootEnabled = udmBootEnabled.success && udmBootEnabled.output.Trim() == "enabled";
-
-            var sqmBootCheck = sqmBootCheckTask.Result;
-            if (sqmBootCheck.success && int.TryParse(sqmBootCheck.output.Trim(), out int bootScriptCount))
+            var sqmBootOutput = GetSection(sections, "SQM_BOOT_SCRIPTS");
+            if (int.TryParse(sqmBootOutput.Trim(), out int bootScriptCount))
             {
                 status.SpeedtestScriptDeployed = bootScriptCount > 0;
-                status.PingScriptDeployed = bootScriptCount > 0; // Both are in the same boot script now
+                status.PingScriptDeployed = bootScriptCount > 0;
             }
 
-            var sqmScriptsCheck = sqmScriptsCheckTask.Result;
-            if (sqmScriptsCheck.success && int.TryParse(sqmScriptsCheck.output.Trim(), out int sqmScriptCount))
+            var sqmScriptsOutput = GetSection(sections, "SQM_SPEEDTEST_SCRIPTS");
+            if (int.TryParse(sqmScriptsOutput.Trim(), out int sqmScriptCount))
             {
                 status.SpeedtestScriptDeployed = status.SpeedtestScriptDeployed || sqmScriptCount > 0;
             }
 
-            var sqmMonitorCheck = sqmMonitorCheckTask.Result;
-            status.TcMonitorDeployed = sqmMonitorCheck.success && sqmMonitorCheck.output.Contains("exists");
+            status.TcMonitorDeployed = result.success && GetSection(sections, "SQM_MONITOR_CHECK").Contains("exists");
 
-            var watchdogRunning = watchdogRunningTask.Result;
-            status.WatchdogTimerRunning = watchdogRunning.success && watchdogRunning.output.Trim() == "active";
+            status.WatchdogTimerRunning = result.success && GetSection(sections, "WATCHDOG_RUNNING").Trim() == "active";
 
-            var cronCheck = cronCheckTask.Result;
-            if (cronCheck.success && int.TryParse(cronCheck.output.Trim(), out int cronCount))
+            var cronOutput = GetSection(sections, "CRON_CHECK");
+            if (int.TryParse(cronOutput.Trim(), out int cronCount))
             {
                 status.CronJobsConfigured = cronCount;
             }
 
-            var speedtestCliCheck = speedtestCliCheckTask.Result;
-            status.SpeedtestCliInstalled = speedtestCliCheck.success && speedtestCliCheck.output.Contains("installed");
+            status.SpeedtestCliInstalled = result.success && GetSection(sections, "SPEEDTEST_CLI").Contains("installed");
 
-            var bcCheck = bcCheckTask.Result;
-            status.BcInstalled = bcCheck.success && bcCheck.output.Contains("installed");
+            status.BcInstalled = result.success && GetSection(sections, "BC_CHECK").Contains("installed");
 
             status.IsDeployed = status.SpeedtestScriptDeployed && status.PingScriptDeployed;
         }
