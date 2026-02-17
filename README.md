@@ -131,7 +131,7 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 
 | Platform | Method | Guide |
 |----------|--------|-------|
-| Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md) |
+| Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md#1-linux--docker-recommended) |
 | Proxmox VE | LXC one-liner | [Proxmox Guide](scripts/proxmox/README.md) |
 | Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#3-nas-deployment-docker) |
 | Home Assistant | Add-ons | [Home Assistant](docker/DEPLOYMENT.md#5-home-assistant) |
