@@ -203,16 +203,19 @@ public class UniFiNetworkConfig
     public string? WanPassword { get; set; }
 
     [JsonPropertyName("wan_egress_qos")]
-    public int WanEgressQos { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? WanEgressQos { get; set; }
 
     [JsonPropertyName("wan_smartq_enabled")]
     public bool WanSmartqEnabled { get; set; }
 
     [JsonPropertyName("wan_smartq_up_rate")]
-    public int WanSmartqUpRate { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? WanSmartqUpRate { get; set; }
 
     [JsonPropertyName("wan_smartq_down_rate")]
-    public int WanSmartqDownRate { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? WanSmartqDownRate { get; set; }
 
     /// <summary>
     /// WAN provider capabilities (upload/download speeds).
