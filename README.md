@@ -115,17 +115,22 @@ Time-series metrics with historical trending and alerting. Cable modem stats (si
 
 ## Requirements
 
-**No SSH required:**
-- UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted UniFi Network Server
-- Network access to your UniFi controller API (HTTPS)
-- Includes: Security Audit, Config Optimizer, Wi-Fi Optimizer, Client Speed Test, WAN Speed Test (server-based)
+- UniFi Console (aka Controller) - UDM, UCG, UDR, Cloud Key, or self-hosted UniFi Network Server
+- Network access to your UniFi Console API (HTTPS)
 
-**SSH required (for full functionality):**
-- SSH access enabled on your UniFi gateway and/or devices (configured via web interface, not mobile app)
-- **Console SSH:** Settings > Control Plane > Console > SSH
-- **Device SSH:** UniFi Devices > Device Updates and Settings > Device SSH Settings
-- Adds: Adaptive SQM, LAN Speed Test, WAN Speed Test (gateway-based, recommended for multi-WAN)
-- See [Deployment Guide](docker/DEPLOYMENT.md#unifi-ssh-configuration) for detailed instructions (UniFi Network 9.5+)
+Most features work with just API access. SSH is only needed for speed testing and Adaptive SQM:
+
+| Feature | SSH needed? |
+|---------|------------|
+| Security Audit | No |
+| Config Optimizer | No, but Gateway SSH required for upcoming features |
+| Wi-Fi Optimizer | No |
+| Client Speed Test | No |
+| WAN Speed Test | No, but gateway-based requires Gateway SSH |
+| LAN Speed Test | Yes - Gateway SSH and/or Device SSH |
+| Adaptive SQM | Yes - Gateway SSH |
+
+To enable SSH, see [SSH Configuration](docker/DEPLOYMENT.md#unifi-ssh-configuration) in the Deployment Guide. SSH must be configured via the UniFi web interface (not the mobile app).
 
 ## Installation
 
