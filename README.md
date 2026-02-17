@@ -13,9 +13,13 @@
 
 > **Notice:** This project is under rapid development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Releases and main are stable, but be careful testing any new feature branches you might find.
 
+## New: Client Performance
+
+A per-device analytics dashboard for any client on your network. Pick a device and get live signal monitoring, speed test history with download/upload trends, latency and jitter charts, network path visualization showing every hop and bottleneck link, and a connection timeline tracking AP roams and disconnects. Walk around with the page open on your phone (over HTTPS) and it builds a GPS-based signal heatmap of your actual coverage. Three tabs - Speed, Signal, and Connection - give you everything you need to troubleshoot why a device is slow or unstable.
+
 ## New: Signal Map
 
-Draw your building layout, place APs, and see a real-time RF propagation heatmap. The floor plan editor supports wall materials (drywall, concrete, glass, etc.), multi-floor buildings with cross-floor signal propagation, and per-AP antenna patterns pulled from your UniFi controller. Simulate TX power and antenna mode changes to see how they'd affect coverage before touching your actual config.
+Draw your building layout, place APs, and see a real-time RF propagation heatmap. The floor plan editor supports wall materials (drywall, concrete, glass, etc.), multi-floor buildings with cross-floor signal propagation, and per-AP antenna patterns pulled from your UniFi controller. Simulate TX power and antenna mode changes to see how they'd affect coverage before touching your actual config. Add planned APs to simulate coverage before buying or mounting hardware.
 
 ## New: WAN Speed Test
 
