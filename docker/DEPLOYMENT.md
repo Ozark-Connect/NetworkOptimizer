@@ -7,7 +7,7 @@ Production deployment guide for Network Optimizer.
 | Option | Best For | Guide |
 |--------|----------|-------|
 | Windows Installer | Windows desktops/servers | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
-| Linux + Docker | Self-built servers, VMs, cloud (recommended) | [Below](#1-linux-docker-recommended) |
+| Linux + Docker | Self-built servers, VMs, cloud (recommended) | [Below](#1-linux--docker-recommended) |
 | Proxmox LXC | Homelab virtualization, one-liner install | [Proxmox Guide](#proxmox-lxc) |
 | NAS + Docker | Synology, QNAP, Unraid | [NAS Deployment](#2-nas-deployment-docker) |
 | macOS Native | Mac servers, multi-gigabit speed testing | [macOS Installation](../docs/MACOS-INSTALLATION.md) |
