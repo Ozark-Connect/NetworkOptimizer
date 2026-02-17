@@ -199,23 +199,12 @@ public class SqmService : ISqmService
 
         if (string.IsNullOrEmpty(testHost))
         {
-            // Try controller host
-            var controllerUrl = _connectionService.CurrentConfig?.ControllerUrl;
-            if (!string.IsNullOrEmpty(controllerUrl))
-            {
-                try
-                {
-                    testHost = new Uri(controllerUrl).Host;
-                }
-                catch
-                {
-                    return (false, "No host configured and cannot parse controller URL");
-                }
-            }
-            else
-            {
-                return (false, "No host configured");
-            }
+            testHost = await GetGatewayHostAsync();
+        }
+
+        if (string.IsNullOrEmpty(testHost))
+        {
+            return (false, "Gateway SSH not configured");
         }
 
         var available = await _tcMonitorClient.IsMonitorAvailableAsync(testHost, testPort);
