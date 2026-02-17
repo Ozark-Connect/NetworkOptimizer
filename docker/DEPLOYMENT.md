@@ -785,7 +785,8 @@ SSH access is required for some features but not others. Here's what needs what:
 | Feature | Gateway SSH | Device SSH |
 |---------|:-----------:|:----------:|
 | Adaptive SQM | Required | - |
-| WAN Speed Test | Required | - |
+| WAN Speed Test (gateway-based) | Required | - |
+| WAN Speed Test (server-based) | - | - |
 | LAN Speed Test (gateway) | Required | - |
 | LAN Speed Test (devices) | - | Required |
 | Security Audit | - | - |

@@ -125,7 +125,7 @@ Time-series metrics with historical trending and alerting. Cable modem stats (si
 - **Device SSH:** UniFi Devices > Device Updates and Settings > Device SSH Settings
 - See [Deployment Guide](docker/DEPLOYMENT.md#unifi-ssh-configuration) for detailed instructions (UniFi Network 9.5+)
 
-Without SSH access, Security Audit works fully, but you cannot run gateway/device LAN speed tests, WAN speed tests, or deploy Adaptive SQM configurations.
+Without SSH access, Security Audit works fully, but you cannot run gateway/device LAN speed tests, gateway-based WAN speed tests, or deploy Adaptive SQM configurations.
 
 ## Installation
 
