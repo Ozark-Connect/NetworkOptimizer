@@ -276,6 +276,11 @@ public class SqmService : ISqmService
                 .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
                 .ToDictionary(w => w.WanNetworkgroup!, w => w.WanSmartqEnabled, StringComparer.OrdinalIgnoreCase);
 
+            // Build lookup by wan_networkgroup for SmartQ download rate (kbps -> Mbps)
+            var networkGroupToSmartqDownRate = wanConfigs
+                .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup) && w.WanSmartqDownRate.HasValue)
+                .ToDictionary(w => w.WanNetworkgroup!, w => w.WanSmartqDownRate!.Value / 1000, StringComparer.OrdinalIgnoreCase);
+
             // Build lookup by wan_networkgroup for friendly name
             var networkGroupToName = wanConfigs
                 .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
@@ -293,7 +298,7 @@ public class SqmService : ISqmService
                     .Select(w => w.WanNetworkgroup!),
                 StringComparer.OrdinalIgnoreCase);
 
-            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName, networkGroupToWanType, enabledNetworkGroups);
+            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToSmartqDownRate, networkGroupToName, networkGroupToWanType, enabledNetworkGroups);
 
             _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
         }
@@ -315,6 +320,7 @@ public class SqmService : ISqmService
         string deviceJson,
         Dictionary<string, string> ipToName,
         Dictionary<string, bool> networkGroupToSmartq,
+        Dictionary<string, int> networkGroupToSmartqDownRate,
         Dictionary<string, string> networkGroupToName,
         Dictionary<string, string> networkGroupToWanType,
         HashSet<string> enabledNetworkGroups)
@@ -450,6 +456,14 @@ public class SqmService : ISqmService
                         var smartqEnabled = !string.IsNullOrEmpty(networkGroup) &&
                             networkGroupToSmartq.TryGetValue(networkGroup, out var sqEnabled) && sqEnabled;
 
+                        // Get Smart Queue download rate (Mbps) if configured
+                        int? smartqDownRateMbps = null;
+                        if (!string.IsNullOrEmpty(networkGroup) &&
+                            networkGroupToSmartqDownRate.TryGetValue(networkGroup, out var downRate))
+                        {
+                            smartqDownRateMbps = downRate;
+                        }
+
                         // Get the actual WAN type from network config (dhcp, static, pppoe)
                         var wanType = "dhcp"; // default
                         if (!string.IsNullOrEmpty(networkGroup) &&
@@ -468,7 +482,8 @@ public class SqmService : ISqmService
                             LoadBalanceType = null,
                             LoadBalanceWeight = null,
                             SuggestedPingIp = suggestedPingIp,
-                            SmartqEnabled = smartqEnabled
+                            SmartqEnabled = smartqEnabled,
+                            SmartqDownRateMbps = smartqDownRateMbps
                         });
 
                         _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (NetworkGroup: {NG}, SmartQ: {SQ}, WanType: {WT})",
@@ -723,4 +738,7 @@ public class WanInterfaceInfo
 
     /// <summary>Whether UniFi Smart Queues (SQM) is enabled for this WAN in the controller</summary>
     public bool SmartqEnabled { get; set; }
+
+    /// <summary>Smart Queue download rate in Mbps (from UniFi config, converted from kbps)</summary>
+    public int? SmartqDownRateMbps { get; set; }
 }

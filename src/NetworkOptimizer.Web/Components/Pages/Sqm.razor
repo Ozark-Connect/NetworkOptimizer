@@ -2272,6 +2272,11 @@
             deploymentSteps.Add("Existing scripts cleaned");
             await ScrollDeploymentLog();
 
+            // Re-fetch WAN data from controller for current SmartQ status and rates
+            deploymentSteps.Add("Checking Smart Queue configuration...");
+            await ScrollDeploymentLog();
+            wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+
             // Validate WANs still have Smart Queues enabled - disable any that don't
             var availableInterfaces = sqmEligibleWans.Select(w => w.Interface).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (wan1Config.Enabled && !availableInterfaces.Contains(wan1Config.Interface))
@@ -2285,6 +2290,34 @@
                 wan2Config.Enabled = false;
                 deploymentSteps.Add($"Skipping {wan2Config.Name} - Smart Queues no longer enabled in UniFi");
                 await ScrollDeploymentLog();
+            }
+
+            // Validate Smart Queue download rates are high enough for Adaptive SQM
+            foreach (var wanConfig in new[] { (config: wan1Config, ready: wan1Config.Enabled), (config: wan2Config, ready: wan2Config.Enabled) })
+            {
+                if (!wanConfig.ready) continue;
+
+                var wanInfo = sqmEligibleWans.FirstOrDefault(w =>
+                    w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
+                if (wanInfo?.SmartqDownRateMbps == null) continue;
+
+                var profile = new ConnectionProfile
+                {
+                    Type = wanConfig.config.ConnectionType,
+                    NominalDownloadMbps = wanConfig.config.NominalDownload,
+                    NominalUploadMbps = wanConfig.config.NominalUpload
+                };
+
+                if (wanInfo.SmartqDownRateMbps < profile.AbsoluteMaxDownloadMbps)
+                {
+                    statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
+                        $"but Adaptive SQM needs up to {profile.AbsoluteMaxDownloadMbps} Mbps. " +
+                        $"Increase the rate in UniFi Network > Settings > Internet > {wanConfig.config.Name} > Advanced > Smart Queues.";
+                    statusSuccess = false;
+                    isDeploying = false;
+                    StateHasChanged();
+                    return;
+                }
             }
 
             // Save WAN configs to database (after validation so disabled WANs are persisted)
