@@ -246,7 +246,7 @@
     <!-- 3. Gateway SSH -->
     <div class="card" id="gateway-ssh">
         <div class="card-header">
-            <h2 class="card-title">Gateway SSH</h2>
+            <h2 class="card-title">Gateway SSH (Optional)</h2>
             <span class="status-badge status-@(gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
                 @(gatewaySettings?.Enabled == true ? "Configured" : "Not Configured")
             </span>
@@ -254,8 +254,8 @@
         <div class="card-body">
             <p class="section-description">
                 Configure SSH credentials for your UniFi Gateway or UniFi OS Device. Used for
-                iperf3 speed tests against the gateway and Adaptive SQM. Not required for
-                Security Audit or LAN Speed Tests to other devices.
+                iperf3 speed tests against the gateway, Adaptive SQM, and gateway-based WAN speed testing.
+                Not required for Security Audit, Client Speed Tests, or LAN Speed Tests to other devices.
             </p>
 
             <div class="form-row">
@@ -411,7 +411,7 @@
     <!-- 4. Device SSH -->
     <div class="card" id="device-ssh">
         <div class="card-header">
-            <h2 class="card-title">Device SSH</h2>
+            <h2 class="card-title">Device SSH (Optional)</h2>
             <span class="status-badge status-@(sshSettings?.Enabled == true ? "connected" : "disconnected")">
                 @(sshSettings?.Enabled == true ? "Configured" : "Not Configured")
             </span>
