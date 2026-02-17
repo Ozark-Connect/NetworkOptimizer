@@ -789,10 +789,10 @@ SSH access is required for some features but not others. Here's what needs what:
 | WAN Speed Test (server-based) | - | - |
 | LAN Speed Test (gateway) | Required | - |
 | LAN Speed Test (devices) | - | Required |
+| Client Speed Test | - | - |
 | Security Audit | - | - |
 | Config Optimizer | - | - |
 | Wi-Fi Optimizer | - | - |
-| Client Speed Test | - | - |
 
 ### Enabling SSH in UniFi
 
