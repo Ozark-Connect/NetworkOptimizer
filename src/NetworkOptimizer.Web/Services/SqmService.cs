@@ -21,10 +21,6 @@ public class SqmService : ISqmService
     private TcMonitorResponse? _lastTcStats;
     private DateTime? _lastPollTime;
 
-    // TC Monitor settings
-    private string? _tcMonitorHost;
-    private int _tcMonitorPort = TcMonitorClient.DefaultPort;
-
     // Cache for SQM status (avoids repeated HTTP calls)
     private static readonly TimeSpan StatusCacheDuration = TimeSpan.FromMinutes(2);
     private static SqmStatusData? _cachedStatusData;
@@ -40,16 +36,6 @@ public class SqmService : ISqmService
         _connectionService = connectionService;
         _tcMonitorClient = tcMonitorClient;
         _serviceProvider = serviceProvider;
-    }
-
-    /// <summary>
-    /// Configure the TC monitor endpoint to poll
-    /// </summary>
-    public void ConfigureTcMonitor(string host, int port = 8088)
-    {
-        _tcMonitorHost = host;
-        _tcMonitorPort = port;
-        _logger.LogInformation("TC Monitor configured: {Host}:{Port}", host, port);
     }
 
     /// <summary>
@@ -69,8 +55,8 @@ public class SqmService : ISqmService
 
         SqmStatusData result;
 
-        // Gateway host from database settings - doesn't require active controller connection
-        var gatewayHost = _tcMonitorHost ?? await GetGatewayHostAsync();
+        // Gateway host and port from database settings - doesn't require active controller connection
+        var (gatewayHost, tcMonitorPort) = await GetGatewaySettingsAsync();
 
         if (string.IsNullOrEmpty(gatewayHost))
         {
@@ -83,7 +69,7 @@ public class SqmService : ISqmService
             return result;
         }
 
-        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, _tcMonitorPort);
+        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, tcMonitorPort);
 
         if (tcStats != null)
         {
@@ -145,17 +131,12 @@ public class SqmService : ISqmService
     /// </summary>
     private async Task<TcMonitorResponse?> PollTcStatsAsync()
     {
-        // If no explicit host configured, try to use the gateway SSH host
-        var host = _tcMonitorHost;
-        if (string.IsNullOrEmpty(host))
-        {
-            host = await GetGatewayHostAsync();
-        }
+        var (host, port) = await GetGatewaySettingsAsync();
 
         if (string.IsNullOrEmpty(host))
             return null;
 
-        var stats = await _tcMonitorClient.GetTcStatsAsync(host, _tcMonitorPort);
+        var stats = await _tcMonitorClient.GetTcStatsAsync(host, port);
 
         if (stats != null)
         {
@@ -167,9 +148,9 @@ public class SqmService : ISqmService
     }
 
     /// <summary>
-    /// Get the gateway host from SSH settings
+    /// Get the gateway host and TC monitor port from SSH settings
     /// </summary>
-    private async Task<string?> GetGatewayHostAsync()
+    private async Task<(string? Host, int Port)> GetGatewaySettingsAsync()
     {
         try
         {
@@ -178,15 +159,15 @@ public class SqmService : ISqmService
             var settings = await repository.GetGatewaySshSettingsAsync();
             if (!string.IsNullOrEmpty(settings?.Host))
             {
-                _logger.LogDebug("Using gateway SSH host for TC monitor: {Host}", settings.Host);
-                return settings.Host;
+                _logger.LogDebug("Using gateway SSH host for TC monitor: {Host}:{Port}", settings.Host, settings.TcMonitorPort);
+                return (settings.Host, settings.TcMonitorPort);
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to get gateway SSH settings");
         }
-        return null;
+        return (null, TcMonitorClient.DefaultPort);
     }
 
     /// <summary>
@@ -194,12 +175,13 @@ public class SqmService : ISqmService
     /// </summary>
     public async Task<(bool Available, string? Error)> TestTcMonitorAsync(string? host = null, int? port = null)
     {
-        var testHost = host ?? _tcMonitorHost;
-        var testPort = port ?? _tcMonitorPort;
+        var (gwHost, gwPort) = await GetGatewaySettingsAsync();
+        var testHost = host ?? gwHost;
+        var testPort = port ?? gwPort;
 
         if (string.IsNullOrEmpty(testHost))
         {
-            testHost = await GetGatewayHostAsync();
+            // No fallback needed - already tried DB
         }
 
         if (string.IsNullOrEmpty(testHost))
