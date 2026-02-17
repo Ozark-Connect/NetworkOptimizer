@@ -2261,17 +2261,6 @@
 
         try
         {
-            // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
-            deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
-            await ScrollDeploymentLog();
-            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync();
-            if (!cleanResult.success)
-            {
-                throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
-            }
-            deploymentSteps.Add("Existing scripts cleaned");
-            await ScrollDeploymentLog();
-
             // Re-fetch WAN data from controller for current SmartQ status and rates
             deploymentSteps.Add("Checking Smart Queue configuration...");
             await ScrollDeploymentLog();
@@ -2319,6 +2308,17 @@
                     return;
                 }
             }
+
+            // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
+            deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
+            await ScrollDeploymentLog();
+            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync();
+            if (!cleanResult.success)
+            {
+                throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
+            }
+            deploymentSteps.Add("Existing scripts cleaned");
+            await ScrollDeploymentLog();
 
             // Save WAN configs to database (after validation so disabled WANs are persisted)
             await SaveWanConfigsAsync();
