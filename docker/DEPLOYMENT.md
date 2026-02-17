@@ -780,9 +780,19 @@ Use this username and password in Network Optimizer Settings.
 
 ## UniFi SSH Configuration
 
-SSH access is **optional** for Security Audit but **required** for:
-- **Adaptive SQM:** Deploying bandwidth management scripts to your gateway
-- **LAN Speed Testing:** Running iperf3 tests between gateway and network devices
+SSH access is required for some features but not others. Here's what needs what:
+
+| Feature | Gateway SSH | Device SSH |
+|---------|:-----------:|:----------:|
+| Adaptive SQM | Required | - |
+| WAN Speed Test (gateway-based) | Required | - |
+| WAN Speed Test (server-based) | - | - |
+| LAN Speed Test (gateway) | Required | - |
+| LAN Speed Test (devices) | - | Required |
+| Security Audit | - | - |
+| Config Optimizer | - | - |
+| Wi-Fi Optimizer | - | - |
+| Client Speed Test | - | - |
 
 ### Enabling SSH in UniFi
 
@@ -793,8 +803,8 @@ SSH access is **optional** for Security Audit but **required** for:
 Enables SSH access to Cloud Gateways (UCG, UDM, UDM Pro, etc.):
 
 1. Open **UniFi Network**: `https://<gateway-ip>` or `https://unifi.ui.com`
-2. Sign in to your controller
-3. Click **Settings** at the bottom of the side menu
+2. Sign in to your Console
+3. Click **Settings** on the bottom portion of the side menu
 4. Navigate to **Control Plane** → **Console**
 5. Enable **SSH** and set a secure password
 
@@ -804,10 +814,10 @@ Use `root` as the username and the password you set above.
 
 #### Device SSH (UniFi Network 9.5+)
 
-Enables SSH access to adopted devices (switches, access points):
+Enables SSH access to adopted devices (switches, access points, modems):
 
 1. Open **UniFi Network**: `https://<gateway-ip>` or `https://unifi.ui.com`
-2. Sign in to your controller
+2. Sign in to your Console
 3. Click **UniFi Devices** on the side menu
 4. In the left-hand filter menu, select **Device Updates and Settings** at the bottom
 5. Expand **Device SSH Settings** at the bottom
@@ -817,25 +827,40 @@ Enables SSH access to adopted devices (switches, access points):
 
 **Note:** This is a separate credential from Gateway SSH.
 
-### Testing SSH Access
+### Configuring SSH in Network Optimizer
 
-After enabling SSH, verify connectivity:
+Once SSH is enabled in UniFi, enter the same credentials in Network Optimizer's **Settings** page.
 
-```bash
-# Test gateway SSH
-ssh <username>@<gateway-ip>
+#### Gateway SSH
 
-# You should get a shell prompt on the UniFi device
-```
+1. Go to **Settings** → **Gateway SSH**
+2. Enter your gateway's IP address, username (`root`), and the SSH password you set in UniFi
+3. Click **Test SSH Connection** to verify connectivity
+4. Click **Check iperf3 Status** to confirm iperf3 is available for speed tests
 
-### Credentials in Network Optimizer
+As an alternative to password authentication, you can provide a **Private Key Path** (e.g., `/app/ssh-keys/gateway_key`). Leave the password blank when using key-based authentication.
 
-Once SSH is enabled in UniFi, enter the same credentials in Network Optimizer:
-1. Go to **Settings** in Network Optimizer
-2. Enter your SSH username and password
-3. Click **Test SSH** to verify connectivity
+#### Device SSH
 
-For custom devices (non-UniFi equipment), you can configure per-device SSH credentials in the LAN Speed Testing section.
+1. Go to **Settings** → **Device SSH**
+2. Enter the username and password you configured in UniFi's Device SSH Settings
+3. Click **Test SSH Connection** - it will automatically find a device on your network to test against
+
+Private key authentication is also supported. Enter the key path (e.g., `/app/ssh-keys/id_rsa`) and leave the password blank.
+
+### Per-Device SSH Overrides
+
+In **LAN Speed Test**, when you add a custom speed test device and check **Start iperf3 server before test**, you can override the global Device SSH credentials for that specific device. Override fields include username, password, and private key path. Leave any field blank to fall back to the global Device SSH settings.
+
+This is useful for non-UniFi equipment or devices with different credentials.
+
+### Troubleshooting SSH Connections
+
+If SSH connections are failing:
+
+1. **Check credentials** - Use the **Test SSH Connection** button in Settings to verify your credentials are correct
+2. **Check UniFi firewall rules** - Ensure SSH traffic is allowed between the Network Optimizer server and your gateway/devices
+3. **Check CyberSecure IPS** - SSH connections may be blocked by the rule **"ET SCAN Potential SSH Scan OUTBOUND"**. Look for blocked connections in **Insights → Flows**, then create a Suppression for this signature in the Logs section
 
 ## Client Speed Testing (Optional)
 
