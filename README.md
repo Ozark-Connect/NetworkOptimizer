@@ -115,7 +115,7 @@ Time-series metrics with historical trending and alerting. Cable modem stats (si
 
 ## Requirements
 
-- UniFi Console (aka Controller) - UDM, UCG, UDR, Cloud Key, or self-hosted UniFi Network Server
+- UniFi Console (aka Controller) - UDM, UCG, UDR, CloudKey, or self-hosted UniFi Network Server
 - Network access to your UniFi Console API (HTTPS)
 
 Most features work with just API access. SSH is only needed for speed testing and Adaptive SQM:
@@ -213,12 +213,6 @@ src/
 ## Tech Stack
 
 .NET 10, Blazor Server, SQLite, iperf3, SSH.NET, QuestPDF
-
-## Status
-
-All core functionality is working and tested on many combinations of UniFi Gateways, CloudKeys, and network fabric devices. Features shown in the app are all fully functional and ready to use, with enhancements and fixes being rolled out regularly.
-
-In progress: Time-series metrics, cable modem monitoring, WiFi analysis, multi-site support.
 
 ## Password Reset
 
