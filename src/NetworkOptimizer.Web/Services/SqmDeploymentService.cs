@@ -138,14 +138,12 @@ WantedBy=multi-user.target
             // Batch 2: monitor and service status checks
             var sqmMonitorCheckTask = RunCommandAsync(
                 $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
-            var sqmMonitorRunningTask = RunCommandAsync(
-                "systemctl is-active sqm-monitor 2>/dev/null || echo 'inactive'");
             var watchdogRunningTask = RunCommandAsync(
                 "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
             var cronCheckTask = RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
 
-            await Task.WhenAll(sqmMonitorCheckTask, sqmMonitorRunningTask, watchdogRunningTask, cronCheckTask);
+            await Task.WhenAll(sqmMonitorCheckTask, watchdogRunningTask, cronCheckTask);
 
             // Batch 3: dependency checks
             var speedtestCliCheckTask = RunCommandAsync(
@@ -177,9 +175,6 @@ WantedBy=multi-user.target
 
             var sqmMonitorCheck = sqmMonitorCheckTask.Result;
             status.TcMonitorDeployed = sqmMonitorCheck.success && sqmMonitorCheck.output.Contains("exists");
-
-            var sqmMonitorRunning = sqmMonitorRunningTask.Result;
-            status.TcMonitorRunning = sqmMonitorRunning.success && sqmMonitorRunning.output.Trim() == "active";
 
             var watchdogRunning = watchdogRunningTask.Result;
             status.WatchdogTimerRunning = watchdogRunning.success && watchdogRunning.output.Trim() == "active";
@@ -1317,7 +1312,6 @@ public class SqmDeploymentStatus
     public bool SpeedtestScriptDeployed { get; set; }
     public bool PingScriptDeployed { get; set; }
     public bool TcMonitorDeployed { get; set; }
-    public bool TcMonitorRunning { get; set; }
     public bool WatchdogTimerRunning { get; set; }
     public int CronJobsConfigured { get; set; }
     public bool SpeedtestCliInstalled { get; set; }

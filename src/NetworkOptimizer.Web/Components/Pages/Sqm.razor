@@ -90,8 +90,8 @@
                     <div class="metric">
                         <div class="metric-label">SQM Monitor</div>
                         <div class="metric-value">
-                            <span class="status-indicator @(deploymentStatus?.TcMonitorRunning == true ? "status-active" : "status-inactive")"></span>
-                            @(deploymentStatus?.TcMonitorRunning == true ? "Running" : "Stopped")
+                            <span class="status-indicator @(sqmMonitorData != null ? "status-active" : "status-inactive")"></span>
+                            @(sqmMonitorData != null ? "Responding" : deploymentStatus?.TcMonitorDeployed == true ? "Not Responding" : "Not Deployed")
                         </div>
                     </div>
                     <div class="metric">
@@ -2707,7 +2707,7 @@
     {
         // Only poll if SQM is deployed or we have saved enabled WAN configs
         var shouldPoll = deploymentStatus?.IsDeployed == true ||
-                         deploymentStatus?.TcMonitorRunning == true ||
+                         deploymentStatus?.TcMonitorDeployed == true ||
                          (wan1HasSavedConfig && wan1Config.Enabled) ||
                          (wan2HasSavedConfig && wan2Config.Enabled);
 
