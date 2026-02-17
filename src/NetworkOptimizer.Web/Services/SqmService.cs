@@ -196,7 +196,7 @@ public class SqmService : ISqmService
             return (true, null);
         }
 
-        return (false, $"TC Monitor not responding at {testHost}:{testPort}");
+        return (false, $"Adaptive SQM Monitor not responding at http://{testHost}:{testPort}");
     }
 
     /// <summary>
