@@ -608,14 +608,14 @@ app.MapGet("/api/reports/latest/pdf", async (AuditService auditService) =>
     return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
 });
 
-// iperf3 Speed Test API endpoints
-app.MapGet("/api/iperf3/devices", async (Iperf3SpeedTestService service) =>
+// Speed Test API endpoints (LAN iperf3)
+app.MapGet("/api/speedtest/devices", async (Iperf3SpeedTestService service) =>
 {
     var devices = await service.GetDevicesAsync();
     return Results.Ok(devices);
 });
 
-app.MapPost("/api/iperf3/test/{deviceId:int}", async (int deviceId, Iperf3SpeedTestService service) =>
+app.MapPost("/api/speedtest/devices/{deviceId:int}/results", async (int deviceId, Iperf3SpeedTestService service) =>
 {
     var devices = await service.GetDevicesAsync();
     var device = devices.FirstOrDefault(d => d.Id == deviceId);
@@ -626,32 +626,23 @@ app.MapPost("/api/iperf3/test/{deviceId:int}", async (int deviceId, Iperf3SpeedT
     return Results.Ok(result);
 });
 
-app.MapGet("/api/iperf3/results", async (Iperf3SpeedTestService service, int count = 50) =>
+app.MapGet("/api/speedtest/results", async (Iperf3SpeedTestService service, string? deviceHost = null, int count = 50) =>
 {
     // Validate count parameter is within reasonable bounds
     if (count < 1) count = 1;
     if (count > 1000) count = 1000;
 
-    var results = await service.GetRecentResultsAsync(count);
-    return Results.Ok(results);
-});
-
-app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3SpeedTestService service, int count = 20) =>
-{
-    // Validate deviceHost format (IP address or hostname, no path traversal)
-    if (string.IsNullOrWhiteSpace(deviceHost) ||
-        deviceHost.Contains("..") ||
-        deviceHost.Contains('/') ||
-        deviceHost.Contains('\\'))
+    // Filter by device host if provided
+    if (!string.IsNullOrWhiteSpace(deviceHost))
     {
-        return Results.BadRequest(new { error = "Invalid device host format" });
+        // Validate deviceHost format (IP address or hostname, no path traversal)
+        if (deviceHost.Contains("..") || deviceHost.Contains('/') || deviceHost.Contains('\\'))
+            return Results.BadRequest(new { error = "Invalid device host format" });
+
+        return Results.Ok(await service.GetResultsForDeviceAsync(deviceHost, count));
     }
 
-    // Validate count parameter
-    if (count < 1) count = 1;
-    if (count > 1000) count = 1000;
-
-    var results = await service.GetResultsForDeviceAsync(deviceHost, count);
+    var results = await service.GetRecentResultsAsync(count);
     return Results.Ok(results);
 });
 
@@ -730,7 +721,7 @@ app.MapPost("/api/public/speedtest/topology-snapshots", async (HttpContext conte
 }).RequireCors("SpeedTestCors");
 
 // Authenticated endpoint for viewing client speed test results
-app.MapGet("/api/speedtest/results", async (ClientSpeedTestService service, string? ip = null, string? mac = null, int count = 50) =>
+app.MapGet("/api/speedtest/client-results", async (ClientSpeedTestService service, string? ip = null, string? mac = null, int count = 50) =>
 {
     if (count < 1) count = 1;
     if (count > 1000) count = 1000;
@@ -747,8 +738,8 @@ app.MapGet("/api/speedtest/results", async (ClientSpeedTestService service, stri
     return Results.Ok(await service.GetResultsAsync(count));
 });
 
-// Authenticated endpoint for deleting a speed test result
-app.MapDelete("/api/speedtest/results/{id:int}", async (int id, ClientSpeedTestService service) =>
+// Authenticated endpoint for deleting a client speed test result
+app.MapDelete("/api/speedtest/client-results/{id:int}", async (int id, ClientSpeedTestService service) =>
 {
     var deleted = await service.DeleteResultAsync(id);
     return deleted ? Results.NoContent() : Results.NotFound();
@@ -1234,14 +1225,14 @@ app.MapGet("/api/floor-plan/ap-catalog", (NetworkOptimizer.WiFi.Data.AntennaPatt
 // Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
 // --- Client Dashboard API ---
 
-app.MapGet("/api/client-dashboard/identify", async (HttpContext context, ClientDashboardService service) =>
+app.MapGet("/api/client-dashboard/client", async (HttpContext context, ClientDashboardService service) =>
 {
     var clientIp = GetClientIp(context);
     var identity = await service.IdentifyClientAsync(clientIp);
     return identity != null ? Results.Ok(identity) : Results.NotFound(new { error = "Client not found" });
 });
 
-app.MapGet("/api/client-dashboard/signal-poll", async (HttpContext context, ClientDashboardService service,
+app.MapGet("/api/client-dashboard/signal-detail", async (HttpContext context, ClientDashboardService service,
     double? lat = null, double? lng = null, int? acc = null) =>
 {
     var clientIp = GetClientIp(context);
@@ -1249,7 +1240,7 @@ app.MapGet("/api/client-dashboard/signal-poll", async (HttpContext context, Clie
     return result != null ? Results.Ok(result) : Results.NotFound(new { error = "Client not found" });
 });
 
-app.MapPost("/api/client-dashboard/signal-log", async (HttpContext context, ClientDashboardService service) =>
+app.MapPost("/api/client-dashboard/gps-locations", async (HttpContext context, ClientDashboardService service) =>
 {
     var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.Web.Models.GpsUpdateRequest>();
     if (request == null)
