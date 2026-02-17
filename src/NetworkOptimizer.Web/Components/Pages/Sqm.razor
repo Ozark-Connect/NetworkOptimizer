@@ -2041,10 +2041,10 @@
                 // Only poll TC Monitor if scripts are deployed (avoids 15s timeout when not deployed)
                 if (deploymentStatus?.IsDeployed == true)
                 {
-                    var gatewayHost = await GetGatewayHostAsync();
+                    var (gatewayHost, tcPort) = await GetGatewayConnectionAsync();
                     if (!string.IsNullOrEmpty(gatewayHost))
                     {
-                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
+                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true);
                         tcInterfaces = sqmMonitorData?.GetAllInterfaces();
                     }
                 }
@@ -2690,16 +2690,16 @@
         return min;
     }
 
-    private async Task<string?> GetGatewayHostAsync()
+    private async Task<(string? Host, int Port)> GetGatewayConnectionAsync()
     {
         try
         {
             var settings = await SpeedTestRepository.GetGatewaySshSettingsAsync();
-            return settings?.Host;
+            return (settings?.Host, settings?.TcMonitorPort ?? 8088);
         }
         catch
         {
-            return null;
+            return (null, 8088);
         }
     }
 
@@ -2718,10 +2718,10 @@
 
         try
         {
-            var gatewayHost = await GetGatewayHostAsync();
+            var (gatewayHost, tcPort) = await GetGatewayConnectionAsync();
             if (!string.IsNullOrEmpty(gatewayHost))
             {
-                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
+                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true);
                 tcInterfaces = sqmMonitorData?.GetAllInterfaces();
 
                 // Adjust polling rate based on speedtest status
