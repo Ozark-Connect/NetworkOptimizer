@@ -520,12 +520,13 @@
     <!-- 5. Adaptive SQM Monitor -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Adaptive SQM Monitor</h2>
+            <h2 class="card-title">Adaptive SQM Monitor (Optional)</h2>
             <span class="status-badge status-@tcMonitorStatus.ToLower()">@tcMonitorStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
-                The Adaptive SQM Monitor runs on your gateway and exposes current SQM rates via HTTP for the dashboard. Deploy it from the SQM Manager page.
+                The Adaptive SQM Monitor runs on your gateway and reports current SQM rates to the dashboard.
+                It's deployed automatically from the Adaptive SQM page. Only change this if you need to use a different port (default: 8088).
             </p>
 
             <div class="form-row">
@@ -534,6 +535,17 @@
                     <input type="number" class="form-control" @bind="tcMonitorPort" min="1" max="65535" />
                 </div>
                 <div class="action-buttons">
+                    <button class="btn btn-secondary" @onclick="SaveTcMonitorPort" disabled="@savingTcMonitorPort">
+                        @if (savingTcMonitorPort)
+                        {
+                            <span class="spinner"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>Save</span>
+                        }
+                    </button>
                     <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
                         @if (testingTcMonitor)
                         {
@@ -1187,6 +1199,7 @@
     private int tcMonitorPort = 8088;
     private string tcMonitorStatus = "Unknown";
     private bool testingTcMonitor = false;
+    private bool savingTcMonitorPort = false;
     private string tcMonitorMessage = "";
     private string tcMonitorMessageClass = "";
 
@@ -2089,6 +2102,32 @@
         finally
         {
             loadingSites = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveTcMonitorPort()
+    {
+        savingTcMonitorPort = true;
+        tcMonitorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var settings = gatewaySettings ?? new GatewaySshSettings();
+            settings.TcMonitorPort = tcMonitorPort;
+            gatewaySettings = await GatewaySshService.SaveSettingsAsync(settings);
+            tcMonitorMessage = "Port saved";
+            tcMonitorMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            tcMonitorMessage = $"Error saving port: {ex.Message}";
+            tcMonitorMessageClass = "danger";
+        }
+        finally
+        {
+            savingTcMonitorPort = false;
             StateHasChanged();
         }
     }
