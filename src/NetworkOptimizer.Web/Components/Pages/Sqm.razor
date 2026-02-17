@@ -89,10 +89,20 @@
                     </div>
                     <div class="metric">
                         <div class="metric-label">SQM Monitor</div>
-                        <div class="metric-value" @(sqmMonitorData == null && deploymentStatus?.TcMonitorDeployed == true ? "data-tooltip=Check that the port is correct in <a href='/settings#sqm-monitor'>Settings</a>. Otherwise, try redeploying the SQM Monitor below. data-tooltip-interactive" : "")>
-                            <span class="status-indicator @(sqmMonitorData != null ? "status-active" : "status-inactive")"></span>
-                            @(sqmMonitorData != null ? "Responding" : deploymentStatus?.TcMonitorDeployed == true ? "Not Responding" : "Not Deployed")
-                        </div>
+                        @if (sqmMonitorData == null && deploymentStatus?.TcMonitorDeployed == true)
+                        {
+                            <div class="metric-value" data-tooltip="Check that the port is correct in <a href='/settings#sqm-monitor'>Settings</a>. Otherwise, try redeploying the SQM Monitor below." data-tooltip-interactive>
+                                <span class="status-indicator status-inactive"></span>
+                                Not Responding
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="metric-value">
+                                <span class="status-indicator @(sqmMonitorData != null ? "status-active" : "status-inactive")"></span>
+                                @(sqmMonitorData != null ? "Responding" : "Not Deployed")
+                            </div>
+                        }
                     </div>
                     <div class="metric">
                         <div class="metric-label">Cron Jobs</div>
