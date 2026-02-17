@@ -1399,6 +1399,10 @@
     private static bool _cachedGatewayConfigured;
     private static bool _refreshNeeded = false;  // Flag to trigger refresh on next page load
 
+    // SmartQ settle-time tracking: records when each WAN transitioned from disabled → enabled
+    private static Dictionary<string, DateTime> _smartqEnabledTimestamps = new(StringComparer.OrdinalIgnoreCase);
+    private const int SmartqSettleSeconds = 45;
+
     // State
     private bool isLoading = true;
     private bool isDeploying = false;
@@ -1813,6 +1817,43 @@
         _lastStatusCheck = DateTime.MinValue;
     }
 
+    /// <summary>
+    /// Tracks SmartQ disabled→enabled transitions to enforce a settle-time delay before deployment.
+    /// The IFB virtual device takes ~45s to initialize after Smart Queues is enabled.
+    /// </summary>
+    private static void TrackSmartqTransitions(List<WanInterfaceInfo>? oldInterfaces, List<WanInterfaceInfo> newInterfaces)
+    {
+        // First load (no old data) - don't record anything to avoid false positives
+        if (oldInterfaces == null)
+            return;
+
+        var oldLookup = oldInterfaces.ToDictionary(w => w.Interface, w => w.SmartqEnabled, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var wan in newInterfaces)
+        {
+            oldLookup.TryGetValue(wan.Interface, out var wasEnabled);
+
+            if (!wasEnabled && wan.SmartqEnabled)
+            {
+                // Disabled → enabled: record transition time
+                _smartqEnabledTimestamps[wan.Interface] = DateTime.UtcNow;
+            }
+            else if (wasEnabled && !wan.SmartqEnabled)
+            {
+                // Enabled → disabled: remove entry
+                _smartqEnabledTimestamps.Remove(wan.Interface);
+            }
+        }
+
+        // Clean up stale entries (>45s old)
+        var staleKeys = _smartqEnabledTimestamps
+            .Where(kv => (DateTime.UtcNow - kv.Value).TotalSeconds > SmartqSettleSeconds)
+            .Select(kv => kv.Key)
+            .ToList();
+        foreach (var key in staleKeys)
+            _smartqEnabledTimestamps.Remove(key);
+    }
+
     private void ApplyDetectedWanInterfaces()
     {
         if (wanInterfaces.Count == 0)
@@ -2069,6 +2110,7 @@
                 try
                 {
                     wanInterfaces = await wanInterfacesTask;
+                    TrackSmartqTransitions(_cachedWanInterfaces, wanInterfaces);
                     // Only apply detected interfaces if we don't have saved configs
                     if (!hasSavedConfigs)
                         ApplyDetectedWanInterfaces();
@@ -2275,6 +2317,8 @@
             deploymentSteps.Add("Checking Smart Queue configuration...");
             await ScrollDeploymentLog();
             wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+            TrackSmartqTransitions(_cachedWanInterfaces, wanInterfaces);
+            _cachedWanInterfaces = wanInterfaces;
 
             // Validate WANs still have Smart Queues enabled - disable any that don't
             var availableInterfaces = sqmEligibleWans.Select(w => w.Interface).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -2316,6 +2360,27 @@
                     isDeploying = false;
                     StateHasChanged();
                     return;
+                }
+            }
+
+            // Validate IFB device settle time - Smart Queues needs ~45s after enabling for the IFB device to initialize
+            foreach (var wanConfig in new[] { wan1Config, wan2Config })
+            {
+                if (!wanConfig.Enabled) continue;
+
+                if (_smartqEnabledTimestamps.TryGetValue(wanConfig.Interface, out var enabledAt))
+                {
+                    var elapsed = (DateTime.UtcNow - enabledAt).TotalSeconds;
+                    if (elapsed < SmartqSettleSeconds)
+                    {
+                        var remaining = (int)Math.Ceiling(SmartqSettleSeconds - elapsed);
+                        statusMessage = $"Smart Queues was just enabled on {wanConfig.Name}. " +
+                            $"Please wait {remaining} seconds for the IFB device to initialize, then click Deploy again.";
+                        statusSuccess = false;
+                        isDeploying = false;
+                        StateHasChanged();
+                        return;
+                    }
                 }
             }
 
