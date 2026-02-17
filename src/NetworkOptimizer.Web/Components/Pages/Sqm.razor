@@ -2296,7 +2296,7 @@
             {
                 if (!wanConfig.ready) continue;
 
-                var wanInfo = sqmEligibleWans.FirstOrDefault(w =>
+                var wanInfo = wanInterfaces.FirstOrDefault(w =>
                     w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
                 if (wanInfo?.SmartqDownRateMbps == null) continue;
 

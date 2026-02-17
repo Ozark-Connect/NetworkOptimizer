@@ -181,11 +181,6 @@ public class SqmService : ISqmService
 
         if (string.IsNullOrEmpty(testHost))
         {
-            // No fallback needed - already tried DB
-        }
-
-        if (string.IsNullOrEmpty(testHost))
-        {
             return (false, "Gateway SSH not configured");
         }
 
