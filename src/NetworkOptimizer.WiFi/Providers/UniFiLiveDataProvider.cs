@@ -203,6 +203,96 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
     }
 
+    /// <summary>
+    /// Get AP channel change events from the v2 system log API.
+    /// </summary>
+    public async Task<List<ChannelChangeEvent>> GetChannelChangeEventsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        string? apMac = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var data = await _client.GetApChannelChangeEventsAsync(start, end, apMac, cancellationToken);
+            return ParseChannelChangeEvents(data);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch channel change events");
+            return new List<ChannelChangeEvent>();
+        }
+    }
+
+    private List<ChannelChangeEvent> ParseChannelChangeEvents(JsonElement data)
+    {
+        var events = new List<ChannelChangeEvent>();
+
+        if (data.ValueKind != JsonValueKind.Object)
+            return events;
+
+        if (!data.TryGetProperty("data", out var dataArray) || dataArray.ValueKind != JsonValueKind.Array)
+            return events;
+
+        foreach (var item in dataArray.EnumerateArray())
+        {
+            if (!item.TryGetProperty("timestamp", out var tsProp) ||
+                !item.TryGetProperty("parameters", out var paramsProp))
+                continue;
+
+            var timestamp = tsProp.GetInt64();
+
+            // Extract CHANNEL info
+            if (!paramsProp.TryGetProperty("CHANNEL", out var channelProp))
+                continue;
+
+            var channelIdStr = channelProp.TryGetProperty("id", out var chId) ? chId.GetString() : null;
+            var radioBand = channelProp.TryGetProperty("radio_band", out var rb) ? rb.GetString() : null;
+
+            if (channelIdStr == null || !int.TryParse(channelIdStr, out var newChannel))
+                continue;
+
+            // Extract PREVIOUS_CHANNEL
+            int previousChannel = 0;
+            if (paramsProp.TryGetProperty("PREVIOUS_CHANNEL", out var prevProp) &&
+                prevProp.TryGetProperty("id", out var prevId) &&
+                int.TryParse(prevId.GetString(), out var prevCh))
+            {
+                previousChannel = prevCh;
+            }
+
+            // Extract AP MAC from DEVICE
+            var apMacStr = "";
+            if (paramsProp.TryGetProperty("DEVICE", out var deviceProp) &&
+                deviceProp.TryGetProperty("id", out var devId))
+            {
+                apMacStr = devId.GetString() ?? "";
+            }
+
+            var bandPrefix = radioBand ?? "";
+            var band = bandPrefix switch
+            {
+                "ng" => RadioBand.Band2_4GHz,
+                "na" => RadioBand.Band5GHz,
+                "6e" => RadioBand.Band6GHz,
+                _ => RadioBand.Band5GHz // default fallback
+            };
+
+            events.Add(new ChannelChangeEvent
+            {
+                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp),
+                ApMac = apMacStr,
+                RadioBandPrefix = bandPrefix,
+                Band = band,
+                NewChannel = newChannel,
+                PreviousChannel = previousChannel
+            });
+        }
+
+        _logger.LogDebug("Parsed {Count} channel change events", events.Count);
+        return events;
+    }
+
     public async Task<List<ClientWiFiMetrics>> GetClientMetricsAsync(
         string clientMac,
         DateTimeOffset start,

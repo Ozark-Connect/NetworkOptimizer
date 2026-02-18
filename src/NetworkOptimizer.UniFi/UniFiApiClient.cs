@@ -2054,6 +2054,66 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST v2/api/site/{site}/system-log/all - Get AP channel change events from the system log
+    /// </summary>
+    public async Task<JsonElement> GetApChannelChangeEventsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        string? apMac = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching AP channel change events from {Start} to {End}, AP={ApMac}", start, end, apMac ?? "all");
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return default;
+        }
+
+        var url = BuildV2ApiPath($"site/{_site}/system-log/all");
+
+        var body = new Dictionary<string, object>
+        {
+            ["searchText"] = "",
+            ["severities"] = new[] { "LOW", "MEDIUM", "HIGH", "VERY_HIGH" },
+            ["categories"] = new[] { "UNIFI_DEVICES" },
+            ["events"] = new[] { "AP_CHANGED_CHANNELS" },
+            ["subcategories"] = new[] { "SYSTEM_WIFI" },
+            ["type"] = "GENERAL",
+            ["timestampFrom"] = start.ToUnixTimeMilliseconds(),
+            ["timestampTo"] = end.ToUnixTimeMilliseconds(),
+            ["pageNumber"] = 0,
+            ["pageSize"] = 500,
+            ["adminIds"] = Array.Empty<string>(),
+            ["clientDeviceMacs"] = apMac != null ? new[] { apMac } : Array.Empty<string>()
+        };
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var content = new StringContent(
+                JsonSerializer.Serialize(body),
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            var response = await _httpClient!.PostAsync(url, content, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(json);
+                return doc.RootElement.Clone();
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("AP channel change events request failed: {StatusCode} - {Error}",
+                    response.StatusCode, error);
+            }
+
+            return default;
+        });
+    }
+
+    /// <summary>
     /// GET /api/s/{site}/stat/rogueap - Get neighboring Wi-Fi networks detected by APs
     /// </summary>
     /// <param name="startTime">Start time for filtering (optional, defaults to 1 day ago). UniFi UI uses 30m, 1h, 1D, 1W, 1M ranges.</param>

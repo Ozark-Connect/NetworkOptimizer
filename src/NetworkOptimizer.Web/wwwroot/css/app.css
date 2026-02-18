@@ -6806,9 +6806,31 @@ a.path-hop.hop-clickable:hover {
     color: #a855f7;
 }
 
+.band-chart-header .channel-info {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
 /* ApexCharts dark theme overrides */
 .apexcharts-canvas {
     background: transparent !important;
+}
+
+/* ApexCharts dark theme overrides annotation label fill - needs double class
+   specificity to beat .apexcharts-text rule below */
+.apexcharts-text.apexcharts-xaxis-annotation-label {
+    fill: #f1f5f9 !important;
+}
+
+/* Hide hover dots and tooltip markers for transparent (hidden) series */
+.apexcharts-tooltip-marker[style*="rgba(0"],
+.apexcharts-tooltip-marker[style*="transparent"] {
+    display: none !important;
+}
+.apexcharts-marker[fill="rgba(0,0,0,0)"],
+.apexcharts-marker[fill="transparent"] {
+    opacity: 0 !important;
 }
 
 .apexcharts-text {
@@ -7197,13 +7219,54 @@ a.path-hop.hop-clickable:hover {
     font-size: 1.1rem;
 }
 
+.client-info-main .client-name-link {
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: color 0.15s;
+}
+
+.client-info-main .client-name-link:hover {
+    color: var(--primary-color);
+}
+
+.client-info-main .client-perf-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-left: auto;
+    padding: 0.25rem 0.625rem;
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.8rem;
+    font-weight: 500;
+    transition: background 0.15s, color 0.15s;
+}
+
+.client-info-main .client-perf-link:hover {
+    background: var(--primary-color);
+    color: var(--text-primary);
+}
+
 .client-info-main .client-dashboard-link {
+    display: none;
     color: var(--text-muted);
     transition: color 0.15s;
 }
 
 .client-info-main .client-dashboard-link:hover {
     color: var(--primary-color);
+}
+
+@media (max-width: 768px) {
+    .client-info-main .client-perf-link {
+        display: none;
+    }
+
+    .client-info-main .client-dashboard-link {
+        display: inline-flex;
+    }
 }
 
 .client-name {

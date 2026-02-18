@@ -603,6 +603,30 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
+    /// Get AP channel change events from the system log (v2 API).
+    /// Returns empty list on failure - never throws.
+    /// </summary>
+    public async Task<List<WiFi.Models.ChannelChangeEvent>> GetChannelChangeEventsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        string? apMac = null)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return new List<WiFi.Models.ChannelChangeEvent>();
+
+        try
+        {
+            var provider = CreateProvider();
+            return await provider.GetChannelChangeEventsAsync(start, end, apMac);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get channel change events");
+            return new List<WiFi.Models.ChannelChangeEvent>();
+        }
+    }
+
+    /// <summary>
     /// Get per-client Wi-Fi metrics time series
     /// </summary>
     public async Task<List<WiFi.Models.ClientWiFiMetrics>> GetClientMetricsAsync(

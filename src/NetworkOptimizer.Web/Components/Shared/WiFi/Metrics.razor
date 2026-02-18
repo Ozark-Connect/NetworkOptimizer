@@ -103,6 +103,10 @@
             <div class="band-chart-container" @key="@($"chart24-{VisibleBandCount}")">
                 <div class="band-chart-header">
                     <span class="band-label band-2ghz">2.4 GHz</span>
+                    @if (!string.IsNullOrEmpty(_selectedApMac) && _currentChannel24 != null)
+                    {
+                        <span class="channel-info">Ch @_currentChannel24 @(_currentWidth24 != null ? $"({_currentWidth24} MHz)" : "")</span>
+                    }
                 </div>
                 <ApexChart @ref="_chart24" TItem="ChartDataPoint"
                            Options="_chartOptions24"
@@ -129,6 +133,13 @@
                                      XValue="e => e.Timestamp"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data24Channel"
+                                     Name="Channel"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
                 </ApexChart>
             </div>
         }
@@ -139,6 +150,10 @@
             <div class="band-chart-container" @key="@($"chart5-{VisibleBandCount}")">
                 <div class="band-chart-header">
                     <span class="band-label band-5ghz">5 GHz</span>
+                    @if (!string.IsNullOrEmpty(_selectedApMac) && _currentChannel5 != null)
+                    {
+                        <span class="channel-info">Ch @_currentChannel5 @(_currentWidth5 != null ? $"({_currentWidth5} MHz)" : "")</span>
+                    }
                 </div>
                 <ApexChart @ref="_chart5" TItem="ChartDataPoint"
                            Options="_chartOptions5"
@@ -165,6 +180,13 @@
                                      XValue="e => e.Timestamp"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data5Channel"
+                                     Name="Channel"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
                 </ApexChart>
             </div>
         }
@@ -175,6 +197,10 @@
             <div class="band-chart-container" @key="@($"chart6-{VisibleBandCount}")">
                 <div class="band-chart-header">
                     <span class="band-label band-6ghz">6 GHz</span>
+                    @if (!string.IsNullOrEmpty(_selectedApMac) && _currentChannel6 != null)
+                    {
+                        <span class="channel-info">Ch @_currentChannel6 @(_currentWidth6 != null ? $"({_currentWidth6} MHz)" : "")</span>
+                    }
                 </div>
                 <ApexChart @ref="_chart6" TItem="ChartDataPoint"
                            Options="_chartOptions6"
@@ -197,6 +223,13 @@
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showTxRetries ? _data6TxRetries : _emptyData)"
                                      Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data6Channel"
+                                     Name="Channel"
                                      SeriesType="SeriesType.Line"
                                      XValue="e => e.Timestamp"
                                      YValue="e => e.Value"
@@ -229,6 +262,7 @@
     private int VisibleBandCount => (Show24 ? 1 : 0) + (Show5 ? 1 : 0) + (Show6 ? 1 : 0);
 
     private List<SiteWiFiMetrics> _metrics = new();
+    private List<ChannelChangeEvent> _channelEvents = new();
     private List<AccessPointSnapshot> _accessPoints = new();
 
     // Chart references
@@ -245,17 +279,28 @@
     private List<ChartDataPoint> _data24Airtime = new();
     private List<ChartDataPoint> _data24Interference = new();
     private List<ChartDataPoint> _data24TxRetries = new();
+    private List<ChartDataPoint> _data24Channel = new();
 
     private List<ChartDataPoint> _data5Airtime = new();
     private List<ChartDataPoint> _data5Interference = new();
     private List<ChartDataPoint> _data5TxRetries = new();
+    private List<ChartDataPoint> _data5Channel = new();
 
     private List<ChartDataPoint> _data6Airtime = new();
     private List<ChartDataPoint> _data6Interference = new();
     private List<ChartDataPoint> _data6TxRetries = new();
+    private List<ChartDataPoint> _data6Channel = new();
 
     // Empty data list for hidden series (keeps color indices stable)
     private readonly List<ChartDataPoint> _emptyData = new();
+
+    // Current channel info (from most recent data point, shown in headers)
+    private int? _currentChannel24;
+    private int? _currentWidth24;
+    private int? _currentChannel5;
+    private int? _currentWidth5;
+    private int? _currentChannel6;
+    private int? _currentWidth6;
 
     private readonly Dictionary<string, TimeSpan> _timeRanges = new()
     {
@@ -322,6 +367,7 @@
             {
                 new YAxis
                 {
+                    SeriesName = "Airtime",
                     Min = 0,
                     Max = 100,
                     Labels = new YAxisLabels
@@ -329,7 +375,10 @@
                         Style = new AxisLabelStyle { Colors = "#9ca3af" },
                         Formatter = "function(val) { return val + '%'; }"
                     }
-                }
+                },
+                new YAxis { Show = false, SeriesName = "Interference", Min = 0, Max = 100 },
+                new YAxis { Show = false, SeriesName = "TX Retries", Min = 0, Max = 100 },
+                new YAxis { Show = false, SeriesName = "Channel" }
             },
             Grid = new Grid
             {
@@ -343,7 +392,7 @@
             },
             Fill = new Fill
             {
-                Type = new List<FillType> { FillType.Gradient, FillType.Solid, FillType.Solid },
+                Type = new List<FillType> { FillType.Gradient, FillType.Solid, FillType.Solid, FillType.Solid },
                 Gradient = new FillGradient
                 {
                     ShadeIntensity = 0.3,
@@ -351,12 +400,16 @@
                     OpacityTo = 0.1
                 }
             },
-            Colors = new List<string> { "#2ba89a", "#a78bfa", "#ef5858" }, // Airtime, Interference, TX Retries
+            Colors = new List<string> { "#2ba89a", "#a78bfa", "#ef5858", "rgba(0,0,0,0)" },
             Legend = new Legend { Show = false },
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                Y = new TooltipY
+                {
+                    Formatter = "function(val, opts) { if (opts.seriesIndex === 3) return val ? 'Ch ' + Math.round(val) : ''; return val != null ? val.toFixed(1) + '%' : ''; }"
+                }
             }
         };
     }
@@ -413,10 +466,14 @@
             if (!string.IsNullOrEmpty(_selectedApMac))
             {
                 _metrics = await WiFiService.GetApMetricsAsync(new[] { _selectedApMac }, start, end, granularity);
+
+                // Fetch channel change events for this AP (fire-and-forget safe - returns empty on failure)
+                _channelEvents = await WiFiService.GetChannelChangeEventsAsync(start, end, _selectedApMac);
             }
             else
             {
                 _metrics = await WiFiService.GetSiteMetricsAsync(start, end, granularity);
+                _channelEvents = new();
             }
 
             // Transform data for charts
@@ -485,27 +542,183 @@
             }
         }
 
+        // Build channel timeline data (hidden series for tooltip display)
+        var new24Channel = new List<ChartDataPoint>();
+        var new5Channel = new List<ChartDataPoint>();
+        var new6Channel = new List<ChartDataPoint>();
+
+        if (!string.IsNullOrEmpty(_selectedApMac) && _metrics.Count > 0)
+        {
+            BuildChannelTimeline(RadioBand.Band2_4GHz, _metrics, new24Channel);
+            BuildChannelTimeline(RadioBand.Band5GHz, _metrics, new5Channel);
+            BuildChannelTimeline(RadioBand.Band6GHz, _metrics, new6Channel);
+        }
+
         // Assign new lists to trigger Blazor change detection
         _data24Airtime = new24Airtime;
         _data24Interference = new24Interference;
         _data24TxRetries = new24TxRetries;
+        _data24Channel = new24Channel;
         _data5Airtime = new5Airtime;
         _data5Interference = new5Interference;
         _data5TxRetries = new5TxRetries;
+        _data5Channel = new5Channel;
         _data6Airtime = new6Airtime;
         _data6Interference = new6Interference;
         _data6TxRetries = new6TxRetries;
+        _data6Channel = new6Channel;
+
+        // Build channel annotations when a single AP is selected
+        BuildChannelAnnotations();
 
         Logger.LogInformation("TransformDataForCharts complete: 2.4GHz={Count24}, 5GHz={Count5}, 6GHz={Count6}",
             _data24Airtime.Count, _data5Airtime.Count, _data6Airtime.Count);
+    }
 
-        // Log sample values from each band
-        if (_data24Airtime.Count > 0)
-            Logger.LogInformation("2.4GHz sample: Airtime={V}", _data24Airtime[0].Value);
-        if (_data5Airtime.Count > 0)
-            Logger.LogInformation("5GHz sample: Airtime={V}", _data5Airtime[0].Value);
-        if (_data6Airtime.Count > 0)
-            Logger.LogInformation("6GHz sample: Airtime={V}", _data6Airtime[0].Value);
+    private void BuildChannelAnnotations()
+    {
+        // Reset current channel display
+        _currentChannel24 = null; _currentWidth24 = null;
+        _currentChannel5 = null; _currentWidth5 = null;
+        _currentChannel6 = null; _currentWidth6 = null;
+
+        // Clear annotations
+        _chartOptions24.Annotations = null;
+        _chartOptions5.Annotations = null;
+        _chartOptions6.Annotations = null;
+
+        if (string.IsNullOrEmpty(_selectedApMac))
+            return;
+
+        // Get current channel from live AP radio table
+        var selectedAp = _accessPoints.FirstOrDefault(a => a.Mac == _selectedApMac);
+        if (selectedAp != null)
+        {
+            foreach (var radio in selectedAp.Radios)
+            {
+                switch (radio.Band)
+                {
+                    case RadioBand.Band2_4GHz:
+                        _currentChannel24 = radio.Channel;
+                        _currentWidth24 = radio.ChannelWidth;
+                        break;
+                    case RadioBand.Band5GHz:
+                        _currentChannel5 = radio.Channel;
+                        _currentWidth5 = radio.ChannelWidth;
+                        break;
+                    case RadioBand.Band6GHz:
+                        _currentChannel6 = radio.Channel;
+                        _currentWidth6 = radio.ChannelWidth;
+                        break;
+                }
+            }
+        }
+
+        // Build annotations from channel change events
+        if (_channelEvents.Count == 0)
+            return;
+
+        var annotations24 = new List<AnnotationsXAxis>();
+        var annotations5 = new List<AnnotationsXAxis>();
+        var annotations6 = new List<AnnotationsXAxis>();
+
+        int yOffset24 = -5, yOffset5 = -5, yOffset6 = -5;
+
+        foreach (var evt in _channelEvents.OrderBy(e => e.Timestamp))
+        {
+            var ts = evt.Timestamp.ToUnixTimeMilliseconds();
+
+            switch (evt.Band)
+            {
+                case RadioBand.Band2_4GHz:
+                    annotations24.Add(CreateChannelAnnotation(ts, evt.NewChannel, null, yOffset24));
+                    yOffset24 = yOffset24 == -5 ? -23 : -5;
+                    break;
+                case RadioBand.Band5GHz:
+                    annotations5.Add(CreateChannelAnnotation(ts, evt.NewChannel, null, yOffset5));
+                    yOffset5 = yOffset5 == -5 ? -23 : -5;
+                    break;
+                case RadioBand.Band6GHz:
+                    annotations6.Add(CreateChannelAnnotation(ts, evt.NewChannel, null, yOffset6));
+                    yOffset6 = yOffset6 == -5 ? -23 : -5;
+                    break;
+            }
+        }
+
+        if (annotations24.Count > 0) _chartOptions24.Annotations = new Annotations { Xaxis = annotations24 };
+        if (annotations5.Count > 0) _chartOptions5.Annotations = new Annotations { Xaxis = annotations5 };
+        if (annotations6.Count > 0) _chartOptions6.Annotations = new Annotations { Xaxis = annotations6 };
+    }
+
+    private static AnnotationsXAxis CreateChannelAnnotation(long timestampMs, int channel, int? width, int yOffset)
+    {
+        var label = width.HasValue ? $"Ch {channel} ({width} MHz)" : $"Ch {channel}";
+        return new AnnotationsXAxis
+        {
+            X = timestampMs,
+            BorderColor = "#64748b",
+            StrokeDashArray = 4,
+            Label = new Label
+            {
+                Text = label,
+                Style = new Style { Background = "#64748b", Color = "#f1f5f9", FontSize = "11px" },
+                Orientation = Orientation.Horizontal,
+                OffsetY = yOffset
+            }
+        };
+    }
+
+    private void BuildChannelTimeline(RadioBand band, List<SiteWiFiMetrics> metrics, List<ChartDataPoint> output)
+    {
+        // Get channel events for this band, sorted by time
+        var events = _channelEvents
+            .Where(e => e.Band == band)
+            .OrderBy(e => e.Timestamp)
+            .ToList();
+
+        // Determine the current channel from the live radio table
+        int? currentChannel = band switch
+        {
+            RadioBand.Band2_4GHz => _currentChannel24,
+            RadioBand.Band5GHz => _currentChannel5,
+            RadioBand.Band6GHz => _currentChannel6,
+            _ => null
+        };
+
+        if (events.Count == 0 && currentChannel == null)
+            return;
+
+        // Build timeline: for each metric timestamp, find the active channel
+        // If we have events, the channel before the first event = PreviousChannel of first event
+        // After each event, the channel = NewChannel of that event
+        foreach (var metric in metrics.OrderBy(m => m.Timestamp))
+        {
+            if (!metric.ByBand.ContainsKey(band))
+                continue;
+
+            var ts = metric.Timestamp.UtcDateTime;
+            int? channel = null;
+
+            // Find the most recent event at or before this timestamp
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].Timestamp <= metric.Timestamp)
+                {
+                    channel = events[i].NewChannel;
+                    break;
+                }
+            }
+
+            // If no event found (all events are after this point), use previous channel of first event
+            if (channel == null && events.Count > 0)
+                channel = events[0].PreviousChannel;
+
+            // Fallback to current channel from radio table
+            channel ??= currentChannel;
+
+            if (channel.HasValue)
+                output.Add(new ChartDataPoint(ts, channel.Value));
+        }
     }
 
     private async Task UpdateChartVisibility()
