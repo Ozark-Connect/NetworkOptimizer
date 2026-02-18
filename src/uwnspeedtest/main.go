@@ -18,7 +18,7 @@ var version = "dev"
 
 func main() {
 	streams := flag.Int("streams", 8, "Concurrent connections")
-	duration := flag.Int("duration", 10, "Seconds per phase")
+	duration := flag.Int("duration", 6, "Seconds per phase")
 	downloadOnly := flag.Bool("download-only", false, "Skip upload")
 	uploadOnly := flag.Bool("upload-only", false, "Skip download")
 	timeout := flag.Int("timeout", 90, "Overall timeout seconds")

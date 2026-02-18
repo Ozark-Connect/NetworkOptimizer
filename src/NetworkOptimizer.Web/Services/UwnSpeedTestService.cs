@@ -57,7 +57,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         report("Starting", 0, null);
 
-        var args = $"-streams {Streams} -servers {ServerCount} -duration 10 -timeout 90";
+        var args = $"-streams {Streams} -servers {ServerCount} -duration 6 -timeout 90";
 
         var psi = new ProcessStartInfo
         {

@@ -320,7 +320,8 @@ public class GatewayWanSpeedTestService
         {
             2 => (2, 8),
             3 => (2, 4),
-            _ => (1, 2) // 4+ WANs
+            4 => (1, 4),
+            _ => (1, 2) // 5+ WANs
         };
         var sshTasks = interfaces.Select(wan =>
         {
