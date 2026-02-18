@@ -128,7 +128,7 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	var serverInfoParts []string
 	for _, label := range seen {
 		if counts[label] > 1 {
-			serverInfoParts = append(serverInfoParts, fmt.Sprintf("%s (x%d)", label, counts[label]))
+			serverInfoParts = append(serverInfoParts, fmt.Sprintf("%s (%d)", label, counts[label]))
 		} else {
 			serverInfoParts = append(serverInfoParts, label)
 		}

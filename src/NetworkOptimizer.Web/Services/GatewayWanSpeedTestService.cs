@@ -391,7 +391,8 @@ public class GatewayWanSpeedTestService
         var dlJitters = new List<double>();
         var ulLatencies = new List<double>();
         var ulJitters = new List<double>();
-        var serverInfoParts = new List<string>();
+        var serverColoCounts = new Dictionary<string, int>();
+        var notesParts = new List<string>();
         string? primaryServerHost = null;
 
         foreach (var (json, wan) in results)
@@ -415,19 +416,50 @@ public class GatewayWanSpeedTestService
             if (json.Upload?.LoadedLatencyMs > 0) ulLatencies.Add(json.Upload.LoadedLatencyMs);
             if (json.Upload?.LoadedJitterMs > 0) ulJitters.Add(json.Upload.LoadedJitterMs);
 
+            // Collect individual server cities for collapsed DeviceName
+            var colo = json.Metadata?.Colo;
+            if (!string.IsNullOrEmpty(colo))
+            {
+                // Colo format: "Dallas, TX (x2) | Chicago, IL" - split on " | "
+                foreach (var part in colo.Split(" | ", StringSplitOptions.RemoveEmptyEntries))
+                {
+                    // Strip existing count suffix like " (x2)" to get base city
+                    var city = System.Text.RegularExpressions.Regex.Replace(part.Trim(), @"\s*\(x?\d+\)$", "");
+                    // Parse count if present, default to 1
+                    var countMatch = System.Text.RegularExpressions.Regex.Match(part, @"\(x?(\d+)\)");
+                    var count = countMatch.Success ? int.Parse(countMatch.Groups[1].Value) : 1;
+                    serverColoCounts[city] = serverColoCounts.GetValueOrDefault(city) + count;
+                }
+            }
+
+            // Build per-WAN breakdown for Notes
             var wanLabel = !string.IsNullOrEmpty(wan.Name) ? wan.Name : wan.Interface;
             var downMbps = (json.Download?.Bps ?? 0) / 1_000_000.0;
             var upMbps = (json.Upload?.Bps ?? 0) / 1_000_000.0;
-            serverInfoParts.Add($"{wanLabel}: {downMbps:F0}/{upMbps:F0}");
+            var parts = new List<string> { $"{wanLabel}: {downMbps:F0}/{upMbps:F0} Mbps" };
+            if (json.Latency != null)
+                parts.Add($"ping {json.Latency.UnloadedMs:F1}ms");
+            if (json.Download?.LoadedLatencyMs > 0)
+                parts.Add($"dl latency {json.Download.LoadedLatencyMs:F1}ms");
+            if (json.Upload?.LoadedLatencyMs > 0)
+                parts.Add($"ul latency {json.Upload.LoadedLatencyMs:F1}ms");
+            parts.Add($"{json.Streams} streams");
+            notesParts.Add(string.Join(", ", parts));
 
             primaryServerHost ??= json.Metadata?.ServerHost;
         }
+
+        var deviceName = serverColoCounts.Count > 0
+            ? string.Join(" | ", serverColoCounts.Select(kvp =>
+                kvp.Value > 1 ? $"{kvp.Key} ({kvp.Value})" : kvp.Key))
+            : "UWN";
 
         return new Iperf3Result
         {
             Direction = SpeedTestDirection.UwnWanGateway,
             DeviceHost = primaryServerHost ?? "UWN Test",
-            DeviceName = string.Join(" | ", serverInfoParts),
+            DeviceName = deviceName,
+            Notes = string.Join("\n", notesParts),
             DeviceType = "WAN",
             DownloadBitsPerSecond = totalDownBps,
             UploadBitsPerSecond = totalUpBps,
