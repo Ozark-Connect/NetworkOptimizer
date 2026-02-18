@@ -30,6 +30,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
+    private readonly UniFiConnectionService _connectionService;
 
     protected override SpeedTestDirection Direction => SpeedTestDirection.UwnWan;
 
@@ -43,11 +44,13 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
         IConfiguration configuration,
-        Iperf3ServerService iperf3ServerService)
+        Iperf3ServerService iperf3ServerService,
+        UniFiConnectionService connectionService)
         : base(dbFactory, pathAnalyzer, logger, iperf3ServerService)
     {
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
+        _connectionService = connectionService;
     }
 
     protected override async Task<Iperf3Result?> RunTestCoreAsync(
@@ -66,8 +69,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         // Phase 1: Acquire token and fetch IP info (0-3%)
         report("Acquiring token", 1, "Getting test token...");
         var token = await FetchTokenAsync(client, cancellationToken);
-        // Skip IP info in max mode - traffic will load balance across WANs so IP is unreliable
-        var ipInfo = MaxMode ? null : await FetchIpInfoAsync(client, cancellationToken);
+        var ipInfo = await FetchIpInfoAsync(client, cancellationToken);
         if (ipInfo != null)
             Logger.LogInformation("External IP: {Ip} ({Isp}), location: {Lat},{Lon}", ipInfo.Ip, ipInfo.Isp, ipInfo.Lat, ipInfo.Lon);
 
@@ -88,7 +90,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         SetMetadata(new WanTestMetadata(
             ServerInfo: serverDesc,
-            Location: ipInfo?.Isp ?? (servers[0].City + ", " + servers[0].Country),
+            Location: ipInfo?.Isp ?? (servers[0].City + ", " + (!string.IsNullOrEmpty(servers[0].CountryCode) ? servers[0].CountryCode : servers[0].Country)),
             WanIp: ipInfo?.Ip));
         report("Servers selected", 8, serverDesc);
 
@@ -154,13 +156,29 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             DurationSeconds = (int)DownloadDuration.TotalSeconds,
         };
 
-        // Identify WAN connection using external IP from UWN directory
+        // Identify WAN connection
         try
         {
-            var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
-                ipInfo?.Ip ?? "", downloadMbps, uploadMbps, cancellationToken);
-            result.WanNetworkGroup = wanGroup;
-            result.WanName = wanName;
+            // In max mode with multi-WAN, traffic load-balances across WANs so mark as All WANs
+            var isMultiWan = false;
+            if (MaxMode && _connectionService.IsConnected)
+            {
+                var networks = await _connectionService.GetNetworksAsync();
+                isMultiWan = networks.Count(n => n.IsWan && n.Enabled) > 1;
+            }
+
+            if (MaxMode && isMultiWan)
+            {
+                result.WanNetworkGroup = "ALL_WANS";
+                result.WanName = "All WANs";
+            }
+            else
+            {
+                var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
+                    ipInfo?.Ip ?? "", downloadMbps, uploadMbps, cancellationToken);
+                result.WanNetworkGroup = wanGroup;
+                result.WanName = wanName;
+            }
         }
         catch (Exception ex)
         {
@@ -401,14 +419,23 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         var direction = isUpload ? "upload" : "download";
 
         // Launch workers distributed round-robin across servers
+        // Each worker gets its own SocketsHttpHandler for a dedicated TCP connection,
+        // matching Go's per-goroutine http.Client pattern. Shared handlers cause
+        // connection pool contention that limits single-server throughput.
         var tasks = new Task[Concurrency];
         for (int w = 0; w < Concurrency; w++)
         {
             var server = servers[w % servers.Count];
             tasks[w] = Task.Run(async () =>
             {
-                using var workerClient = _httpClientFactory.CreateClient();
-                workerClient.Timeout = TimeSpan.FromSeconds(60);
+                using var handler = new SocketsHttpHandler
+                {
+                    MaxConnectionsPerServer = 1,
+                    PooledConnectionIdleTimeout = TimeSpan.FromSeconds(60),
+                    ConnectTimeout = TimeSpan.FromSeconds(10),
+                    EnableMultipleHttp2Connections = false,
+                };
+                using var workerClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
                 var readBuffer = isUpload ? null : new byte[81920];
 
                 while (!linked.Token.IsCancellationRequested)

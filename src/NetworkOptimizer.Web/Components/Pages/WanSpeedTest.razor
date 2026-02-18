@@ -131,13 +131,16 @@
             {
                 <div class="wan-metadata">
                     <div class="metadata-item">
-                        <span class="metadata-label">Test Servers</span>
+                        <span class="metadata-label">@(_metadata.ServerInfo?.Contains(" | ") == true ? "Test Servers" : "Test Server")</span>
                         <span class="metadata-value">@_metadata.ServerInfo</span>
                     </div>
-                    <div class="metadata-item">
-                        <span class="metadata-label">ISP</span>
-                        <span class="metadata-value">@_metadata.Location</span>
-                    </div>
+                    @if (!string.IsNullOrEmpty(_metadata.Location) && !(_maxMode && _hasMultipleWans))
+                    {
+                        <div class="metadata-item">
+                            <span class="metadata-label">ISP</span>
+                            <span class="metadata-value">@_metadata.Location</span>
+                        </div>
+                    }
                     @if (!string.IsNullOrEmpty(_metadata.WanIp))
                     {
                         <div class="metadata-item">
