@@ -120,9 +120,7 @@ public class ClientDashboardService
         // Run L2 trace
         try
         {
-            var serverIp = _configuration["HOST_IP"];
-            var path = await _pathAnalyzer.CalculatePathAsync(
-                clientIp, serverIp, retryOnFailure: false);
+            var path = await _pathAnalyzer.CalculatePathToGatewayAsync(clientIp);
 
             if (path.IsValid)
             {
