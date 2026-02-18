@@ -90,4 +90,34 @@ public class ScriptGeneratorTests
         Assert.Contains("* 0.3)", bootScript);
         Assert.DoesNotContain("0.30000000000000004", bootScript);
     }
+
+    [Fact]
+    public void GenerateAllScripts_ContainsIfbDeviceCheck_InBothScripts()
+    {
+        // Arrange
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Test WAN",
+            Interface = "eth3",
+            MaxDownloadSpeed = 100,
+            MinDownloadSpeed = 50,
+            AbsoluteMaxDownloadSpeed = 110,
+            PingHost = "8.8.8.8"
+        };
+
+        var generator = new ScriptGenerator(config);
+        var baseline = new Dictionary<string, string> { ["0_12"] = "95" };
+
+        // Act
+        var scripts = generator.GenerateAllScripts(baseline);
+        var bootScript = scripts.Values.First();
+
+        // Assert - IFB check appears in both embedded scripts
+        // The boot script contains both the speedtest and ping scripts via heredoc
+        Assert.Contains("ip link show \"$IFB_DEVICE\"", bootScript);
+        Assert.Contains("IFB device $IFB_DEVICE does not exist", bootScript);
+
+        // Should reference the correct IFB device name
+        Assert.Contains("IFB_DEVICE=\"ifbeth3\"", bootScript);
+    }
 }
