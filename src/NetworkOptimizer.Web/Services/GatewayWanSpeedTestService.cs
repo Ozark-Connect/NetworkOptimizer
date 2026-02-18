@@ -445,11 +445,11 @@ public class GatewayWanSpeedTestService
             var upMbps = (json.Upload?.Bps ?? 0) / 1_000_000.0;
             var parts = new List<string> { $"{wanLabel}: {downMbps:F0}/{upMbps:F0} Mbps" };
             if (json.Latency != null)
-                parts.Add($"ping {json.Latency.UnloadedMs:F1}ms");
+                parts.Add($"ping {json.Latency.UnloadedMs:F1} ms");
             if (json.Download?.LoadedLatencyMs > 0)
-                parts.Add($"dl latency {json.Download.LoadedLatencyMs:F1}ms");
+                parts.Add($"dl latency {json.Download.LoadedLatencyMs:F1} ms");
             if (json.Upload?.LoadedLatencyMs > 0)
-                parts.Add($"ul latency {json.Upload.LoadedLatencyMs:F1}ms");
+                parts.Add($"ul latency {json.Upload.LoadedLatencyMs:F1} ms");
             parts.Add($"{json.Streams} streams");
             notesParts.Add(string.Join(", ", parts));
 
