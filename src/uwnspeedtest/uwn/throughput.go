@@ -14,16 +14,25 @@ import (
 )
 
 const (
-	uploadSize = 5_000_000 // 5 MB per upload request
+	uploadSize    = 2_000_000 // 2 MB per upload request
+	warmupSkip    = 0.10       // Skip first 10% of samples
 )
 
 // MeasureThroughput runs concurrent download or upload workers distributed
-// round-robin across the selected servers. A latency probe runs concurrently
-// to measure loaded latency.
+// round-robin across the selected servers. Uses a shared HTTP transport with
+// connection pooling and large TCP buffers for high-BDP links.
 func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, servers []Server, token string) (*speedtest.ThroughputResult, error) {
 	duration := time.Duration(cfg.DurationSecs) * time.Second
 	ctx, cancel := context.WithTimeout(ctx, duration+5*time.Second)
 	defer cancel()
+
+	// Shared transport: connection pooling across all workers, large buffers
+	transport, err := speedtest.NewThroughputTransport(cfg.Interface, cfg.Streams)
+	if err != nil {
+		return nil, fmt.Errorf("transport: %w", err)
+	}
+	client := &http.Client{Timeout: 60 * time.Second, Transport: transport}
+	defer transport.CloseIdleConnections()
 
 	var totalBytes atomic.Int64
 	var activeWorkers atomic.Int32
@@ -32,7 +41,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 	var latencyMu sync.Mutex
 	var loadedLatencies []float64
 
-	// Upload payload (shared, content is irrelevant)
+	// Upload payload (shared across workers, content is irrelevant)
 	var uploadPayload []byte
 	if isUpload {
 		uploadPayload = make([]byte, uploadSize)
@@ -46,12 +55,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 		wg.Add(1)
 		go func(srv Server) {
 			defer wg.Done()
-			client, err := speedtest.NewWorkerClient(60*time.Second, cfg.Interface)
-			if err != nil {
-				return
-			}
 			activeWorkers.Add(1)
-			defer client.CloseIdleConnections()
 
 			buf := make([]byte, speedtest.ReadBufferSize)
 
@@ -86,7 +90,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 						case <-ctx.Done():
 							return
 						default:
-							time.Sleep(100 * time.Millisecond)
+							time.Sleep(50 * time.Millisecond)
 							continue
 						}
 					}
@@ -94,7 +98,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 					resp.Body.Close()
 
 					if resp.StatusCode != http.StatusOK {
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(50 * time.Millisecond)
 					}
 				} else {
 					url := srv.URL + "/download"
@@ -113,18 +117,17 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 						case <-ctx.Done():
 							return
 						default:
-							time.Sleep(100 * time.Millisecond)
+							time.Sleep(50 * time.Millisecond)
 							continue
 						}
 					}
 
 					if resp.StatusCode != http.StatusOK {
 						resp.Body.Close()
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(50 * time.Millisecond)
 						continue
 					}
 
-					// Stream download, counting bytes incrementally
 					for {
 						n, err := resp.Body.Read(buf)
 						if n > 0 {
@@ -140,7 +143,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 		}(server)
 	}
 
-	// Launch latency probe against first server
+	// Launch latency probe (separate client to avoid contention with throughput)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -247,7 +250,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 	}
 
 	// Skip warmup samples, compute mean of steady-state
-	skipCount := int(float64(len(mbpsSamples)) * speedtest.WarmupFraction)
+	skipCount := int(float64(len(mbpsSamples)) * warmupSkip)
 	steadySamples := mbpsSamples[skipCount:]
 	if len(steadySamples) == 0 {
 		steadySamples = mbpsSamples

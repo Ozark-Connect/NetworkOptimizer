@@ -16,7 +16,7 @@ const (
 	SampleInterval       = 200 * time.Millisecond
 	ProbeInterval        = 500 * time.Millisecond
 	WarmupFraction       = 0.20 // Skip first 20% of samples
-	ReadBufferSize       = 81920 // 80 KB read buffer per worker
+	ReadBufferSize       = 262144 // 256 KB read buffer per worker
 )
 
 // NewWorkerClient creates an HTTP client that forces HTTP/1.1 and optionally
