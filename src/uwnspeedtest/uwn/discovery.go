@@ -14,7 +14,7 @@ import (
 const (
 	tokenURL     = "https://sp-dir.uwn.com/api/v1/tokens"
 	serversURL   = "https://sp-dir.uwn.com/api/v2/servers"
-	userAgent    = "uwnspeedtest/1.0"
+	userAgent    = "ui-speed-linux-arm64/1.3.4"
 	pingAttempts = 3
 	pingTimeout  = 3 * time.Second // per-ping timeout
 )

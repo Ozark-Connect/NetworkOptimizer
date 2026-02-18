@@ -17,6 +17,9 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 {
     private const string TokenUrl = "https://sp-dir.uwn.com/api/v1/tokens";
     private const string ServersUrl = "https://sp-dir.uwn.com/api/v2/servers";
+    private const string IpInfoUrl = "https://sp-dir.uwn.com/api/v1/ip";
+
+    private const string UserAgent = "ui-speed-linux-arm64/1.3.4";
 
     private const int Concurrency = 8;
     private const int ServerCount = 4;
@@ -57,11 +60,14 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         using var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", UserAgent);
 
-        // Phase 1: Acquire token (0-3%)
+        // Phase 1: Acquire token and fetch IP info (0-3%)
         report("Acquiring token", 1, "Getting test token...");
         var token = await FetchTokenAsync(client, cancellationToken);
+        var ipInfo = await FetchIpInfoAsync(client, cancellationToken);
+        if (ipInfo != null)
+            Logger.LogInformation("External IP: {Ip} ({Isp}), location: {Lat},{Lon}", ipInfo.Ip, ipInfo.Isp, ipInfo.Lat, ipInfo.Lon);
 
         // Phase 2: Discover servers (3-8%)
         report("Discovering servers", 3, "Finding nearby servers...");
@@ -75,22 +81,10 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         var primaryServerHost = new Uri(servers[0].Url).Host;
         Logger.LogInformation("Selected servers: {Servers} (primary: {PrimaryHost})", serverDesc, primaryServerHost);
 
-        // Discover our external IP (best-effort - may be inaccurate with WAN load balancing)
-        string? externalIp = null;
-        try
-        {
-            externalIp = (await client.GetStringAsync("https://api.ipify.org", cancellationToken)).Trim();
-            Logger.LogInformation("External IP: {ExternalIp}", externalIp);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Could not discover external IP");
-        }
-
         SetMetadata(new WanTestMetadata(
             ServerInfo: serverDesc,
-            Location: servers[0].City + ", " + servers[0].Country,
-            WanIp: externalIp));
+            Location: ipInfo != null ? $"{ipInfo.Isp} ({ipInfo.Ip})" : servers[0].City + ", " + servers[0].Country,
+            WanIp: ipInfo?.Ip));
         report("Servers selected", 8, serverDesc);
 
         // Phase 3: Latency (8-15%)
@@ -155,11 +149,11 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             DurationSeconds = (int)DownloadDuration.TotalSeconds,
         };
 
-        // Identify WAN connection using external IP when available, otherwise speed-based matching
+        // Identify WAN connection using external IP from UWN directory
         try
         {
             var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
-                externalIp ?? "", downloadMbps, uploadMbps, cancellationToken);
+                ipInfo?.Ip ?? "", downloadMbps, uploadMbps, cancellationToken);
             result.WanNetworkGroup = wanGroup;
             result.WanName = wanName;
         }
@@ -189,6 +183,37 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
     };
 
     #region UWN Protocol
+
+    private record UwnIpInfo(string Ip, string? Isp, double Lat, double Lon);
+
+    private static async Task<UwnIpInfo?> FetchIpInfoAsync(HttpClient client, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await client.GetAsync(IpInfoUrl, ct);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            return new UwnIpInfo(
+                Ip: root.GetProperty("ip").GetString() ?? "",
+                Isp: root.TryGetProperty("isp", out var isp) ? isp.GetString() : null,
+                Lat: root.TryGetProperty("lat", out var lat) ? lat.GetDouble() : 0,
+                Lon: root.TryGetProperty("lon", out var lon) ? lon.GetDouble() : 0);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static HttpRequestMessage CreateRequest(HttpMethod method, string url, string token, HttpContent? content = null)
+    {
+        var request = new HttpRequestMessage(method, url) { Content = content };
+        request.Headers.TryAddWithoutValidation("x-test-token", token);
+        request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+        return request;
+    }
 
     private static async Task<string> FetchTokenAsync(HttpClient client, CancellationToken ct)
     {
@@ -266,9 +291,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         for (int i = 0; i < 3; i++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("x-test-token", token);
-            request.Headers.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+            using var request = CreateRequest(HttpMethod.Get, url, token);
 
             var sw = Stopwatch.StartNew();
             using var response = await client.SendAsync(request, ct);
@@ -291,22 +314,16 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         var latencies = new List<double>();
 
         // Warmup
-        using (var warmReq = new HttpRequestMessage(HttpMethod.Get, url))
+        try
         {
-            warmReq.Headers.TryAddWithoutValidation("x-test-token", token);
-            warmReq.Headers.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
-            try
-            {
-                using var resp = await client.SendAsync(warmReq, ct);
-            }
-            catch { /* warmup failure is ok */ }
+            using var warmReq = CreateRequest(HttpMethod.Get, url, token);
+            using var resp = await client.SendAsync(warmReq, ct);
         }
+        catch { /* warmup failure is ok */ }
 
         for (int i = 0; i < 20; i++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("x-test-token", token);
-            request.Headers.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+            using var request = CreateRequest(HttpMethod.Get, url, token);
 
             var sw = Stopwatch.StartNew();
             using var response = await client.SendAsync(request, ct);
@@ -376,9 +393,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                             var url = server.Url + "/upload";
                             using var content = new ProgressContent(uploadPayload!, bytesWritten =>
                                 Interlocked.Add(ref totalBytes, bytesWritten));
-                            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
-                            request.Headers.TryAddWithoutValidation("x-test-token", token);
-                            request.Headers.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+                            using var request = CreateRequest(HttpMethod.Post, url, token, content);
 
                             using var response = await workerClient.SendAsync(request, linked.Token);
                             Interlocked.Increment(ref requestCount);
@@ -392,9 +407,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                         else
                         {
                             var url = server.Url + "/download";
-                            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-                            request.Headers.TryAddWithoutValidation("x-test-token", token);
-                            request.Headers.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+                            using var request = CreateRequest(HttpMethod.Get, url, token);
 
                             using var response = await workerClient.SendAsync(request,
                                 HttpCompletionOption.ResponseHeadersRead, linked.Token);
@@ -436,9 +449,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             {
                 try
                 {
-                    using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
-                    request.Headers.TryAddWithoutValidation("x-test-token", token);
-                    request.Headers.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+                    using var request = CreateRequest(HttpMethod.Get, probeUrl, token);
 
                     var sw = Stopwatch.StartNew();
                     using var response = await probeClient.SendAsync(request, linked.Token);
