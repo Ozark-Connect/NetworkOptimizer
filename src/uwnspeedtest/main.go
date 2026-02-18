@@ -75,11 +75,20 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 		fmt.Fprintf(os.Stderr, "Binding to interface %s\n", cfg.Interface)
 	}
 
-	// Phase 1: Acquire token
+	// Phase 1: Acquire token and IP info
 	fmt.Fprintf(os.Stderr, "Acquiring test token...\n")
 	token, err := uwn.FetchToken(ctx, client)
 	if err != nil {
 		return errorResult("token: " + err.Error())
+	}
+
+	// Fetch external IP info (non-fatal - used for WAN identification)
+	var ipInfo *uwn.IpInfo
+	ipInfo, err = uwn.FetchIpInfo(ctx, client)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not fetch IP info: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "IP: %s (%s)\n", ipInfo.IP, ipInfo.ISP)
 	}
 
 	// Phase 2: Discover and select servers
@@ -90,8 +99,12 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	}
 	fmt.Fprintf(os.Stderr, "Found %d servers, selecting best %d...\n", len(candidates), cfg.ServerCount)
 
-	// Use 0,0 for client coords - servers will be sorted by ping RTT
-	servers, err := uwn.SelectServers(ctx, client, token, candidates, cfg.ServerCount, 0, 0)
+	// Use IP info coords for geo sorting if available
+	var clientLat, clientLon float64
+	if ipInfo != nil {
+		clientLat, clientLon = ipInfo.Lat, ipInfo.Lon
+	}
+	servers, err := uwn.SelectServers(ctx, client, token, candidates, cfg.ServerCount, clientLat, clientLon)
 	if err != nil {
 		return errorResult("select servers: " + err.Error())
 	}
@@ -126,6 +139,10 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	result.Metadata = &speedtest.Metadata{
 		Colo:       strings.Join(serverInfoParts, " | "),
 		ServerHost: serverHost,
+	}
+	if ipInfo != nil {
+		result.Metadata.IP = ipInfo.IP
+		result.Metadata.Country = ipInfo.ISP
 	}
 	fmt.Fprintf(os.Stderr, "Servers: %s\n", result.Metadata.Colo)
 

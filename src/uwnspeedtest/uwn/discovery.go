@@ -14,10 +14,44 @@ import (
 const (
 	tokenURL     = "https://sp-dir.uwn.com/api/v1/tokens"
 	serversURL   = "https://sp-dir.uwn.com/api/v2/servers"
+	ipInfoURL    = "https://sp-dir.uwn.com/api/v1/ip"
 	userAgent    = "ui-speed-linux-arm64/1.3.4"
 	pingAttempts = 3
 	pingTimeout  = 3 * time.Second // per-ping timeout
 )
+
+// IpInfo holds the external IP and ISP information from the UWN API.
+type IpInfo struct {
+	IP  string  `json:"ip"`
+	ISP string  `json:"isp"`
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
+}
+
+// FetchIpInfo retrieves external IP and ISP information from the UWN API.
+func FetchIpInfo(ctx context.Context, client *http.Client) (*IpInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ipInfoURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ip info returned HTTP %d", resp.StatusCode)
+	}
+
+	var info IpInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
 
 // FetchToken acquires a test token from the UWN directory service.
 func FetchToken(ctx context.Context, client *http.Client) (string, error) {

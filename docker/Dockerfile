@@ -38,17 +38,25 @@ RUN dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     --no-restore \
     -p:MinVerVersionOverride=${VERSION}
 
-# Stage 2: Build uwnspeedtest Go binary for gateway-direct WAN speed tests
+# Stage 2: Build uwnspeedtest Go binaries
+# - Container's native arch: for server-side WAN speed tests (local execution)
+# - linux/arm64: for gateway-direct WAN speed tests (deployed via SSH to UniFi gateways)
 FROM golang:1.22-alpine AS uwnspeedtest-build
 ARG VERSION=0.0.0
+ARG TARGETARCH=amd64
 WORKDIR /src
 # Copy both modules (uwnspeedtest imports cfspeedtest/speedtest)
 COPY src/cfspeedtest/ cfspeedtest/
 COPY src/uwnspeedtest/ uwnspeedtest/
 WORKDIR /src/uwnspeedtest
+# Build for container's target architecture (local server-side tests)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /uwnspeedtest-local .
+# Build for gateway (always linux/arm64, deployed to UniFi gateways via SSH)
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION}" \
-    -o /uwnspeedtest .
+    -o /uwnspeedtest-gateway .
 
 # Stage 3: Build iperf3 from source for latest version
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS iperf-build
@@ -73,6 +81,7 @@ RUN curl -fLO --retry 3 --retry-delay 5 https://github.com/esnet/iperf/releases/
 
 # Stage 4: Runtime stage with ASP.NET runtime only
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+ARG TARGETARCH=amd64
 WORKDIR /app
 
 # Install necessary utilities (without iperf3 - we copy it from build)
@@ -93,9 +102,12 @@ RUN ldconfig
 # Copy published application
 COPY --from=build /app/publish .
 
-# Copy uwnspeedtest binary for gateway deployment
+# Copy uwnspeedtest binaries:
+# - Local binary for server-side WAN speed tests (matches container arch)
+# - Gateway binary for deployment via SSH to UniFi gateways (always linux/arm64)
 RUN mkdir -p /app/tools
-COPY --from=uwnspeedtest-build /uwnspeedtest /app/tools/uwnspeedtest-linux-arm64
+COPY --from=uwnspeedtest-build /uwnspeedtest-local /app/tools/uwnspeedtest-linux-${TARGETARCH:-amd64}
+COPY --from=uwnspeedtest-build /uwnspeedtest-gateway /app/tools/uwnspeedtest-linux-arm64
 
 # Create directories for volumes
 RUN mkdir -p /app/data /app/ssh-keys /app/logs
