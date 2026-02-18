@@ -6823,6 +6823,16 @@ a.path-hop.hop-clickable:hover {
     fill: #f1f5f9 !important;
 }
 
+/* Hide hover dots and tooltip markers for transparent (hidden) series */
+.apexcharts-tooltip-marker[style*="rgba(0"],
+.apexcharts-tooltip-marker[style*="transparent"] {
+    display: none !important;
+}
+.apexcharts-marker[fill="rgba(0,0,0,0)"],
+.apexcharts-marker[fill="transparent"] {
+    opacity: 0 !important;
+}
+
 .apexcharts-text {
     fill: #9ca3af !important;
 }

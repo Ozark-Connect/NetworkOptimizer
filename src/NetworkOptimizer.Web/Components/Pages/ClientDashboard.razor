@@ -1224,7 +1224,6 @@
     {
         // Build JS array of AP names for lookup in tooltip
         var apArray = string.Join(",", _apNameLookup.Select(n => "'" + n.Replace("'", "\\'") + "'"));
-        var bands = "{'2.4':'2.4 GHz','5':'5 GHz','6':'6 GHz'}";
 
         _signalChartOptions.Tooltip = new Tooltip
         {
@@ -1232,7 +1231,21 @@
             X = new TooltipX { Format = "MMM dd, HH:mm" },
             Y = new TooltipY
             {
-                Formatter = $"function(val, opts) {{ var i = opts.seriesIndex; if (i === 0) return val + ' dBm'; if (i === 1) return val ? 'Ch ' + Math.round(val) : ''; if (i === 2) {{ var aps = [{apArray}]; return aps[Math.round(val)] || ''; }} if (i === 3) {{ var b = {bands}; return b[String(val)] || ''; }} return val; }}"
+                Formatter = $@"function(val, opts) {{
+                    var i = opts.seriesIndex;
+                    if (i === 0) return val + ' dBm';
+                    if (i === 1) return val ? 'Ch ' + Math.round(val) : '';
+                    if (i === 2) {{ var aps = [{apArray}]; return aps[Math.round(val)] || ''; }}
+                    if (i === 3) {{
+                        var bands = {{
+                            '2.4': '<span style=""color:#fbbf24"">2.4 GHz</span>',
+                            '5': '<span style=""color:#3b82f6"">5 GHz</span>',
+                            '6': '<span style=""color:#a855f7"">6 GHz</span>'
+                        }};
+                        return bands[String(val)] || '';
+                    }}
+                    return val;
+                }}"
             }
         };
     }
@@ -1854,7 +1867,6 @@
                 new YAxis { Show = false, SeriesName = "Band" }
             },
             Colors = new List<string> { "#3b82f6", "rgba(0,0,0,0)", "rgba(0,0,0,0)", "rgba(0,0,0,0)" },
-            Markers = new Markers { Size = 0 },
             Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
             Fill = new Fill
             {
