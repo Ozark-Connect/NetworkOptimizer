@@ -826,6 +826,7 @@
 
     // Polling
     private System.Threading.Timer? _pollTimer;
+    private bool _isTooltipActive;
 
     // GPS
     private double? _gpsLat;
@@ -1052,9 +1053,14 @@
                 if (_pollCount == 1 && _client.IsWired)
                     _isLogging = false;
 
+                // Check if user is hovering a chart tooltip
+                try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
+                catch { _isTooltipActive = false; }
+
                 // Refresh the active tab data every poll
                 await LoadTabDataAsync();
-                await UpdateActiveChartsAsync();
+                if (!_isTooltipActive)
+                    await UpdateActiveChartsAsync();
 
                 // Add to live signal chart data
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
@@ -1084,7 +1090,10 @@
                     if (_signalApData.Count > 360) _signalApData.RemoveAt(0);
                     if (_signalBandData.Count > 360) _signalBandData.RemoveAt(0);
 
-                    try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
+                    if (!_isTooltipActive)
+                    {
+                        try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
+                    }
 
                     // Add live signal map point when GPS is available
                     if (_gpsLat.HasValue && _gpsLng.HasValue)
@@ -1109,7 +1118,10 @@
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
-                    try { if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true); } catch { }
+                    if (!_isTooltipActive)
+                    {
+                        try { if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true); } catch { }
+                    }
                 }
             }
         }
