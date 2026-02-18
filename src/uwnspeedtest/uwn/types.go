@@ -29,4 +29,5 @@ type UwnConfig struct {
 	DownloadOnly bool
 	UploadOnly   bool
 	TimeoutSecs  int
+	StartAt      int64 // Unix timestamp to synchronize throughput start (0 = start immediately)
 }

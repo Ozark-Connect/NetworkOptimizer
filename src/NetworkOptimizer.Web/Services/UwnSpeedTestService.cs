@@ -25,8 +25,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
     protected override SpeedTestDirection[] OwnedDirections =>
         [SpeedTestDirection.UwnWan, SpeedTestDirection.CloudflareWan];
 
-    private int Streams => MaxMode ? 16 : 8;
-    private int ServerCount => MaxMode ? 4 : 2;
+    private int Streams => MaxMode ? 24 : 12;
+    private int ServerCount => MaxMode ? 5 : 3;
 
     public UwnSpeedTestService(
         ILogger<UwnSpeedTestService> logger,

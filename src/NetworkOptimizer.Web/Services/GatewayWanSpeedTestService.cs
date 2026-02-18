@@ -274,7 +274,7 @@ public class GatewayWanSpeedTestService
             ifaceArg = $" --interface {interfaceName}";
         }
 
-        var maxArgs = maxMode ? " -streams 16 -servers 4" : " -servers 2";
+        var maxArgs = maxMode ? " -streams 24 -servers 5" : " -streams 12 -servers 3";
         var command = $"{RemoteBinaryPath}{ifaceArg}{maxArgs} 2>/dev/null";
         var sshTask = _gatewaySsh.RunCommandAsync(
             command, TimeSpan.FromSeconds(120), cancellationToken);
@@ -317,10 +317,13 @@ public class GatewayWanSpeedTestService
             ValidateInterfaceName(wan.Interface);
 
         // Launch parallel SSH commands, one per WAN interface
-        var maxArgs = maxMode ? " -streams 16 -servers 4" : " -servers 2";
+        // Synchronized start: all binaries do setup independently, then begin throughput at the same time
+        // Lighter per-WAN config since N instances run simultaneously on the gateway
+        var startAt = DateTimeOffset.UtcNow.AddSeconds(8).ToUnixTimeSeconds();
+        var perWanArgs = maxMode ? " -streams 16 -servers 4" : " -streams 8 -servers 3";
         var sshTasks = interfaces.Select(wan =>
         {
-            var cmd = $"{RemoteBinaryPath} --interface {wan.Interface}{maxArgs} 2>/dev/null";
+            var cmd = $"{RemoteBinaryPath} --interface {wan.Interface}{perWanArgs} -start-at {startAt} 2>/dev/null";
             return _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(120), cancellationToken);
         }).ToList();
 

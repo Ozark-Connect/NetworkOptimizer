@@ -25,6 +25,7 @@ func main() {
 	iface := flag.String("interface", "", "Network interface to bind to (e.g. eth4)")
 	showVersion := flag.Bool("version", false, "Print version")
 	serverCount := flag.Int("servers", 1, "Number of servers to use for throughput")
+	startAt := flag.Int64("start-at", 0, "Unix timestamp to start throughput (for synchronized parallel tests)")
 
 	flag.Parse()
 
@@ -41,6 +42,7 @@ func main() {
 		DownloadOnly: *downloadOnly,
 		UploadOnly:   *uploadOnly,
 		TimeoutSecs:  *timeout,
+		StartAt:      *startAt,
 	}
 
 	result := run(cfg)
@@ -154,6 +156,21 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	}
 	result.Latency = latency
 	fmt.Fprintf(os.Stderr, "Latency: %.1f ms (jitter: %.1f ms)\n", latency.UnloadedMs, latency.JitterMs)
+
+	// Synchronized start: wait until the specified time before starting throughput
+	if cfg.StartAt > 0 {
+		startTime := time.Unix(cfg.StartAt, 0)
+		wait := time.Until(startTime)
+		if wait > 0 {
+			fmt.Fprintf(os.Stderr, "Waiting %.1fs for synchronized start...\n", wait.Seconds())
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return errorResult("timeout waiting for start")
+			}
+		}
+		fmt.Fprintf(os.Stderr, "Starting throughput test\n")
+	}
 
 	// Phase 4: Download
 	if !cfg.UploadOnly {
