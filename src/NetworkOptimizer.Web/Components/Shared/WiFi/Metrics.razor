@@ -133,6 +133,13 @@
                                      XValue="e => e.Timestamp"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data24Channel"
+                                     Name="Channel"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
                 </ApexChart>
             </div>
         }
@@ -173,6 +180,13 @@
                                      XValue="e => e.Timestamp"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data5Channel"
+                                     Name="Channel"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
                 </ApexChart>
             </div>
         }
@@ -209,6 +223,13 @@
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showTxRetries ? _data6TxRetries : _emptyData)"
                                      Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data6Channel"
+                                     Name="Channel"
                                      SeriesType="SeriesType.Line"
                                      XValue="e => e.Timestamp"
                                      YValue="e => e.Value"
@@ -258,14 +279,17 @@
     private List<ChartDataPoint> _data24Airtime = new();
     private List<ChartDataPoint> _data24Interference = new();
     private List<ChartDataPoint> _data24TxRetries = new();
+    private List<ChartDataPoint> _data24Channel = new();
 
     private List<ChartDataPoint> _data5Airtime = new();
     private List<ChartDataPoint> _data5Interference = new();
     private List<ChartDataPoint> _data5TxRetries = new();
+    private List<ChartDataPoint> _data5Channel = new();
 
     private List<ChartDataPoint> _data6Airtime = new();
     private List<ChartDataPoint> _data6Interference = new();
     private List<ChartDataPoint> _data6TxRetries = new();
+    private List<ChartDataPoint> _data6Channel = new();
 
     // Empty data list for hidden series (keeps color indices stable)
     private readonly List<ChartDataPoint> _emptyData = new();
@@ -350,6 +374,15 @@
                         Style = new AxisLabelStyle { Colors = "#9ca3af" },
                         Formatter = "function(val) { return val + '%'; }"
                     }
+                },
+                new YAxis
+                {
+                    Show = false,
+                    SeriesName = "Channel",
+                    Labels = new YAxisLabels
+                    {
+                        Formatter = "function(val) { return val ? 'Ch ' + Math.round(val) : ''; }"
+                    }
                 }
             },
             Grid = new Grid
@@ -364,7 +397,7 @@
             },
             Fill = new Fill
             {
-                Type = new List<FillType> { FillType.Gradient, FillType.Solid, FillType.Solid },
+                Type = new List<FillType> { FillType.Gradient, FillType.Solid, FillType.Solid, FillType.Solid },
                 Gradient = new FillGradient
                 {
                     ShadeIntensity = 0.3,
@@ -372,12 +405,16 @@
                     OpacityTo = 0.1
                 }
             },
-            Colors = new List<string> { "#2ba89a", "#a78bfa", "#ef5858" }, // Airtime, Interference, TX Retries
+            Colors = new List<string> { "#2ba89a", "#a78bfa", "#ef5858", "rgba(0,0,0,0)" },
             Legend = new Legend { Show = false },
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                Y = new TooltipY
+                {
+                    Formatter = "function(val, opts) { if (opts.seriesIndex === 3) return val ? 'Ch ' + Math.round(val) : ''; return val != null ? val.toFixed(1) + '%' : ''; }"
+                }
             }
         };
     }
@@ -510,16 +547,31 @@
             }
         }
 
+        // Build channel timeline data (hidden series for tooltip display)
+        var new24Channel = new List<ChartDataPoint>();
+        var new5Channel = new List<ChartDataPoint>();
+        var new6Channel = new List<ChartDataPoint>();
+
+        if (!string.IsNullOrEmpty(_selectedApMac) && _metrics.Count > 0)
+        {
+            BuildChannelTimeline(RadioBand.Band2_4GHz, _metrics, new24Channel);
+            BuildChannelTimeline(RadioBand.Band5GHz, _metrics, new5Channel);
+            BuildChannelTimeline(RadioBand.Band6GHz, _metrics, new6Channel);
+        }
+
         // Assign new lists to trigger Blazor change detection
         _data24Airtime = new24Airtime;
         _data24Interference = new24Interference;
         _data24TxRetries = new24TxRetries;
+        _data24Channel = new24Channel;
         _data5Airtime = new5Airtime;
         _data5Interference = new5Interference;
         _data5TxRetries = new5TxRetries;
+        _data5Channel = new5Channel;
         _data6Airtime = new6Airtime;
         _data6Interference = new6Interference;
         _data6TxRetries = new6TxRetries;
+        _data6Channel = new6Channel;
 
         // Build channel annotations when a single AP is selected
         BuildChannelAnnotations();
@@ -619,6 +671,59 @@
                 OffsetY = yOffset
             }
         };
+    }
+
+    private void BuildChannelTimeline(RadioBand band, List<SiteWiFiMetrics> metrics, List<ChartDataPoint> output)
+    {
+        // Get channel events for this band, sorted by time
+        var events = _channelEvents
+            .Where(e => e.Band == band)
+            .OrderBy(e => e.Timestamp)
+            .ToList();
+
+        // Determine the current channel from the live radio table
+        int? currentChannel = band switch
+        {
+            RadioBand.Band2_4GHz => _currentChannel24,
+            RadioBand.Band5GHz => _currentChannel5,
+            RadioBand.Band6GHz => _currentChannel6,
+            _ => null
+        };
+
+        if (events.Count == 0 && currentChannel == null)
+            return;
+
+        // Build timeline: for each metric timestamp, find the active channel
+        // If we have events, the channel before the first event = PreviousChannel of first event
+        // After each event, the channel = NewChannel of that event
+        foreach (var metric in metrics.OrderBy(m => m.Timestamp))
+        {
+            if (!metric.ByBand.ContainsKey(band))
+                continue;
+
+            var ts = metric.Timestamp.UtcDateTime;
+            int? channel = null;
+
+            // Find the most recent event at or before this timestamp
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                if (events[i].Timestamp <= metric.Timestamp)
+                {
+                    channel = events[i].NewChannel;
+                    break;
+                }
+            }
+
+            // If no event found (all events are after this point), use previous channel of first event
+            if (channel == null && events.Count > 0)
+                channel = events[0].PreviousChannel;
+
+            // Fallback to current channel from radio table
+            channel ??= currentChannel;
+
+            if (channel.HasValue)
+                output.Add(new ChartDataPoint(ts, channel.Value));
+        }
     }
 
     private async Task UpdateChartVisibility()
