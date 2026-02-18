@@ -418,31 +418,25 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         var uploadPayload = isUpload ? new byte[UploadBytesPerRequest] : null;
         var direction = isUpload ? "upload" : "download";
 
-        // Launch workers distributed round-robin across servers
-        // Each worker gets its own SocketsHttpHandler for a dedicated TCP connection,
-        // matching Go's per-goroutine http.Client pattern. Shared handlers cause
-        // connection pool contention that limits single-server throughput.
+        // Launch workers distributed round-robin across servers.
+        // UWN download responses are only 200KB each, so we need many concurrent
+        // requests to saturate the link. Each "worker" fires a batch of parallel
+        // requests and immediately replaces completed ones (request pipelining).
         var tasks = new Task[Concurrency];
         for (int w = 0; w < Concurrency; w++)
         {
             var server = servers[w % servers.Count];
             tasks[w] = Task.Run(async () =>
             {
-                using var handler = new SocketsHttpHandler
-                {
-                    MaxConnectionsPerServer = 1,
-                    PooledConnectionIdleTimeout = TimeSpan.FromSeconds(60),
-                    ConnectTimeout = TimeSpan.FromSeconds(10),
-                    EnableMultipleHttp2Connections = false,
-                };
-                using var workerClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
-                var readBuffer = isUpload ? null : new byte[81920];
+                using var workerClient = _httpClientFactory.CreateClient();
+                workerClient.Timeout = TimeSpan.FromSeconds(60);
 
-                while (!linked.Token.IsCancellationRequested)
+                if (isUpload)
                 {
-                    try
+                    // Upload: sequential 5MB requests per worker (plenty of data per request)
+                    while (!linked.Token.IsCancellationRequested)
                     {
-                        if (isUpload)
+                        try
                         {
                             var url = server.Url + "/upload";
                             using var content = new ProgressContent(uploadPayload!, bytesWritten =>
@@ -458,35 +452,68 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                                 await Task.Delay(100, linked.Token);
                             }
                         }
-                        else
+                        catch (OperationCanceledException) { break; }
+                        catch (Exception ex)
                         {
-                            var url = server.Url + "/download";
-                            using var request = CreateRequest(HttpMethod.Get, url, token);
-
-                            using var response = await workerClient.SendAsync(request,
-                                HttpCompletionOption.ResponseHeadersRead, linked.Token);
+                            Interlocked.Increment(ref errorCount);
                             Interlocked.Increment(ref requestCount);
-                            if (!response.IsSuccessStatusCode)
-                            {
-                                Interlocked.Increment(ref errorCount);
-                                await Task.Delay(100, linked.Token);
-                                continue;
-                            }
-                            await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
-                            int bytesRead;
-                            while ((bytesRead = await stream.ReadAsync(readBuffer!, linked.Token)) > 0)
-                            {
-                                Interlocked.Add(ref totalBytes, bytesRead);
-                            }
+                            Logger.LogDebug(ex, "UWN upload worker request failed");
+                            try { await Task.Delay(100, linked.Token); } catch { break; }
                         }
                     }
-                    catch (OperationCanceledException) { break; }
-                    catch (Exception ex)
+                }
+                else
+                {
+                    // Download: fire parallel requests per worker since each response
+                    // is only 200KB. Without parallelism, async overhead per 200KB
+                    // request limits throughput.
+                    const int pipeliningDepth = 4;
+                    var url = server.Url + "/download";
+                    var activeTasks = new List<Task>(pipeliningDepth);
+
+                    async Task DownloadOneAsync()
                     {
-                        Interlocked.Increment(ref errorCount);
+                        using var request = CreateRequest(HttpMethod.Get, url, token);
+                        using var response = await workerClient.SendAsync(request,
+                            HttpCompletionOption.ResponseHeadersRead, linked.Token);
                         Interlocked.Increment(ref requestCount);
-                        Logger.LogDebug(ex, "UWN {Direction} worker request failed", direction);
-                        try { await Task.Delay(100, linked.Token); } catch { break; }
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            Interlocked.Increment(ref errorCount);
+                            return;
+                        }
+                        await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
+                        var buf = new byte[81920];
+                        int bytesRead;
+                        while ((bytesRead = await stream.ReadAsync(buf, linked.Token)) > 0)
+                        {
+                            Interlocked.Add(ref totalBytes, bytesRead);
+                        }
+                    }
+
+                    // Fill the pipeline
+                    for (int i = 0; i < pipeliningDepth && !linked.Token.IsCancellationRequested; i++)
+                        activeTasks.Add(DownloadOneAsync());
+
+                    while (!linked.Token.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            var completed = await Task.WhenAny(activeTasks);
+                            activeTasks.Remove(completed);
+                            await completed; // propagate exceptions
+                            activeTasks.Add(DownloadOneAsync());
+                        }
+                        catch (OperationCanceledException) { break; }
+                        catch (Exception ex)
+                        {
+                            Interlocked.Increment(ref errorCount);
+                            Logger.LogDebug(ex, "UWN download worker request failed");
+                            try { await Task.Delay(50, linked.Token); } catch { break; }
+                            // Replace failed request
+                            if (!linked.Token.IsCancellationRequested)
+                                activeTasks.Add(DownloadOneAsync());
+                        }
                     }
                 }
             }, linked.Token);
