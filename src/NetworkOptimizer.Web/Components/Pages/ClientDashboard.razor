@@ -159,7 +159,7 @@
                         @if (_client.IsOffline)
                         {
                             <span class="identity-live">
-                                <span class="poll-label" style="opacity: 0.5; margin-left: 13px">Offline</span>
+                                    <span class="poll-label" style="color: var(--text-muted); opacity: 0.8; margin-left: 13px">Offline</span>
                             </span>
                         }
                         else
@@ -215,7 +215,7 @@
                 {
                     <span class="identity-detail">Wired</span>
                 }
-                @if (!_isOwnDevice && _client is { IsWired: false })
+                @if (!_isOwnDevice && _client is { IsWired: false, IsOffline: false })
                 {
                     <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-desktop"
                             @onclick="ToggleLogging"
@@ -1074,6 +1074,10 @@
                 // Disable logging indicator for wired/offline devices (backend already skips storage)
                 if (_pollCount == 1 && (_client.IsWired || _client.IsOffline))
                     _isLogging = false;
+
+                // Skip chart refresh for offline devices - no new data to show
+                if (_client.IsOffline)
+                    return;
 
                 // Check if user is hovering a chart tooltip
                 try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
