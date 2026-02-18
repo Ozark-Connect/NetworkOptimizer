@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -26,6 +27,8 @@ public class ClientDashboardService
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
 
+    // TODO: Refactor _lastTraceHashes to ConcurrentDictionary and remove _traceHashLock
+    // (same pattern as the caches below - manual lock is unnecessary overhead)
     // Track last trace hash per client MAC to detect changes
     private readonly Dictionary<string, string> _lastTraceHashes = new();
     private readonly object _traceHashLock = new();
@@ -35,10 +38,10 @@ public class ClientDashboardService
     private DateTime _lastCleanup = DateTime.MinValue;
 
     // Cache offline identities to avoid hitting the history API every poll
-    private readonly Dictionary<string, ClientIdentity> _offlineIdentityCache = new();
+    private readonly ConcurrentDictionary<string, ClientIdentity> _offlineIdentityCache = new();
 
     // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
-    private readonly Dictionary<string, string> _ipToMacCache = new();
+    private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -96,7 +99,7 @@ public class ClientDashboardService
                 if (client == null)
                 {
                     _logger.LogTrace("Identify {Ip}: fast path miss, falling back to full client list", clientIp);
-                    _ipToMacCache.Remove(clientIp);
+                    _ipToMacCache.TryRemove(clientIp, out _);
                 }
             }
 
@@ -110,7 +113,7 @@ public class ClientDashboardService
 
             if (client != null)
             {
-                _offlineIdentityCache.Remove(clientIp);
+                _offlineIdentityCache.TryRemove(clientIp, out _);
                 _ipToMacCache[clientIp] = client.Mac;
 
                 var identity = MapClientToIdentity(client);
