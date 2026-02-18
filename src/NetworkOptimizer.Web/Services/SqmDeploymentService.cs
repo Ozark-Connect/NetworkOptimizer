@@ -726,7 +726,26 @@ WantedBy=multi-user.target
             }
             else
             {
-                var errorOutput = string.IsNullOrWhiteSpace(result.output) ? "(unknown error)" : result.output;
+                var errorOutput = result.output;
+
+                // Script errors go to log file, not stdout - check the log for the actual error
+                if (string.IsNullOrWhiteSpace(errorOutput))
+                {
+                    var logPath = $"/var/log/sqm-{scriptName}.log";
+                    var logResult = await RunCommandAsync($"grep 'ERROR:' {logPath} | tail -1");
+                    if (logResult.success && !string.IsNullOrWhiteSpace(logResult.output))
+                    {
+                        // Extract just the error message (after "ERROR: ")
+                        var errorMatch = logResult.output;
+                        var errorIdx = errorMatch.IndexOf("ERROR: ", StringComparison.Ordinal);
+                        errorOutput = errorIdx >= 0 ? errorMatch[(errorIdx + 7)..].Trim() : errorMatch.Trim();
+                    }
+                    else
+                    {
+                        errorOutput = "(unknown error)";
+                    }
+                }
+
                 _logger.LogWarning("SQM adjustment failed for {Wan}: {Output}", wanName, errorOutput);
 
                 // Deduplicate repeated lines (e.g., speedtest CLI may repeat the same error for each server attempt)
@@ -1138,6 +1157,26 @@ WantedBy=multi-user.target
         sb.AppendLine("    fi");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("# Get last error from SQM log, but only if no successful operation happened after it");
+        sb.AppendLine("get_last_error() {");
+        sb.AppendLine("    local log_name=$1");
+        sb.AppendLine("    local log_file=\"/var/log/sqm-${log_name}.log\"");
+        sb.AppendLine("    [ ! -f \"$log_file\" ] && echo 'null' && return");
+        sb.AppendLine("    local last_error=$(grep -n 'ERROR:' \"$log_file\" | tail -1)");
+        sb.AppendLine("    [ -z \"$last_error\" ] && echo 'null' && return");
+        sb.AppendLine("    local error_num=$(echo \"$last_error\" | cut -d: -f1)");
+        sb.AppendLine("    # Check if a successful operation happened after the error");
+        sb.AppendLine("    local last_success=$(grep -n -i 'adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    if [ -n \"$last_success\" ]; then");
+        sb.AppendLine("        local success_num=$(echo \"$last_success\" | cut -d: -f1)");
+        sb.AppendLine("        [ \"$success_num\" -gt \"$error_num\" ] && echo 'null' && return");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    local error_line=$(echo \"$last_error\" | cut -d: -f2-)");
+        sb.AppendLine("    local ts=$(echo \"$error_line\" | grep -oE '\\[[^]]+\\]' | tr -d '[]')");
+        sb.AppendLine("    local msg=$(echo \"$error_line\" | sed 's/.*ERROR: //' | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')");
+        sb.AppendLine("    echo \"{\\\"timestamp\\\": \\\"$ts\\\", \\\"message\\\": \\\"$msg\\\"}\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
         sb.AppendLine("# Check if speedtest is currently running (started but not finished)");
         sb.AppendLine("# Returns \"true\" or \"false\"");
         sb.AppendLine("is_speedtest_running() {");
@@ -1158,6 +1197,13 @@ WantedBy=multi-user.target
         sb.AppendLine("    ");
         sb.AppendLine("    # If end exists and is after start, test completed");
         sb.AppendLine("    [ -n \"$end_num\" ] && [ \"$end_num\" -ge \"$start_num\" ] && echo \"false\" && return");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Check if an ERROR occurred after start (script exited on error)");
+        sb.AppendLine("    local last_error_line=$(grep -n 'ERROR:' \"$log_file\" | tail -1)");
+        sb.AppendLine("    if [ -n \"$last_error_line\" ]; then");
+        sb.AppendLine("        local error_num=$(echo \"$last_error_line\" | cut -d: -f1)");
+        sb.AppendLine("        [ \"$error_num\" -ge \"$start_num\" ] && echo \"false\" && return");
+        sb.AppendLine("    fi");
         sb.AppendLine("    ");
         sb.AppendLine("    # Start with no end (or end before start) - check if stale (>3 min = crashed)");
         sb.AppendLine("    # Extract timestamp: [Mon Jan 27 10:30:45 UTC 2025] Starting...");
@@ -1187,6 +1233,8 @@ WantedBy=multi-user.target
         sb.AppendLine("wan2_ping=$(get_ping_data \"$WAN2_LOG_NAME\")");
         sb.AppendLine("wan1_speedtest_running=$(is_speedtest_running \"$WAN1_LOG_NAME\")");
         sb.AppendLine("wan2_speedtest_running=$(is_speedtest_running \"$WAN2_LOG_NAME\")");
+        sb.AppendLine("wan1_error=$(get_last_error \"$WAN1_LOG_NAME\")");
+        sb.AppendLine("wan2_error=$(get_last_error \"$WAN2_LOG_NAME\")");
         sb.AppendLine("timestamp=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")");
         sb.AppendLine();
         sb.AppendLine("# Check if SQM is active (has TC rules)");
@@ -1207,7 +1255,8 @@ WantedBy=multi-user.target
         sb.AppendLine("    \"baseline_mbps\": ${wan1_baseline:-0},");
         sb.AppendLine("    \"last_speedtest\": $wan1_speedtest,");
         sb.AppendLine("    \"last_ping\": $wan1_ping,");
-        sb.AppendLine("    \"speedtest_running\": $wan1_speedtest_running");
+        sb.AppendLine("    \"speedtest_running\": $wan1_speedtest_running,");
+        sb.AppendLine("    \"last_error\": $wan1_error");
         sb.AppendLine("  },");
         sb.AppendLine("  \"wan2\": {");
         sb.AppendLine("    \"name\": \"$WAN2_NAME\",");
@@ -1217,7 +1266,8 @@ WantedBy=multi-user.target
         sb.AppendLine("    \"baseline_mbps\": ${wan2_baseline:-0},");
         sb.AppendLine("    \"last_speedtest\": $wan2_speedtest,");
         sb.AppendLine("    \"last_ping\": $wan2_ping,");
-        sb.AppendLine("    \"speedtest_running\": $wan2_speedtest_running");
+        sb.AppendLine("    \"speedtest_running\": $wan2_speedtest_running,");
+        sb.AppendLine("    \"last_error\": $wan2_error");
         sb.AppendLine("  }");
         sb.AppendLine("}");
         sb.AppendLine("EOF");

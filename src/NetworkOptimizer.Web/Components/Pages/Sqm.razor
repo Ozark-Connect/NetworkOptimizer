@@ -231,6 +231,13 @@
                             <span>Last speedtest failed - <a href="./sqm#check-logs">check logs</a></span>
                         </div>
                     }
+                    @if (sqmMonitorData.Wan1.LastError != null && !sqmMonitorData.Wan1.SpeedtestRunning)
+                    {
+                        <div class="sqm-error-indicator">
+                            <span class="warning-icon">⚠</span>
+                            <span>@sqmMonitorData.Wan1.LastError.Message</span>
+                        </div>
+                    }
                     <div class="wan-status-details">
                         @if (sqmMonitorData.Wan1.LastSpeedtest != null)
                         {
@@ -307,6 +314,13 @@
                         <div class="speedtest-failed-indicator">
                             <span class="warning-icon">⚠</span>
                             <span>Last speedtest failed - <a href="./sqm#check-logs">check logs</a></span>
+                        </div>
+                    }
+                    @if (sqmMonitorData.Wan2.LastError != null && !sqmMonitorData.Wan2.SpeedtestRunning)
+                    {
+                        <div class="sqm-error-indicator">
+                            <span class="warning-icon">⚠</span>
+                            <span>@sqmMonitorData.Wan2.LastError.Message</span>
                         </div>
                     }
                     <div class="wan-status-details">
@@ -405,11 +419,12 @@
                         </button>
                     }
                 </div>
-                @if (HasFailedSpeedtest && string.IsNullOrEmpty(adjustmentMessage))
+                @if ((HasFailedSpeedtest || HasLastError) && string.IsNullOrEmpty(adjustmentMessage))
                 {
                     <div class="alert alert-warning" style="margin-top: 1rem;">
-                        <strong>Warning:</strong> One or more WAN connections had a failed speedtest (measured 0 Mbps).
-                        This usually indicates the speedtest CLI couldn't connect or timed out.
+                        <strong>Warning:</strong> @(HasLastError
+                            ? "One or more WAN connections reported an error. See the error details on the WAN cards above."
+                            : "One or more WAN connections had a failed speedtest (measured 0 Mbps). This usually indicates the speedtest CLI couldn't connect or timed out.")
                         <a href="./sqm#check-logs">Check the logs</a> in the Deployment & Debugging section below for details.
                     </div>
                 }
@@ -1203,6 +1218,23 @@
         text-decoration: underline;
     }
 
+    .sqm-error-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        color: var(--danger-color, #ef4444);
+        font-size: 0.875rem;
+        padding: 0.5rem;
+        margin-bottom: 0.5rem;
+        background: rgba(239, 68, 68, 0.1);
+        border-radius: 0.375rem;
+    }
+
+    .sqm-error-indicator .warning-icon {
+        font-size: 1rem;
+    }
+
     .log-output {
         background: var(--surface-secondary);
         border: 1px solid var(--border-color);
@@ -1430,6 +1462,11 @@
     private bool HasFailedSpeedtest =>
         sqmMonitorData?.Wan1?.LastSpeedtestFailed == true ||
         sqmMonitorData?.Wan2?.LastSpeedtestFailed == true;
+
+    // True if any WAN has an unresolved error (e.g., IFB device missing)
+    private bool HasLastError =>
+        sqmMonitorData?.Wan1?.LastError != null ||
+        sqmMonitorData?.Wan2?.LastError != null;
 
     // Log checking state
     private bool isCheckingLogs = false;
@@ -2676,6 +2713,17 @@
                     await Task.Delay(2000);
                     await InvokeAsync(RefreshDashboard);
                     await Task.Delay(3000);
+                    await InvokeAsync(RefreshDashboard);
+                });
+            }
+            else
+            {
+                // Refresh after a delay so the monitor picks up the new error from the log
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(3000);
+                    await InvokeAsync(RefreshDashboard);
+                    await Task.Delay(2000);
                     await InvokeAsync(RefreshDashboard);
                 });
             }
