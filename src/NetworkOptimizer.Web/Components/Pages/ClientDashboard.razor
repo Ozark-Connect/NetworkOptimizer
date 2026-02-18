@@ -1237,10 +1237,11 @@
                     if (i === 1) return val ? 'Ch ' + Math.round(val) : '';
                     if (i === 2) {{ var aps = [{apArray}]; return aps[Math.round(val)] || ''; }}
                     if (i === 3) {{
+                        var s = 'padding:1px 6px;border-radius:3px;font-size:0.7rem;font-weight:500;';
                         var bands = {{
-                            '2.4': '<span style=""color:#fbbf24"">2.4 GHz</span>',
-                            '5': '<span style=""color:#3b82f6"">5 GHz</span>',
-                            '6': '<span style=""color:#a855f7"">6 GHz</span>'
+                            '2.4': '<span style=""' + s + 'background:rgba(251,191,36,0.15);color:#fbbf24"">2.4 GHz</span>',
+                            '5': '<span style=""' + s + 'background:rgba(59,130,246,0.15);color:#3b82f6"">5 GHz</span>',
+                            '6': '<span style=""' + s + 'background:rgba(168,85,247,0.15);color:#a855f7"">6 GHz</span>'
                         }};
                         return bands[String(val)] || '';
                     }}
