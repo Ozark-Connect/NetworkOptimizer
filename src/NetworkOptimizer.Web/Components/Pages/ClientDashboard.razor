@@ -78,6 +78,19 @@
         </div>
     }
 
+    @if (_client?.IsOffline == true)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Device Offline</strong>
+                    <span>This device is currently offline. Showing historical data. Live data will appear when it reconnects.</span>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_loading)
     {
         <div class="skeleton-hero card">
@@ -1049,8 +1062,8 @@
                 _client = _latestPoll.Client;
                 _pollCount++;
 
-                // Disable logging indicator for wired devices (backend already skips storage)
-                if (_pollCount == 1 && _client.IsWired)
+                // Disable logging indicator for wired/offline devices (backend already skips storage)
+                if (_pollCount == 1 && (_client.IsWired || _client.IsOffline))
                     _isLogging = false;
 
                 // Check if user is hovering a chart tooltip

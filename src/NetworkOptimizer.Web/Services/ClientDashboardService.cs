@@ -34,6 +34,9 @@ public class ClientDashboardService
     // Cleanup tracking
     private DateTime _lastCleanup = DateTime.MinValue;
 
+    // Cache offline identities to avoid hitting the history API every poll
+    private readonly Dictionary<string, ClientIdentity> _offlineIdentityCache = new();
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },
@@ -60,6 +63,7 @@ public class ClientDashboardService
 
     /// <summary>
     /// Identify a client by its IP address using UniFi controller data.
+    /// Falls back to client history API for offline devices.
     /// </summary>
     public async Task<ClientIdentity?> IdentifyClientAsync(string clientIp)
     {
@@ -71,15 +75,44 @@ public class ClientDashboardService
             var clients = await _connectionService.Client.GetClientsAsync();
             var client = clients?.FirstOrDefault(c => c.Ip == clientIp);
 
-            if (client == null)
-                return null;
+            if (client != null)
+            {
+                // Device is online - clear any cached offline identity
+                _offlineIdentityCache.Remove(clientIp);
 
-            var identity = MapClientToIdentity(client);
+                var identity = MapClientToIdentity(client);
+                await EnrichWithApInfoAsync(identity, client.ApMac);
+                return identity;
+            }
 
-            // Enrich with AP info
-            await EnrichWithApInfoAsync(identity, client.ApMac);
+            // Device not in active list - check cache first
+            if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
+                return cached;
 
-            return identity;
+            // Try client history API (includes offline devices)
+            var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);
+            var histClient = history?.FirstOrDefault(c => c.BestIp == clientIp);
+
+            if (histClient != null)
+            {
+                var offlineIdentity = new ClientIdentity
+                {
+                    Mac = histClient.Mac,
+                    Name = histClient.DisplayName ?? histClient.Name,
+                    Hostname = histClient.Hostname,
+                    Ip = clientIp,
+                    IsWired = histClient.IsWired,
+                    Oui = histClient.Oui,
+                    IsOffline = true
+                };
+
+                _offlineIdentityCache[clientIp] = offlineIdentity;
+                _logger.LogDebug("Identified offline client {Ip} as {Name} ({Mac})",
+                    clientIp, offlineIdentity.DisplayName, offlineIdentity.Mac);
+                return offlineIdentity;
+            }
+
+            return null;
         }
         catch (Exception ex)
         {
@@ -116,6 +149,13 @@ public class ClientDashboardService
             Client = identity,
             Timestamp = DateTime.UtcNow
         };
+
+        // Offline devices: no trace or signal to poll, just return identity
+        if (identity.IsOffline)
+        {
+            _logger.LogTrace("Poll for {Ip}: offline, identify={IdentifyMs}ms", clientIp, identifyMs);
+            return result;
+        }
 
         // Run L2 trace
         try
