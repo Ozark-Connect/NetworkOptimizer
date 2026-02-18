@@ -250,6 +250,9 @@ public class TcWanStats
     [JsonPropertyName("speedtest_running")]
     public bool SpeedtestRunning { get; set; }
 
+    [JsonPropertyName("last_error")]
+    public SqmErrorData? LastError { get; set; }
+
     // Legacy format (for backwards compatibility with old tc-monitor)
     [JsonPropertyName("rate_mbps")]
     public double RateMbps { get; set; }
@@ -297,4 +300,16 @@ public class SqmPingData
 
     [JsonPropertyName("latency_ms")]
     public double LatencyMs { get; set; }
+}
+
+/// <summary>
+/// Error data from SQM logs (e.g., IFB device missing)
+/// </summary>
+public class SqmErrorData
+{
+    [JsonPropertyName("timestamp")]
+    public string? Timestamp { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
 }
