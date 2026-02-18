@@ -116,6 +116,19 @@ fi
 echo ""
 echo "[3/9] Building Network Optimizer for $RUNTIME..."
 cd "$REPO_ROOT"
+
+# Ensure NuGet cache is writable (stale cache from brew or failed restores can block builds)
+if [ -d "$HOME/.nuget/packages" ] && ! touch "$HOME/.nuget/packages/.write-test" 2>/dev/null; then
+    echo "NuGet package cache has permission issues, clearing..."
+    chmod -R u+w "$HOME/.nuget/packages" 2>/dev/null || true
+    rm -rf "$HOME/.nuget/packages"
+    if [ -d "$HOME/.nuget/packages" ]; then
+        echo "Error: Could not clear NuGet cache. Try running: sudo rm -rf ~/.nuget/packages"
+        exit 1
+    fi
+fi
+rm -f "$HOME/.nuget/packages/.write-test" 2>/dev/null
+
 dotnet publish src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj \
     -c Release \
     -r "$RUNTIME" \
