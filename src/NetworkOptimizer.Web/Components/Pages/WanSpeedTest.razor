@@ -882,8 +882,18 @@
     private static string GetWanKey(Iperf3Result result)
     {
         // Group by interface + provider name so provider changes show as separate series
+        // Normalize combo order so "Yelcot + Starlink" and "Starlink + Yelcot" produce the same key
         var group = !string.IsNullOrEmpty(result.WanNetworkGroup) ? result.WanNetworkGroup : "WAN";
         var name = !string.IsNullOrEmpty(result.WanName) ? result.WanName : null;
+
+        if (name != null && name.Contains(" + "))
+        {
+            // Sort combo name parts for consistent keying
+            var sortedName = string.Join(" + ", name.Split(" + ").Order());
+            var sortedGroup = string.Join("+", group.Split('+').Order());
+            return $"{sortedGroup}|{sortedName}";
+        }
+
         return name != null ? $"{group}|{name}" : group;
     }
 
