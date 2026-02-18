@@ -55,12 +55,6 @@ public class BandMetrics
 
     /// <summary>Client count on this band</summary>
     public int? ClientCount { get; set; }
-
-    /// <summary>Channel number (e.g. 1, 36, 149)</summary>
-    public int? Channel { get; set; }
-
-    /// <summary>Channel width in MHz (e.g. 20, 40, 80, 160, 320)</summary>
-    public int? ChannelWidth { get; set; }
 }
 
 /// <summary>
@@ -118,4 +112,28 @@ public class ClientWiFiMetrics
 
     /// <summary>Satisfaction score (0-100)</summary>
     public double? Satisfaction { get; set; }
+}
+
+/// <summary>
+/// An AP channel change event from the UniFi system log
+/// </summary>
+public class ChannelChangeEvent
+{
+    /// <summary>When the channel change occurred</summary>
+    public DateTimeOffset Timestamp { get; set; }
+
+    /// <summary>AP MAC address</summary>
+    public string ApMac { get; set; } = string.Empty;
+
+    /// <summary>Radio band prefix (ng, na, 6e)</summary>
+    public string RadioBandPrefix { get; set; } = string.Empty;
+
+    /// <summary>Radio band</summary>
+    public RadioBand Band { get; set; }
+
+    /// <summary>New channel number</summary>
+    public int NewChannel { get; set; }
+
+    /// <summary>Previous channel number</summary>
+    public int PreviousChannel { get; set; }
 }

@@ -241,6 +241,7 @@
     private int VisibleBandCount => (Show24 ? 1 : 0) + (Show5 ? 1 : 0) + (Show6 ? 1 : 0);
 
     private List<SiteWiFiMetrics> _metrics = new();
+    private List<ChannelChangeEvent> _channelEvents = new();
     private List<AccessPointSnapshot> _accessPoints = new();
 
     // Chart references
@@ -433,10 +434,14 @@
             if (!string.IsNullOrEmpty(_selectedApMac))
             {
                 _metrics = await WiFiService.GetApMetricsAsync(new[] { _selectedApMac }, start, end, granularity);
+
+                // Fetch channel change events for this AP (fire-and-forget safe - returns empty on failure)
+                _channelEvents = await WiFiService.GetChannelChangeEventsAsync(start, end, _selectedApMac);
             }
             else
             {
                 _metrics = await WiFiService.GetSiteMetricsAsync(start, end, granularity);
+                _channelEvents = new();
             }
 
             // Transform data for charts
@@ -530,62 +535,69 @@
         _currentChannel5 = null; _currentWidth5 = null;
         _currentChannel6 = null; _currentWidth6 = null;
 
-        // Only show channel annotations when a single AP is selected
-        if (string.IsNullOrEmpty(_selectedApMac) || _metrics.Count == 0)
-        {
-            _chartOptions24.Annotations = null;
-            _chartOptions5.Annotations = null;
-            _chartOptions6.Annotations = null;
+        // Clear annotations
+        _chartOptions24.Annotations = null;
+        _chartOptions5.Annotations = null;
+        _chartOptions6.Annotations = null;
+
+        if (string.IsNullOrEmpty(_selectedApMac))
             return;
+
+        // Get current channel from live AP radio table
+        var selectedAp = _accessPoints.FirstOrDefault(a => a.Mac == _selectedApMac);
+        if (selectedAp != null)
+        {
+            foreach (var radio in selectedAp.Radios)
+            {
+                switch (radio.Band)
+                {
+                    case RadioBand.Band2_4GHz:
+                        _currentChannel24 = radio.Channel;
+                        _currentWidth24 = radio.ChannelWidth;
+                        break;
+                    case RadioBand.Band5GHz:
+                        _currentChannel5 = radio.Channel;
+                        _currentWidth5 = radio.ChannelWidth;
+                        break;
+                    case RadioBand.Band6GHz:
+                        _currentChannel6 = radio.Channel;
+                        _currentWidth6 = radio.ChannelWidth;
+                        break;
+                }
+            }
         }
+
+        // Build annotations from channel change events
+        if (_channelEvents.Count == 0)
+            return;
 
         var annotations24 = new List<AnnotationsXAxis>();
         var annotations5 = new List<AnnotationsXAxis>();
         var annotations6 = new List<AnnotationsXAxis>();
 
-        int? prevCh24 = null, prevCh5 = null, prevCh6 = null;
-
-        foreach (var metric in _metrics.OrderBy(m => m.Timestamp))
+        foreach (var evt in _channelEvents.OrderBy(e => e.Timestamp))
         {
-            var ts = new DateTimeOffset(metric.Timestamp.UtcDateTime, TimeSpan.Zero).ToUnixTimeMilliseconds();
-
-            if (metric.ByBand.TryGetValue(RadioBand.Band2_4GHz, out var b24) && b24.Channel.HasValue)
-            {
-                _currentChannel24 = b24.Channel;
-                _currentWidth24 = b24.ChannelWidth;
-                if (prevCh24.HasValue && b24.Channel.Value != prevCh24.Value)
+            var ts = evt.Timestamp.ToUnixTimeMilliseconds();
+            var annotation = CreateChannelAnnotation(ts, evt.NewChannel, null,
+                evt.Band switch
                 {
-                    annotations24.Add(CreateChannelAnnotation(ts, b24.Channel.Value, b24.ChannelWidth, "#fbbf24"));
-                }
-                prevCh24 = b24.Channel.Value;
-            }
+                    RadioBand.Band2_4GHz => "#fbbf24",
+                    RadioBand.Band5GHz => "#3b82f6",
+                    RadioBand.Band6GHz => "#a855f7",
+                    _ => "#3b82f6"
+                });
 
-            if (metric.ByBand.TryGetValue(RadioBand.Band5GHz, out var b5) && b5.Channel.HasValue)
+            switch (evt.Band)
             {
-                _currentChannel5 = b5.Channel;
-                _currentWidth5 = b5.ChannelWidth;
-                if (prevCh5.HasValue && b5.Channel.Value != prevCh5.Value)
-                {
-                    annotations5.Add(CreateChannelAnnotation(ts, b5.Channel.Value, b5.ChannelWidth, "#3b82f6"));
-                }
-                prevCh5 = b5.Channel.Value;
-            }
-
-            if (metric.ByBand.TryGetValue(RadioBand.Band6GHz, out var b6) && b6.Channel.HasValue)
-            {
-                _currentChannel6 = b6.Channel;
-                _currentWidth6 = b6.ChannelWidth;
-                if (prevCh6.HasValue && b6.Channel.Value != prevCh6.Value)
-                {
-                    annotations6.Add(CreateChannelAnnotation(ts, b6.Channel.Value, b6.ChannelWidth, "#a855f7"));
-                }
-                prevCh6 = b6.Channel.Value;
+                case RadioBand.Band2_4GHz: annotations24.Add(annotation); break;
+                case RadioBand.Band5GHz: annotations5.Add(annotation); break;
+                case RadioBand.Band6GHz: annotations6.Add(annotation); break;
             }
         }
 
-        _chartOptions24.Annotations = annotations24.Count > 0 ? new Annotations { Xaxis = annotations24 } : null;
-        _chartOptions5.Annotations = annotations5.Count > 0 ? new Annotations { Xaxis = annotations5 } : null;
-        _chartOptions6.Annotations = annotations6.Count > 0 ? new Annotations { Xaxis = annotations6 } : null;
+        if (annotations24.Count > 0) _chartOptions24.Annotations = new Annotations { Xaxis = annotations24 };
+        if (annotations5.Count > 0) _chartOptions5.Annotations = new Annotations { Xaxis = annotations5 };
+        if (annotations6.Count > 0) _chartOptions6.Annotations = new Annotations { Xaxis = annotations6 };
     }
 
     private static AnnotationsXAxis CreateChannelAnnotation(long timestampMs, int channel, int? width, string color)

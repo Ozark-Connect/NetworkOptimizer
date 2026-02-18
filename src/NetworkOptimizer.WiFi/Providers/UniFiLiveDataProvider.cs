@@ -171,10 +171,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             "ng-wifi_tx_attempts", "na-wifi_tx_attempts", "6e-wifi_tx_attempts",
             "ng-wifi_tx_dropped", "na-wifi_tx_dropped", "6e-wifi_tx_dropped",
             "ng-tx_packets", "na-tx_packets", "6e-tx_packets",
-            "ng-rx_packets", "na-rx_packets", "6e-rx_packets",
-            // Channel candidates - probing to discover which attrs the AP report supports
-            "ng-channel", "na-channel", "6e-channel",
-            "ng-channel_info_most_common", "na-channel_info_most_common", "6e-channel_info_most_common"
+            "ng-rx_packets", "na-rx_packets", "6e-rx_packets"
         };
 
         try
@@ -204,6 +201,96 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             _logger.LogWarning(ex, "Failed to fetch AP metrics report");
             return new List<SiteWiFiMetrics>();
         }
+    }
+
+    /// <summary>
+    /// Get AP channel change events from the v2 system log API.
+    /// </summary>
+    public async Task<List<ChannelChangeEvent>> GetChannelChangeEventsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        string? apMac = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var data = await _client.GetApChannelChangeEventsAsync(start, end, apMac, cancellationToken);
+            return ParseChannelChangeEvents(data);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch channel change events");
+            return new List<ChannelChangeEvent>();
+        }
+    }
+
+    private List<ChannelChangeEvent> ParseChannelChangeEvents(JsonElement data)
+    {
+        var events = new List<ChannelChangeEvent>();
+
+        if (data.ValueKind != JsonValueKind.Object)
+            return events;
+
+        if (!data.TryGetProperty("data", out var dataArray) || dataArray.ValueKind != JsonValueKind.Array)
+            return events;
+
+        foreach (var item in dataArray.EnumerateArray())
+        {
+            if (!item.TryGetProperty("timestamp", out var tsProp) ||
+                !item.TryGetProperty("parameters", out var paramsProp))
+                continue;
+
+            var timestamp = tsProp.GetInt64();
+
+            // Extract CHANNEL info
+            if (!paramsProp.TryGetProperty("CHANNEL", out var channelProp))
+                continue;
+
+            var channelIdStr = channelProp.TryGetProperty("id", out var chId) ? chId.GetString() : null;
+            var radioBand = channelProp.TryGetProperty("radio_band", out var rb) ? rb.GetString() : null;
+
+            if (channelIdStr == null || !int.TryParse(channelIdStr, out var newChannel))
+                continue;
+
+            // Extract PREVIOUS_CHANNEL
+            int previousChannel = 0;
+            if (paramsProp.TryGetProperty("PREVIOUS_CHANNEL", out var prevProp) &&
+                prevProp.TryGetProperty("id", out var prevId) &&
+                int.TryParse(prevId.GetString(), out var prevCh))
+            {
+                previousChannel = prevCh;
+            }
+
+            // Extract AP MAC from DEVICE
+            var apMacStr = "";
+            if (paramsProp.TryGetProperty("DEVICE", out var deviceProp) &&
+                deviceProp.TryGetProperty("id", out var devId))
+            {
+                apMacStr = devId.GetString() ?? "";
+            }
+
+            var bandPrefix = radioBand ?? "";
+            var band = bandPrefix switch
+            {
+                "ng" => RadioBand.Band2_4GHz,
+                "na" => RadioBand.Band5GHz,
+                "6e" => RadioBand.Band6GHz,
+                _ => RadioBand.Band5GHz // default fallback
+            };
+
+            events.Add(new ChannelChangeEvent
+            {
+                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp),
+                ApMac = apMacStr,
+                RadioBandPrefix = bandPrefix,
+                Band = band,
+                NewChannel = newChannel,
+                PreviousChannel = previousChannel
+            });
+        }
+
+        _logger.LogInformation("Parsed {Count} channel change events", events.Count);
+        return events;
     }
 
     public async Task<List<ClientWiFiMetrics>> GetClientMetricsAsync(
@@ -1006,30 +1093,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             return metrics;
         }
 
-        var isFirstItem = true;
         foreach (var item in data.EnumerateArray())
         {
-            // Log all property names from the first item to discover available channel attrs
-            if (isFirstItem)
-            {
-                isFirstItem = false;
-                var propNames = new List<string>();
-                foreach (var prop in item.EnumerateObject())
-                {
-                    propNames.Add(prop.Name);
-                }
-                _logger.LogInformation("AP metrics response properties: {Props}", string.Join(", ", propNames));
-
-                // Log channel-related properties specifically
-                foreach (var prop in item.EnumerateObject())
-                {
-                    if (prop.Name.Contains("channel", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _logger.LogInformation("Channel property found: {Name} = {Value}", prop.Name, prop.Value.ToString());
-                    }
-                }
-            }
-
             if (!item.TryGetProperty("time", out var timeProp))
             {
                 continue;
@@ -1101,53 +1166,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 }
             }
 
-            // Parse channel data from whichever attrs are available
-            ParseBandChannel(item, metric.ByBand[RadioBand.Band2_4GHz], "ng");
-            ParseBandChannel(item, metric.ByBand[RadioBand.Band5GHz], "na");
-            ParseBandChannel(item, metric.ByBand[RadioBand.Band6GHz], "6e");
-
             metrics.Add(metric);
         }
 
         return metrics;
-    }
-
-    /// <summary>
-    /// Try to extract channel and width from an AP report response item.
-    /// Supports two formats:
-    /// - Plain int: "{prefix}-channel" = 149
-    /// - "channel:width" string: "{prefix}-channel_info_most_common" = "149:80"
-    /// </summary>
-    private void ParseBandChannel(JsonElement item, BandMetrics band, string prefix)
-    {
-        // Try plain channel number first
-        var channelVal = GetDoubleOrNull(item, $"{prefix}-channel");
-        if (channelVal.HasValue)
-        {
-            band.Channel = (int)channelVal.Value;
-        }
-
-        // Try channel_info_most_common (returns "channel:width" string like client metrics)
-        if (item.TryGetProperty($"{prefix}-channel_info_most_common", out var channelInfoProp))
-        {
-            var channelInfoStr = channelInfoProp.ValueKind == JsonValueKind.String
-                ? channelInfoProp.GetString()
-                : channelInfoProp.ToString();
-
-            if (!string.IsNullOrEmpty(channelInfoStr) && channelInfoStr.Contains(':'))
-            {
-                var parts = channelInfoStr.Split(':');
-                if (parts.Length >= 2 && int.TryParse(parts[0], out var ch) && int.TryParse(parts[1], out var width))
-                {
-                    band.Channel = ch;
-                    band.ChannelWidth = width;
-                }
-            }
-            else if (!string.IsNullOrEmpty(channelInfoStr) && int.TryParse(channelInfoStr, out var plainCh))
-            {
-                band.Channel = plainCh;
-            }
-        }
     }
 
     /// <summary>
