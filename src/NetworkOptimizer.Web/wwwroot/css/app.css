@@ -7250,7 +7250,6 @@ a.path-hop.hop-clickable:hover {
 }
 
 .client-info-main .client-dashboard-link {
-    display: none;
     color: var(--text-muted);
     transition: color 0.15s;
 }
@@ -7262,10 +7261,6 @@ a.path-hop.hop-clickable:hover {
 @media (max-width: 768px) {
     .client-info-main .client-perf-link {
         display: none;
-    }
-
-    .client-info-main .client-dashboard-link {
-        display: inline-flex;
     }
 }
 
