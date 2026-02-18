@@ -4,6 +4,10 @@ obj/
 out/
 publish/
 
+# Go build artifacts
+src/uwnspeedtest/uwnspeedtest*
+src/cfspeedtest/cfspeedtest*
+
 # IDE
 .vs/
 .vscode/
