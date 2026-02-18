@@ -185,7 +185,6 @@ public class GatewayWanSpeedTestService
         string? wanNetworkGroup,
         string? wanName,
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
-        bool maxMode = false,
         IReadOnlyList<WanInterfaceInfo>? allInterfaces = null,
         CancellationToken cancellationToken = default)
     {
@@ -232,10 +231,10 @@ public class GatewayWanSpeedTestService
             // Phase 2: Run test(s) via SSH (10-95%)
             if (isParallel)
             {
-                return await RunParallelWanTests(allInterfaces!, Report, maxMode, cancellationToken);
+                return await RunParallelWanTests(allInterfaces!, Report, cancellationToken);
             }
 
-            return await RunSingleWanTest(interfaceName, wanNetworkGroup, wanName, Report, maxMode, cancellationToken);
+            return await RunSingleWanTest(interfaceName, wanNetworkGroup, wanName, Report, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -262,7 +261,6 @@ public class GatewayWanSpeedTestService
         string? wanNetworkGroup,
         string? wanName,
         Action<string, int, string?> report,
-        bool maxMode,
         CancellationToken cancellationToken)
     {
         report("Testing latency", 12, "Measuring latency...");
@@ -274,8 +272,7 @@ public class GatewayWanSpeedTestService
             ifaceArg = $" --interface {interfaceName}";
         }
 
-        var maxArgs = maxMode ? " -streams 24 -servers 5" : " -streams 12 -servers 3";
-        var command = $"{RemoteBinaryPath}{ifaceArg}{maxArgs} 2>/dev/null";
+        var command = $"{RemoteBinaryPath}{ifaceArg} -streams 16 -servers 4 2>/dev/null";
         var sshTask = _gatewaySsh.RunCommandAsync(
             command, TimeSpan.FromSeconds(120), cancellationToken);
 
@@ -307,7 +304,6 @@ public class GatewayWanSpeedTestService
     private async Task<Iperf3Result?> RunParallelWanTests(
         IReadOnlyList<WanInterfaceInfo> interfaces,
         Action<string, int, string?> report,
-        bool maxMode,
         CancellationToken cancellationToken)
     {
         report("Testing", 12, $"Testing {interfaces.Count} WAN links in parallel...");
@@ -318,12 +314,17 @@ public class GatewayWanSpeedTestService
 
         // Launch parallel SSH commands, one per WAN interface
         // Synchronized start: all binaries do setup independently, then begin throughput at the same time
-        // Lighter per-WAN config since N instances run simultaneously on the gateway
+        // Split connections proportionally: 4/16 total → divided by WAN count
         var startAt = DateTimeOffset.UtcNow.AddSeconds(8).ToUnixTimeSeconds();
-        var perWanArgs = maxMode ? " -streams 16 -servers 4" : " -streams 8 -servers 3";
+        var (perWanServers, perWanStreams) = interfaces.Count switch
+        {
+            2 => (2, 8),
+            3 => (2, 4),
+            _ => (1, 2) // 4+ WANs
+        };
         var sshTasks = interfaces.Select(wan =>
         {
-            var cmd = $"{RemoteBinaryPath} --interface {wan.Interface}{perWanArgs} -start-at {startAt} 2>/dev/null";
+            var cmd = $"{RemoteBinaryPath} --interface {wan.Interface} -servers {perWanServers} -streams {perWanStreams} -start-at {startAt} 2>/dev/null";
             return _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(120), cancellationToken);
         }).ToList();
 

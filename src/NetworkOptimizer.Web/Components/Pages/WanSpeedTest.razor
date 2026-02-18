@@ -27,13 +27,6 @@
     <div class="card">
         <div class="card-body">
             <p class="wan-test-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
-            <div class="wan-mode-toggle">
-                <label class="toggle-switch" data-tooltip="Normal: 3 servers, 12 connections. Max: 5 servers, 24 connections for saturating high-bandwidth links." data-tooltip-hover-only>
-                    <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
-                    <span class="toggle-slider"></span>
-                    <span class="toggle-label">Max mode</span>
-                </label>
-            </div>
             <div class="wan-test-options">
                 @* Gateway (Direct) Option - Primary *@
                 <div class="wan-test-option @(_gatewayAvailable ? "" : "wan-test-option-unavailable")">
@@ -89,6 +82,11 @@
                         <span class="wan-test-option-label">Server</span>
                     </div>
                     <div class="wan-test-option-controls">
+                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 connections. Max: 5 servers, 24 connections for saturating high-bandwidth links." data-tooltip-hover-only>
+                            <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Max</span>
+                        </label>
                         <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunServerTest"
                                 disabled="@_isRunning">
@@ -433,6 +431,12 @@
     private int _selectedWanIndex;
     private bool _gatewayAvailable;
     private string? _gatewayUnavailableReason;
+
+    // Progress interpolation for smooth bar during long phases
+    private DateTime _interpStart;
+    private string _interpPhase = "";
+    private int _interpFrom;
+    private int _interpTo;
 
     // History state
     private List<Iperf3Result> _testHistory = new();
@@ -959,7 +963,6 @@
                 _progressPercent = progress.Percent;
                 InvokeAsync(StateHasChanged);
             },
-            maxMode: _maxMode,
             allInterfaces: isAllWans ? _wanInterfaces : null);
 
         StopPolling();
@@ -1093,10 +1096,35 @@
     {
         var (phase, percent, status) = WanSpeedTestService.CurrentProgress;
         _progressPhase = phase;
-        _progressPercent = percent;
         if (status != null)
             _serverStatus = status;
         _metadata = WanSpeedTestService.LastMetadata;
+
+        // Detect phase transitions - set up interpolation for long phases
+        if (phase != _interpPhase)
+        {
+            _interpPhase = phase;
+            _interpStart = DateTime.UtcNow;
+            _interpFrom = percent;
+            _interpTo = phase switch
+            {
+                "Testing download" => 55,
+                "Testing upload" => 95,
+                _ => 0 // no interpolation
+            };
+        }
+
+        // Smoothly advance during download (20→55) and upload (60→95) over ~10s
+        if (_interpTo > _interpFrom)
+        {
+            var elapsed = (DateTime.UtcNow - _interpStart).TotalSeconds;
+            var fraction = Math.Min(elapsed / 10.0, 0.95);
+            _progressPercent = _interpFrom + (int)((_interpTo - _interpFrom) * fraction);
+        }
+        else
+        {
+            _progressPercent = percent;
+        }
     }
 
     private void SyncGatewayProgressFromService()
