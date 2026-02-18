@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -27,12 +28,17 @@ public class ClientDashboardService
     private readonly IServiceScopeFactory _scopeFactory;
 
     // Track last trace hash per client MAC to detect changes
-    private readonly Dictionary<string, string> _lastTraceHashes = new();
-    private readonly object _traceHashLock = new();
+    private readonly ConcurrentDictionary<string, string> _lastTraceHashes = new();
     private bool _traceHashesSeeded;
 
     // Cleanup tracking
     private DateTime _lastCleanup = DateTime.MinValue;
+
+    // Cache offline identities to avoid hitting the history API every poll
+    private readonly ConcurrentDictionary<string, ClientIdentity> _offlineIdentityCache = new();
+
+    // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
+    private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -60,6 +66,8 @@ public class ClientDashboardService
 
     /// <summary>
     /// Identify a client by its IP address using UniFi controller data.
+    /// After first identification, uses the single-client endpoint (stat/sta/{mac})
+    /// instead of fetching all clients. Falls back to client history for offline devices.
     /// </summary>
     public async Task<ClientIdentity?> IdentifyClientAsync(string clientIp)
     {
@@ -68,18 +76,76 @@ public class ClientDashboardService
 
         try
         {
-            var clients = await _connectionService.Client.GetClientsAsync();
-            var client = clients?.FirstOrDefault(c => c.Ip == clientIp);
+            UniFiClientResponse? client = null;
 
+            // Fast path: if we already know the MAC, fetch just this client
+            if (_ipToMacCache.TryGetValue(clientIp, out var knownMac))
+            {
+                _logger.LogTrace("Identify {Ip}: fast path via stat/sta/{Mac}", clientIp, knownMac);
+                client = await _connectionService.Client.GetClientAsync(knownMac);
+
+                // Verify the IP still matches - if another device took this IP
+                // (DHCP reassignment), the MAC lookup returns the wrong device.
+                if (client != null && client.Ip != clientIp)
+                {
+                    _logger.LogTrace("Identify {Ip}: IP mismatch (device now at {NewIp}), invalidating cache", clientIp, client.Ip);
+                    client = null;
+                }
+
+                // If lookup failed or IP changed, invalidate and fall through to full list
+                if (client == null)
+                {
+                    _logger.LogTrace("Identify {Ip}: fast path miss, falling back to full client list", clientIp);
+                    _ipToMacCache.TryRemove(clientIp, out _);
+                }
+            }
+
+            // Slow path: fetch all clients and match by IP
             if (client == null)
-                return null;
+            {
+                _logger.LogTrace("Identify {Ip}: slow path via stat/sta (all clients)", clientIp);
+                var clients = await _connectionService.Client.GetClientsAsync();
+                client = clients?.FirstOrDefault(c => c.Ip == clientIp);
+            }
 
-            var identity = MapClientToIdentity(client);
+            if (client != null)
+            {
+                _offlineIdentityCache.TryRemove(clientIp, out _);
+                _ipToMacCache[clientIp] = client.Mac;
 
-            // Enrich with AP info
-            await EnrichWithApInfoAsync(identity, client.ApMac);
+                var identity = MapClientToIdentity(client);
+                await EnrichWithApInfoAsync(identity, client.ApMac);
+                return identity;
+            }
 
-            return identity;
+            // Device not in active list - check offline cache
+            if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
+                return cached;
+
+            // Try client history API (includes offline devices)
+            var history = await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);
+            var histClient = history?.FirstOrDefault(c => c.BestIp == clientIp);
+
+            if (histClient != null)
+            {
+                var offlineIdentity = new ClientIdentity
+                {
+                    Mac = histClient.Mac,
+                    Name = histClient.DisplayName ?? histClient.Name,
+                    Hostname = histClient.Hostname,
+                    Ip = clientIp,
+                    IsWired = histClient.IsWired,
+                    Oui = histClient.Oui,
+                    IsOffline = true
+                };
+
+                _offlineIdentityCache[clientIp] = offlineIdentity;
+                _logger.LogDebug("Identified offline client {Ip} as {Name} ({Mac})",
+                    clientIp, offlineIdentity.DisplayName, offlineIdentity.Mac);
+                return offlineIdentity;
+            }
+
+            return null;
         }
         catch (Exception ex)
         {
@@ -117,12 +183,17 @@ public class ClientDashboardService
             Timestamp = DateTime.UtcNow
         };
 
+        // Offline devices: no trace or signal to poll, just return identity
+        if (identity.IsOffline)
+        {
+            _logger.LogTrace("Poll for {Ip}: offline, identify={IdentifyMs}ms", clientIp, identifyMs);
+            return result;
+        }
+
         // Run L2 trace
         try
         {
-            var serverIp = _configuration["HOST_IP"];
-            var path = await _pathAnalyzer.CalculatePathAsync(
-                clientIp, serverIp, retryOnFailure: false);
+            var path = await _pathAnalyzer.CalculatePathToGatewayAsync(clientIp);
 
             if (path.IsValid)
             {
@@ -143,21 +214,15 @@ public class ClientDashboardService
                 result.TraceHash = ComputeTraceHash(path);
 
                 // Check if trace changed
-                lock (_traceHashLock)
-                {
-                    if (_lastTraceHashes.TryGetValue(identity.Mac, out var lastHash))
-                    {
-                        result.TraceChanged = lastHash != result.TraceHash;
-                    }
-                    else
-                    {
-                        result.TraceChanged = true; // First poll for this client
-                    }
-                    _lastTraceHashes[identity.Mac] = result.TraceHash;
-                }
+                if (_lastTraceHashes.TryGetValue(identity.Mac, out var lastHash))
+                    result.TraceChanged = lastHash != result.TraceHash;
+                else
+                    result.TraceChanged = true; // First poll for this client
+                _lastTraceHashes[identity.Mac] = result.TraceHash;
 
-                // Store signal log (only when viewing own device, not remote ?ip= viewing)
-                if (persist)
+                // Always store when trace changes (trace snapshots are deduped by hash).
+                // Also store on every poll when persist=true (own device with logging on).
+                if (persist || result.TraceChanged)
                     await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
             }
             else
@@ -637,8 +702,8 @@ public class ClientDashboardService
         double? gpsLng,
         int? gpsAccuracy)
     {
-        // Skip wired clients - no Wi-Fi signal data to record
-        if (identity.IsWired) return;
+        // Skip wired clients unless the trace changed (no Wi-Fi signal to record)
+        if (identity.IsWired && !poll.TraceChanged) return;
 
         try
         {
@@ -783,8 +848,11 @@ public class ClientDashboardService
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
+            // Seed from entries that have TraceJson stored (not just a hash).
+            // Entries with a hash but no TraceJson were written without a snapshot,
+            // so seeding from them would prevent the next poll from storing one.
             var latestHashes = await db.ClientSignalLogs
-                .Where(l => l.TraceHash != null)
+                .Where(l => l.TraceHash != null && l.TraceJson != null)
                 .GroupBy(l => l.ClientMac)
                 .Select(g => new
                 {
@@ -793,15 +861,12 @@ public class ClientDashboardService
                 })
                 .ToListAsync();
 
-            lock (_traceHashLock)
+            foreach (var entry in latestHashes)
             {
-                foreach (var entry in latestHashes)
-                {
-                    if (entry.TraceHash != null)
-                        _lastTraceHashes.TryAdd(entry.Mac, entry.TraceHash);
-                }
-                _traceHashesSeeded = true;
+                if (entry.TraceHash != null)
+                    _lastTraceHashes.TryAdd(entry.Mac, entry.TraceHash);
             }
+            _traceHashesSeeded = true;
 
             _logger.LogDebug("Seeded trace hashes for {Count} clients from DB", latestHashes.Count);
         }

@@ -694,6 +694,15 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             result.LocalIp = parsed.LocalIp;
         }
 
+        // Resolve hostname-based DeviceHost to the actual IP used by iperf3
+        if (!string.IsNullOrEmpty(parsed.RemoteIp)
+            && !System.Net.IPAddress.TryParse(result.DeviceHost, out _))
+        {
+            _logger.LogDebug("Resolved DeviceHost {Hostname} to {Ip} from iperf3 connection",
+                result.DeviceHost, parsed.RemoteIp);
+            result.DeviceHost = parsed.RemoteIp;
+        }
+
         // Handle errors
         if (!string.IsNullOrEmpty(parsed.ErrorMessage))
         {

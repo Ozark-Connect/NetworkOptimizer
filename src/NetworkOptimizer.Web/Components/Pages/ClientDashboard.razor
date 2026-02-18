@@ -78,6 +78,19 @@
         </div>
     }
 
+    @if (_client?.IsOffline == true)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Device Offline</strong>
+                    <span>This device is currently offline. Showing historical data. Live data will appear when it reconnects.</span>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_loading)
     {
         <div class="skeleton-hero card">
@@ -143,18 +156,27 @@
                         </div>
                     }
                     <div class="identity-live-group">
-                        <span class="identity-live">
-                            @if (_pollCount > 0)
-                            {
-                                <span class="poll-dot"></span>
-                                <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
-                            }
-                            else
-                            {
-                                <span class="poll-label" style="opacity: 0.5; margin-left: 13px">Connecting...</span>
-                            }
-                        </span>
-                        @if (!_isOwnDevice && _client is { IsWired: false })
+                        @if (_client.IsOffline)
+                        {
+                            <span class="identity-live">
+                                    <span class="poll-label" style="color: var(--text-muted); opacity: 0.8; margin-left: 13px">Offline</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="identity-live">
+                                @if (_pollCount > 0)
+                                {
+                                    <span class="poll-dot"></span>
+                                    <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
+                                }
+                                else
+                                {
+                                    <span class="poll-label" style="opacity: 0.5; margin-left: 13px">Connecting...</span>
+                                }
+                            </span>
+                        }
+                        @if (!_isOwnDevice && _client is { IsWired: false, IsOffline: false })
                         {
                             <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
                                     @onclick="ToggleLogging"
@@ -193,7 +215,7 @@
                 {
                     <span class="identity-detail">Wired</span>
                 }
-                @if (!_isOwnDevice && _client is { IsWired: false })
+                @if (!_isOwnDevice && _client is { IsWired: false, IsOffline: false })
                 {
                     <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-desktop"
                             @onclick="ToggleLogging"
@@ -1049,9 +1071,13 @@
                 _client = _latestPoll.Client;
                 _pollCount++;
 
-                // Disable logging indicator for wired devices (backend already skips storage)
-                if (_pollCount == 1 && _client.IsWired)
+                // Disable logging indicator for wired/offline devices (backend already skips storage)
+                if (_pollCount == 1 && (_client.IsWired || _client.IsOffline))
                     _isLogging = false;
+
+                // Skip chart refresh for offline devices - no new data to show
+                if (_client.IsOffline)
+                    return;
 
                 // Check if user is hovering a chart tooltip
                 try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
@@ -2123,7 +2149,7 @@
     }
 
     .client-dashboard-page {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
         padding: 0 16px 32px;
     }

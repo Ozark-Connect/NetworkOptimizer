@@ -47,6 +47,13 @@ public interface INetworkPathAnalyzer
     Task<NetworkPath> CalculateGatewayDirectPathAsync(string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Calculates the network path from a client to the gateway.
+    /// Unlike CalculatePathAsync (which traces client → server), this traces client → gateway,
+    /// showing the client's route to the internet regardless of where the speed test server sits.
+    /// </summary>
+    Task<NetworkPath> CalculatePathToGatewayAsync(string clientIp, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Identifies which WAN connection was used based on the Cloudflare-reported external IP.
     /// Returns the WAN network group (e.g. "WAN", "WAN2") and friendly name (e.g. "Starlink").
     /// When measured speeds are provided and no direct IP match is found (e.g. CGNAT),
@@ -570,6 +577,294 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error calculating gateway direct path");
+            path.IsValid = false;
+            path.ErrorMessage = $"Error calculating path: {ex.Message}";
+        }
+
+        return path;
+    }
+
+    // TODO: Consolidate shared topology-walking logic between CalculatePathToGatewayAsync
+    // and CalculatePathAsync (client hop building, uplink traversal, VPN detection, enrichment).
+    /// <summary>
+    /// Calculates the network path from a client to the gateway.
+    /// Simplified version of CalculatePathAsync that always traces to the gateway,
+    /// with no server chain, common ancestor, or same-switch shortcut logic.
+    /// </summary>
+    public async Task<NetworkPath> CalculatePathToGatewayAsync(
+        string clientIp,
+        CancellationToken cancellationToken = default)
+    {
+        var path = new NetworkPath
+        {
+            DestinationHost = clientIp
+        };
+
+        try
+        {
+            var topology = await GetTopologyAsync(cancellationToken);
+            if (topology == null)
+            {
+                path.IsValid = false;
+                path.ErrorMessage = "Could not retrieve network topology";
+                return path;
+            }
+
+            // Find the client
+            var targetClient = FindClient(topology, clientIp);
+            var targetDevice = targetClient == null ? FindDevice(topology, clientIp) : null;
+
+            if (targetClient == null && targetDevice == null)
+            {
+                path.IsValid = false;
+                path.ErrorMessage = $"Client '{clientIp}' not found in network topology";
+                return path;
+            }
+
+            // Find gateway
+            var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+            if (gateway == null)
+            {
+                path.IsValid = false;
+                path.ErrorMessage = "Gateway not found in topology";
+                return path;
+            }
+
+            // Set destination info (the client)
+            if (targetClient != null)
+            {
+                path.DestinationMac = targetClient.Mac;
+                var clientNetwork = topology.Networks.FirstOrDefault(n =>
+                    n.Id == targetClient.EffectiveNetworkId || n.Name == targetClient.Network);
+                if (clientNetwork == null && targetClient.Vlan.HasValue)
+                    clientNetwork = topology.Networks.FirstOrDefault(n => n.VlanId == targetClient.Vlan.Value);
+                path.DestinationVlanId = clientNetwork?.VlanId ?? targetClient.Vlan;
+                path.DestinationNetworkName = clientNetwork?.Name ?? targetClient.Network;
+            }
+            else if (targetDevice != null)
+            {
+                path.DestinationMac = targetDevice.Mac;
+                var deviceNetwork = FindNetworkByIp(topology.Networks, targetDevice.IpAddress);
+                if (deviceNetwork != null)
+                {
+                    path.DestinationVlanId = deviceNetwork.VlanId;
+                    path.DestinationNetworkName = deviceNetwork.Name;
+                }
+            }
+
+            // Source is the gateway
+            path.SourceHost = gateway.IpAddress;
+            path.SourceMac = gateway.Mac;
+
+            var rawDevices = await GetRawDevicesAsync(cancellationToken);
+            var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
+            var hops = new List<NetworkHop>();
+
+            // --- Build client hop (hop 0) ---
+            string? currentMac;
+            int? currentPort;
+
+            if (targetClient != null)
+            {
+                currentMac = targetClient.ConnectedToDeviceMac;
+                currentPort = targetClient.SwitchPort;
+
+                if (!targetClient.IsWired && string.IsNullOrEmpty(currentMac))
+                {
+                    _logger.LogWarning("Wireless client {Name} ({Ip}) has no AP MAC - data may be stale",
+                        targetClient.Name ?? targetClient.Hostname, targetClient.IpAddress);
+                    path.IsValid = false;
+                    path.ErrorMessage = "Wireless client connection data not yet available from UniFi";
+                    return path;
+                }
+
+                var hop = new NetworkHop
+                {
+                    Order = 0,
+                    Type = targetClient.IsWired ? HopType.Client : HopType.WirelessClient,
+                    DeviceMac = targetClient.Mac,
+                    DeviceName = targetClient.Name ?? targetClient.Hostname,
+                    DeviceIp = targetClient.IpAddress,
+                    Notes = targetClient.IsWired ? "Client (wired)" : $"Client ({targetClient.ConnectionType})"
+                };
+
+                if (!targetClient.IsWired)
+                {
+                    long currentTxKbps, currentRxKbps;
+
+                    if (targetClient.IsMlo && targetClient.MloLinks?.Count > 0)
+                    {
+                        currentTxKbps = targetClient.MloLinks.Sum(l => l.TxRateKbps ?? 0);
+                        currentRxKbps = targetClient.MloLinks.Sum(l => l.RxRateKbps ?? 0);
+                    }
+                    else
+                    {
+                        currentTxKbps = targetClient.TxRate;
+                        currentRxKbps = targetClient.RxRate;
+                    }
+
+                    var txMbps = (int)(currentTxKbps / 1000);
+                    var rxMbps = (int)(currentRxKbps / 1000);
+
+                    hop.IngressSpeedMbps = txMbps;
+                    hop.EgressSpeedMbps = rxMbps;
+                    hop.IsWirelessEgress = true;
+                    hop.IsWirelessIngress = true;
+                    hop.WirelessEgressBand = targetClient.Radio;
+                    hop.WirelessIngressBand = targetClient.Radio;
+                }
+                else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
+                {
+                    int portSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                    hop.EgressSpeedMbps = portSpeed;
+                    hop.IngressSpeedMbps = portSpeed;
+                    hop.EgressPort = currentPort;
+                    hop.IngressPort = currentPort;
+                }
+
+                hops.Add(hop);
+            }
+            else
+            {
+                // Target is a device (e.g. an AP) - use its uplink
+                currentMac = targetDevice!.UplinkMac;
+                currentPort = targetDevice.UplinkPort;
+
+                var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice.Model, targetDevice.Shortname);
+                var deviceHop = new NetworkHop
+                {
+                    Order = 0,
+                    Type = GetHopType(targetDevice.Type),
+                    DeviceMac = targetDevice.Mac,
+                    DeviceName = targetDevice.Name,
+                    DeviceModel = deviceModel,
+                    DeviceFirmware = targetDevice.Firmware,
+                    DeviceIp = targetDevice.IpAddress,
+                    IngressPort = targetDevice.UplinkPort,
+                    EgressPort = targetDevice.UplinkPort,
+                    Notes = "Target device"
+                };
+
+                if (targetDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                    && targetDevice.UplinkSpeedMbps > 0)
+                {
+                    deviceHop.IngressSpeedMbps = targetDevice.UplinkSpeedMbps;
+                    deviceHop.EgressSpeedMbps = targetDevice.UplinkSpeedMbps;
+                    deviceHop.IngressPortName = "wireless mesh";
+                    deviceHop.EgressPortName = "wireless mesh";
+                    deviceHop.IsWirelessIngress = true;
+                    deviceHop.IsWirelessEgress = true;
+                    deviceHop.WirelessIngressBand = targetDevice.UplinkRadioBand;
+                    deviceHop.WirelessEgressBand = targetDevice.UplinkRadioBand;
+                    deviceHop.WirelessChannel = targetDevice.UplinkChannel;
+                    deviceHop.WirelessSignalDbm = targetDevice.UplinkSignalDbm;
+                    deviceHop.WirelessNoiseDbm = targetDevice.UplinkNoiseDbm;
+                    deviceHop.WirelessTxRateMbps = targetDevice.UplinkTxRateKbps > 0 ? (int)(targetDevice.UplinkTxRateKbps / 1000) : null;
+                    deviceHop.WirelessRxRateMbps = targetDevice.UplinkRxRateKbps > 0 ? (int)(targetDevice.UplinkRxRateKbps / 1000) : null;
+                }
+                else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
+                {
+                    deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                    deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
+                }
+
+                hops.Add(deviceHop);
+            }
+
+            // --- Follow uplinks to gateway ---
+            int hopOrder = 1;
+            int maxHops = 10;
+
+            while (!string.IsNullOrEmpty(currentMac) && hopOrder < maxHops)
+            {
+                if (!deviceDict.TryGetValue(currentMac, out var device))
+                    break;
+
+                bool isGateway = device.Type == DeviceType.Gateway;
+                bool isWirelessUplink = device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                    && device.UplinkSpeedMbps > 0;
+
+                int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                string? ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
+
+                var hop = new NetworkHop
+                {
+                    Order = hopOrder,
+                    Type = GetHopType(device.Type),
+                    DeviceMac = device.Mac,
+                    DeviceName = device.Name,
+                    DeviceModel = UniFiProductDatabase.GetBestProductName(device.Model, device.Shortname),
+                    DeviceFirmware = device.Firmware,
+                    DeviceIp = device.IpAddress,
+                    IngressPort = currentPort,
+                    IngressPortName = ingressPortName,
+                    IngressSpeedMbps = ingressSpeed
+                };
+
+                if (isGateway)
+                {
+                    // Gateway is the end of the path - no egress needed
+                    hop.Notes = "Gateway";
+                }
+                else if (!string.IsNullOrEmpty(device.UplinkMac))
+                {
+                    if (isWirelessUplink)
+                    {
+                        hop.EgressPort = device.UplinkPort;
+                        hop.EgressSpeedMbps = device.UplinkSpeedMbps;
+                        hop.EgressPortName = "wireless mesh";
+                        hop.IsWirelessEgress = true;
+                        hop.WirelessEgressBand = device.UplinkRadioBand;
+                        hop.WirelessChannel = device.UplinkChannel;
+                        hop.WirelessSignalDbm = device.UplinkSignalDbm;
+                        hop.WirelessNoiseDbm = device.UplinkNoiseDbm;
+                        hop.WirelessTxRateMbps = device.UplinkTxRateKbps > 0 ? (int)(device.UplinkTxRateKbps / 1000) : null;
+                        hop.WirelessRxRateMbps = device.UplinkRxRateKbps > 0 ? (int)(device.UplinkRxRateKbps / 1000) : null;
+                    }
+                    else
+                    {
+                        hop.EgressPort = device.UplinkPort;
+                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                        hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+                    }
+                }
+
+                hops.Add(hop);
+
+                if (isGateway)
+                    break;
+
+                currentMac = device.UplinkMac;
+                currentPort = device.UplinkPort;
+                hopOrder++;
+            }
+
+            // Check for VPN hops
+            var vpnHop = DetectAndCreateVpnHop(clientIp, topology, rawDevices);
+            if (vpnHop != null)
+            {
+                vpnHop.Order = -1;
+                hops.Add(vpnHop);
+                path.IsExternalPath = true;
+            }
+
+            path.Hops = hops.OrderBy(h => h.Order).ToList();
+
+            // Set MLO status on AP hops
+            await SetApMloStatusAsync(path.Hops, cancellationToken);
+
+            // Enrich hops with device settings
+            await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+
+            // Calculate bottleneck
+            CalculateBottleneck(path);
+
+            _logger.LogInformation("Path to gateway calculated: {Client} -> gateway, {HopCount} hops, max {MaxMbps} Mbps",
+                clientIp, path.Hops.Count, path.TheoreticalMaxMbps);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calculating path to gateway for {Client}", clientIp);
             path.IsValid = false;
             path.ErrorMessage = $"Error calculating path: {ex.Message}";
         }

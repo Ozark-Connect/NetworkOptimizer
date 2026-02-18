@@ -10,6 +10,7 @@ public record Iperf3ParsedResult(
     long Bytes,
     int Retransmits,
     string? LocalIp,
+    string? RemoteIp,
     string? ErrorMessage
 );
 
@@ -39,21 +40,22 @@ public static class Iperf3JsonParser
                 var errorMsg = errorProp.GetString();
                 if (!string.IsNullOrEmpty(errorMsg))
                 {
-                    return new Iperf3ParsedResult(0, 0, 0, null, errorMsg);
+                    return new Iperf3ParsedResult(0, 0, 0, null, null, errorMsg);
                 }
             }
 
-            // Extract local IP from connection info
+            // Extract local and remote IPs from connection info
             string? localIp = null;
+            string? remoteIp = null;
             if (root.TryGetProperty("start", out var start) &&
                 start.TryGetProperty("connected", out var connected) &&
                 connected.GetArrayLength() > 0)
             {
                 var firstConn = connected[0];
                 if (firstConn.TryGetProperty("local_host", out var localHost))
-                {
                     localIp = localHost.GetString();
-                }
+                if (firstConn.TryGetProperty("remote_host", out var remoteHost))
+                    remoteIp = remoteHost.GetString();
             }
 
             // Parse end results
@@ -65,7 +67,7 @@ public static class Iperf3JsonParser
                     var bps = sumReceived.GetProperty("bits_per_second").GetDouble();
                     var bytes = sumReceived.GetProperty("bytes").GetInt64();
                     // sum_received typically doesn't have retransmits
-                    return new Iperf3ParsedResult(bps, bytes, 0, localIp, null);
+                    return new Iperf3ParsedResult(bps, bytes, 0, localIp, remoteIp, null);
                 }
 
                 // Use sum_sent
@@ -74,21 +76,21 @@ public static class Iperf3JsonParser
                     var bps = sumSent.GetProperty("bits_per_second").GetDouble();
                     var bytes = sumSent.GetProperty("bytes").GetInt64();
                     var retransmits = sumSent.TryGetProperty("retransmits", out var rt) ? rt.GetInt32() : 0;
-                    return new Iperf3ParsedResult(bps, bytes, retransmits, localIp, null);
+                    return new Iperf3ParsedResult(bps, bytes, retransmits, localIp, remoteIp, null);
                 }
             }
 
-            return new Iperf3ParsedResult(0, 0, 0, localIp, "No end summary found in iperf3 output");
+            return new Iperf3ParsedResult(0, 0, 0, localIp, remoteIp, "No end summary found in iperf3 output");
         }
         catch (JsonException ex)
         {
             logger?.LogWarning(ex, "Failed to parse iperf3 JSON output");
-            return new Iperf3ParsedResult(0, 0, 0, null, $"JSON parse error: {ex.Message}");
+            return new Iperf3ParsedResult(0, 0, 0, null, null, $"JSON parse error: {ex.Message}");
         }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Unexpected error parsing iperf3 JSON");
-            return new Iperf3ParsedResult(0, 0, 0, null, $"Parse error: {ex.Message}");
+            return new Iperf3ParsedResult(0, 0, 0, null, null, $"Parse error: {ex.Message}");
         }
     }
 

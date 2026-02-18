@@ -40,6 +40,9 @@ public class ClientIdentity
     public string? Essid { get; set; }
     public int? Satisfaction { get; set; }
 
+    /// <summary>True when identified from client history (device not currently connected)</summary>
+    public bool IsOffline { get; set; }
+
     /// <summary>Best display name (Name > Hostname > MAC)</summary>
     public string DisplayName => !string.IsNullOrEmpty(Name) ? Name
         : !string.IsNullOrEmpty(Hostname) ? Hostname

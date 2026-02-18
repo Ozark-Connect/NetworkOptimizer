@@ -41,7 +41,7 @@
         @if (Result != null && (OnDelete.HasDelegate || (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate) || !string.IsNullOrEmpty(Result.DeviceHost)))
         {
             <div class="detail-actions" @onclick:stopPropagation="true">
-                @if (!string.IsNullOrEmpty(Result.DeviceHost) && !_isMultiServerWan)
+                @if (_isLanDevice)
                 {
                     <a href="/client-dashboard?ip=@Result.DeviceHost&tab=speed&range=30d" class="btn-action-icon"
                        data-tooltip="View full speed and signal history" data-tooltip-hover-only>
@@ -477,6 +477,9 @@
     // Multi-server WAN test (UWN) - hide single server IP, show server names
     private bool _isMultiServerWan;
 
+    // True when the result is a local LAN device (not WAN, VPN, Tailscale, or Teleport)
+    private bool _isLanDevice;
+
     // Notes state
     private string _notesInput = "";
     private bool _notesSaving;
@@ -507,6 +510,7 @@
             DeviceName = Result.DeviceName ?? "";
             DeviceHost = Result.DeviceHost;
             _isMultiServerWan = Result.Direction is SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway;
+            _isLanDevice = Result.IsLocalLanClient();
             DurationSeconds = Result.DurationSeconds;
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;
