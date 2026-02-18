@@ -151,16 +151,13 @@ public class ClientDashboardService
                     {
                         result.TraceChanged = true; // First poll for this client
                     }
-
-                    // Only update the "last known" hash when persisting, so non-persisting
-                    // polls (viewing via ?ip=) don't consume the change for the real client.
-                    if (persist)
-                        _lastTraceHashes[identity.Mac] = result.TraceHash;
+                    _lastTraceHashes[identity.Mac] = result.TraceHash;
                 }
 
-                // Store signal log (only when viewing own device, not remote ?ip= viewing)
-                if (persist)
-                    await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                // Always store when trace changes (trace snapshots are deduped by hash).
+                // Store signal data only when persist=true (own device with logging on).
+                if (persist || result.TraceChanged)
+                    await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy, traceOnly: !persist);
             }
             else
             {
@@ -637,10 +634,11 @@ public class ClientDashboardService
         SignalPollResult poll,
         double? gpsLat,
         double? gpsLng,
-        int? gpsAccuracy)
+        int? gpsAccuracy,
+        bool traceOnly = false)
     {
-        // Skip wired clients - no Wi-Fi signal data to record
-        if (identity.IsWired) return;
+        // Skip wired clients for signal data (no Wi-Fi to record), but always store traces
+        if (identity.IsWired && !traceOnly && !poll.TraceChanged) return;
 
         try
         {
@@ -652,26 +650,27 @@ public class ClientDashboardService
                 ClientMac = identity.Mac,
                 ClientIp = identity.Ip,
                 DeviceName = identity.DisplayName,
-                SignalDbm = identity.SignalDbm,
-                NoiseDbm = identity.NoiseDbm,
-                Channel = identity.Channel,
-                Band = identity.Band,
-                Protocol = identity.Protocol,
-                TxRateKbps = identity.TxRateKbps,
-                RxRateKbps = identity.RxRateKbps,
-                IsMlo = identity.IsMlo,
-                MloLinksJson = identity.MloLinks != null
+                // Signal data only when not trace-only
+                SignalDbm = traceOnly ? null : identity.SignalDbm,
+                NoiseDbm = traceOnly ? null : identity.NoiseDbm,
+                Channel = traceOnly ? null : identity.Channel,
+                Band = traceOnly ? null : identity.Band,
+                Protocol = traceOnly ? null : identity.Protocol,
+                TxRateKbps = traceOnly ? null : identity.TxRateKbps,
+                RxRateKbps = traceOnly ? null : identity.RxRateKbps,
+                IsMlo = traceOnly ? false : identity.IsMlo,
+                MloLinksJson = traceOnly ? null : identity.MloLinks != null
                     ? JsonSerializer.Serialize(identity.MloLinks, JsonOptions) : null,
-                ApMac = identity.ApMac,
-                ApName = identity.ApName,
-                ApModel = identity.ApModel,
-                ApChannel = identity.ApChannel,
-                ApTxPower = identity.ApTxPower,
-                ApClientCount = identity.ApClientCount,
-                ApRadioBand = identity.ApRadioBand,
-                Latitude = gpsLat,
-                Longitude = gpsLng,
-                LocationAccuracyMeters = gpsAccuracy,
+                ApMac = traceOnly ? null : identity.ApMac,
+                ApName = traceOnly ? null : identity.ApName,
+                ApModel = traceOnly ? null : identity.ApModel,
+                ApChannel = traceOnly ? null : identity.ApChannel,
+                ApTxPower = traceOnly ? null : identity.ApTxPower,
+                ApClientCount = traceOnly ? null : identity.ApClientCount,
+                ApRadioBand = traceOnly ? null : identity.ApRadioBand,
+                Latitude = traceOnly ? null : gpsLat,
+                Longitude = traceOnly ? null : gpsLng,
+                LocationAccuracyMeters = traceOnly ? null : gpsAccuracy,
                 TraceHash = poll.TraceHash,
                 // Only store full trace JSON when the trace changed
                 TraceJson = poll.TraceChanged && poll.PathAnalysis != null
