@@ -126,13 +126,20 @@ dotnet publish src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj \
     -p:DebugType=None \
     -o "$INSTALL_DIR"
 
-# Step 3b: Build cfspeedtest binary for gateway deployment
+# Step 3b: Build Go binaries
 echo ""
-echo "[3b/9] Building cfspeedtest for gateway (linux/arm64)..."
+echo "[3b/9] Building Go binaries..."
 if command -v go &> /dev/null; then
+    mkdir -p "$INSTALL_DIR/tools"
+
+    # Detect Go architecture for local binary
+    GO_ARCH="amd64"
+    if [ "$ARCH" = "arm64" ]; then
+        GO_ARCH="arm64"
+    fi
+
     CFSPEEDTEST_SRC="$REPO_ROOT/src/cfspeedtest"
     if [ -d "$CFSPEEDTEST_SRC" ]; then
-        mkdir -p "$INSTALL_DIR/tools"
         cd "$CFSPEEDTEST_SRC"
         CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
             -ldflags "-s -w" \
@@ -141,8 +148,25 @@ if command -v go &> /dev/null; then
     else
         echo "Warning: cfspeedtest source not found at $CFSPEEDTEST_SRC"
     fi
+
+    UWNSPEEDTEST_SRC="$REPO_ROOT/src/uwnspeedtest"
+    if [ -d "$UWNSPEEDTEST_SRC" ]; then
+        cd "$UWNSPEEDTEST_SRC"
+        # Build local binary for server-side WAN speed tests
+        CGO_ENABLED=0 GOOS=darwin GOARCH=$GO_ARCH go build -trimpath \
+            -ldflags "-s -w" \
+            -o "$INSTALL_DIR/tools/uwnspeedtest-darwin-$GO_ARCH" .
+        echo "Built uwnspeedtest for darwin/$GO_ARCH (local)"
+        # Build gateway binary for deployment via SSH to UniFi gateways
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+            -ldflags "-s -w" \
+            -o "$INSTALL_DIR/tools/uwnspeedtest-linux-arm64" .
+        echo "Built uwnspeedtest for linux/arm64 (gateway)"
+    else
+        echo "Warning: uwnspeedtest source not found at $UWNSPEEDTEST_SRC"
+    fi
 else
-    echo "Warning: Go not installed - gateway speed test binary not available"
+    echo "Warning: Go not installed - speed test binaries not available"
     echo "  Install with: brew install go"
 fi
 

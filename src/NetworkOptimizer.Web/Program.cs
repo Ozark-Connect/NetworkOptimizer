@@ -187,8 +187,9 @@ builder.Services.AddSingleton<ClientSpeedTestService>();
 // Register Client Dashboard service (singleton - signal polling, trace tracking)
 builder.Services.AddSingleton<ClientDashboardService>();
 
-// Register Cloudflare WAN Speed Test service (singleton - server-side WAN speed tests)
+// Register WAN Speed Test services (singletons - server-side and gateway-direct WAN speed tests)
 builder.Services.AddSingleton<CloudflareSpeedTestService>();
+builder.Services.AddSingleton<UwnSpeedTestService>();
 
 // Register Gateway WAN Speed Test service (singleton - gateway-direct WAN speed tests via SSH)
 builder.Services.AddSingleton<GatewayWanSpeedTestService>();

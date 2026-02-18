@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -15,7 +14,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Employs concurrent connections (like the Cloudflare browser test and cloudflare-speed-cli)
 /// to saturate the link for accurate measurement.
 /// </summary>
-public partial class CloudflareSpeedTestService
+public partial class CloudflareSpeedTestService : WanSpeedTestServiceBase
 {
     private const string BaseUrl = "https://speed.cloudflare.com";
     private const string DownloadPath = "__down?bytes=";
@@ -29,53 +28,15 @@ public partial class CloudflareSpeedTestService
     private const int MinDownloadBytesPerRequest = 100_000; // Floor for adaptive chunk reduction on 429
     private const int UploadBytesPerRequest = 5_000_000;    // 5 MB per request (matches cloudflare-speed-cli)
 
-    private readonly ILogger<CloudflareSpeedTestService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
-    private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly IConfiguration _configuration;
-    private readonly Iperf3ServerService _iperf3ServerService;
 
-    // Observable test state (polled by UI components)
-    private readonly object _lock = new();
-    private bool _isRunning;
-    private string _currentPhase = "";
-    private int _currentPercent;
-    private string? _currentStatus;
-    private Iperf3Result? _lastCompletedResult;
-
-    /// <summary>Whether a WAN speed test is currently running.</summary>
-    public bool IsRunning { get { lock (_lock) return _isRunning; } }
-
-    /// <summary>Current test progress snapshot for UI polling.</summary>
-    public (string Phase, int Percent, string? Status) CurrentProgress
-    {
-        get { lock (_lock) return (_currentPhase, _currentPercent, _currentStatus); }
-    }
+    protected override SpeedTestDirection Direction => SpeedTestDirection.CloudflareWan;
 
     /// <summary>
-    /// Last completed result from the current session.
-    /// UI can poll this to detect completion after navigating away and back.
+    /// Cloudflare edge metadata from response headers.
     /// </summary>
-    public Iperf3Result? LastCompletedResult
-    {
-        get { lock (_lock) return _lastCompletedResult; }
-    }
-
-    /// <summary>
-    /// Metadata from the most recent test (set early in the test lifecycle).
-    /// </summary>
-    public CloudflareMetadata? LastMetadata
-    {
-        get { lock (_lock) return _lastMetadata; }
-    }
-    private CloudflareMetadata? _lastMetadata;
-
-    /// <summary>
-    /// Fired when background path analysis completes for a result.
-    /// UI components subscribe to refresh their display.
-    /// </summary>
-    public event Action<int>? OnPathAnalysisComplete;
+    public record CloudflareMetadata(string Ip, string City, string Country, string Asn, string Colo);
 
     public CloudflareSpeedTestService(
         ILogger<CloudflareSpeedTestService> logger,
@@ -84,323 +45,128 @@ public partial class CloudflareSpeedTestService
         INetworkPathAnalyzer pathAnalyzer,
         IConfiguration configuration,
         Iperf3ServerService iperf3ServerService)
+        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService)
     {
-        _logger = logger;
         _httpClientFactory = httpClientFactory;
-        _dbFactory = dbFactory;
-        _pathAnalyzer = pathAnalyzer;
         _configuration = configuration;
-        _iperf3ServerService = iperf3ServerService;
     }
 
-    /// <summary>
-    /// Cloudflare edge metadata from response headers.
-    /// </summary>
-    public record CloudflareMetadata(string Ip, string City, string Country, string Asn, string Colo);
-
-    /// <summary>
-    /// Run a full Cloudflare WAN speed test with progress reporting.
-    /// Uses multiple concurrent connections per direction, similar to cloudflare-speed-cli.
-    /// Test state is tracked on the service so UI components can navigate away and
-    /// poll CurrentProgress / LastCompletedResult when they return.
-    /// </summary>
-    public async Task<Iperf3Result?> RunTestAsync(
-        Action<(string Phase, int Percent, string? Status)>? onProgress = null,
-        CancellationToken cancellationToken = default)
+    protected override async Task<Iperf3Result?> RunTestCoreAsync(
+        Action<string, int, string?> report,
+        CancellationToken cancellationToken)
     {
-        lock (_lock)
-        {
-            if (_isRunning)
-            {
-                _logger.LogWarning("WAN speed test already in progress");
-                return null;
-            }
-            _isRunning = true;
-            _lastCompletedResult = null;
-        }
+        Logger.LogInformation("Starting Cloudflare WAN speed test ({Concurrency} concurrent connections)", Concurrency);
 
+        report("Connecting", 0, null);
+
+        using var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(90);
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
+
+        // Phase 1: Metadata (0-5%)
+        report("Metadata", 2, "Fetching edge info...");
+        var metadata = await FetchMetadataAsync(client, cancellationToken);
+        SetMetadata(new WanTestMetadata(metadata.Colo, $"{metadata.City}, {metadata.Country}", metadata.Ip));
+        var edgeInfo = $"{metadata.Colo} - {metadata.City}, {metadata.Country}";
+        Logger.LogInformation("Connected to Cloudflare edge: {Edge} (IP: {Ip}, ASN: {Asn})",
+            edgeInfo, metadata.Ip, metadata.Asn);
+        report("Metadata", 5, edgeInfo);
+
+        // Phase 2: Latency (5-15%)
+        report("Testing latency", 7, null);
+        var (latencyMs, jitterMs) = await MeasureLatencyAsync(client, cancellationToken);
+        Logger.LogInformation("Latency: {Latency:F1} ms, Jitter: {Jitter:F1} ms", latencyMs, jitterMs);
+        report("Testing latency", 15, $"Latency: {latencyMs:F1} ms / {jitterMs:F1} ms jitter");
+
+        // Phase 3: Download (15-55%) - concurrent connections + latency probes
+        report("Testing download", 16, null);
+        var (downloadBps, downloadBytes, dlLatencyMs, dlJitterMs) = await MeasureThroughputAsync(
+            isUpload: false,
+            DownloadDuration,
+            DownloadBytesPerRequest,
+            pct => report("Testing download", 15 + (int)(pct * 40), null),
+            cancellationToken);
+        var downloadMbps = downloadBps / 1_000_000.0;
+        Logger.LogInformation("Download: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
+            downloadMbps, downloadBytes, Concurrency, dlLatencyMs);
+        report("Download complete", 55, $"Down: {downloadMbps:F1} Mbps");
+
+        // Phase 4: Upload (55-95%) - concurrent connections + latency probes
+        report("Testing upload", 56, null);
+        var (uploadBps, uploadBytes, ulLatencyMs, ulJitterMs) = await MeasureThroughputAsync(
+            isUpload: true,
+            UploadDuration,
+            UploadBytesPerRequest,
+            pct => report("Testing upload", 55 + (int)(pct * 40), null),
+            cancellationToken);
+        var uploadMbps = uploadBps / 1_000_000.0;
+        Logger.LogInformation("Upload: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
+            uploadMbps, uploadBytes, Concurrency, ulLatencyMs);
+        report("Upload complete", 95, null);
+
+        // Phase 5: Build result (95-100%)
+        report("Saving", 96, null);
+
+        var serverIp = _configuration["HOST_IP"];
+
+        var result = new Iperf3Result
+        {
+            Direction = SpeedTestDirection.CloudflareWan,
+            DeviceHost = "speed.cloudflare.com",
+            DeviceName = edgeInfo,
+            DeviceType = "WAN",
+            LocalIp = serverIp,
+            DownloadBitsPerSecond = downloadBps,
+            UploadBitsPerSecond = uploadBps,
+            DownloadBytes = downloadBytes,
+            UploadBytes = uploadBytes,
+            PingMs = latencyMs,
+            JitterMs = jitterMs,
+            DownloadLatencyMs = dlLatencyMs > 0 ? dlLatencyMs : null,
+            DownloadJitterMs = dlJitterMs > 0 ? dlJitterMs : null,
+            UploadLatencyMs = ulLatencyMs > 0 ? ulLatencyMs : null,
+            UploadJitterMs = ulJitterMs > 0 ? ulJitterMs : null,
+            TestTime = DateTime.UtcNow,
+            Success = true,
+            ParallelStreams = Concurrency,
+            DurationSeconds = (int)DownloadDuration.TotalSeconds,
+        };
+
+        // Identify WAN connection from Cloudflare-reported IP
         try
         {
-            // Pause iperf3 server during WAN speed test to free pipe handles.
-            // GC compaction while iperf3 pipe readers are active causes AccessViolationException.
-            if (_iperf3ServerService.IsRunning)
-            {
-                _logger.LogInformation("Pausing iperf3 server for WAN speed test");
-                await _iperf3ServerService.PauseAsync();
-            }
-
-            _logger.LogInformation("Starting Cloudflare WAN speed test ({Concurrency} concurrent connections)", Concurrency);
-
-            // Wrap progress to always update service-level state (for navigate-away polling)
-            void Report(string phase, int percent, string? status)
-            {
-                lock (_lock) { _currentPhase = phase; _currentPercent = percent; _currentStatus = status; }
-                onProgress?.Invoke((phase, percent, status));
-            }
-
-            Report("Connecting", 0, null);
-
-            using var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(90);
-            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
-
-            // Phase 1: Metadata (0-5%)
-            Report("Metadata", 2, "Fetching edge info...");
-            var metadata = await FetchMetadataAsync(client, cancellationToken);
-            lock (_lock) _lastMetadata = metadata;
-            var edgeInfo = $"{metadata.Colo} - {metadata.City}, {metadata.Country}";
-            _logger.LogInformation("Connected to Cloudflare edge: {Edge} (IP: {Ip}, ASN: {Asn})",
-                edgeInfo, metadata.Ip, metadata.Asn);
-            Report("Metadata", 5, edgeInfo);
-
-            // Phase 2: Latency (5-15%)
-            Report("Testing latency", 7, null);
-            var (latencyMs, jitterMs) = await MeasureLatencyAsync(client, cancellationToken);
-            _logger.LogInformation("Latency: {Latency:F1} ms, Jitter: {Jitter:F1} ms", latencyMs, jitterMs);
-            Report("Testing latency", 15, $"Latency: {latencyMs:F1} ms / {jitterMs:F1} ms jitter");
-
-            // Phase 3: Download (15-55%) - concurrent connections + latency probes
-            Report("Testing download", 16, null);
-            var (downloadBps, downloadBytes, dlLatencyMs, dlJitterMs) = await MeasureThroughputAsync(
-                isUpload: false,
-                DownloadDuration,
-                DownloadBytesPerRequest,
-                pct => Report("Testing download", 15 + (int)(pct * 40), null),
-                cancellationToken);
-            var downloadMbps = downloadBps / 1_000_000.0;
-            _logger.LogInformation("Download: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
-                downloadMbps, downloadBytes, Concurrency, dlLatencyMs);
-            Report("Download complete", 55, $"Down: {downloadMbps:F1} Mbps");
-
-            // Phase 4: Upload (55-95%) - concurrent connections + latency probes
-            Report("Testing upload", 56, null);
-            var (uploadBps, uploadBytes, ulLatencyMs, ulJitterMs) = await MeasureThroughputAsync(
-                isUpload: true,
-                UploadDuration,
-                UploadBytesPerRequest,
-                pct => Report("Testing upload", 55 + (int)(pct * 40), null),
-                cancellationToken);
-            var uploadMbps = uploadBps / 1_000_000.0;
-            _logger.LogInformation("Upload: {Speed:F1} Mbps ({Bytes} bytes, {Workers} workers), loaded latency: {Latency:F1} ms",
-                uploadMbps, uploadBytes, Concurrency, ulLatencyMs);
-            Report("Upload complete", 95, null);
-
-            // Phase 5: Save result (95-100%)
-            Report("Saving", 96, null);
-
-            var serverIp = _configuration["HOST_IP"];
-
-            // Store from WAN perspective:
-            // DownloadBitsPerSecond = CF download (data received from internet)
-            // UploadBitsPerSecond = CF upload (data sent to internet)
-            var result = new Iperf3Result
-            {
-                Direction = SpeedTestDirection.CloudflareWan,
-                DeviceHost = "speed.cloudflare.com",
-                DeviceName = edgeInfo,
-                DeviceType = "WAN",
-                LocalIp = serverIp,
-                DownloadBitsPerSecond = downloadBps,
-                UploadBitsPerSecond = uploadBps,
-                DownloadBytes = downloadBytes,
-                UploadBytes = uploadBytes,
-                PingMs = latencyMs,
-                JitterMs = jitterMs,
-                DownloadLatencyMs = dlLatencyMs > 0 ? dlLatencyMs : null,
-                DownloadJitterMs = dlJitterMs > 0 ? dlJitterMs : null,
-                UploadLatencyMs = ulLatencyMs > 0 ? ulLatencyMs : null,
-                UploadJitterMs = ulJitterMs > 0 ? ulJitterMs : null,
-                TestTime = DateTime.UtcNow,
-                Success = true,
-                ParallelStreams = Concurrency,
-                DurationSeconds = (int)DownloadDuration.TotalSeconds,
-            };
-
-            // Identify which WAN connection was used based on Cloudflare-reported IP.
-            // Pass measured speeds so CGNAT connections (where IP doesn't match the gateway port)
-            // can be identified by comparing against configured ISP speeds.
-            try
-            {
-                var (wanGroup, wanName) = await _pathAnalyzer.IdentifyWanConnectionAsync(
-                    metadata.Ip, downloadMbps, uploadMbps, cancellationToken);
-                result.WanNetworkGroup = wanGroup;
-                result.WanName = wanName;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Could not identify WAN connection for IP {Ip}", metadata.Ip);
-            }
-
-            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-            db.Iperf3Results.Add(result);
-            await db.SaveChangesAsync(cancellationToken);
-            var resultId = result.Id;
-
-            _logger.LogInformation(
-                "WAN speed test complete: Down {Download:F1} Mbps, Up {Upload:F1} Mbps, Latency {Latency:F1} ms",
-                downloadMbps, uploadMbps, latencyMs);
-
-            Report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
-            lock (_lock) _lastCompletedResult = result;
-
-            // Trigger background path analysis with Cloudflare-reported WAN IP and pre-resolved WAN group
-            var cfWanIp = metadata.Ip;
-            var resolvedWanGroup = result.WanNetworkGroup;
-            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, cfWanIp, resolvedWanGroup), CancellationToken.None);
-
-            return result;
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogInformation("WAN speed test cancelled");
-            lock (_lock) { _currentPhase = "Cancelled"; _currentPercent = 0; _currentStatus = "Test cancelled"; }
-            onProgress?.Invoke(("Cancelled", 0, "Test cancelled"));
-            return null;
+            var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
+                metadata.Ip, downloadMbps, uploadMbps, cancellationToken);
+            result.WanNetworkGroup = wanGroup;
+            result.WanName = wanName;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "WAN speed test failed");
-            lock (_lock) { _currentPhase = "Error"; _currentPercent = 0; _currentStatus = ex.Message; }
-            onProgress?.Invoke(("Error", 0, ex.Message));
-
-            // Save failed result
-            try
-            {
-                var failedResult = new Iperf3Result
-                {
-                    Direction = SpeedTestDirection.CloudflareWan,
-                    DeviceHost = "speed.cloudflare.com",
-                    DeviceName = "Cloudflare",
-                    DeviceType = "WAN",
-                    TestTime = DateTime.UtcNow,
-                    Success = false,
-                    ErrorMessage = ex.Message,
-                };
-                await using var db = await _dbFactory.CreateDbContextAsync();
-                db.Iperf3Results.Add(failedResult);
-                await db.SaveChangesAsync();
-                return failedResult;
-            }
-            catch (Exception saveEx)
-            {
-                _logger.LogWarning(saveEx, "Failed to save error result");
-                return null;
-            }
-        }
-        finally
-        {
-            // Resume iperf3 server after WAN speed test completes (or fails/cancels)
-            await _iperf3ServerService.ResumeAsync();
-            lock (_lock) _isRunning = false;
-        }
-    }
-
-    /// <summary>
-    /// Get recent WAN speed test results. Automatically retries path analysis
-    /// for recent results (last 30 min) that don't have a valid path.
-    /// </summary>
-    public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var query = db.Iperf3Results
-            .Where(r => r.Direction == SpeedTestDirection.CloudflareWan);
-
-        if (hours > 0)
-        {
-            var cutoff = DateTime.UtcNow.AddHours(-hours);
-            query = query.Where(r => r.TestTime >= cutoff);
+            Logger.LogDebug(ex, "Could not identify WAN connection for IP {Ip}", metadata.Ip);
         }
 
-        query = query.OrderByDescending(r => r.TestTime);
+        Logger.LogInformation(
+            "WAN speed test complete: Down {Download:F1} Mbps, Up {Upload:F1} Mbps, Latency {Latency:F1} ms",
+            downloadMbps, uploadMbps, latencyMs);
 
-        if (count > 0)
-            query = query.Take(count);
+        report("Complete", 100, $"Down: {downloadMbps:F1} / Up: {uploadMbps:F1} Mbps");
 
-        var results = await query.ToListAsync();
-
-        // Fire-and-forget path analysis retries for recent results without valid paths.
-        // Runs in background to avoid blocking page load; notifies UI via OnPathAnalysisComplete.
-        // Exclude results from the last 10 seconds to avoid racing with the initial background analysis.
-        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
-        var recentCutoff = DateTime.UtcNow.AddSeconds(-10);
-        var needsRetry = results.Where(r =>
-            r.TestTime > retryWindow &&
-            r.TestTime < recentCutoff &&
-            r.Success &&
-            (r.PathAnalysis == null ||
-             r.PathAnalysis.Path == null ||
-             !r.PathAnalysis.Path.IsValid))
-            .Select(r => new { r.Id, r.WanNetworkGroup })
-            .ToList();
-
-        if (needsRetry.Count > 0)
-        {
-            _logger.LogInformation("Retrying path analysis in background for {Count} WAN results", needsRetry.Count);
-            foreach (var item in needsRetry)
-                _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(item.Id, resolvedWanGroup: item.WanNetworkGroup));
-        }
-
-        return results;
+        return result;
     }
 
-    /// <summary>
-    /// Delete a WAN speed test result by ID.
-    /// </summary>
-    public async Task<bool> DeleteResultAsync(int id)
+    protected override Iperf3Result CreateFailedResult(string errorMessage) => new()
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWan)
-            return false;
-
-        db.Iperf3Results.Remove(result);
-        await db.SaveChangesAsync();
-        _logger.LogInformation("Deleted WAN speed test result {Id}", id);
-        return true;
-    }
-
-    /// <summary>
-    /// Reassigns the WAN interface for a speed test result and re-runs path analysis.
-    /// </summary>
-    public async Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWan)
-            return false;
-
-        result.WanNetworkGroup = wanNetworkGroup;
-        result.WanName = wanName;
-        result.PathAnalysisJson = null;
-        await db.SaveChangesAsync();
-
-        _logger.LogInformation("Reassigned WAN for result {Id} to {Group} ({Name})", id, wanNetworkGroup, wanName);
-
-        // Re-run path analysis with the resolved WAN group
-        _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(id, resolvedWanGroup: wanNetworkGroup), CancellationToken.None);
-
-        return true;
-    }
-
-    /// <summary>
-    /// Updates the notes for a WAN speed test result.
-    /// </summary>
-    public async Task<bool> UpdateNotesAsync(int id, string? notes)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWan)
-            return false;
-
-        result.Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
-        await db.SaveChangesAsync();
-        return true;
-    }
+        Direction = SpeedTestDirection.CloudflareWan,
+        DeviceHost = "speed.cloudflare.com",
+        DeviceName = "Cloudflare",
+        DeviceType = "WAN",
+        TestTime = DateTime.UtcNow,
+        Success = false,
+        ErrorMessage = errorMessage,
+    };
 
     private static async Task<CloudflareMetadata> FetchMetadataAsync(HttpClient client, CancellationToken ct)
     {
-        // Use /cdn-cgi/trace which reliably returns key=value metadata
-        // (cf-meta-* headers are no longer consistently populated)
         var url = $"{BaseUrl}/cdn-cgi/trace";
         using var response = await client.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
@@ -422,11 +188,11 @@ public partial class CloudflareSpeedTestService
             Ip: data.GetValueOrDefault("ip") ?? "",
             City: city,
             Country: country,
-            Asn: "", // Not available from trace endpoint
+            Asn: "",
             Colo: colo);
     }
 
-    // Lazy-loaded IATA colo code → city name lookup from bundled JSON
+    // Lazy-loaded IATA colo code -> city name lookup from bundled JSON
     private static Dictionary<string, string>? _coloLookup;
     private static readonly object _coloLock = new();
 
@@ -446,7 +212,6 @@ public partial class CloudflareSpeedTestService
                 _coloLookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 try
                 {
-                    // Load from bundled wwwroot file (deployed as embedded content)
                     var path = Path.Combine(AppContext.BaseDirectory, "wwwroot", "data", "cloudflare-colos.json");
                     if (File.Exists(path))
                     {
@@ -470,7 +235,6 @@ public partial class CloudflareSpeedTestService
 
     /// <summary>
     /// Measure latency using 20 zero-byte downloads, parsing Server-Timing headers.
-    /// Returns (medianLatencyMs, jitterMs).
     /// </summary>
     private static async Task<(double LatencyMs, double JitterMs)> MeasureLatencyAsync(
         HttpClient client, CancellationToken ct)
@@ -492,15 +256,11 @@ public partial class CloudflareSpeedTestService
 
         latencies.Sort();
 
-        // Median
         var count = latencies.Count;
         var median = count % 2 == 0
             ? (latencies[count / 2 - 1] + latencies[count / 2]) / 2.0
             : latencies[count / 2];
 
-        // Jitter: average of consecutive differences on sorted samples.
-        // Note: this measures distribution spread, not RFC 3550 arrival-order jitter.
-        // Sorted diffs give a stable "variation" indicator matching Cloudflare's approach.
         var jitter = 0.0;
         if (latencies.Count >= 2)
         {
@@ -516,9 +276,6 @@ public partial class CloudflareSpeedTestService
     /// <summary>
     /// Measure throughput using concurrent workers for a fixed duration, with concurrent
     /// latency probes to measure loaded latency (bufferbloat).
-    /// Each worker continuously sends/receives data. Aggregate throughput is measured
-    /// by sampling total bytes every 200ms and computing mean of per-interval Mbps.
-    /// Skips the first 20% of samples (warmup) for accurate steady-state measurement.
     /// </summary>
     private async Task<(double BitsPerSecond, long TotalBytes, double LoadedLatencyMs, double LoadedJitterMs)> MeasureThroughputAsync(
         bool isUpload,
@@ -533,16 +290,10 @@ public partial class CloudflareSpeedTestService
         long errorCount = 0;
         long requestCount = 0;
 
-        // Loaded latency samples (collected by concurrent probe task)
         var loadedLatencies = new System.Collections.Concurrent.ConcurrentBag<double>();
-
-        // Shared upload payload - reused across all workers (content is irrelevant, just need bytes)
         var uploadPayload = isUpload ? new byte[bytesPerRequest] : null;
-
         var direction = isUpload ? "upload" : "download";
 
-        // Launch concurrent workers (each gets its own HttpClient for separate TCP connections,
-        // critical for upload throughput - shared HttpClient multiplexes on one HTTP/2 connection)
         var tasks = new Task[Concurrency];
         for (int w = 0; w < Concurrency; w++)
         {
@@ -551,8 +302,8 @@ public partial class CloudflareSpeedTestService
                 using var workerClient = _httpClientFactory.CreateClient();
                 workerClient.Timeout = TimeSpan.FromSeconds(60);
                 workerClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "NetworkOptimizer/1.0");
-                var readBuffer = isUpload ? null : new byte[81920]; // One 80KB buffer per worker
-                var workerChunkSize = bytesPerRequest; // Per-worker adaptive chunk size (halved on 429)
+                var readBuffer = isUpload ? null : new byte[81920];
+                var workerChunkSize = bytesPerRequest;
 
                 while (!linked.Token.IsCancellationRequested)
                 {
@@ -565,21 +316,18 @@ public partial class CloudflareSpeedTestService
                                 Interlocked.Add(ref totalBytes, bytesWritten));
                             using var uploadResponse = await workerClient.PostAsync(url, content, linked.Token);
                             Interlocked.Increment(ref requestCount);
-                            // Drain response body to enable TCP connection reuse (HTTP/1.1)
                             await uploadResponse.Content.CopyToAsync(Stream.Null, linked.Token);
                             if (!uploadResponse.IsSuccessStatusCode)
                             {
                                 Interlocked.Increment(ref errorCount);
-                                _logger.LogDebug("WAN {Direction} worker got HTTP {Status}",
+                                Logger.LogDebug("WAN {Direction} worker got HTTP {Status}",
                                     direction, (int)uploadResponse.StatusCode);
-                                await Task.Delay(100, linked.Token); // Backoff on error
+                                await Task.Delay(100, linked.Token);
                                 continue;
                             }
                         }
                         else
                         {
-                            // Stream download to count bytes incrementally as they arrive,
-                            // not after the full response completes (which may exceed duration)
                             var url = $"{BaseUrl}/{DownloadPath}{workerChunkSize}";
                             using var response = await workerClient.GetAsync(url,
                                 HttpCompletionOption.ResponseHeadersRead, linked.Token);
@@ -587,18 +335,17 @@ public partial class CloudflareSpeedTestService
                             if (!response.IsSuccessStatusCode)
                             {
                                 Interlocked.Increment(ref errorCount);
-                                // On 429: halve chunk size (matching cloudflare-speed-cli behavior)
                                 if ((int)response.StatusCode == 429)
                                 {
                                     var next = Math.Max(workerChunkSize / 2, MinDownloadBytesPerRequest);
                                     if (next < workerChunkSize)
                                     {
-                                        _logger.LogDebug("WAN download worker got 429, reducing chunk from {Old} to {New} bytes",
+                                        Logger.LogDebug("WAN download worker got 429, reducing chunk from {Old} to {New} bytes",
                                             workerChunkSize, next);
                                         workerChunkSize = next;
                                     }
                                 }
-                                await Task.Delay(100, linked.Token); // Backoff on error
+                                await Task.Delay(100, linked.Token);
                                 continue;
                             }
                             await using var stream = await response.Content.ReadAsStreamAsync(linked.Token);
@@ -617,14 +364,14 @@ public partial class CloudflareSpeedTestService
                     {
                         Interlocked.Increment(ref errorCount);
                         Interlocked.Increment(ref requestCount);
-                        _logger.LogDebug(ex, "WAN {Direction} worker request failed", direction);
+                        Logger.LogDebug(ex, "WAN {Direction} worker request failed", direction);
                         try { await Task.Delay(100, linked.Token); } catch { break; }
                     }
                 }
             }, linked.Token);
         }
 
-        // Launch latency probe task - runs 0-byte GETs every 500ms during throughput test
+        // Launch latency probe task
         var probeTask = Task.Run(async () =>
         {
             using var probeClient = _httpClientFactory.CreateClient();
@@ -679,22 +426,20 @@ public partial class CloudflareSpeedTestService
             onProgress(startTime.Elapsed / duration);
         }
 
-        // Signal workers to stop and wait for them to finish before disposing the CTS
-        // (disposing while workers still check linked.Token would throw ObjectDisposedException)
         stop.Cancel();
         try { await Task.WhenAll(tasks); }
         catch { /* Workers throw OperationCanceledException on cancellation */ }
         try { await probeTask; }
         catch { /* Probe throws on cancellation */ }
 
-        // Log summary for diagnostics
+        // Log summary
         var totalRequests = Interlocked.Read(ref requestCount);
         var totalErrors = Interlocked.Read(ref errorCount);
-        _logger.LogDebug(
+        Logger.LogDebug(
             "WAN {Direction} phase complete: {Requests} requests, {Errors} errors, {Bytes} bytes, {Samples} throughput samples",
             direction, totalRequests, totalErrors, Interlocked.Read(ref totalBytes), mbpsSamples.Count);
         if (totalErrors > 0)
-            _logger.LogDebug("WAN {Direction} had {Errors}/{Requests} failed requests ({Pct:F0}% error rate)",
+            Logger.LogDebug("WAN {Direction} had {Errors}/{Requests} failed requests ({Pct:F0}% error rate)",
                 direction, totalErrors, totalRequests, totalErrors * 100.0 / Math.Max(totalRequests, 1));
 
         // Compute mean Mbps from steady-state samples (skip first 20% warmup)
@@ -715,13 +460,11 @@ public partial class CloudflareSpeedTestService
         double loadedLatencyMs = 0, loadedJitterMs = 0;
         if (sortedLatencies.Count > 0)
         {
-            // Median
             var count = sortedLatencies.Count;
             loadedLatencyMs = count % 2 == 0
                 ? (sortedLatencies[count / 2 - 1] + sortedLatencies[count / 2]) / 2.0
                 : sortedLatencies[count / 2];
 
-            // Jitter: average of consecutive differences on sorted samples (see MeasureLatencyAsync)
             if (sortedLatencies.Count >= 2)
             {
                 var diffs = new List<double>();
@@ -748,72 +491,4 @@ public partial class CloudflareSpeedTestService
 
     [GeneratedRegex(@"cfRequestDuration;dur=([\d.]+)")]
     private static partial Regex ServerTimingRegex();
-
-    /// <summary>
-    /// Background path analysis after test completes.
-    /// </summary>
-    /// <summary>
-    /// HttpContent that writes data in chunks and reports bytes as they're written to the stream,
-    /// matching the incremental counting used for downloads. Without this, upload bytes get credited
-    /// all at once when the POST response returns, creating spiky throughput samples.
-    /// </summary>
-    private sealed class ProgressContent(byte[] data, Action<int> onBytesWritten) : HttpContent
-    {
-        private const int ChunkSize = 65536; // 64 KB chunks
-
-        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
-        {
-            var offset = 0;
-            while (offset < data.Length)
-            {
-                var count = Math.Min(ChunkSize, data.Length - offset);
-                await stream.WriteAsync(data.AsMemory(offset, count));
-                onBytesWritten(count);
-                offset += count;
-            }
-        }
-
-        protected override bool TryComputeLength(out long length)
-        {
-            length = data.Length;
-            return true;
-        }
-    }
-
-    private async Task AnalyzePathInBackgroundAsync(int resultId, string? wanIp = null, string? resolvedWanGroup = null)
-    {
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(1));
-
-            await using var db = await _dbFactory.CreateDbContextAsync();
-            var result = await db.Iperf3Results.FindAsync(resultId);
-            if (result == null) return;
-
-            var path = await _pathAnalyzer.CalculatePathAsync(
-                result.DeviceHost, result.LocalIp, retryOnFailure: true,
-                wanIp: wanIp, resolvedWanGroup: resolvedWanGroup);
-
-            var analysis = _pathAnalyzer.AnalyzeSpeedTest(
-                path,
-                result.DownloadMbps,
-                result.UploadMbps,
-                result.DownloadRetransmits,
-                result.UploadRetransmits,
-                result.DownloadBytes,
-                result.UploadBytes);
-
-            result.PathAnalysis = analysis;
-            await db.SaveChangesAsync();
-
-            _logger.LogDebug("WAN speed test path analysis complete for result {Id}", resultId);
-
-            // Notify UI components to refresh
-            OnPathAnalysisComplete?.Invoke(resultId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to analyze path for WAN speed test result {Id}", resultId);
-        }
-    }
 }

@@ -8,7 +8,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.UniFi
-@inject CloudflareSpeedTestService WanSpeedTestService
+@inject UwnSpeedTestService WanSpeedTestService
 @inject GatewayWanSpeedTestService GatewayWanTestService
 @inject SqmService SqmService
 @inject IGatewaySshService GatewaySshService
@@ -26,7 +26,7 @@
     @* Run Test Card *@
     <div class="card">
         <div class="card-body">
-            <p class="wan-test-description">Measures your internet speed using Cloudflare's global edge network with multiple concurrent connections.</p>
+            <p class="wan-test-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
             <div class="wan-test-options">
                 @* Gateway (Direct) Option - Primary *@
                 <div class="wan-test-option @(_gatewayAvailable ? "" : "wan-test-option-unavailable")">
@@ -38,15 +38,22 @@
                         }
                     </div>
                     <div class="wan-test-option-controls">
-                        @if (_wanInterfaces.Count > 1)
+                        @if (_wanSelectorOptions.Count > 1)
                         {
                             <select class="wan-reassign-select"
-                                    @bind="_selectedWanIndex"
+                                    @bind="_selectedWanOption"
                                     @bind:after="OnWanSelectionChanged"
                                     disabled="@(_isRunning)">
-                                @for (var i = 0; i < _wanInterfaces.Count; i++)
+                                @foreach (var opt in _wanSelectorOptions)
                                 {
-                                    <option value="@i">@_wanInterfaces[i].Name (@_wanInterfaces[i].Interface)</option>
+                                    if (opt.IsSeparator)
+                                    {
+                                        <option disabled value="">──────────</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@opt.Value">@opt.Label</option>
+                                    }
                                 }
                             </select>
                         }
@@ -81,6 +88,11 @@
                         <span class="wan-test-option-label">Server</span>
                     </div>
                     <div class="wan-test-option-controls">
+                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 connections. Max Load: up to 12 servers, 48 connections for saturating high-bandwidth links." data-tooltip-hover-only>
+                            <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Max Load</span>
+                        </label>
                         <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunServerTest"
                                 disabled="@_isRunning">
@@ -104,7 +116,7 @@
                     <div class="wan-test-option-hint">
                         @if (_hasMultipleWans)
                         {
-                            <text>Tests from this server through the LAN. Uses whichever WAN routes to speed.cloudflare.com, configurable via Policy-Based Routes.</text>
+                            <text>Tests from this server through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
                         }
                         else
                         {
@@ -123,17 +135,23 @@
             {
                 <div class="wan-metadata">
                     <div class="metadata-item">
-                        <span class="metadata-label">Test Server</span>
-                        <span class="metadata-value">@_metadata.Colo</span>
+                        <span class="metadata-label">@(_metadata.ServerInfo?.Contains(" | ") == true ? "Test Servers" : "Test Server")</span>
+                        <span class="metadata-value">@_metadata.ServerInfo</span>
                     </div>
-                    <div class="metadata-item">
-                        <span class="metadata-label">Location</span>
-                        <span class="metadata-value">@_metadata.City, @_metadata.Country</span>
-                    </div>
-                    <div class="metadata-item">
-                        <span class="metadata-label">WAN IP</span>
-                        <span class="metadata-value">@_metadata.Ip</span>
-                    </div>
+                    @if (!string.IsNullOrEmpty(_metadata.Location) && !_hideWanIdentity)
+                    {
+                        <div class="metadata-item">
+                            <span class="metadata-label">ISP</span>
+                            <span class="metadata-value">@_metadata.Location</span>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(_metadata.WanIp) && !_hideWanIdentity)
+                    {
+                        <div class="metadata-item">
+                            <span class="metadata-label">WAN IP</span>
+                            <span class="metadata-value">@_metadata.WanIp</span>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -286,7 +304,11 @@
                                             @GetWanDisplayName(result)
                                         </td>
                                     }
-                                    <td>@(result.DeviceName ?? "Cloudflare")</td>
+                                    @{
+                                        var fullName = result.DeviceName ?? "WAN";
+                                        var truncated = TruncateServerList(fullName);
+                                    }
+                                    <td data-tooltip="@(truncated != fullName ? fullName : null)" data-tooltip-hover-only>@truncated</td>
                                     <td class="hide-mobile">@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
                                     <td class="hide-mobile">@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
                                     <td class="show-mobile">
@@ -391,7 +413,7 @@
             {
                 <div class="empty-state">
                     <p>No WAN speed tests recorded yet.</p>
-                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from Server" above to measure your internet connection speed via Cloudflare.</p>
+                    <p class="form-help">Click "Run Test from Gateway" or "Run Test from Server" above to measure your internet connection speed.</p>
                 </div>
             }
         </div>
@@ -401,22 +423,31 @@
 @code {
     // Test state
     private bool _isRunning;
+    private bool _maxMode;
+    private bool _hideWanIdentity; // captured at test start: max mode + multi-WAN
     private string _activeTestType = ""; // "gateway" or "server"
     private string _progressPhase = "";
     private int _progressPercent;
     private string? _gatewayStatus;
     private string? _serverStatus;
     private string? _errorMessage;
-    private CloudflareSpeedTestService.CloudflareMetadata? _metadata;
+    private WanTestMetadata? _metadata;
     private Iperf3Result? _latestResult;
     private bool _hasMultipleWans;
     private List<WanOption> _availableWans = new();
 
     // Gateway test state
     private List<WanInterfaceInfo> _wanInterfaces = new();
-    private int _selectedWanIndex;
+    private string _selectedWanOption = "0"; // index, "i+j" for combo, "all" for all WANs
+    private List<WanSelectorOption> _wanSelectorOptions = new();
     private bool _gatewayAvailable;
     private string? _gatewayUnavailableReason;
+
+    // Progress interpolation for smooth bar during long phases
+    private DateTime _interpStart;
+    private string _interpPhase = "";
+    private int _interpFrom;
+    private int _interpTo;
 
     // History state
     private List<Iperf3Result> _testHistory = new();
@@ -500,6 +531,14 @@
         public bool IsSelected { get; set; }
     }
 
+    private class WanSelectorOption
+    {
+        public string Value { get; set; } = ""; // e.g. "0", "0+2", "all"
+        public string Label { get; set; } = "";
+        public bool IsSeparator { get; set; }
+        public int[] Indices { get; set; } = [];
+    }
+
     // Show all when none selected (or all selected) - same pattern as WiFi Optimizer Metrics
     private bool _wanNoneSelected => !_wanSeries.Any(w => w.IsSelected);
     private bool _wanAllSelected => _wanSeries.All(w => w.IsSelected);
@@ -557,6 +596,8 @@
         if (wanTask != null) await wanTask;
         if (gatewayTask != null) await gatewayTask;
 
+        BuildWanSelectorOptions();
+
         if (_testHistory.Count > 0)
         {
             _latestResult = _testHistory.FirstOrDefault(r => r.Success);
@@ -581,6 +622,70 @@
         // Subscribe to path analysis completion to refresh UI
         WanSpeedTestService.OnPathAnalysisComplete += OnPathAnalysisComplete;
         GatewayWanTestService.OnPathAnalysisComplete += OnPathAnalysisComplete;
+    }
+
+    private void BuildWanSelectorOptions()
+    {
+        _wanSelectorOptions.Clear();
+        if (_wanInterfaces.Count == 0) return;
+
+        // Singles
+        for (var i = 0; i < _wanInterfaces.Count; i++)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = i.ToString(),
+                Label = $"{_wanInterfaces[i].Name} ({_wanInterfaces[i].Interface})",
+                Indices = [i]
+            });
+        }
+
+        if (_wanInterfaces.Count < 2) return;
+
+        // Separator before combos
+        _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+
+        // Generate all combos of size 2 through N-1
+        for (var size = 2; size < _wanInterfaces.Count; size++)
+        {
+            foreach (var combo in GetCombinations(Enumerable.Range(0, _wanInterfaces.Count).ToArray(), size))
+            {
+                var indices = combo.ToArray();
+                var value = string.Join("+", indices);
+                var label = string.Join(" + ", indices.Select(idx => _wanInterfaces[idx].Name));
+                _wanSelectorOptions.Add(new WanSelectorOption
+                {
+                    Value = value,
+                    Label = label,
+                    Indices = indices
+                });
+            }
+        }
+
+        // "All WAN Links" only if 3+ WANs (with 2, the single pair already covers "all")
+        if (_wanInterfaces.Count >= 3)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = "all",
+                Label = "All WAN Links",
+                Indices = Enumerable.Range(0, _wanInterfaces.Count).ToArray()
+            });
+        }
+    }
+
+    private static IEnumerable<List<int>> GetCombinations(int[] items, int size)
+    {
+        if (size == 0) { yield return new List<int>(); yield break; }
+        for (var i = 0; i <= items.Length - size; i++)
+        {
+            foreach (var tail in GetCombinations(items[(i + 1)..], size - 1))
+            {
+                tail.Insert(0, items[i]);
+                yield return tail;
+            }
+        }
     }
 
     private void InitializeChartOptions()
@@ -777,8 +882,18 @@
     private static string GetWanKey(Iperf3Result result)
     {
         // Group by interface + provider name so provider changes show as separate series
+        // Normalize combo order so "Yelcot + Starlink" and "Starlink + Yelcot" produce the same key
         var group = !string.IsNullOrEmpty(result.WanNetworkGroup) ? result.WanNetworkGroup : "WAN";
         var name = !string.IsNullOrEmpty(result.WanName) ? result.WanName : null;
+
+        if (name != null && name.Contains(" + "))
+        {
+            // Sort combo name parts for consistent keying
+            var sortedName = string.Join(" + ", name.Split(" + ").Order());
+            var sortedGroup = string.Join("+", group.Split('+').Order());
+            return $"{sortedGroup}|{sortedName}";
+        }
+
         return name != null ? $"{group}|{name}" : group;
     }
 
@@ -791,7 +906,11 @@
     private static string GetWanDisplayName(Iperf3Result result)
     {
         if (!string.IsNullOrEmpty(result.WanName))
+        {
+            if (result.WanName.Contains(" + "))
+                return string.Join(" + ", result.WanName.Split(" + ").Order());
             return result.WanName;
+        }
         if (!string.IsNullOrEmpty(result.WanNetworkGroup))
             return NormalizeWanDisplay(result.WanNetworkGroup);
         return "WAN1";
@@ -802,7 +921,18 @@
         // Key format is "GROUP|Name" or just "GROUP"
         if (key.Contains('|'))
             return key.Split('|')[1];
+        // Legacy ALL_WAN
+        if (string.Equals(key, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
+            return "All WAN Links";
         return NormalizeWanDisplay(key);
+    }
+
+    private static string TruncateServerList(string? serverList, int max = 4)
+    {
+        if (string.IsNullOrEmpty(serverList)) return "WAN";
+        var parts = serverList.Split(" | ");
+        if (parts.Length <= max) return serverList;
+        return string.Join(" | ", parts.Take(max)) + $" + {parts.Length - max} more";
     }
 
     private string GetTimeLabel() => TimeBreakpoints[_sliderValue].label;
@@ -914,13 +1044,39 @@
     private async Task RunGatewayTest()
     {
         if (_isRunning || _wanInterfaces.Count == 0) return;
-        if (_selectedWanIndex >= _wanInterfaces.Count)
-            _selectedWanIndex = 0;
 
-        var wan = _wanInterfaces[_selectedWanIndex];
+        // Resolve the selected option into interface list and WAN metadata
+        var selected = _wanSelectorOptions.FirstOrDefault(o => o.Value == _selectedWanOption);
+        if (selected == null || selected.IsSeparator) return;
+
+        var selectedInterfaces = selected.Indices.Select(i => _wanInterfaces[i]).ToList();
+        var isMulti = selectedInterfaces.Count > 1;
+
+        string interfaceName;
+        string? wanGroup;
+        string? wanName;
+
+        if (isMulti)
+        {
+            interfaceName = "";
+            var groups = selectedInterfaces
+                .Select(w => w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(g => g);
+            wanGroup = string.Join("+", groups);
+            wanName = string.Join(" + ", selectedInterfaces
+                .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(n => n));
+        }
+        else
+        {
+            interfaceName = selectedInterfaces[0].Interface;
+            wanGroup = selectedInterfaces[0].NetworkGroup;
+            wanName = selectedInterfaces[0].Name;
+        }
 
         _isRunning = true;
         _activeTestType = "gateway";
+        _hideWanIdentity = _maxMode && _hasMultipleWans;
         _errorMessage = null;
         _metadata = null;
         _progressPhase = "Starting";
@@ -931,15 +1087,16 @@
         StartPolling();
 
         var result = await GatewayWanTestService.RunTestAsync(
-            wan.Interface,
-            wan.NetworkGroup,
-            wan.Name,
+            interfaceName,
+            wanGroup,
+            wanName,
             progress =>
             {
                 _progressPhase = progress.Phase;
                 _progressPercent = progress.Percent;
                 InvokeAsync(StateHasChanged);
-            });
+            },
+            allInterfaces: isMulti ? selectedInterfaces : null);
 
         StopPolling();
         _isRunning = false;
@@ -974,6 +1131,7 @@
 
         _isRunning = true;
         _activeTestType = "server";
+        _hideWanIdentity = _maxMode && _hasMultipleWans;
         _errorMessage = null;
         _metadata = null;
         _progressPhase = "Starting";
@@ -992,7 +1150,8 @@
                     _serverStatus = progress.Status;
                 _metadata = WanSpeedTestService.LastMetadata;
                 InvokeAsync(StateHasChanged);
-            });
+            },
+            maxMode: _maxMode);
 
         StopPolling();
         _isRunning = false;
@@ -1026,37 +1185,41 @@
         StopPolling();
         _pollTimer = new System.Threading.Timer(async _ =>
         {
-            var serverRunning = WanSpeedTestService.IsRunning;
-            var gatewayRunning = GatewayWanTestService.IsRunning;
-
-            if (!serverRunning && !gatewayRunning)
+            try
             {
-                StopPolling();
-                var testType = _activeTestType;
-                _isRunning = false;
-                _activeTestType = "";
+                var serverRunning = WanSpeedTestService.IsRunning;
+                var gatewayRunning = GatewayWanTestService.IsRunning;
 
-                var lastResult = testType == "gateway"
-                    ? GatewayWanTestService.LastCompletedResult
-                    : WanSpeedTestService.LastCompletedResult;
-                _latestResult = lastResult
-                    ?? WanSpeedTestService.LastCompletedResult
-                    ?? GatewayWanTestService.LastCompletedResult;
-
-                await InvokeAsync(async () =>
+                if (!serverRunning && !gatewayRunning)
                 {
-                    await LoadHistory(resetPage: true);
-                    StateHasChanged();
-                });
-                return;
+                    StopPolling();
+                    var testType = _activeTestType;
+                    _isRunning = false;
+                    _activeTestType = "";
+
+                    var lastResult = testType == "gateway"
+                        ? GatewayWanTestService.LastCompletedResult
+                        : WanSpeedTestService.LastCompletedResult;
+                    _latestResult = lastResult
+                        ?? WanSpeedTestService.LastCompletedResult
+                        ?? GatewayWanTestService.LastCompletedResult;
+
+                    await InvokeAsync(async () =>
+                    {
+                        await LoadHistory(resetPage: true);
+                        StateHasChanged();
+                    });
+                    return;
+                }
+
+                if (_activeTestType == "gateway")
+                    SyncGatewayProgressFromService();
+                else
+                    SyncProgressFromService();
+
+                await InvokeAsync(StateHasChanged);
             }
-
-            if (_activeTestType == "gateway")
-                SyncGatewayProgressFromService();
-            else
-                SyncProgressFromService();
-
-            await InvokeAsync(StateHasChanged);
+            catch { /* prevent timer death */ }
         }, null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
     }
 
@@ -1070,10 +1233,35 @@
     {
         var (phase, percent, status) = WanSpeedTestService.CurrentProgress;
         _progressPhase = phase;
-        _progressPercent = percent;
         if (status != null)
             _serverStatus = status;
         _metadata = WanSpeedTestService.LastMetadata;
+
+        // Detect phase transitions - set up interpolation for long phases
+        if (phase != _interpPhase)
+        {
+            _interpPhase = phase;
+            _interpStart = DateTime.UtcNow;
+            _interpFrom = percent;
+            _interpTo = phase switch
+            {
+                "Testing download" => 55,
+                "Testing upload" => 95,
+                _ => 0 // no interpolation
+            };
+        }
+
+        // Smoothly advance during download (20→55) and upload (60→95) over ~10s
+        if (_interpTo > _interpFrom)
+        {
+            var elapsed = (DateTime.UtcNow - _interpStart).TotalSeconds;
+            var fraction = Math.Min(elapsed / 10.0, 0.95);
+            _progressPercent = _interpFrom + (int)((_interpTo - _interpFrom) * fraction);
+        }
+        else
+        {
+            _progressPercent = percent;
+        }
     }
 
     private void SyncGatewayProgressFromService()
@@ -1144,7 +1332,8 @@
     private async Task HandleDeleteResult(int resultId)
     {
         var result = _testHistory.FirstOrDefault(r => r.Id == resultId);
-        var deleted = result?.Direction == SpeedTestDirection.CloudflareWanGateway
+        var isGateway = result?.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+        var deleted = isGateway
             ? await GatewayWanTestService.DeleteResultAsync(resultId)
             : await WanSpeedTestService.DeleteResultAsync(resultId);
         if (deleted)
@@ -1166,7 +1355,8 @@
     private async Task HandleNotesChanged((int Id, string? Notes) args)
     {
         var result = _testHistory.FirstOrDefault(r => r.Id == args.Id);
-        if (result?.Direction == SpeedTestDirection.CloudflareWanGateway)
+        var isGateway = result?.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+        if (isGateway)
             await GatewayWanTestService.UpdateNotesAsync(args.Id, args.Notes);
         else
             await WanSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
@@ -1175,7 +1365,8 @@
     private async Task HandleWanReassigned((int Id, string NetworkGroup, string? Name) args)
     {
         var result = _testHistory.FirstOrDefault(r => r.Id == args.Id);
-        if (result?.Direction == SpeedTestDirection.CloudflareWanGateway)
+        var isGateway = result?.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+        if (isGateway)
             await GatewayWanTestService.UpdateWanAssignmentAsync(args.Id, args.NetworkGroup, args.Name);
         else
             await WanSpeedTestService.UpdateWanAssignmentAsync(args.Id, args.NetworkGroup, args.Name);
@@ -1207,9 +1398,10 @@
 
         try
         {
-            var path = result.Direction == SpeedTestDirection.CloudflareWanGateway
+            var isGateway = result.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
+            var path = isGateway
                 ? await PathAnalyzer.CalculateGatewayDirectPathAsync(resolvedWanGroup: result.WanNetworkGroup)
-                : await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
+                : await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp, resolvedWanGroup: result.WanNetworkGroup);
             var analysis = PathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,

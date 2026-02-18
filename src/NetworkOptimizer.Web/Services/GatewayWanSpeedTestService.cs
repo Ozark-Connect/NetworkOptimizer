@@ -10,13 +10,14 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Service for running WAN speed tests directly on the gateway via SSH.
-/// Deploys the cfspeedtest binary to the gateway and runs it on a specific WAN interface.
+/// Deploys the uwnspeedtest binary to the gateway and runs it on a specific WAN interface,
+/// using UWN's distributed HTTP speed test network for accurate measurement.
 /// This measures true WAN throughput without LAN traversal overhead.
 /// </summary>
 public class GatewayWanSpeedTestService
 {
-    private const string RemoteBinaryPath = "/data/cfspeedtest";
-    private const string LocalBinaryName = "cfspeedtest-linux-arm64";
+    private const string RemoteBinaryPath = "/data/uwnspeedtest";
+    private const string LocalBinaryName = "uwnspeedtest-linux-arm64";
 
     private readonly ILogger<GatewayWanSpeedTestService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
@@ -68,7 +69,7 @@ public class GatewayWanSpeedTestService
     }
 
     /// <summary>
-    /// Check if the cfspeedtest binary is deployed and up to date.
+    /// Check if the uwnspeedtest binary is deployed and up to date.
     /// Compares MD5 hash of remote binary against local to detect updates.
     /// </summary>
     public async Task<(bool Deployed, bool NeedsUpdate)> CheckBinaryStatusAsync()
@@ -99,7 +100,7 @@ public class GatewayWanSpeedTestService
                     var remoteHash = hashResult.output.Trim();
                     if (!string.Equals(localHash, remoteHash, StringComparison.OrdinalIgnoreCase))
                     {
-                        _logger.LogInformation("cfspeedtest binary hash mismatch (local: {Local}, remote: {Remote}) - update needed",
+                        _logger.LogInformation("uwnspeedtest binary hash mismatch (local: {Local}, remote: {Remote}) - update needed",
                             localHash, remoteHash);
                         return (true, true);
                     }
@@ -110,7 +111,7 @@ public class GatewayWanSpeedTestService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to check cfspeedtest binary status on gateway");
+            _logger.LogDebug(ex, "Failed to check uwnspeedtest binary status on gateway");
             return (false, false);
         }
     }
@@ -123,7 +124,7 @@ public class GatewayWanSpeedTestService
     }
 
     /// <summary>
-    /// Deploy or update the cfspeedtest binary to the gateway via SFTP.
+    /// Deploy or update the uwnspeedtest binary to the gateway via SFTP.
     /// </summary>
     public async Task<(bool Success, string? Error)> DeployBinaryAsync(CancellationToken ct = default)
     {
@@ -132,7 +133,7 @@ public class GatewayWanSpeedTestService
             var localPath = Path.Combine(AppContext.BaseDirectory, "tools", LocalBinaryName);
             if (!File.Exists(localPath))
             {
-                _logger.LogWarning("cfspeedtest binary not found at {Path}", localPath);
+                _logger.LogWarning("uwnspeedtest binary not found at {Path}", localPath);
                 return (false, "Gateway speed test binary not found. It may not be included in this build.");
             }
 
@@ -143,7 +144,7 @@ public class GatewayWanSpeedTestService
             // Get connection info for SFTP upload
             var connection = GetConnectionInfo(settings);
 
-            _logger.LogInformation("Deploying cfspeedtest binary to gateway {Host}", settings.Host);
+            _logger.LogInformation("Deploying uwnspeedtest binary to gateway {Host}", settings.Host);
             await _sshClient.UploadBinaryAsync(connection, localPath, RemoteBinaryPath, ct);
 
             // Make executable
@@ -152,7 +153,7 @@ public class GatewayWanSpeedTestService
 
             if (!chmodResult.success)
             {
-                _logger.LogWarning("Failed to chmod cfspeedtest: {Output}", chmodResult.output);
+                _logger.LogWarning("Failed to chmod uwnspeedtest: {Output}", chmodResult.output);
                 return (false, $"Failed to set binary permissions: {chmodResult.output}");
             }
 
@@ -162,7 +163,7 @@ public class GatewayWanSpeedTestService
 
             if (versionResult.success)
             {
-                _logger.LogInformation("cfspeedtest binary deployed successfully: {Version}", versionResult.output.Trim());
+                _logger.LogInformation("uwnspeedtest binary deployed successfully: {Version}", versionResult.output.Trim());
                 return (true, null);
             }
 
@@ -170,19 +171,21 @@ public class GatewayWanSpeedTestService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deploy cfspeedtest binary to gateway");
+            _logger.LogError(ex, "Failed to deploy uwnspeedtest binary to gateway");
             return (false, ex.Message);
         }
     }
 
     /// <summary>
-    /// Run a gateway-direct WAN speed test on a specific interface.
+    /// Run a gateway-direct WAN speed test on a specific interface,
+    /// or run parallel tests on all WAN interfaces simultaneously when allInterfaces is provided.
     /// </summary>
     public async Task<Iperf3Result?> RunTestAsync(
         string interfaceName,
         string? wanNetworkGroup,
         string? wanName,
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
+        IReadOnlyList<WanInterfaceInfo>? allInterfaces = null,
         CancellationToken cancellationToken = default)
     {
         lock (_lock)
@@ -198,7 +201,10 @@ public class GatewayWanSpeedTestService
 
         try
         {
-            _logger.LogInformation("Starting gateway WAN speed test on interface {Interface}", interfaceName);
+            var isParallel = allInterfaces != null && allInterfaces.Count > 1;
+            _logger.LogInformation("Starting gateway WAN speed test on {Interface}",
+                isParallel ? $"{allInterfaces!.Count} WAN links in parallel"
+                : string.IsNullOrEmpty(interfaceName) ? "default route" : $"interface {interfaceName}");
 
             void Report(string phase, int percent, string? status)
             {
@@ -222,81 +228,13 @@ public class GatewayWanSpeedTestService
             }
             Report("Preparing", 10, "Binary ready");
 
-            // Phase 2: Run test via SSH (10-95%)
-            // Simulate progress based on known timing (~28s total: 3s latency, 10s download, 10s upload, 5s finalize)
-            Report("Testing latency", 12, "Measuring latency...");
-
-            if (!System.Text.RegularExpressions.Regex.IsMatch(interfaceName, @"^[a-zA-Z0-9._-]+$"))
-                throw new ArgumentException($"Invalid interface name: {interfaceName}");
-
-            var command = $"{RemoteBinaryPath} --interface {interfaceName} 2>/dev/null";
-            var sshTask = _gatewaySsh.RunCommandAsync(
-                command, TimeSpan.FromSeconds(120), cancellationToken);
-
-            var progressSteps = new (string Phase, int Percent, string Status, int DelayMs)[]
+            // Phase 2: Run test(s) via SSH (10-95%)
+            if (isParallel)
             {
-                ("Testing latency", 15, "Measuring latency...", 2500),
-                ("Testing download", 22, "Testing download...", 1800),
-                ("Testing download", 32, "Testing download...", 1800),
-                ("Testing download", 42, "Testing download...", 1800),
-                ("Testing download", 52, "Testing download...", 1800),
-                ("Testing download", 58, "Testing download...", 1800),
-                ("Testing upload", 65, "Testing upload...", 1800),
-                ("Testing upload", 72, "Testing upload...", 1800),
-                ("Testing upload", 78, "Testing upload...", 1800),
-                ("Testing upload", 84, "Testing upload...", 1800),
-                ("Testing upload", 90, "Testing upload...", 1800),
-            };
-
-            foreach (var step in progressSteps)
-            {
-                if (sshTask.IsCompleted) break;
-                try { await Task.WhenAny(sshTask, Task.Delay(step.DelayMs, cancellationToken)); }
-                catch (OperationCanceledException) { break; }
-                if (!sshTask.IsCompleted)
-                    Report(step.Phase, step.Percent, step.Status);
+                return await RunParallelWanTests(allInterfaces!, Report, cancellationToken);
             }
 
-            var result = await sshTask;
-
-            if (!result.success)
-            {
-                var error = $"Gateway speed test failed: {result.output}";
-                _logger.LogWarning(error);
-                Report("Error", 0, error);
-                return SaveFailedResult(error, wanNetworkGroup, wanName);
-            }
-
-            // Phase 3: Parse JSON output (95-98%)
-            Report("Parsing", 95, "Processing results...");
-            var testResult = ParseResult(result.output, interfaceName, wanNetworkGroup, wanName);
-
-            if (testResult == null)
-            {
-                var error = "Failed to parse speed test output";
-                Report("Error", 0, error);
-                return SaveFailedResult(error, wanNetworkGroup, wanName);
-            }
-
-            // Phase 4: Save to DB (98-100%)
-            Report("Saving", 98, "Saving results...");
-            await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
-            db.Iperf3Results.Add(testResult);
-            await db.SaveChangesAsync(cancellationToken);
-            var resultId = testResult.Id;
-
-            _logger.LogInformation(
-                "Gateway WAN speed test complete ({Interface}): Down {Download:F1} Mbps, Up {Upload:F1} Mbps, Latency {Latency:F1} ms",
-                interfaceName, testResult.DownloadMbps, testResult.UploadMbps, testResult.PingMs);
-
-            Report("Complete", 100, $"Down: {testResult.DownloadMbps:F1} / Up: {testResult.UploadMbps:F1} Mbps");
-            lock (_lock) _lastCompletedResult = testResult;
-
-            // Background path analysis - gateway direct path (Cloudflare → WAN → Gateway, no LAN hops)
-            var resolvedWanGroup = testResult.WanNetworkGroup;
-            _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
-
-            return testResult;
+            return await RunSingleWanTest(interfaceName, wanNetworkGroup, wanName, Report, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -318,14 +256,314 @@ public class GatewayWanSpeedTestService
         }
     }
 
+    private async Task<Iperf3Result?> RunSingleWanTest(
+        string interfaceName,
+        string? wanNetworkGroup,
+        string? wanName,
+        Action<string, int, string?> report,
+        CancellationToken cancellationToken)
+    {
+        report("Testing latency", 12, "Measuring latency...");
+
+        var ifaceArg = "";
+        if (!string.IsNullOrEmpty(interfaceName))
+        {
+            ValidateInterfaceName(interfaceName);
+            ifaceArg = $" --interface {interfaceName}";
+        }
+
+        var command = $"{RemoteBinaryPath}{ifaceArg} -streams 16 -servers 4 2>/dev/null";
+        var sshTask = _gatewaySsh.RunCommandAsync(
+            command, TimeSpan.FromSeconds(120), cancellationToken);
+
+        await AnimateProgress(sshTask, report, cancellationToken);
+
+        var result = await sshTask;
+
+        if (!result.success)
+        {
+            var error = $"Gateway speed test failed: {result.output}";
+            _logger.LogWarning(error);
+            report("Error", 0, error);
+            return SaveFailedResult(error, wanNetworkGroup, wanName);
+        }
+
+        report("Parsing", 95, "Processing results...");
+        var testResult = ParseResult(result.output, interfaceName, wanNetworkGroup, wanName);
+
+        if (testResult == null)
+        {
+            var error = "Failed to parse speed test output";
+            report("Error", 0, error);
+            return SaveFailedResult(error, wanNetworkGroup, wanName);
+        }
+
+        return await SaveAndCompleteResult(testResult, interfaceName, report, cancellationToken);
+    }
+
+    private async Task<Iperf3Result?> RunParallelWanTests(
+        IReadOnlyList<WanInterfaceInfo> interfaces,
+        Action<string, int, string?> report,
+        CancellationToken cancellationToken)
+    {
+        report("Testing", 12, $"Testing {interfaces.Count} WAN links in parallel...");
+
+        // Validate all interface names up front
+        foreach (var wan in interfaces)
+            ValidateInterfaceName(wan.Interface);
+
+        // Launch parallel SSH commands, one per WAN interface
+        // Synchronized start: all binaries do setup independently, then begin throughput at the same time
+        // Split connections proportionally: 4/16 total → divided by WAN count
+        var startAt = DateTimeOffset.UtcNow.AddSeconds(10).ToUnixTimeSeconds();
+        var (perWanServers, perWanStreams) = interfaces.Count switch
+        {
+            <= 3 => (4, 16),
+            4 => (3, 12),
+            5 => (2, 8),
+            _ => (2, 4) // 6+ WANs
+        };
+        _logger.LogDebug("Parallel WAN test: startAt={StartAt} ({WANCount} WANs, {Servers} servers/{Streams} streams each)",
+            startAt, interfaces.Count, perWanServers, perWanStreams);
+
+        var sshTasks = interfaces.Select(wan =>
+        {
+            var cmd = $"{RemoteBinaryPath} --interface {wan.Interface} -servers {perWanServers} -streams {perWanStreams} -start-at {startAt} 2>/dev/null";
+            _logger.LogDebug("WAN {Interface}: {Command}", wan.Interface, cmd);
+            return _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(120), cancellationToken);
+        }).ToList();
+
+        var allTask = Task.WhenAll(sshTasks);
+        await AnimateProgress(allTask, report, cancellationToken);
+
+        var results = await allTask;
+
+        // Parse each result
+        var parsedResults = new List<(WanSpeedTestResult json, WanInterfaceInfo wan)>();
+        for (var i = 0; i < results.Length; i++)
+        {
+            var wan = interfaces[i];
+            if (!results[i].success)
+            {
+                _logger.LogWarning("WAN test on {Interface} failed: {Output}", wan.Interface, results[i].output);
+                continue;
+            }
+
+            try
+            {
+                var json = JsonSerializer.Deserialize<WanSpeedTestResult>(results[i].output, JsonOptions);
+                if (json?.Success == true)
+                    parsedResults.Add((json, wan));
+                else
+                    _logger.LogWarning("WAN test on {Interface} reported failure: {Error}", wan.Interface, json?.Error);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse result for {Interface}", wan.Interface);
+            }
+        }
+
+        if (parsedResults.Count == 0)
+        {
+            report("Error", 0, "All WAN tests failed");
+            var failGroups = interfaces
+                .Select(w => w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(g => g);
+            var failNames = interfaces
+                .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(n => n);
+            return SaveFailedResult("All WAN interface tests failed",
+                string.Join("+", failGroups), string.Join(" + ", failNames));
+        }
+
+        report("Processing", 92, $"{parsedResults.Count}/{interfaces.Count} WANs completed");
+
+        var testResult = AggregateParallelResults(parsedResults);
+
+        _logger.LogInformation(
+            "Gateway WAN speed test complete ({Count} WANs): Down {Download:F1} Mbps, Up {Upload:F1} Mbps",
+            parsedResults.Count, testResult.DownloadMbps, testResult.UploadMbps);
+
+        return await SaveAndCompleteResult(testResult, "all WANs", report, cancellationToken);
+    }
+
+    private Iperf3Result AggregateParallelResults(List<(WanSpeedTestResult json, WanInterfaceInfo wan)> results)
+    {
+        double totalDownBps = 0, totalUpBps = 0;
+        long totalDownBytes = 0, totalUpBytes = 0;
+        var bestLatency = double.MaxValue;
+        double worstJitter = 0;
+        int totalStreams = 0, maxDuration = 0;
+        var dlLatencies = new List<double>();
+        var dlJitters = new List<double>();
+        var ulLatencies = new List<double>();
+        var ulJitters = new List<double>();
+        var serverColoCounts = new Dictionary<string, int>();
+        var notesParts = new List<string>();
+        string? primaryServerHost = null;
+
+        foreach (var (json, wan) in results)
+        {
+            totalDownBps += json.Download?.Bps ?? 0;
+            totalUpBps += json.Upload?.Bps ?? 0;
+            totalDownBytes += json.Download?.Bytes ?? 0;
+            totalUpBytes += json.Upload?.Bytes ?? 0;
+            totalStreams += json.Streams;
+            if (json.DurationSeconds > maxDuration)
+                maxDuration = json.DurationSeconds;
+
+            if (json.Latency != null)
+            {
+                if (json.Latency.UnloadedMs < bestLatency) bestLatency = json.Latency.UnloadedMs;
+                if (json.Latency.JitterMs > worstJitter) worstJitter = json.Latency.JitterMs;
+            }
+
+            if (json.Download?.LoadedLatencyMs > 0) dlLatencies.Add(json.Download.LoadedLatencyMs);
+            if (json.Download?.LoadedJitterMs > 0) dlJitters.Add(json.Download.LoadedJitterMs);
+            if (json.Upload?.LoadedLatencyMs > 0) ulLatencies.Add(json.Upload.LoadedLatencyMs);
+            if (json.Upload?.LoadedJitterMs > 0) ulJitters.Add(json.Upload.LoadedJitterMs);
+
+            // Collect individual server cities for collapsed DeviceName
+            var colo = json.Metadata?.Colo;
+            if (!string.IsNullOrEmpty(colo))
+            {
+                // Colo format: "Dallas, TX (x2) | Chicago, IL" - split on " | "
+                foreach (var part in colo.Split(" | ", StringSplitOptions.RemoveEmptyEntries))
+                {
+                    // Strip existing count suffix like " (x2)" to get base city
+                    var city = System.Text.RegularExpressions.Regex.Replace(part.Trim(), @"\s*\(x?\d+\)$", "");
+                    // Parse count if present, default to 1
+                    var countMatch = System.Text.RegularExpressions.Regex.Match(part, @"\(x?(\d+)\)");
+                    var count = countMatch.Success ? int.Parse(countMatch.Groups[1].Value) : 1;
+                    serverColoCounts[city] = serverColoCounts.GetValueOrDefault(city) + count;
+                }
+            }
+
+            // Build per-WAN breakdown for Notes
+            var wanLabel = !string.IsNullOrEmpty(wan.Name) ? wan.Name : wan.Interface;
+            var downMbps = (json.Download?.Bps ?? 0) / 1_000_000.0;
+            var upMbps = (json.Upload?.Bps ?? 0) / 1_000_000.0;
+            var parts = new List<string> { $"{wanLabel}: {downMbps:F0}/{upMbps:F0} Mbps" };
+            if (json.Latency != null)
+                parts.Add($"ping {json.Latency.UnloadedMs:F1} ms");
+            if (json.Download?.LoadedLatencyMs > 0)
+                parts.Add($"dl latency {json.Download.LoadedLatencyMs:F1} ms");
+            if (json.Upload?.LoadedLatencyMs > 0)
+                parts.Add($"ul latency {json.Upload.LoadedLatencyMs:F1} ms");
+            parts.Add($"{json.Streams} streams");
+            notesParts.Add(string.Join(", ", parts));
+
+            primaryServerHost ??= json.Metadata?.ServerHost;
+        }
+
+        var deviceName = serverColoCounts.Count > 0
+            ? string.Join(" | ", serverColoCounts.Select(kvp =>
+                kvp.Value > 1 ? $"{kvp.Key} ({kvp.Value})" : kvp.Key))
+            : "UWN";
+
+        // Build combo from the interfaces that were actually tested
+        var comboGroups = results
+            .Select(r => r.wan.NetworkGroup ?? "WAN")
+            .Distinct().OrderBy(g => g).ToList();
+        var comboGroup = string.Join("+", comboGroups);
+        var comboName = string.Join(" + ", results
+            .Select(r => !string.IsNullOrEmpty(r.wan.Name) ? r.wan.Name : r.wan.NetworkGroup ?? "WAN")
+            .Distinct().OrderBy(n => n));
+
+        return new Iperf3Result
+        {
+            Direction = SpeedTestDirection.UwnWanGateway,
+            DeviceHost = primaryServerHost ?? "UWN Test",
+            DeviceName = deviceName,
+            Notes = string.Join("\n", notesParts),
+            DeviceType = "WAN",
+            DownloadBitsPerSecond = totalDownBps,
+            UploadBitsPerSecond = totalUpBps,
+            DownloadBytes = totalDownBytes,
+            UploadBytes = totalUpBytes,
+            PingMs = bestLatency == double.MaxValue ? 0 : bestLatency,
+            JitterMs = worstJitter,
+            DownloadLatencyMs = dlLatencies.Count > 0 ? dlLatencies.Average() : null,
+            DownloadJitterMs = dlJitters.Count > 0 ? dlJitters.Average() : null,
+            UploadLatencyMs = ulLatencies.Count > 0 ? ulLatencies.Average() : null,
+            UploadJitterMs = ulJitters.Count > 0 ? ulJitters.Average() : null,
+            WanNetworkGroup = comboGroup,
+            WanName = comboName,
+            ParallelStreams = totalStreams,
+            DurationSeconds = maxDuration,
+            TestTime = DateTime.UtcNow,
+            Success = true,
+        };
+    }
+
+    private async Task<Iperf3Result?> SaveAndCompleteResult(
+        Iperf3Result testResult,
+        string interfaceLabel,
+        Action<string, int, string?> report,
+        CancellationToken cancellationToken)
+    {
+        report("Saving", 98, "Saving results...");
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        db.Iperf3Results.Add(testResult);
+        await db.SaveChangesAsync(cancellationToken);
+        var resultId = testResult.Id;
+
+        _logger.LogInformation(
+            "Gateway WAN speed test complete ({Interface}): Down {Download:F1} Mbps, Up {Upload:F1} Mbps, Latency {Latency:F1} ms",
+            interfaceLabel, testResult.DownloadMbps, testResult.UploadMbps, testResult.PingMs);
+
+        report("Complete", 100, $"Down: {testResult.DownloadMbps:F1} / Up: {testResult.UploadMbps:F1} Mbps");
+        lock (_lock) _lastCompletedResult = testResult;
+
+        var resolvedWanGroup = testResult.WanNetworkGroup;
+        _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
+
+        return testResult;
+    }
+
+    private static async Task AnimateProgress(Task sshTask, Action<string, int, string?> report, CancellationToken ct)
+    {
+        var progressSteps = new (string Phase, int Percent, string Status, int DelayMs)[]
+        {
+            ("Testing latency", 15, "Measuring latency...", 2500),
+            ("Testing download", 22, "Testing download...", 1800),
+            ("Testing download", 32, "Testing download...", 1800),
+            ("Testing download", 42, "Testing download...", 1800),
+            ("Testing download", 52, "Testing download...", 1800),
+            ("Testing download", 58, "Testing download...", 1800),
+            ("Testing upload", 65, "Testing upload...", 1800),
+            ("Testing upload", 72, "Testing upload...", 1800),
+            ("Testing upload", 78, "Testing upload...", 1800),
+            ("Testing upload", 84, "Testing upload...", 1800),
+            ("Testing upload", 90, "Testing upload...", 1800),
+        };
+
+        foreach (var step in progressSteps)
+        {
+            if (sshTask.IsCompleted) break;
+            try { await Task.WhenAny(sshTask, Task.Delay(step.DelayMs, ct)); }
+            catch (OperationCanceledException) { break; }
+            if (!sshTask.IsCompleted)
+                report(step.Phase, step.Percent, step.Status);
+        }
+    }
+
+    private static void ValidateInterfaceName(string name)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"^[a-zA-Z0-9._-]+$"))
+            throw new ArgumentException($"Invalid interface name: {name}");
+    }
+
     /// <summary>
     /// Get recent gateway WAN speed test results.
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
+        // Include historical Cloudflare gateway results alongside new UWN results
         var query = db.Iperf3Results
-            .Where(r => r.Direction == SpeedTestDirection.CloudflareWanGateway);
+            .Where(r => r.Direction == SpeedTestDirection.UwnWanGateway
+                      || r.Direction == SpeedTestDirection.CloudflareWanGateway);
 
         if (hours > 0)
         {
@@ -348,7 +586,8 @@ public class GatewayWanSpeedTestService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWanGateway)
+        if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
+                            && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
         db.Iperf3Results.Remove(result);
@@ -364,7 +603,8 @@ public class GatewayWanSpeedTestService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWanGateway)
+        if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
+                            && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
         result.Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
@@ -379,7 +619,8 @@ public class GatewayWanSpeedTestService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var result = await db.Iperf3Results.FindAsync(id);
-        if (result == null || result.Direction != SpeedTestDirection.CloudflareWanGateway)
+        if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
+                            && result.Direction != SpeedTestDirection.CloudflareWanGateway))
             return false;
 
         result.WanNetworkGroup = wanNetworkGroup;
@@ -397,7 +638,7 @@ public class GatewayWanSpeedTestService
     {
         try
         {
-            var json = JsonSerializer.Deserialize<CfSpeedTestResult>(jsonOutput, JsonOptions);
+            var json = JsonSerializer.Deserialize<WanSpeedTestResult>(jsonOutput, JsonOptions);
             if (json == null) return null;
 
             if (!json.Success)
@@ -405,8 +646,8 @@ public class GatewayWanSpeedTestService
                 _logger.LogWarning("Gateway speed test reported failure: {Error}", json.Error);
                 return new Iperf3Result
                 {
-                    Direction = SpeedTestDirection.CloudflareWanGateway,
-                    DeviceHost = "speed.cloudflare.com",
+                    Direction = SpeedTestDirection.UwnWanGateway,
+                    DeviceHost = "UWN Test",
                     DeviceName = $"Gateway ({interfaceName})",
                     DeviceType = "WAN",
                     WanNetworkGroup = wanNetworkGroup,
@@ -417,16 +658,14 @@ public class GatewayWanSpeedTestService
                 };
             }
 
-            var colo = json.Metadata?.Colo ?? "";
-            var country = json.Metadata?.Country ?? "";
-            var edgeInfo = !string.IsNullOrEmpty(colo)
-                ? $"{colo} - {CloudflareSpeedTestService.GetCityName(colo)}, {country}"
-                : "Cloudflare";
+            var serverInfo = json.Metadata?.Colo ?? "";
+            var edgeInfo = !string.IsNullOrEmpty(serverInfo) ? serverInfo : "UWN";
+            var serverHost = !string.IsNullOrEmpty(json.Metadata?.ServerHost) ? json.Metadata.ServerHost : "UWN Test";
 
             return new Iperf3Result
             {
-                Direction = SpeedTestDirection.CloudflareWanGateway,
-                DeviceHost = "speed.cloudflare.com",
+                Direction = SpeedTestDirection.UwnWanGateway,
+                DeviceHost = serverHost,
                 DeviceName = edgeInfo,
                 DeviceType = "WAN",
                 DownloadBitsPerSecond = json.Download?.Bps ?? 0,
@@ -449,7 +688,7 @@ public class GatewayWanSpeedTestService
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "Failed to parse cfspeedtest JSON output");
+            _logger.LogError(ex, "Failed to parse uwnspeedtest JSON output");
             return null;
         }
     }
@@ -460,8 +699,8 @@ public class GatewayWanSpeedTestService
         {
             var failedResult = new Iperf3Result
             {
-                Direction = SpeedTestDirection.CloudflareWanGateway,
-                DeviceHost = "speed.cloudflare.com",
+                Direction = SpeedTestDirection.UwnWanGateway,
+                DeviceHost = "UWN Test",
                 DeviceName = "Gateway",
                 DeviceType = "WAN",
                 WanNetworkGroup = wanNetworkGroup,
@@ -539,32 +778,34 @@ public class GatewayWanSpeedTestService
     };
 
     // JSON deserialization models matching the Go binary output
-    private sealed class CfSpeedTestResult
+    private sealed class WanSpeedTestResult
     {
         public bool Success { get; set; }
         public string? Error { get; set; }
-        public CfMetadata? Metadata { get; set; }
-        public CfLatency? Latency { get; set; }
-        public CfThroughput? Download { get; set; }
-        public CfThroughput? Upload { get; set; }
+        public WanMetadata? Metadata { get; set; }
+        public WanLatency? Latency { get; set; }
+        public WanThroughput? Download { get; set; }
+        public WanThroughput? Upload { get; set; }
         public int Streams { get; set; }
         public int DurationSeconds { get; set; }
     }
 
-    private sealed class CfMetadata
+    private sealed class WanMetadata
     {
         public string Ip { get; set; } = "";
         public string Colo { get; set; } = "";
         public string Country { get; set; } = "";
+        public string ServerHost { get; set; } = "";
+        public List<string>? ServerIps { get; set; }
     }
 
-    private sealed class CfLatency
+    private sealed class WanLatency
     {
         public double UnloadedMs { get; set; }
         public double JitterMs { get; set; }
     }
 
-    private sealed class CfThroughput
+    private sealed class WanThroughput
     {
         public double Bps { get; set; }
         public long Bytes { get; set; }

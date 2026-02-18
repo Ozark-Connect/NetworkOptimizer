@@ -1,4 +1,4 @@
-package speedtest
+package uwn
 
 import (
 	"bytes"
@@ -9,88 +9,55 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Ozark-Connect/NetworkOptimizer/src/cfspeedtest/speedtest"
 )
 
 const (
-	minDownloadChunkSize = 100_000 // Floor for adaptive chunk reduction on 429
-	SampleInterval       = 200 * time.Millisecond
-	ProbeInterval        = 500 * time.Millisecond
-	WarmupFraction       = 0.20 // Skip first 20% of samples
-	ReadBufferSize       = 262144 // 256 KB read buffer per worker
+	uploadSize    = 2_000_000 // 2 MB per upload request
+	warmupSkip    = 0.10       // Skip first 10% of samples
 )
 
-// NewWorkerClient creates an HTTP client that forces HTTP/1.1 and optionally
-// binds to a specific interface, ensuring each worker gets its own TCP connection.
-func NewWorkerClient(timeout time.Duration, ifaceName string) (*http.Client, error) {
-	t, err := NewTransport(ifaceName)
-	if err != nil {
-		return nil, err
-	}
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: t,
-	}, nil
-}
-
-// CountingReader wraps a reader and atomically adds bytes read to a counter.
-// This allows upload throughput to be sampled incrementally as data is sent,
-// matching the C# ProgressContent approach.
-type CountingReader struct {
-	R       *bytes.Reader
-	Counter *atomic.Int64
-}
-
-func (cr *CountingReader) Read(p []byte) (int, error) {
-	n, err := cr.R.Read(p)
-	if n > 0 {
-		cr.Counter.Add(int64(n))
-	}
-	return n, err
-}
-
-// MeasureThroughput runs concurrent download or upload workers for the given
-// duration, sampling aggregate throughput every 200ms. A concurrent latency
-// probe measures loaded latency every 500ms.
-func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*ThroughputResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, cfg.Duration+5*time.Second)
+// MeasureThroughput runs concurrent download or upload workers distributed
+// round-robin across the selected servers. Uses a shared HTTP transport with
+// connection pooling and large TCP buffers for high-BDP links.
+func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, servers []Server, token string) (*speedtest.ThroughputResult, error) {
+	duration := time.Duration(cfg.DurationSecs) * time.Second
+	ctx, cancel := context.WithTimeout(ctx, duration+5*time.Second)
 	defer cancel()
+
+	// Shared transport: connection pooling across all workers, large buffers
+	transport, err := speedtest.NewThroughputTransport(cfg.Interface, cfg.Streams)
+	if err != nil {
+		return nil, fmt.Errorf("transport: %w", err)
+	}
+	client := &http.Client{Timeout: 60 * time.Second, Transport: transport}
+	defer transport.CloseIdleConnections()
 
 	var totalBytes atomic.Int64
 	var activeWorkers atomic.Int32
 	var wg sync.WaitGroup
 
-	// Loaded latency probe samples
 	var latencyMu sync.Mutex
 	var loadedLatencies []float64
 
-	// Upload payload (shared, content is irrelevant)
+	// Upload payload (shared across workers, content is irrelevant)
 	var uploadPayload []byte
 	if isUpload {
-		uploadPayload = make([]byte, cfg.UploadSize)
+		uploadPayload = make([]byte, uploadSize)
 	}
 
-	chunkSize := cfg.DownloadSize
-	if isUpload {
-		chunkSize = cfg.UploadSize
-	}
-
-	// Signal to stop workers when duration expires
 	stopCh := make(chan struct{})
 
-	// Launch throughput workers
+	// Launch throughput workers, distributed round-robin across servers
 	for w := 0; w < cfg.Streams; w++ {
+		server := servers[w%len(servers)]
 		wg.Add(1)
-		go func() {
+		go func(srv Server) {
 			defer wg.Done()
-			client, err := NewWorkerClient(60*time.Second, cfg.Interface)
-			if err != nil {
-				return
-			}
 			activeWorkers.Add(1)
-			defer client.CloseIdleConnections()
 
-			workerChunk := chunkSize
-			buf := make([]byte, ReadBufferSize) // per-worker read buffer
+			buf := make([]byte, speedtest.ReadBufferSize)
 
 			for {
 				select {
@@ -102,8 +69,8 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 				}
 
 				if isUpload {
-					url := baseURL + "/" + uploadPath
-					cr := &CountingReader{
+					url := srv.URL + "/upload"
+					cr := &speedtest.CountingReader{
 						R:       bytes.NewReader(uploadPayload),
 						Counter: &totalBytes,
 					}
@@ -111,7 +78,8 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 					if err != nil {
 						continue
 					}
-					req.Header.Set("User-Agent", "cfspeedtest/1.0")
+					req.Header.Set("User-Agent", userAgent)
+					req.Header.Set("x-test-token", token)
 					req.ContentLength = int64(len(uploadPayload))
 
 					resp, err := client.Do(req)
@@ -122,7 +90,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 						case <-ctx.Done():
 							return
 						default:
-							time.Sleep(100 * time.Millisecond)
+							time.Sleep(50 * time.Millisecond)
 							continue
 						}
 					}
@@ -130,15 +98,16 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 					resp.Body.Close()
 
 					if resp.StatusCode != http.StatusOK {
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(50 * time.Millisecond)
 					}
 				} else {
-					url := fmt.Sprintf("%s/%s%d", baseURL, downloadPath, workerChunk)
+					url := srv.URL + "/download"
 					req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 					if err != nil {
 						continue
 					}
-					req.Header.Set("User-Agent", "cfspeedtest/1.0")
+					req.Header.Set("User-Agent", userAgent)
+					req.Header.Set("x-test-token", token)
 
 					resp, err := client.Do(req)
 					if err != nil {
@@ -148,28 +117,17 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 						case <-ctx.Done():
 							return
 						default:
-							time.Sleep(100 * time.Millisecond)
+							time.Sleep(50 * time.Millisecond)
 							continue
 						}
 					}
 
 					if resp.StatusCode != http.StatusOK {
 						resp.Body.Close()
-						// On 429: halve chunk size (matching cloudflare-speed-cli behavior)
-						if resp.StatusCode == 429 {
-							next := workerChunk / 2
-							if next < minDownloadChunkSize {
-								next = minDownloadChunkSize
-							}
-							if next < workerChunk {
-								workerChunk = next
-							}
-						}
-						time.Sleep(100 * time.Millisecond)
+						time.Sleep(50 * time.Millisecond)
 						continue
 					}
 
-					// Stream download, counting bytes incrementally
 					for {
 						n, err := resp.Body.Read(buf)
 						if n > 0 {
@@ -182,20 +140,20 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 					resp.Body.Close()
 				}
 			}
-		}()
+		}(server)
 	}
 
-	// Launch latency probe
+	// Launch latency probe (separate client to avoid contention with throughput)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		probeClient, err := NewWorkerClient(10*time.Second, cfg.Interface)
+		probeClient, err := speedtest.NewWorkerClient(10*time.Second, cfg.Interface)
 		if err != nil {
 			return
 		}
 		defer probeClient.CloseIdleConnections()
 
-		probeURL := baseURL + "/" + downloadPath + "0"
+		probeURL := servers[0].URL + "/ping"
 		for {
 			select {
 			case <-stopCh:
@@ -209,7 +167,8 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 			if err != nil {
 				continue
 			}
-			req.Header.Set("User-Agent", "cfspeedtest/1.0")
+			req.Header.Set("User-Agent", userAgent)
+			req.Header.Set("x-test-token", token)
 
 			start := time.Now()
 			resp, err := probeClient.Do(req)
@@ -220,20 +179,18 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 				case <-ctx.Done():
 					return
 				default:
-					time.Sleep(ProbeInterval)
+					time.Sleep(speedtest.ProbeInterval)
 					continue
 				}
 			}
 			elapsed := time.Since(start).Seconds() * 1000
 
-			serverMs := parseServerTiming(resp)
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 
-			latency := elapsed - serverMs
-			if latency > 0 {
+			if elapsed > 0 {
 				latencyMu.Lock()
-				loadedLatencies = append(loadedLatencies, latency)
+				loadedLatencies = append(loadedLatencies, elapsed)
 				latencyMu.Unlock()
 			}
 
@@ -242,12 +199,12 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 				return
 			case <-ctx.Done():
 				return
-			case <-time.After(ProbeInterval):
+			case <-time.After(speedtest.ProbeInterval):
 			}
 		}
 	}()
 
-	// Brief wait for workers to initialize, then check if any bound successfully
+	// Brief wait for workers to initialize
 	time.Sleep(100 * time.Millisecond)
 	if activeWorkers.Load() == 0 && cfg.Streams > 0 {
 		close(stopCh)
@@ -261,13 +218,13 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 	start := time.Now()
 	lastTime := start
 
-	for time.Since(start) < cfg.Duration {
+	for time.Since(start) < duration {
 		select {
 		case <-ctx.Done():
 			close(stopCh)
 			wg.Wait()
 			return nil, ctx.Err()
-		case <-time.After(SampleInterval):
+		case <-time.After(speedtest.SampleInterval):
 		}
 
 		now := time.Now()
@@ -284,17 +241,16 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 		lastTime = now
 	}
 
-	// Stop workers
 	close(stopCh)
 	wg.Wait()
 
 	finalBytes := totalBytes.Load()
 	if len(mbpsSamples) == 0 {
-		return &ThroughputResult{Bytes: finalBytes}, nil
+		return &speedtest.ThroughputResult{Bytes: finalBytes}, nil
 	}
 
 	// Skip warmup samples, compute mean of steady-state
-	skipCount := int(float64(len(mbpsSamples)) * WarmupFraction)
+	skipCount := int(float64(len(mbpsSamples)) * warmupSkip)
 	steadySamples := mbpsSamples[skipCount:]
 	if len(steadySamples) == 0 {
 		steadySamples = mbpsSamples
@@ -307,14 +263,13 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg Config) (*Through
 	meanMbps := sum / float64(len(steadySamples))
 	bps := meanMbps * 1_000_000.0
 
-	// Compute loaded latency stats
 	latencyMu.Lock()
 	samples := loadedLatencies
 	latencyMu.Unlock()
 
-	loadedMedian, loadedJitter := ComputeLatencyStats(samples)
+	loadedMedian, loadedJitter := speedtest.ComputeLatencyStats(samples)
 
-	return &ThroughputResult{
+	return &speedtest.ThroughputResult{
 		Bps:             bps,
 		Bytes:           finalBytes,
 		LoadedLatencyMs: loadedMedian,

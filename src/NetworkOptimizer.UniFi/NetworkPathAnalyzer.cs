@@ -1842,6 +1842,37 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? wanIp = null,
         string? resolvedWanGroup = null)
     {
+        // Handle combo groups ("WAN+WAN2") and legacy "ALL_WAN"
+        var comboGroups = resolvedWanGroup?.Split('+');
+        if (comboGroups?.Length > 1 || string.Equals(resolvedWanGroup, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
+        {
+            IEnumerable<string> targetGroups;
+            if (string.Equals(resolvedWanGroup, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
+            {
+                targetGroups = topology.Networks
+                    .Where(n => n.IsWan && n.Enabled && n.WanNetworkgroup != null)
+                    .Select(n => n.WanNetworkgroup!);
+            }
+            else
+            {
+                targetGroups = comboGroups!;
+            }
+
+            var targetSet = targetGroups.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var matchingWans = topology.Networks
+                .Where(n => n.IsWan && n.Enabled && n.WanNetworkgroup != null
+                    && targetSet.Contains(n.WanNetworkgroup))
+                .ToList();
+            var totalDown = matchingWans.Sum(n => n.WanDownloadMbps ?? 0);
+            var totalUp = matchingWans.Sum(n => n.WanUploadMbps ?? 0);
+            if (totalDown > 0 && totalUp > 0)
+            {
+                _logger.LogDebug("Combined WAN speeds for {Combo}: {Down}/{Up} Mbps from {Count} links",
+                    resolvedWanGroup, totalDown, totalUp, matchingWans.Count);
+                return (totalDown, totalUp);
+            }
+        }
+
         // When the WAN was already identified (e.g. by IdentifyWanConnectionAsync for Cloudflare tests),
         // use that resolution directly instead of re-matching by IP
         if (!string.IsNullOrEmpty(resolvedWanGroup))

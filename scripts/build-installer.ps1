@@ -59,38 +59,44 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Published to: $PublishDir" -ForegroundColor Green
 Write-Host ""
 
-# Step 2: Build cfspeedtest binary for gateway (linux/arm64)
-Write-Host "[2/4] Building cfspeedtest binary for gateway..." -ForegroundColor Yellow
-$CfSpeedTestSrc = Join-Path $RepoRoot "src\cfspeedtest"
+# Step 2: Build uwnspeedtest binaries
+Write-Host "[2/4] Building uwnspeedtest binaries..." -ForegroundColor Yellow
+$UwnSpeedTestSrc = Join-Path $RepoRoot "src\uwnspeedtest"
 $ToolsDir = Join-Path $PublishDir "tools"
 
 if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Path $ToolsDir | Out-Null }
 
 $GoCmd = Get-Command go -ErrorAction SilentlyContinue
 if ($GoCmd) {
-    Push-Location $CfSpeedTestSrc
-    $env:CGO_ENABLED = "0"
-    $env:GOOS = "linux"
-    $env:GOARCH = "arm64"
-    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "$ToolsDir\cfspeedtest-linux-arm64" .
+    Push-Location $UwnSpeedTestSrc
+
+    # Build targets: local Windows binary + gateway linux/arm64 binary
+    $targets = @(
+        @{ GOOS = "windows"; GOARCH = "amd64"; Output = "uwnspeedtest-windows-amd64.exe"; Label = "windows/amd64" },
+        @{ GOOS = "windows"; GOARCH = "arm64"; Output = "uwnspeedtest-windows-arm64.exe"; Label = "windows/arm64" },
+        @{ GOOS = "windows"; GOARCH = "386";   Output = "uwnspeedtest-windows-386.exe";   Label = "windows/386" },
+        @{ GOOS = "linux";   GOARCH = "arm64"; Output = "uwnspeedtest-linux-arm64";       Label = "linux/arm64 (gateway)" }
+    )
+
+    foreach ($target in $targets) {
+        $env:CGO_ENABLED = "0"
+        $env:GOOS = $target.GOOS
+        $env:GOARCH = $target.GOARCH
+        go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "$ToolsDir\$($target.Output)" .
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "uwnspeedtest build failed for $($target.Label)"
+        } else {
+            Write-Host "Built uwnspeedtest for $($target.Label)" -ForegroundColor Green
+        }
+    }
+
     $env:CGO_ENABLED = $null
     $env:GOOS = $null
     $env:GOARCH = $null
     Pop-Location
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "cfspeedtest build failed - gateway speed test will not be available in this installer"
-    } else {
-        Write-Host "Built cfspeedtest for linux/arm64" -ForegroundColor Green
-    }
 } else {
-    $PrebuiltBinary = Join-Path $CfSpeedTestSrc "bin\cfspeedtest-linux-arm64"
-    if (Test-Path $PrebuiltBinary) {
-        Copy-Item $PrebuiltBinary "$ToolsDir\cfspeedtest-linux-arm64" -Force
-        Write-Host "Copied pre-built cfspeedtest binary" -ForegroundColor Green
-    } else {
-        Write-Warning "Go not installed and no pre-built binary found - gateway speed test will not be available"
-    }
+    Write-Warning "Go not installed - uwnspeedtest binaries will not be available in this installer"
 }
 Write-Host ""
 
