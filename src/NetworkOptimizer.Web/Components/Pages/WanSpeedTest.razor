@@ -906,7 +906,11 @@
     private static string GetWanDisplayName(Iperf3Result result)
     {
         if (!string.IsNullOrEmpty(result.WanName))
+        {
+            if (result.WanName.Contains(" + "))
+                return string.Join(" + ", result.WanName.Split(" + ").Order());
             return result.WanName;
+        }
         if (!string.IsNullOrEmpty(result.WanNetworkGroup))
             return NormalizeWanDisplay(result.WanNetworkGroup);
         return "WAN1";
