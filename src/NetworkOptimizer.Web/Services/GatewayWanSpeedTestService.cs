@@ -318,10 +318,10 @@ public class GatewayWanSpeedTestService
         var startAt = DateTimeOffset.UtcNow.AddSeconds(10).ToUnixTimeSeconds();
         var (perWanServers, perWanStreams) = interfaces.Count switch
         {
-            2 => (2, 8),
-            3 => (2, 4),
-            4 => (1, 4),
-            _ => (1, 2) // 5+ WANs
+            <= 3 => (4, 16),
+            4 => (3, 12),
+            5 => (2, 8),
+            _ => (2, 4) // 6+ WANs
         };
         _logger.LogDebug("Parallel WAN test: startAt={StartAt} ({WANCount} WANs, {Servers} servers/{Streams} streams each)",
             startAt, interfaces.Count, perWanServers, perWanStreams);
