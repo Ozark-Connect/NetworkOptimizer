@@ -366,7 +366,14 @@ public class GatewayWanSpeedTestService
         if (parsedResults.Count == 0)
         {
             report("Error", 0, "All WAN tests failed");
-            return SaveFailedResult("All WAN interface tests failed", "ALL_WAN", "All WAN Links");
+            var failGroups = interfaces
+                .Select(w => w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(g => g);
+            var failNames = interfaces
+                .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(n => n);
+            return SaveFailedResult("All WAN interface tests failed",
+                string.Join("+", failGroups), string.Join(" + ", failNames));
         }
 
         report("Processing", 92, $"{parsedResults.Count}/{interfaces.Count} WANs completed");
@@ -454,6 +461,15 @@ public class GatewayWanSpeedTestService
                 kvp.Value > 1 ? $"{kvp.Key} ({kvp.Value})" : kvp.Key))
             : "UWN";
 
+        // Build combo from the interfaces that were actually tested
+        var comboGroups = results
+            .Select(r => r.wan.NetworkGroup ?? "WAN")
+            .Distinct().OrderBy(g => g).ToList();
+        var comboGroup = string.Join("+", comboGroups);
+        var comboName = string.Join(" + ", results
+            .Select(r => !string.IsNullOrEmpty(r.wan.Name) ? r.wan.Name : r.wan.NetworkGroup ?? "WAN")
+            .Distinct().OrderBy(n => n));
+
         return new Iperf3Result
         {
             Direction = SpeedTestDirection.UwnWanGateway,
@@ -471,8 +487,8 @@ public class GatewayWanSpeedTestService
             DownloadJitterMs = dlJitters.Count > 0 ? dlJitters.Average() : null,
             UploadLatencyMs = ulLatencies.Count > 0 ? ulLatencies.Average() : null,
             UploadJitterMs = ulJitters.Count > 0 ? ulJitters.Average() : null,
-            WanNetworkGroup = "ALL_WAN",
-            WanName = "All WAN Links",
+            WanNetworkGroup = comboGroup,
+            WanName = comboName,
             ParallelStreams = totalStreams,
             DurationSeconds = maxDuration,
             TestTime = DateTime.UtcNow,
@@ -780,6 +796,7 @@ public class GatewayWanSpeedTestService
         public string Colo { get; set; } = "";
         public string Country { get; set; } = "";
         public string ServerHost { get; set; } = "";
+        public List<string>? ServerIps { get; set; }
     }
 
     private sealed class WanLatency

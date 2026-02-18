@@ -38,17 +38,23 @@
                         }
                     </div>
                     <div class="wan-test-option-controls">
-                        @if (_wanInterfaces.Count > 1)
+                        @if (_wanSelectorOptions.Count > 1)
                         {
                             <select class="wan-reassign-select"
-                                    @bind="_selectedWanIndex"
+                                    @bind="_selectedWanOption"
                                     @bind:after="OnWanSelectionChanged"
                                     disabled="@(_isRunning)">
-                                @for (var i = 0; i < _wanInterfaces.Count; i++)
+                                @foreach (var opt in _wanSelectorOptions)
                                 {
-                                    <option value="@i">@_wanInterfaces[i].Name (@_wanInterfaces[i].Interface)</option>
+                                    if (opt.IsSeparator)
+                                    {
+                                        <option disabled value="">──────────</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@opt.Value">@opt.Label</option>
+                                    }
                                 }
-                                <option value="@_wanInterfaces.Count">All WAN Links</option>
                             </select>
                         }
                         <button class="btn btn-primary test-button wan-test-button"
@@ -298,7 +304,11 @@
                                             @GetWanDisplayName(result)
                                         </td>
                                     }
-                                    <td>@(result.DeviceName ?? "WAN")</td>
+                                    @{
+                                        var fullName = result.DeviceName ?? "WAN";
+                                        var truncated = TruncateServerList(fullName);
+                                    }
+                                    <td data-tooltip="@(truncated != fullName ? fullName : null)" data-tooltip-hover-only>@truncated</td>
                                     <td class="hide-mobile">@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
                                     <td class="hide-mobile">@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
                                     <td class="show-mobile">
@@ -428,7 +438,8 @@
 
     // Gateway test state
     private List<WanInterfaceInfo> _wanInterfaces = new();
-    private int _selectedWanIndex;
+    private string _selectedWanOption = "0"; // index, "i+j" for combo, "all" for all WANs
+    private List<WanSelectorOption> _wanSelectorOptions = new();
     private bool _gatewayAvailable;
     private string? _gatewayUnavailableReason;
 
@@ -520,6 +531,14 @@
         public bool IsSelected { get; set; }
     }
 
+    private class WanSelectorOption
+    {
+        public string Value { get; set; } = ""; // e.g. "0", "0+2", "all"
+        public string Label { get; set; } = "";
+        public bool IsSeparator { get; set; }
+        public int[] Indices { get; set; } = [];
+    }
+
     // Show all when none selected (or all selected) - same pattern as WiFi Optimizer Metrics
     private bool _wanNoneSelected => !_wanSeries.Any(w => w.IsSelected);
     private bool _wanAllSelected => _wanSeries.All(w => w.IsSelected);
@@ -577,6 +596,8 @@
         if (wanTask != null) await wanTask;
         if (gatewayTask != null) await gatewayTask;
 
+        BuildWanSelectorOptions();
+
         if (_testHistory.Count > 0)
         {
             _latestResult = _testHistory.FirstOrDefault(r => r.Success);
@@ -601,6 +622,70 @@
         // Subscribe to path analysis completion to refresh UI
         WanSpeedTestService.OnPathAnalysisComplete += OnPathAnalysisComplete;
         GatewayWanTestService.OnPathAnalysisComplete += OnPathAnalysisComplete;
+    }
+
+    private void BuildWanSelectorOptions()
+    {
+        _wanSelectorOptions.Clear();
+        if (_wanInterfaces.Count == 0) return;
+
+        // Singles
+        for (var i = 0; i < _wanInterfaces.Count; i++)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = i.ToString(),
+                Label = $"{_wanInterfaces[i].Name} ({_wanInterfaces[i].Interface})",
+                Indices = [i]
+            });
+        }
+
+        if (_wanInterfaces.Count < 2) return;
+
+        // Separator before combos
+        _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+
+        // Generate all combos of size 2 through N-1
+        for (var size = 2; size < _wanInterfaces.Count; size++)
+        {
+            foreach (var combo in GetCombinations(Enumerable.Range(0, _wanInterfaces.Count).ToArray(), size))
+            {
+                var indices = combo.ToArray();
+                var value = string.Join("+", indices);
+                var label = string.Join(" + ", indices.Select(idx => _wanInterfaces[idx].Name));
+                _wanSelectorOptions.Add(new WanSelectorOption
+                {
+                    Value = value,
+                    Label = label,
+                    Indices = indices
+                });
+            }
+        }
+
+        // "All WAN Links" only if 3+ WANs (with 2, the single pair already covers "all")
+        if (_wanInterfaces.Count >= 3)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = "all",
+                Label = "All WAN Links",
+                Indices = Enumerable.Range(0, _wanInterfaces.Count).ToArray()
+            });
+        }
+    }
+
+    private static IEnumerable<List<int>> GetCombinations(int[] items, int size)
+    {
+        if (size == 0) { yield return new List<int>(); yield break; }
+        for (var i = 0; i <= items.Length - size; i++)
+        {
+            foreach (var tail in GetCombinations(items[(i + 1)..], size - 1))
+            {
+                tail.Insert(0, items[i]);
+                yield return tail;
+            }
+        }
     }
 
     private void InitializeChartOptions()
@@ -822,7 +907,18 @@
         // Key format is "GROUP|Name" or just "GROUP"
         if (key.Contains('|'))
             return key.Split('|')[1];
+        // Legacy ALL_WAN
+        if (string.Equals(key, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
+            return "All WAN Links";
         return NormalizeWanDisplay(key);
+    }
+
+    private static string TruncateServerList(string? serverList, int max = 4)
+    {
+        if (string.IsNullOrEmpty(serverList)) return "WAN";
+        var parts = serverList.Split(" | ");
+        if (parts.Length <= max) return serverList;
+        return string.Join(" | ", parts.Take(max)) + $" + {parts.Length - max} more";
     }
 
     private string GetTimeLabel() => TimeBreakpoints[_sliderValue].label;
@@ -935,11 +1031,34 @@
     {
         if (_isRunning || _wanInterfaces.Count == 0) return;
 
-        // "All WAN Links" is the option after all real interfaces
-        var isAllWans = _selectedWanIndex == _wanInterfaces.Count;
-        var interfaceName = isAllWans ? "" : _wanInterfaces[_selectedWanIndex].Interface;
-        var wanGroup = isAllWans ? "ALL_WAN" : _wanInterfaces[_selectedWanIndex].NetworkGroup;
-        var wanName = isAllWans ? "All WAN Links" : _wanInterfaces[_selectedWanIndex].Name;
+        // Resolve the selected option into interface list and WAN metadata
+        var selected = _wanSelectorOptions.FirstOrDefault(o => o.Value == _selectedWanOption);
+        if (selected == null || selected.IsSeparator) return;
+
+        var selectedInterfaces = selected.Indices.Select(i => _wanInterfaces[i]).ToList();
+        var isMulti = selectedInterfaces.Count > 1;
+
+        string interfaceName;
+        string? wanGroup;
+        string? wanName;
+
+        if (isMulti)
+        {
+            interfaceName = "";
+            var groups = selectedInterfaces
+                .Select(w => w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(g => g);
+            wanGroup = string.Join("+", groups);
+            wanName = string.Join(" + ", selectedInterfaces
+                .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
+                .Distinct().OrderBy(n => n));
+        }
+        else
+        {
+            interfaceName = selectedInterfaces[0].Interface;
+            wanGroup = selectedInterfaces[0].NetworkGroup;
+            wanName = selectedInterfaces[0].Name;
+        }
 
         _isRunning = true;
         _activeTestType = "gateway";
@@ -963,7 +1082,7 @@
                 _progressPercent = progress.Percent;
                 InvokeAsync(StateHasChanged);
             },
-            allInterfaces: isAllWans ? _wanInterfaces : null);
+            allInterfaces: isMulti ? selectedInterfaces : null);
 
         StopPolling();
         _isRunning = false;

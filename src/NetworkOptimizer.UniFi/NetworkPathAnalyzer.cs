@@ -1842,16 +1842,33 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? wanIp = null,
         string? resolvedWanGroup = null)
     {
-        // "ALL_WAN" means combine all WAN link speeds (for multi-WAN load-balanced tests)
-        if (string.Equals(resolvedWanGroup, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
+        // Handle combo groups ("WAN+WAN2") and legacy "ALL_WAN"
+        var comboGroups = resolvedWanGroup?.Split('+');
+        if (comboGroups?.Length > 1 || string.Equals(resolvedWanGroup, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
         {
-            var allWans = topology.Networks.Where(n => n.IsWan && n.Enabled).ToList();
-            var totalDown = allWans.Sum(n => n.WanDownloadMbps ?? 0);
-            var totalUp = allWans.Sum(n => n.WanUploadMbps ?? 0);
+            IEnumerable<string> targetGroups;
+            if (string.Equals(resolvedWanGroup, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
+            {
+                targetGroups = topology.Networks
+                    .Where(n => n.IsWan && n.Enabled && n.WanNetworkgroup != null)
+                    .Select(n => n.WanNetworkgroup!);
+            }
+            else
+            {
+                targetGroups = comboGroups!;
+            }
+
+            var targetSet = targetGroups.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var matchingWans = topology.Networks
+                .Where(n => n.IsWan && n.Enabled && n.WanNetworkgroup != null
+                    && targetSet.Contains(n.WanNetworkgroup))
+                .ToList();
+            var totalDown = matchingWans.Sum(n => n.WanDownloadMbps ?? 0);
+            var totalUp = matchingWans.Sum(n => n.WanUploadMbps ?? 0);
             if (totalDown > 0 && totalUp > 0)
             {
-                _logger.LogDebug("Combined all WAN speeds: {Down}/{Up} Mbps from {Count} links",
-                    totalDown, totalUp, allWans.Count);
+                _logger.LogDebug("Combined WAN speeds for {Combo}: {Down}/{Up} Mbps from {Count} links",
+                    resolvedWanGroup, totalDown, totalUp, matchingWans.Count);
                 return (totalDown, totalUp);
             }
         }

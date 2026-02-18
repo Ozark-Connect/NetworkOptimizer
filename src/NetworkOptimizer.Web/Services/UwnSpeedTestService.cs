@@ -3,10 +3,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -18,6 +20,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 {
     private readonly IConfiguration _configuration;
     private readonly UniFiConnectionService _connectionService;
+    private readonly IGatewaySshService _gatewaySsh;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     protected override SpeedTestDirection Direction => SpeedTestDirection.UwnWan;
 
@@ -34,11 +38,15 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         INetworkPathAnalyzer pathAnalyzer,
         IConfiguration configuration,
         Iperf3ServerService iperf3ServerService,
-        UniFiConnectionService connectionService)
+        UniFiConnectionService connectionService,
+        IGatewaySshService gatewaySsh,
+        IServiceScopeFactory scopeFactory)
         : base(dbFactory, pathAnalyzer, logger, iperf3ServerService)
     {
         _configuration = configuration;
         _connectionService = connectionService;
+        _gatewaySsh = gatewaySsh;
+        _scopeFactory = scopeFactory;
     }
 
     protected override async Task<Iperf3Result?> RunTestCoreAsync(
@@ -216,18 +224,38 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         // Identify WAN connection
         try
         {
-            // In max mode with multi-WAN, traffic load-balances across WANs so mark as All WANs
             var isMultiWan = false;
+            List<NetworkInfo>? wanNetworks = null;
             if (_connectionService.IsConnected)
             {
                 var networks = await _connectionService.GetNetworksAsync();
-                isMultiWan = networks.Count(n => n.IsWan && n.Enabled) > 1;
+                wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
+                isMultiWan = wanNetworks.Count > 1;
             }
 
             if (isMultiWan)
             {
-                result.WanNetworkGroup = "ALL_WAN";
-                result.WanName = "All WAN Links";
+                // Try SSH route lookup to identify which WANs were actually used
+                var combo = await IdentifyWanComboViaSshAsync(
+                    json.Metadata?.ServerIps, wanNetworks!, cancellationToken);
+
+                if (combo != null)
+                {
+                    result.WanNetworkGroup = combo.Value.Group;
+                    result.WanName = combo.Value.Name;
+                }
+                else
+                {
+                    // Fallback: assume all enabled WANs (best guess without SSH)
+                    var groups = wanNetworks!
+                        .Select(n => n.WanNetworkgroup ?? "WAN")
+                        .Distinct().OrderBy(g => g);
+                    result.WanNetworkGroup = string.Join("+", groups);
+                    var names = wanNetworks!
+                        .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
+                        .Distinct().OrderBy(n => n);
+                    result.WanName = string.Join(" + ", names);
+                }
             }
             else
             {
@@ -261,6 +289,95 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         Success = false,
         ErrorMessage = errorMessage,
     };
+
+    /// <summary>
+    /// Use SSH route lookup on the gateway to determine which WAN interfaces
+    /// traffic to the test servers traverses. Returns the combo group and name,
+    /// or null if SSH is unavailable or route lookup fails.
+    /// </summary>
+    private async Task<(string Group, string Name)?> IdentifyWanComboViaSshAsync(
+        List<string>? serverIps,
+        List<NetworkInfo> wanNetworks,
+        CancellationToken cancellationToken)
+    {
+        if (serverIps == null || serverIps.Count == 0)
+            return null;
+
+        try
+        {
+            var settings = await _gatewaySsh.GetSettingsAsync();
+            if (string.IsNullOrEmpty(settings.Host) || !settings.HasCredentials || !settings.Enabled)
+                return null;
+
+            // Get interface→group mapping from SqmService (scoped)
+            Dictionary<string, (string? Group, string Name)> ifToWan;
+            using (var scope = _scopeFactory.CreateScope())
+            {
+                var sqmService = scope.ServiceProvider.GetRequiredService<SqmService>();
+                var wanInterfaces = await sqmService.GetWanInterfacesFromControllerAsync();
+                if (wanInterfaces.Count == 0)
+                    return null;
+
+                ifToWan = wanInterfaces.ToDictionary(
+                    w => w.Interface,
+                    w => (w.NetworkGroup, w.Name));
+            }
+
+            // For each unique server IP, run `ip route get <ip>` on the gateway
+            var wanGroups = new HashSet<string>();
+            var wanNames = new HashSet<string>();
+
+            foreach (var ip in serverIps.Distinct().Take(4)) // Limit to 4 lookups
+            {
+                // Validate IP to prevent command injection
+                if (!System.Net.IPAddress.TryParse(ip, out _))
+                    continue;
+
+                var (success, output) = await _gatewaySsh.RunCommandAsync(
+                    $"ip route get {ip}", TimeSpan.FromSeconds(5), cancellationToken);
+
+                if (!success || string.IsNullOrEmpty(output))
+                    continue;
+
+                // Parse "dev <interface>" from output
+                var match = Regex.Match(output, @"dev\s+(\S+)");
+                if (!match.Success)
+                    continue;
+
+                var iface = match.Groups[1].Value;
+                if (ifToWan.TryGetValue(iface, out var wan))
+                {
+                    wanGroups.Add(wan.Group ?? "WAN");
+                    wanNames.Add(wan.Name);
+                }
+            }
+
+            if (wanGroups.Count == 0)
+                return null;
+
+            var sortedGroups = wanGroups.OrderBy(g => g).ToList();
+            var combo = string.Join("+", sortedGroups);
+
+            // Build name in same order as groups
+            var nameMap = ifToWan.Values
+                .Where(w => wanGroups.Contains(w.Group ?? "WAN"))
+                .DistinctBy(w => w.Group)
+                .OrderBy(w => w.Group)
+                .Select(w => w.Name);
+            var comboName = string.Join(" + ", nameMap);
+
+            Logger.LogInformation(
+                "SSH route lookup identified WAN combo: {Combo} ({Name}) from {ServerCount} server IPs",
+                combo, comboName, serverIps.Count);
+
+            return (combo, comboName);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "SSH-based WAN identification failed, falling back");
+            return null;
+        }
+    }
 
     #region Binary Resolution
 
@@ -315,6 +432,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         public string Colo { get; set; } = "";
         public string Country { get; set; } = "";
         public string ServerHost { get; set; } = "";
+        public List<string>? ServerIps { get; set; }
     }
 
     private sealed class WanLatency

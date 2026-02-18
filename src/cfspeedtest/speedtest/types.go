@@ -17,10 +17,11 @@ type Result struct {
 
 // Metadata from the speed test provider.
 type Metadata struct {
-	IP         string `json:"ip"`
-	Colo       string `json:"colo"`
-	Country    string `json:"country"`
-	ServerHost string `json:"server_host,omitempty"`
+	IP         string   `json:"ip"`
+	Colo       string   `json:"colo"`
+	Country    string   `json:"country"`
+	ServerHost string   `json:"server_host,omitempty"`
+	ServerIPs  []string `json:"server_ips,omitempty"`
 }
 
 // LatencyResult holds unloaded latency measurement.

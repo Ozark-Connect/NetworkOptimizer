@@ -61,7 +61,6 @@
                             {
                                 <option value="@wan.NetworkGroup" selected="@(wan.NetworkGroup == Result.WanNetworkGroup)">@wan.DisplayName</option>
                             }
-                            <option value="ALL_WAN" selected="@(Result.WanNetworkGroup == "ALL_WAN")">All WAN Links</option>
                         </select>
                     }
                     else if (_wanSaving)
@@ -1184,21 +1183,10 @@
         var selectedGroup = e.Value?.ToString();
         if (string.IsNullOrEmpty(selectedGroup)) return;
 
-        string networkGroup;
-        string displayName;
-
-        if (selectedGroup == "ALL_WAN")
-        {
-            networkGroup = "ALL_WAN";
-            displayName = "All WAN Links";
-        }
-        else
-        {
-            var wan = AvailableWans.FirstOrDefault(w => w.NetworkGroup == selectedGroup);
-            if (wan == null) return;
-            networkGroup = wan.NetworkGroup;
-            displayName = wan.DisplayName;
-        }
+        var wan = AvailableWans.FirstOrDefault(w => w.NetworkGroup == selectedGroup);
+        if (wan == null) return;
+        var networkGroup = wan.NetworkGroup;
+        var displayName = wan.DisplayName;
 
         // Skip if same WAN already assigned
         if (Result.WanNetworkGroup == networkGroup)

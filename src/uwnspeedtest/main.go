@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -146,6 +147,20 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 		result.Metadata.IP = ipInfo.IP
 		result.Metadata.Country = ipInfo.ISP
 	}
+
+	// Resolve server IPs for SSH-based WAN route identification
+	ipSet := make(map[string]bool)
+	for _, srv := range servers {
+		if u, err := url.Parse(srv.URL); err == nil {
+			if addrs, err := net.LookupHost(u.Hostname()); err == nil && len(addrs) > 0 {
+				if !ipSet[addrs[0]] {
+					ipSet[addrs[0]] = true
+					result.Metadata.ServerIPs = append(result.Metadata.ServerIPs, addrs[0])
+				}
+			}
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "Servers: %s\n", result.Metadata.Colo)
 
 	// Phase 3: Unloaded latency (against best server)
