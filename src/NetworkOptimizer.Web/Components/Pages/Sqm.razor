@@ -2724,10 +2724,10 @@
             }
             else
             {
-                // Refresh immediately so error banners from the monitor appear
+                // Refresh after a delay so the monitor picks up the new error from the log
                 _ = Task.Run(async () =>
                 {
-                    await Task.Delay(1000);
+                    await Task.Delay(3000);
                     await InvokeAsync(RefreshDashboard);
                 });
             }
