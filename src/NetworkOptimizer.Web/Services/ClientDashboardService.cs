@@ -151,7 +151,11 @@ public class ClientDashboardService
                     {
                         result.TraceChanged = true; // First poll for this client
                     }
-                    _lastTraceHashes[identity.Mac] = result.TraceHash;
+
+                    // Only update the "last known" hash when persisting, so non-persisting
+                    // polls (viewing via ?ip=) don't consume the change for the real client.
+                    if (persist)
+                        _lastTraceHashes[identity.Mac] = result.TraceHash;
                 }
 
                 // Store signal log (only when viewing own device, not remote ?ip= viewing)
