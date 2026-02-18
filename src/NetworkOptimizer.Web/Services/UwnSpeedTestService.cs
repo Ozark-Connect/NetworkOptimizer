@@ -218,16 +218,16 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         {
             // In max mode with multi-WAN, traffic load-balances across WANs so mark as All WANs
             var isMultiWan = false;
-            if (MaxMode && _connectionService.IsConnected)
+            if (_connectionService.IsConnected)
             {
                 var networks = await _connectionService.GetNetworksAsync();
                 isMultiWan = networks.Count(n => n.IsWan && n.Enabled) > 1;
             }
 
-            if (MaxMode && isMultiWan)
+            if (isMultiWan)
             {
-                result.WanNetworkGroup = "ALL_WANS";
-                result.WanName = "All WANs";
+                result.WanNetworkGroup = "ALL_WAN";
+                result.WanName = "All WAN Links";
             }
             else
             {
