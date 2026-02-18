@@ -110,7 +110,7 @@
                     <div class="wan-test-option-hint">
                         @if (_hasMultipleWans)
                         {
-                            <text>Tests from this server through the LAN. Traffic is load-balanced across all WAN interfaces.</text>
+                            <text>Tests from this server through the LAN. Traffic may be load-balanced across WAN interfaces.</text>
                         }
                         else
                         {
@@ -1264,7 +1264,7 @@
             var isGateway = result.Direction is SpeedTestDirection.CloudflareWanGateway or SpeedTestDirection.UwnWanGateway;
             var path = isGateway
                 ? await PathAnalyzer.CalculateGatewayDirectPathAsync(resolvedWanGroup: result.WanNetworkGroup)
-                : await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
+                : await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp, resolvedWanGroup: result.WanNetworkGroup);
             var analysis = PathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,

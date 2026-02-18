@@ -1842,8 +1842,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? wanIp = null,
         string? resolvedWanGroup = null)
     {
-        // "ALL_WANS" means combine all WAN link speeds (for multi-WAN load-balanced tests)
-        if (string.Equals(resolvedWanGroup, "ALL_WANS", StringComparison.OrdinalIgnoreCase))
+        // "ALL_WAN" means combine all WAN link speeds (for multi-WAN load-balanced tests)
+        if (string.Equals(resolvedWanGroup, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
         {
             var allWans = topology.Networks.Where(n => n.IsWan && n.Enabled).ToList();
             var totalDown = allWans.Sum(n => n.WanDownloadMbps ?? 0);
