@@ -18,7 +18,7 @@ func NewTransport(ifaceName string) (*http.Transport, error) {
 	}
 
 	if ifaceName != "" {
-		localAddr, err := resolveInterfaceAddr(ifaceName)
+		localAddr, err := ResolveInterfaceAddr(ifaceName)
 		if err != nil {
 			return nil, err
 		}
@@ -45,9 +45,9 @@ func NewClient(cfg Config, timeout time.Duration) (*http.Client, error) {
 	}, nil
 }
 
-// resolveInterfaceAddr finds the first IPv4 address on the named interface
+// ResolveInterfaceAddr finds the first IPv4 address on the named interface
 // and returns a TCP address suitable for net.Dialer.LocalAddr.
-func resolveInterfaceAddr(name string) (*net.TCPAddr, error) {
+func ResolveInterfaceAddr(name string) (*net.TCPAddr, error) {
 	iface, err := net.InterfaceByName(name)
 	if err != nil {
 		return nil, fmt.Errorf("interface %q: %w", name, err)

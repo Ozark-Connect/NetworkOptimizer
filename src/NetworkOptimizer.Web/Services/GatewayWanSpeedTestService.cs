@@ -184,6 +184,7 @@ public class GatewayWanSpeedTestService
         string? wanNetworkGroup,
         string? wanName,
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
+        bool maxMode = false,
         CancellationToken cancellationToken = default)
     {
         lock (_lock)
@@ -230,7 +231,8 @@ public class GatewayWanSpeedTestService
             if (!System.Text.RegularExpressions.Regex.IsMatch(interfaceName, @"^[a-zA-Z0-9._-]+$"))
                 throw new ArgumentException($"Invalid interface name: {interfaceName}");
 
-            var command = $"{RemoteBinaryPath} --interface {interfaceName} 2>/dev/null";
+            var maxArgs = maxMode ? " -streams 16 -servers 4" : "";
+            var command = $"{RemoteBinaryPath} --interface {interfaceName}{maxArgs} 2>/dev/null";
             var sshTask = _gatewaySsh.RunCommandAsync(
                 command, TimeSpan.FromSeconds(120), cancellationToken);
 

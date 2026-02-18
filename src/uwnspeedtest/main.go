@@ -23,7 +23,7 @@ func main() {
 	timeout := flag.Int("timeout", 90, "Overall timeout seconds")
 	iface := flag.String("interface", "", "Network interface to bind to (e.g. eth4)")
 	showVersion := flag.Bool("version", false, "Print version")
-	serverCount := flag.Int("servers", 4, "Number of servers to use for throughput")
+	serverCount := flag.Int("servers", 1, "Number of servers to use for throughput")
 
 	flag.Parse()
 
@@ -98,7 +98,11 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	// Build metadata from selected servers
 	var serverInfoParts []string
 	for _, s := range servers {
-		serverInfoParts = append(serverInfoParts, fmt.Sprintf("%s/%s (%.0fms)", s.City, s.Country, s.LatencyMs))
+		cc := s.CountryCode
+		if cc == "" {
+			cc = s.Country
+		}
+		serverInfoParts = append(serverInfoParts, fmt.Sprintf("%s, %s", s.City, cc))
 	}
 	result.Metadata = &speedtest.Metadata{
 		Colo: strings.Join(serverInfoParts, ", "),
@@ -107,7 +111,7 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 
 	// Phase 3: Unloaded latency (against best server)
 	fmt.Fprintf(os.Stderr, "Measuring latency...\n")
-	latency, err := uwn.MeasureLatency(ctx, client, servers[0], token)
+	latency, err := uwn.MeasureLatency(ctx, servers[0], cfg.Interface)
 	if err != nil {
 		return errorResult("latency: " + err.Error())
 	}

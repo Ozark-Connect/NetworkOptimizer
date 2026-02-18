@@ -27,6 +27,13 @@
     <div class="card">
         <div class="card-body">
             <p class="wan-test-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
+            <div class="wan-mode-toggle">
+                <label class="toggle-switch" data-tooltip="Normal: 1 server, 8 connections. Max: 4 servers, 16 connections for saturating high-bandwidth links." data-tooltip-hover-only>
+                    <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Max mode</span>
+                </label>
+            </div>
             <div class="wan-test-options">
                 @* Gateway (Direct) Option - Primary *@
                 <div class="wan-test-option @(_gatewayAvailable ? "" : "wan-test-option-unavailable")">
@@ -404,6 +411,7 @@
 @code {
     // Test state
     private bool _isRunning;
+    private bool _maxMode;
     private string _activeTestType = ""; // "gateway" or "server"
     private string _progressPhase = "";
     private int _progressPercent;
@@ -942,7 +950,8 @@
                 _progressPhase = progress.Phase;
                 _progressPercent = progress.Percent;
                 InvokeAsync(StateHasChanged);
-            });
+            },
+            maxMode: _maxMode);
 
         StopPolling();
         _isRunning = false;
@@ -995,7 +1004,8 @@
                     _serverStatus = progress.Status;
                 _metadata = WanSpeedTestService.LastMetadata;
                 InvokeAsync(StateHasChanged);
-            });
+            },
+            maxMode: _maxMode);
 
         StopPolling();
         _isRunning = false;

@@ -11617,6 +11617,64 @@ a.affected-client:hover {
     margin: 0;
 }
 
+.wan-speedtest .wan-mode-toggle {
+    padding-top: 0.75rem;
+}
+
+.wan-speedtest .toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wan-speedtest .toggle-switch input {
+    display: none;
+}
+
+.wan-speedtest .toggle-slider {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: var(--bg-tertiary);
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    transition: background 0.2s;
+}
+
+.wan-speedtest .toggle-slider::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.wan-speedtest .toggle-switch input:checked + .toggle-slider {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.wan-speedtest .toggle-switch input:checked + .toggle-slider::after {
+    transform: translateX(16px);
+    background: white;
+}
+
+.wan-speedtest .toggle-switch input:disabled + .toggle-slider {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.wan-speedtest .toggle-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
 .wan-speedtest .wan-test-options {
     display: flex;
     flex-wrap: wrap;

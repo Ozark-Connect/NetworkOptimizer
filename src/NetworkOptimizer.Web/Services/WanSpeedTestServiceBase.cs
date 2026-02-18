@@ -31,6 +31,9 @@ public abstract class WanSpeedTestServiceBase
     private Iperf3Result? _lastCompletedResult;
     private WanTestMetadata? _lastMetadata;
 
+    /// <summary>Whether the current test is running in max mode (more servers and connections).</summary>
+    protected bool MaxMode { get; private set; }
+
     /// <summary>The SpeedTestDirection for results created by this service.</summary>
     protected abstract SpeedTestDirection Direction { get; }
 
@@ -80,8 +83,10 @@ public abstract class WanSpeedTestServiceBase
     /// Run a WAN speed test with progress reporting.
     /// Pauses the iperf3 server during the test to free pipe handles.
     /// </summary>
+    /// <param name="maxMode">When true, uses more servers and connections for maximum throughput.</param>
     public async Task<Iperf3Result?> RunTestAsync(
         Action<(string Phase, int Percent, string? Status)>? onProgress = null,
+        bool maxMode = false,
         CancellationToken cancellationToken = default)
     {
         lock (_lock)
@@ -97,6 +102,8 @@ public abstract class WanSpeedTestServiceBase
 
         try
         {
+            MaxMode = maxMode;
+
             // Pause iperf3 server during WAN speed test to free pipe handles.
             if (Iperf3Server.IsRunning)
             {

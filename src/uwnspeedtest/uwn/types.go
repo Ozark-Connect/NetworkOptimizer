@@ -2,12 +2,13 @@ package uwn
 
 // Server represents a UWN speed test server from the discovery API.
 type Server struct {
-	URL      string  `json:"url"`
-	Provider string  `json:"provider"`
-	City     string  `json:"city"`
-	Country  string  `json:"country"`
-	Lat      float64 `json:"lat"`
-	Lon      float64 `json:"lon"`
+	URL         string  `json:"url"`
+	Provider    string  `json:"provider"`
+	City        string  `json:"city"`
+	Country     string  `json:"country"`
+	CountryCode string  `json:"countryCode"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
 
 	// Set after latency probing
 	LatencyMs float64 `json:"-"`

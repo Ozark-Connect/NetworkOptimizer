@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage;
@@ -21,8 +22,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
     private const string UserAgent = "ui-speed-linux-arm64/1.3.4";
 
-    private const int Concurrency = 8;
-    private const int ServerCount = 4;
+    private int Concurrency => MaxMode ? 16 : 8;
+    private int ServerCount => MaxMode ? 4 : 1;
     private static readonly TimeSpan DownloadDuration = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan UploadDuration = TimeSpan.FromSeconds(10);
     private const int UploadBytesPerRequest = 5_000_000; // 5 MB per upload request
@@ -76,7 +77,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         report("Selecting servers", 5, $"Pinging {Math.Min(candidates.Count, ServerCount * 2)} servers...");
         var servers = await SelectBestServersAsync(client, token, candidates, ServerCount, cancellationToken);
-        var serverDesc = string.Join(", ", servers.Select(s => $"{s.City}/{s.Country} ({s.LatencyMs:F0}ms)"));
+        var serverDesc = string.Join(", ", servers.Select(s => $"{s.City}, {(!string.IsNullOrEmpty(s.CountryCode) ? s.CountryCode : s.Country)}"));
         // Extract hostname/IP from primary server URL for path analysis and PBR
         var primaryServerHost = new Uri(servers[0].Url).Host;
         Logger.LogInformation("Selected servers: {Servers} (primary: {PrimaryHost})", serverDesc, primaryServerHost);
@@ -89,7 +90,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         // Phase 3: Latency (8-15%)
         report("Testing latency", 9, null);
-        var (latencyMs, jitterMs) = await MeasureLatencyAsync(client, servers[0], token, cancellationToken);
+        var (latencyMs, jitterMs) = await MeasureLatencyAsync(servers[0], cancellationToken);
         Logger.LogInformation("Latency: {Latency:F1} ms, Jitter: {Jitter:F1} ms", latencyMs, jitterMs);
         report("Testing latency", 15, $"Latency: {latencyMs:F1} ms / {jitterMs:F1} ms jitter");
 
@@ -226,7 +227,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         return token;
     }
 
-    private record UwnServer(string Url, string Provider, string City, string Country, double Lat, double Lon)
+    private record UwnServer(string Url, string Provider, string City, string Country, string CountryCode, double Lat, double Lon)
     {
         public double LatencyMs { get; set; }
     }
@@ -246,6 +247,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                 Provider: elem.TryGetProperty("provider", out var p) ? p.GetString() ?? "" : "",
                 City: elem.TryGetProperty("city", out var c) ? c.GetString() ?? "" : "",
                 Country: elem.TryGetProperty("country", out var co) ? co.GetString() ?? "" : "",
+                CountryCode: elem.TryGetProperty("countryCode", out var cc) ? cc.GetString() ?? "" : "",
                 Lat: elem.TryGetProperty("lat", out var lat) ? lat.GetDouble() : 0,
                 Lon: elem.TryGetProperty("lon", out var lon) ? lon.GetDouble() : 0));
         }
@@ -307,30 +309,51 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         return minRtt;
     }
 
+    /// <summary>
+    /// Measures TCP connect time (SYN/ACK round trip) to the server.
+    /// Gives true network RTT without HTTP overhead.
+    /// </summary>
     private static async Task<(double LatencyMs, double JitterMs)> MeasureLatencyAsync(
-        HttpClient client, UwnServer server, string token, CancellationToken ct)
+        UwnServer server, CancellationToken ct)
     {
-        var url = server.Url + "/ping";
+        var uri = new Uri(server.Url);
+        var host = uri.Host;
+        var port = uri.Port > 0 ? uri.Port : 80;
         var latencies = new List<double>();
 
-        // Warmup
+        // Warmup connection
         try
         {
-            using var warmReq = CreateRequest(HttpMethod.Get, url, token);
-            using var resp = await client.SendAsync(warmReq, ct);
+            using var warmSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            using var warmCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            warmCts.CancelAfter(TimeSpan.FromSeconds(3));
+            await warmSocket.ConnectAsync(host, port, warmCts.Token);
         }
         catch { /* warmup failure is ok */ }
 
         for (int i = 0; i < 20; i++)
         {
-            using var request = CreateRequest(HttpMethod.Get, url, token);
+            try
+            {
+                using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                using var pingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                pingCts.CancelAfter(TimeSpan.FromSeconds(3));
 
-            var sw = Stopwatch.StartNew();
-            using var response = await client.SendAsync(request, ct);
-            sw.Stop();
+                var sw = Stopwatch.StartNew();
+                await socket.ConnectAsync(host, port, pingCts.Token);
+                sw.Stop();
 
-            latencies.Add(sw.Elapsed.TotalMilliseconds);
+                if (sw.Elapsed.TotalMilliseconds > 0)
+                    latencies.Add(sw.Elapsed.TotalMilliseconds);
+            }
+            catch
+            {
+                // Skip failed attempts
+            }
         }
+
+        if (latencies.Count == 0)
+            throw new InvalidOperationException($"All TCP connect attempts to {host}:{port} failed");
 
         latencies.Sort();
 

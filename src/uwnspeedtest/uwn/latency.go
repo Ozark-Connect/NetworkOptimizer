@@ -3,52 +3,60 @@ package uwn
 import (
 	"context"
 	"fmt"
-	"io"
 	"math"
-	"net/http"
+	"net"
+	"net/url"
 	"sort"
 	"time"
 
 	"github.com/Ozark-Connect/NetworkOptimizer/src/cfspeedtest/speedtest"
 )
 
-// MeasureLatency performs sequential pings to the server's /ping endpoint
-// to measure unloaded latency and jitter. Tolerates individual failures.
-func MeasureLatency(ctx context.Context, client *http.Client, server Server, token string) (*speedtest.LatencyResult, error) {
-	pingURL := server.URL + "/ping"
+// MeasureLatency measures TCP connect time (SYN/ACK round trip) to the server.
+// This gives true network RTT without HTTP overhead. Binds to the specified
+// interface if provided.
+func MeasureLatency(ctx context.Context, server Server, ifaceName string) (*speedtest.LatencyResult, error) {
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		return nil, fmt.Errorf("parse server URL: %w", err)
+	}
+	host := u.Host
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		port := u.Port()
+		if port == "" {
+			port = "80"
+		}
+		host = net.JoinHostPort(u.Hostname(), port)
+	}
+
+	dialer := &net.Dialer{Timeout: pingTimeout}
+	if ifaceName != "" {
+		localAddr, err := speedtest.ResolveInterfaceAddr(ifaceName)
+		if err != nil {
+			return nil, fmt.Errorf("resolve interface for latency: %w", err)
+		}
+		dialer.LocalAddr = localAddr
+	}
+
 	var latencies []float64
 
-	// Warmup request to establish TCP connection before timing begins.
+	// Warmup
 	warmCtx, warmCancel := context.WithTimeout(ctx, pingTimeout)
-	if warmReq, err := http.NewRequestWithContext(warmCtx, http.MethodGet, pingURL, nil); err == nil {
-		warmReq.Header.Set("User-Agent", userAgent)
-		warmReq.Header.Set("x-test-token", token)
-		if warmResp, err := client.Do(warmReq); err == nil {
-			io.Copy(io.Discard, warmResp.Body)
-			warmResp.Body.Close()
-		}
+	if conn, err := dialer.DialContext(warmCtx, "tcp", host); err == nil {
+		conn.Close()
 	}
 	warmCancel()
 
 	for i := 0; i < 20; i++ {
 		pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
-		req, err := http.NewRequestWithContext(pingCtx, http.MethodGet, pingURL, nil)
-		if err != nil {
-			cancel()
-			continue
-		}
-		req.Header.Set("User-Agent", userAgent)
-		req.Header.Set("x-test-token", token)
-
 		start := time.Now()
-		resp, err := client.Do(req)
-		elapsed := time.Since(start).Seconds() * 1000 // ms
+		conn, err := dialer.DialContext(pingCtx, "tcp", host)
+		elapsed := time.Since(start).Seconds() * 1000
 		cancel()
 		if err != nil {
-			continue // skip failed pings instead of aborting
+			continue
 		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		conn.Close()
 
 		if elapsed > 0 {
 			latencies = append(latencies, elapsed)
@@ -56,7 +64,7 @@ func MeasureLatency(ctx context.Context, client *http.Client, server Server, tok
 	}
 
 	if len(latencies) == 0 {
-		return nil, fmt.Errorf("all latency pings to %s failed", server.URL)
+		return nil, fmt.Errorf("all TCP connect attempts to %s failed", host)
 	}
 
 	sort.Float64s(latencies)
