@@ -323,32 +323,32 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                     w => (w.NetworkGroup, w.Name));
             }
 
-            // For each unique server IP, run `ip route get <ip>` on the gateway
+            // Validate all IPs, then run a single SSH command for all route lookups
+            var validIps = serverIps.Distinct()
+                .Where(ip => System.Net.IPAddress.TryParse(ip, out _))
+                .ToList();
+
+            if (validIps.Count == 0)
+                return null;
+
+            var routeCmd = string.Join(" && ", validIps.Select(ip => $"ip route get {ip}"));
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                routeCmd, TimeSpan.FromSeconds(10), cancellationToken);
+
             var wanGroups = new HashSet<string>();
             var wanNames = new HashSet<string>();
 
-            foreach (var ip in serverIps.Distinct().Take(4)) // Limit to 4 lookups
+            if (success && !string.IsNullOrEmpty(output))
             {
-                // Validate IP to prevent command injection
-                if (!System.Net.IPAddress.TryParse(ip, out _))
-                    continue;
-
-                var (success, output) = await _gatewaySsh.RunCommandAsync(
-                    $"ip route get {ip}", TimeSpan.FromSeconds(5), cancellationToken);
-
-                if (!success || string.IsNullOrEmpty(output))
-                    continue;
-
-                // Parse "dev <interface>" from output
-                var match = Regex.Match(output, @"dev\s+(\S+)");
-                if (!match.Success)
-                    continue;
-
-                var iface = match.Groups[1].Value;
-                if (ifToWan.TryGetValue(iface, out var wan))
+                // Parse all "dev <interface>" matches from combined output
+                foreach (Match match in Regex.Matches(output, @"dev\s+(\S+)"))
                 {
-                    wanGroups.Add(wan.Group ?? "WAN");
-                    wanNames.Add(wan.Name);
+                    var iface = match.Groups[1].Value;
+                    if (ifToWan.TryGetValue(iface, out var wan))
+                    {
+                        wanGroups.Add(wan.Group ?? "WAN");
+                        wanNames.Add(wan.Name);
+                    }
                 }
             }
 

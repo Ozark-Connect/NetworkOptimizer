@@ -124,8 +124,11 @@ func SelectServers(ctx context.Context, client *http.Client, token string, candi
 		})
 	}
 
-	// Ping top 10 nearest candidates by geo distance
-	pingCount := 10
+	// Ping nearest candidates by geo distance (at least count+2 to have spares)
+	pingCount := count + 2
+	if pingCount < 10 {
+		pingCount = 10
+	}
 	if pingCount > len(candidates) {
 		pingCount = len(candidates)
 	}
