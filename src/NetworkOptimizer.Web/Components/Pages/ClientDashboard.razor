@@ -1164,17 +1164,18 @@
             var ts = new DateTimeOffset(entry.Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
             bool added = false;
 
-            // Detect band change
+            // Detect band change - use band-specific colors
             if (prevBand != null && entry.Band != null && entry.Band != prevBand)
             {
+                var (bg, fg) = GetBandAnnotationColors(entry.Band);
                 annotations.Add(new AnnotationsXAxis
                 {
                     X = ts,
-                    BorderColor = "#a78bfa",
+                    BorderColor = bg,
                     Label = new Label
                     {
                         Text = FormatBand(entry.Band),
-                        Style = new Style { Background = "#a78bfa", Color = "#fff", FontSize = "10px" },
+                        Style = new Style { Background = bg, Color = fg, FontSize = "11px" },
                         Orientation = Orientation.Horizontal,
                         OffsetY = yOffset
                     }
@@ -1182,17 +1183,17 @@
                 added = true;
             }
 
-            // Detect AP roam
+            // Detect AP roam - neutral slate
             if (prevAp != null && entry.ApName != null && entry.ApName != prevAp)
             {
                 annotations.Add(new AnnotationsXAxis
                 {
                     X = ts,
-                    BorderColor = "#3b82f6",
+                    BorderColor = "#64748b",
                     Label = new Label
                     {
                         Text = entry.ApName,
-                        Style = new Style { Background = "#3b82f6", Color = "#fff", FontSize = "10px" },
+                        Style = new Style { Background = "#64748b", Color = "#f1f5f9", FontSize = "11px" },
                         Orientation = Orientation.Horizontal,
                         OffsetY = added ? yOffset + 18 : yOffset // stack below band label if both
                     }
@@ -1835,6 +1836,14 @@
         "na" => "5 GHz",
         "6e" => "6 GHz",
         _ => band ?? "—"
+    };
+
+    private static (string bg, string fg) GetBandAnnotationColors(string? band) => band switch
+    {
+        "ng" => ("#fbbf24", "#1a2029"), // amber - dark text for contrast
+        "na" => ("#3b82f6", "#f1f5f9"), // blue
+        "6e" => ("#a855f7", "#f1f5f9"), // purple
+        _ => ("#64748b", "#f1f5f9")     // neutral fallback
     };
 
     // --- Chart Data Classes ---

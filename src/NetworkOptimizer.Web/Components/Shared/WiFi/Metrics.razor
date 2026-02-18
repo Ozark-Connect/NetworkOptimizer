@@ -575,23 +575,26 @@
         var annotations5 = new List<AnnotationsXAxis>();
         var annotations6 = new List<AnnotationsXAxis>();
 
+        int yOffset24 = -5, yOffset5 = -5, yOffset6 = -5;
+
         foreach (var evt in _channelEvents.OrderBy(e => e.Timestamp))
         {
             var ts = evt.Timestamp.ToUnixTimeMilliseconds();
-            var annotation = CreateChannelAnnotation(ts, evt.NewChannel, null,
-                evt.Band switch
-                {
-                    RadioBand.Band2_4GHz => "#fbbf24",
-                    RadioBand.Band5GHz => "#3b82f6",
-                    RadioBand.Band6GHz => "#a855f7",
-                    _ => "#3b82f6"
-                });
 
             switch (evt.Band)
             {
-                case RadioBand.Band2_4GHz: annotations24.Add(annotation); break;
-                case RadioBand.Band5GHz: annotations5.Add(annotation); break;
-                case RadioBand.Band6GHz: annotations6.Add(annotation); break;
+                case RadioBand.Band2_4GHz:
+                    annotations24.Add(CreateChannelAnnotation(ts, evt.NewChannel, null, yOffset24));
+                    yOffset24 = yOffset24 == -5 ? -23 : -5;
+                    break;
+                case RadioBand.Band5GHz:
+                    annotations5.Add(CreateChannelAnnotation(ts, evt.NewChannel, null, yOffset5));
+                    yOffset5 = yOffset5 == -5 ? -23 : -5;
+                    break;
+                case RadioBand.Band6GHz:
+                    annotations6.Add(CreateChannelAnnotation(ts, evt.NewChannel, null, yOffset6));
+                    yOffset6 = yOffset6 == -5 ? -23 : -5;
+                    break;
             }
         }
 
@@ -600,20 +603,20 @@
         if (annotations6.Count > 0) _chartOptions6.Annotations = new Annotations { Xaxis = annotations6 };
     }
 
-    private static AnnotationsXAxis CreateChannelAnnotation(long timestampMs, int channel, int? width, string color)
+    private static AnnotationsXAxis CreateChannelAnnotation(long timestampMs, int channel, int? width, int yOffset)
     {
         var label = width.HasValue ? $"Ch {channel} ({width} MHz)" : $"Ch {channel}";
         return new AnnotationsXAxis
         {
             X = timestampMs,
-            BorderColor = color,
+            BorderColor = "#64748b",
             StrokeDashArray = 4,
             Label = new Label
             {
                 Text = label,
-                Style = new Style { Background = color, Color = "#fff", FontSize = "10px" },
+                Style = new Style { Background = "#64748b", Color = "#f1f5f9", FontSize = "11px" },
                 Orientation = Orientation.Horizontal,
-                OffsetY = -5
+                OffsetY = yOffset
             }
         };
     }
