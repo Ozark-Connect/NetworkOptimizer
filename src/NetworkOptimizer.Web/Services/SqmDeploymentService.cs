@@ -708,7 +708,15 @@ WantedBy=multi-user.target
             {
                 var errorOutput = string.IsNullOrWhiteSpace(result.output) ? "(unknown error)" : result.output;
                 _logger.LogWarning("SQM adjustment failed for {Wan}: {Output}", wanName, errorOutput);
-                return (false, $"Error: {errorOutput}");
+
+                // Deduplicate repeated lines (e.g., speedtest CLI may repeat the same error for each server attempt)
+                var dedupedOutput = string.Join("\n", errorOutput
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(l => l.Trim())
+                    .Where(l => !string.IsNullOrWhiteSpace(l))
+                    .Distinct());
+
+                return (false, $"Error: {dedupedOutput}");
             }
         }
         catch (Exception ex)
