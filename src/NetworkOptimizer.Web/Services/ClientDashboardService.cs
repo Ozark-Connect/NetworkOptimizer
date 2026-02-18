@@ -785,8 +785,11 @@ public class ClientDashboardService
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
+            // Seed from entries that have TraceJson stored (not just a hash).
+            // Entries with a hash but no TraceJson were written without a snapshot,
+            // so seeding from them would prevent the next poll from storing one.
             var latestHashes = await db.ClientSignalLogs
-                .Where(l => l.TraceHash != null)
+                .Where(l => l.TraceHash != null && l.TraceJson != null)
                 .GroupBy(l => l.ClientMac)
                 .Select(g => new
                 {
