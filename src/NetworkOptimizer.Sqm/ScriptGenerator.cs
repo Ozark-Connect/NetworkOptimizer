@@ -252,6 +252,14 @@ public class ScriptGenerator
         sb.AppendLine("echo \"[$(date)] Starting speedtest adjustment on $INTERFACE...\" >> $LOG_FILE");
         sb.AppendLine();
 
+        // Verify IFB device exists (created by UniFi Smart Queues)
+        sb.AppendLine("# Verify IFB device exists (created by UniFi Smart Queues)");
+        sb.AppendLine("if ! ip link show \"$IFB_DEVICE\" &>/dev/null; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: IFB device $IFB_DEVICE does not exist. Smart Queues may not be enabled in UniFi Network settings.\" >> $LOG_FILE");
+        sb.AppendLine("    exit 1");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         // TC update function
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
@@ -373,6 +381,14 @@ public class ScriptGenerator
         sb.AppendLine("if (( $(echo \"$SPEEDTEST_SPEED <= 0\" | bc -l) )) || (( $(echo \"$SPEEDTEST_SPEED > 100000\" | bc -l) )); then");
         sb.AppendLine("    echo \"[$(date)] ERROR: Speedtest result '$SPEEDTEST_SPEED' Mbps is out of valid range (0-100000), skipping ping adjustment\" >> $LOG_FILE");
         sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
+        // Verify IFB device exists (created by UniFi Smart Queues)
+        sb.AppendLine("# Verify IFB device exists (created by UniFi Smart Queues)");
+        sb.AppendLine("if ! ip link show \"$IFB_DEVICE\" &>/dev/null; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: IFB device $IFB_DEVICE does not exist. Smart Queues may not be enabled in UniFi Network settings.\" >> $LOG_FILE");
+        sb.AppendLine("    exit 1");
         sb.AppendLine("fi");
         sb.AppendLine();
 

@@ -386,6 +386,26 @@ WantedBy=multi-user.target
             }
             steps.Add($"Ping target {config.PingHost} is reachable on {config.Interface}");
 
+            // Verify IFB device exists (UniFi creates this when Smart Queues is enabled)
+            steps.Add("Verifying IFB device exists...");
+            var ifbDevice = $"ifb{config.Interface}";
+            var ifbCheckResult = await RunCommandAsync($"ip link show {ifbDevice}");
+            if (!ifbCheckResult.success)
+            {
+                steps.Add("IFB device not found, cleaning up...");
+                await CleanupFailedDeploymentAsync(config.ConnectionName, config.Interface);
+                steps.Add("Cleanup complete");
+
+                result.Success = false;
+                result.Error = $"IFB device {ifbDevice} does not exist. " +
+                    "Ensure Smart Queues is enabled in UniFi Network settings and the device has finished initializing. " +
+                    "Try toggling Smart Queues off and on, then wait 45 seconds before deploying.";
+                result.Steps = steps;
+                _logger.LogWarning("SQM deployment blocked: IFB device {Device} not found on gateway", ifbDevice);
+                return result;
+            }
+            steps.Add($"IFB device {ifbDevice} is present");
+
             // Step 1: Create directories
             steps.Add("Creating directories...");
             var mkdirResult = await RunCommandAsync(
