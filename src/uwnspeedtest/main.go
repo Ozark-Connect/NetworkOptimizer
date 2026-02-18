@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -104,8 +105,14 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 		}
 		serverInfoParts = append(serverInfoParts, fmt.Sprintf("%s, %s", s.City, cc))
 	}
+	// Extract primary server host for path analysis
+	var serverHost string
+	if u, err := url.Parse(servers[0].URL); err == nil {
+		serverHost = u.Hostname()
+	}
 	result.Metadata = &speedtest.Metadata{
-		Colo: strings.Join(serverInfoParts, ", "),
+		Colo:       strings.Join(serverInfoParts, " | "),
+		ServerHost: serverHost,
 	}
 	fmt.Fprintf(os.Stderr, "Servers: %s\n", result.Metadata.Colo)
 

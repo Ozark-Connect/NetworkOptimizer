@@ -11679,7 +11679,7 @@ a.affected-client:hover {
     display: flex;
     flex-wrap: wrap;
     gap: 1rem;
-    padding-top: 1rem;
+    padding-top: 0.5rem;
 }
 
 .wan-speedtest .wan-test-option {

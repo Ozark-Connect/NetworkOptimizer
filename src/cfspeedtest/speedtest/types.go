@@ -15,11 +15,12 @@ type Result struct {
 	Timestamp       time.Time         `json:"timestamp"`
 }
 
-// Metadata from the Cloudflare /cdn-cgi/trace endpoint.
+// Metadata from the speed test provider.
 type Metadata struct {
-	IP      string `json:"ip"`
-	Colo    string `json:"colo"`
-	Country string `json:"country"`
+	IP         string `json:"ip"`
+	Colo       string `json:"colo"`
+	Country    string `json:"country"`
+	ServerHost string `json:"server_host,omitempty"`
 }
 
 // LatencyResult holds unloaded latency measurement.

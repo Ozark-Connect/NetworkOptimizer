@@ -77,7 +77,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         report("Selecting servers", 5, $"Pinging {Math.Min(candidates.Count, ServerCount * 2)} servers...");
         var servers = await SelectBestServersAsync(client, token, candidates, ServerCount, cancellationToken);
-        var serverDesc = string.Join(", ", servers.Select(s => $"{s.City}, {(!string.IsNullOrEmpty(s.CountryCode) ? s.CountryCode : s.Country)}"));
+        var serverDesc = string.Join(" | ", servers.Select(s => $"{s.City}, {(!string.IsNullOrEmpty(s.CountryCode) ? s.CountryCode : s.Country)}"));
         // Extract hostname/IP from primary server URL for path analysis and PBR
         var primaryServerHost = new Uri(servers[0].Url).Host;
         Logger.LogInformation("Selected servers: {Servers} (primary: {PrimaryHost})", serverDesc, primaryServerHost);
@@ -175,7 +175,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
     protected override Iperf3Result CreateFailedResult(string errorMessage) => new()
     {
         Direction = SpeedTestDirection.UwnWan,
-        DeviceHost = "sp-dir.uwn.com",
+        DeviceHost = "UWN Test",
         DeviceName = "UWN",
         DeviceType = "WAN",
         TestTime = DateTime.UtcNow,

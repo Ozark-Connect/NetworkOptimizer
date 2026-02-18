@@ -414,7 +414,7 @@ public class GatewayWanSpeedTestService
                 return new Iperf3Result
                 {
                     Direction = SpeedTestDirection.UwnWanGateway,
-                    DeviceHost = "sp-dir.uwn.com",
+                    DeviceHost = "UWN Test",
                     DeviceName = $"Gateway ({interfaceName})",
                     DeviceType = "WAN",
                     WanNetworkGroup = wanNetworkGroup,
@@ -425,14 +425,14 @@ public class GatewayWanSpeedTestService
                 };
             }
 
-            // UWN binary puts server descriptions in the Colo field (e.g. "Denver/US (12ms), Dallas/US (18ms)")
             var serverInfo = json.Metadata?.Colo ?? "";
             var edgeInfo = !string.IsNullOrEmpty(serverInfo) ? serverInfo : "UWN";
+            var serverHost = !string.IsNullOrEmpty(json.Metadata?.ServerHost) ? json.Metadata.ServerHost : "UWN Test";
 
             return new Iperf3Result
             {
                 Direction = SpeedTestDirection.UwnWanGateway,
-                DeviceHost = "sp-dir.uwn.com",
+                DeviceHost = serverHost,
                 DeviceName = edgeInfo,
                 DeviceType = "WAN",
                 DownloadBitsPerSecond = json.Download?.Bps ?? 0,
@@ -467,7 +467,7 @@ public class GatewayWanSpeedTestService
             var failedResult = new Iperf3Result
             {
                 Direction = SpeedTestDirection.UwnWanGateway,
-                DeviceHost = "sp-dir.uwn.com",
+                DeviceHost = "UWN Test",
                 DeviceName = "Gateway",
                 DeviceType = "WAN",
                 WanNetworkGroup = wanNetworkGroup,
@@ -562,6 +562,7 @@ public class GatewayWanSpeedTestService
         public string Ip { get; set; } = "";
         public string Colo { get; set; } = "";
         public string Country { get; set; } = "";
+        public string ServerHost { get; set; } = "";
     }
 
     private sealed class WanLatency
