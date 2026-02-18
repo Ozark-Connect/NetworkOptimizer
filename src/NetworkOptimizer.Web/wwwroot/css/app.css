@@ -7249,11 +7249,6 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-primary);
 }
 
-.client-info-main .client-perf-link img {
-    width: 14px;
-    height: 14px;
-}
-
 .client-info-main .client-dashboard-link {
     display: none;
     color: var(--text-muted);
