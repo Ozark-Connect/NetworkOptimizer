@@ -1154,7 +1154,7 @@ WantedBy=multi-user.target
         sb.AppendLine("    fi");
         sb.AppendLine("    local error_line=$(echo \"$last_error\" | cut -d: -f2-)");
         sb.AppendLine("    local ts=$(echo \"$error_line\" | grep -oE '\\[[^]]+\\]' | tr -d '[]')");
-        sb.AppendLine("    local msg=$(echo \"$error_line\" | sed 's/.*ERROR: //')");
+        sb.AppendLine("    local msg=$(echo \"$error_line\" | sed 's/.*ERROR: //' | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')");
         sb.AppendLine("    echo \"{\\\"timestamp\\\": \\\"$ts\\\", \\\"message\\\": \\\"$msg\\\"}\"");
         sb.AppendLine("}");
         sb.AppendLine();
