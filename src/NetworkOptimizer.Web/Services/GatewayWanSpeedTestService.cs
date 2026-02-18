@@ -315,7 +315,7 @@ public class GatewayWanSpeedTestService
         // Launch parallel SSH commands, one per WAN interface
         // Synchronized start: all binaries do setup independently, then begin throughput at the same time
         // Split connections proportionally: 4/16 total → divided by WAN count
-        var startAt = DateTimeOffset.UtcNow.AddSeconds(8).ToUnixTimeSeconds();
+        var startAt = DateTimeOffset.UtcNow.AddSeconds(10).ToUnixTimeSeconds();
         var (perWanServers, perWanStreams) = interfaces.Count switch
         {
             2 => (2, 8),

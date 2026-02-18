@@ -124,9 +124,13 @@ func SelectServers(ctx context.Context, client *http.Client, token string, candi
 		})
 	}
 
-	// Ping ALL candidates - short timeout catches unreachable servers quickly
+	// Ping top 10 nearest candidates by geo distance
+	pingCount := 10
+	if pingCount > len(candidates) {
+		pingCount = len(candidates)
+	}
 	var pinged []Server
-	for i := 0; i < len(candidates); i++ {
+	for i := 0; i < pingCount; i++ {
 		s := candidates[i]
 		latency, err := pingServer(ctx, client, s.URL, token)
 		if err != nil {
