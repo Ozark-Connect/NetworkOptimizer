@@ -237,7 +237,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             {
                 // Try SSH route lookup to identify which WANs were actually used
                 var combo = await IdentifyWanComboViaSshAsync(
-                    json.Metadata?.ServerIps, wanNetworks!, cancellationToken);
+                    json.Metadata?.ServerIps, serverIp, wanNetworks!, cancellationToken);
 
                 if (combo != null)
                 {
@@ -297,6 +297,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
     /// </summary>
     private async Task<(string Group, string Name)?> IdentifyWanComboViaSshAsync(
         List<string>? serverIps,
+        string? nasIp,
         List<NetworkInfo> wanNetworks,
         CancellationToken cancellationToken)
     {
@@ -311,6 +312,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
             // Get interface→group mapping from SqmService (scoped)
             Dictionary<string, (string? Group, string Name)> ifToWan;
+            List<string> wanIfaceNames;
             using (var scope = _scopeFactory.CreateScope())
             {
                 var sqmService = scope.ServiceProvider.GetRequiredService<SqmService>();
@@ -321,9 +323,9 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                 ifToWan = wanInterfaces.ToDictionary(
                     w => w.Interface,
                     w => (w.NetworkGroup, w.Name));
+                wanIfaceNames = wanInterfaces.Select(w => w.Interface).ToList();
             }
 
-            // Validate all IPs, then run a single SSH command for all route lookups
             var validIps = serverIps.Distinct()
                 .Where(ip => System.Net.IPAddress.TryParse(ip, out _))
                 .ToList();
@@ -331,20 +333,61 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             if (validIps.Count == 0)
                 return null;
 
-            var routeCmd = string.Join(" && ", validIps.Select(ip => $"ip route get {ip}"));
-            var (success, output) = await _gatewaySsh.RunCommandAsync(
-                routeCmd, TimeSpan.FromSeconds(10), cancellationToken);
+            // Single SSH command:
+            // 1. Get WAN interface public IPs (to map conntrack reply dst → WAN)
+            // 2. Query conntrack for connections from NAS to speed test servers
+            var ipAddrCmds = string.Join("; ", wanIfaceNames.Select(iface => $"ip -4 -o addr show {iface}"));
+            var escapedIps = string.Join("|", validIps.Select(ip => Regex.Escape(ip)));
 
+            string conntrackCmd;
+            if (!string.IsNullOrEmpty(nasIp) && System.Net.IPAddress.TryParse(nasIp, out _))
+                conntrackCmd = $"conntrack -L -s {nasIp} 2>/dev/null | grep -E '{escapedIps}'";
+            else
+                conntrackCmd = $"conntrack -L 2>/dev/null | grep -E '{escapedIps}'";
+
+            var fullCmd = $"{ipAddrCmds}; echo '---CONNTRACK---'; {conntrackCmd}";
+            var (success, output) = await _gatewaySsh.RunCommandAsync(
+                fullCmd, TimeSpan.FromSeconds(10), cancellationToken);
+
+            if (!success || string.IsNullOrEmpty(output))
+                return null;
+
+            // Split output into ip addr section and conntrack section
+            var separatorIdx = output.IndexOf("---CONNTRACK---", StringComparison.Ordinal);
+            if (separatorIdx < 0)
+                return null;
+
+            var ipAddrOutput = output[..separatorIdx];
+            var conntrackOutput = output[(separatorIdx + "---CONNTRACK---".Length)..];
+
+            // Build WAN public IP → interface mapping
+            // Format: "2: eth2    inet 67.209.42.120/25 ..."
+            var wanIpToIface = new Dictionary<string, string>();
+            foreach (Match match in Regex.Matches(ipAddrOutput, @"\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)/"))
+            {
+                var iface = match.Groups[1].Value;
+                var ip = match.Groups[2].Value;
+                if (ifToWan.ContainsKey(iface))
+                    wanIpToIface[ip] = iface;
+            }
+
+            Logger.LogDebug("WAN IP mapping: {Mapping}",
+                string.Join(", ", wanIpToIface.Select(kv => $"{kv.Value}={kv.Key}")));
+
+            // Parse conntrack: each line has two dst= values
+            // Original: src=<nas> dst=<server> ... Reply: src=<server> dst=<wan_public_ip>
             var wanGroups = new HashSet<string>();
             var wanNames = new HashSet<string>();
 
-            if (success && !string.IsNullOrEmpty(output))
+            foreach (var line in conntrackOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
-                // Parse all "dev <interface>" matches from combined output
-                foreach (Match match in Regex.Matches(output, @"dev\s+(\S+)"))
+                var dstMatches = Regex.Matches(line, @"dst=(\d+\.\d+\.\d+\.\d+)");
+                if (dstMatches.Count >= 2)
                 {
-                    var iface = match.Groups[1].Value;
-                    if (ifToWan.TryGetValue(iface, out var wan))
+                    // Second dst= is the reply direction → WAN public IP
+                    var replyDstIp = dstMatches[1].Groups[1].Value;
+                    if (wanIpToIface.TryGetValue(replyDstIp, out var iface) &&
+                        ifToWan.TryGetValue(iface, out var wan))
                     {
                         wanGroups.Add(wan.Group ?? "WAN");
                         wanNames.Add(wan.Name);
@@ -353,7 +396,10 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             }
 
             if (wanGroups.Count == 0)
+            {
+                Logger.LogDebug("Conntrack found no WAN matches for {Count} server IPs", validIps.Count);
                 return null;
+            }
 
             var sortedGroups = wanGroups.OrderBy(g => g).ToList();
             var combo = string.Join("+", sortedGroups);
@@ -367,8 +413,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             var comboName = string.Join(" + ", nameMap);
 
             Logger.LogInformation(
-                "SSH route lookup identified WAN combo: {Combo} ({Name}) from {ServerCount} server IPs",
-                combo, comboName, serverIps.Count);
+                "Conntrack identified WAN combo: {Combo} ({Name}) from {ServerCount} server IPs",
+                combo, comboName, validIps.Count);
 
             return (combo, comboName);
         }
