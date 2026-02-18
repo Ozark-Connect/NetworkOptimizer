@@ -323,9 +323,13 @@ public class GatewayWanSpeedTestService
             4 => (1, 4),
             _ => (1, 2) // 5+ WANs
         };
+        _logger.LogDebug("Parallel WAN test: startAt={StartAt} ({WANCount} WANs, {Servers} servers/{Streams} streams each)",
+            startAt, interfaces.Count, perWanServers, perWanStreams);
+
         var sshTasks = interfaces.Select(wan =>
         {
             var cmd = $"{RemoteBinaryPath} --interface {wan.Interface} -servers {perWanServers} -streams {perWanStreams} -start-at {startAt} 2>/dev/null";
+            _logger.LogDebug("WAN {Interface}: {Command}", wan.Interface, cmd);
             return _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(120), cancellationToken);
         }).ToList();
 
