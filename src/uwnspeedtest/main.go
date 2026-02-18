@@ -100,7 +100,11 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	if err != nil {
 		return errorResult("discover: " + err.Error())
 	}
-	fmt.Fprintf(os.Stderr, "Found %d servers, selecting best %d...\n", len(candidates), cfg.ServerCount)
+	selectCount := cfg.ServerCount
+	if selectCount > len(candidates) {
+		selectCount = len(candidates)
+	}
+	fmt.Fprintf(os.Stderr, "Found %d servers, selecting best %d...\n", len(candidates), selectCount)
 
 	// Use IP info coords for geo sorting if available
 	var clientLat, clientLon float64

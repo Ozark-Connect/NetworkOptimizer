@@ -246,15 +246,62 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                 }
                 else
                 {
-                    // Fallback: assume all enabled WANs (best guess without SSH)
-                    var groups = wanNetworks!
-                        .Select(n => n.WanNetworkgroup ?? "WAN")
-                        .Distinct().OrderBy(g => g);
-                    result.WanNetworkGroup = string.Join("+", groups);
-                    var names = wanNetworks!
-                        .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
-                        .Distinct().OrderBy(n => n);
-                    result.WanName = string.Join(" + ", names);
+                    // Fallback without conntrack
+                    if (wanNetworks!.Count == 2)
+                    {
+                        // If measured speed exceeds any single WAN's configured speed,
+                        // it must be using both connections
+                        var maxSingleDown = wanNetworks.Max(n => n.WanDownloadMbps ?? 0);
+                        var maxSingleUp = wanNetworks.Max(n => n.WanUploadMbps ?? 0);
+
+                        if (downloadMbps > maxSingleDown || uploadMbps > maxSingleUp)
+                        {
+                            // Speed exceeds any single WAN - must be both
+                            var groups = wanNetworks
+                                .Select(n => n.WanNetworkgroup ?? "WAN")
+                                .Distinct().OrderBy(g => g);
+                            result.WanNetworkGroup = string.Join("+", groups);
+                            var names = wanNetworks
+                                .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
+                                .Distinct().OrderBy(n => n);
+                            result.WanName = string.Join(" + ", names);
+                        }
+                        else
+                        {
+                            // Speed fits within a single WAN - use best-match by WAN IP
+                            var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
+                                finalWanIp ?? "", downloadMbps, uploadMbps, cancellationToken);
+                            result.WanNetworkGroup = wanGroup;
+                            result.WanName = wanName;
+                        }
+                    }
+                    else
+                    {
+                        // 3+ WANs: same heuristic - check if speed exceeds any single WAN
+                        var maxSingleDown = wanNetworks.Max(n => n.WanDownloadMbps ?? 0);
+                        var maxSingleUp = wanNetworks.Max(n => n.WanUploadMbps ?? 0);
+
+                        if (downloadMbps > maxSingleDown || uploadMbps > maxSingleUp)
+                        {
+                            // Speed exceeds any single WAN - assume all
+                            var groups = wanNetworks
+                                .Select(n => n.WanNetworkgroup ?? "WAN")
+                                .Distinct().OrderBy(g => g);
+                            result.WanNetworkGroup = string.Join("+", groups);
+                            var names = wanNetworks
+                                .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
+                                .Distinct().OrderBy(n => n);
+                            result.WanName = string.Join(" + ", names);
+                        }
+                        else
+                        {
+                            // Speed fits within a single WAN - try IP matching
+                            var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
+                                finalWanIp ?? "", downloadMbps, uploadMbps, cancellationToken);
+                            result.WanNetworkGroup = wanGroup;
+                            result.WanName = wanName;
+                        }
+                    }
                 }
             }
             else
