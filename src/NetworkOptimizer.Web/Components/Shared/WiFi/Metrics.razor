@@ -367,6 +367,7 @@
             {
                 new YAxis
                 {
+                    SeriesName = "Airtime",
                     Min = 0,
                     Max = 100,
                     Labels = new YAxisLabels
@@ -375,15 +376,9 @@
                         Formatter = "function(val) { return val + '%'; }"
                     }
                 },
-                new YAxis
-                {
-                    Show = false,
-                    SeriesName = "Channel",
-                    Labels = new YAxisLabels
-                    {
-                        Formatter = "function(val) { return val ? 'Ch ' + Math.round(val) : ''; }"
-                    }
-                }
+                new YAxis { Show = false, SeriesName = "Interference", Min = 0, Max = 100 },
+                new YAxis { Show = false, SeriesName = "TX Retries", Min = 0, Max = 100 },
+                new YAxis { Show = false, SeriesName = "Channel" }
             },
             Grid = new Grid
             {
