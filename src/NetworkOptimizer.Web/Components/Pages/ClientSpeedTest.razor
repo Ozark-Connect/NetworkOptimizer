@@ -243,7 +243,7 @@
                                     <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                     <td>
                                         @{
-                                            var isLan = result.IsLocalLanDevice();
+                                            var isLan = result.IsLocalLanClient();
                                         }
                                         @if (!string.IsNullOrEmpty(result.DeviceName))
                                         {

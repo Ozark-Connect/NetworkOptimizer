@@ -510,7 +510,7 @@
             DeviceName = Result.DeviceName ?? "";
             DeviceHost = Result.DeviceHost;
             _isMultiServerWan = Result.Direction is SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway;
-            _isLanDevice = Result.IsLocalLanDevice();
+            _isLanDevice = Result.IsLocalLanClient();
             DurationSeconds = Result.DurationSeconds;
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;

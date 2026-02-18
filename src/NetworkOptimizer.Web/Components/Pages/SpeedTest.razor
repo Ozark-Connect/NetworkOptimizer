@@ -732,7 +732,7 @@
                                 <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                 <td>
                                     @{
-                                        var showDashLink = result.IsLocalLanDevice();
+                                        var showDashLink = result.IsLocalLanClient();
                                     }
                                     @if (!string.IsNullOrEmpty(result.DeviceName))
                                     {

@@ -233,16 +233,23 @@ public class Iperf3Result
     };
 
     /// <summary>
-    /// Returns true if this result targets a local LAN device (not WAN, VPN, Tailscale, or Teleport).
-    /// Checks direction, IP ranges, and path analysis hops.
+    /// Returns true if this result targets a local LAN client device that can be viewed
+    /// in Client Performance. Excludes WAN tests, infrastructure devices, VPN clients,
+    /// and results without a valid IP address.
     /// </summary>
-    public bool IsLocalLanDevice()
+    public bool IsLocalLanClient()
     {
-        // WAN directions are never local LAN
+        // WAN directions are never local LAN clients
         if (Direction is SpeedTestDirection.CloudflareWan or SpeedTestDirection.CloudflareWanGateway
             or SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway)
             return false;
 
+        // Infrastructure device types are not clients
+        if (!string.IsNullOrEmpty(DeviceType) && DeviceType is "AccessPoint" or "Gateway"
+            or "Switch" or "CellularModem" or "CloudKey" or "WAN")
+            return false;
+
+        // Must have a valid IP (Client Performance page requires ?ip=)
         if (string.IsNullOrEmpty(DeviceHost) || !System.Net.IPAddress.TryParse(DeviceHost, out _))
             return false;
 
