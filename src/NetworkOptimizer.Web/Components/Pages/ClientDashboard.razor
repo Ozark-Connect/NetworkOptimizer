@@ -749,6 +749,7 @@
     private bool _isOwnDevice; // true when viewing own device (no ?ip= param)
     private bool _isLogging; // true when actively persisting signal data
     private bool _loading = true;
+    private bool _pendingChartUpdate;
     private bool _tabLoading;
     private ClientIdentity? _client;
     private SignalPollResult? _latestPoll;
@@ -907,6 +908,13 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Apply deferred chart updates after render cycle completes (chart is now mounted)
+        if (_pendingChartUpdate)
+        {
+            _pendingChartUpdate = false;
+            await UpdateActiveChartsAsync();
+        }
+
         if (!firstRender) return;
 
         // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
@@ -934,6 +942,7 @@
             if (_client != null)
             {
                 await LoadTabDataAsync();
+                _pendingChartUpdate = true;
             }
         }
         catch (Exception ex)
@@ -1243,9 +1252,9 @@
             finally
             {
                 _tabLoading = false;
-                StateHasChanged();
+                _pendingChartUpdate = true;
+                StateHasChanged(); // triggers render → OnAfterRenderAsync → UpdateActiveChartsAsync
             }
-            await UpdateActiveChartsAsync();
         });
     }
 
@@ -1274,9 +1283,9 @@
             finally
             {
                 _tabLoading = false;
-                StateHasChanged();
+                _pendingChartUpdate = true;
+                StateHasChanged(); // triggers render → OnAfterRenderAsync → UpdateActiveChartsAsync
             }
-            await UpdateActiveChartsAsync();
         });
     }
 
