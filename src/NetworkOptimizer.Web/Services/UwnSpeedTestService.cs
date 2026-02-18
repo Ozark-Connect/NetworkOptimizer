@@ -26,7 +26,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         [SpeedTestDirection.UwnWan, SpeedTestDirection.CloudflareWan];
 
     private int Streams => MaxMode ? 24 : 16;
-    private int ServerCount => MaxMode ? 5 : 4;
+    private int ServerCount => MaxMode ? 6 : 4;
 
     public UwnSpeedTestService(
         ILogger<UwnSpeedTestService> logger,
