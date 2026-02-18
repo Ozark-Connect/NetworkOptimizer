@@ -2722,6 +2722,15 @@
                     await InvokeAsync(RefreshDashboard);
                 });
             }
+            else
+            {
+                // Refresh immediately so error banners from the monitor appear
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(1000);
+                    await InvokeAsync(RefreshDashboard);
+                });
+            }
         }
         catch (Exception ex)
         {

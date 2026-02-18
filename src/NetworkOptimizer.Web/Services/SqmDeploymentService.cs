@@ -726,7 +726,26 @@ WantedBy=multi-user.target
             }
             else
             {
-                var errorOutput = string.IsNullOrWhiteSpace(result.output) ? "(unknown error)" : result.output;
+                var errorOutput = result.output;
+
+                // Script errors go to log file, not stdout - check the log for the actual error
+                if (string.IsNullOrWhiteSpace(errorOutput))
+                {
+                    var logPath = $"/var/log/sqm-{scriptName}.log";
+                    var logResult = await RunCommandAsync($"grep 'ERROR:' {logPath} | tail -1");
+                    if (logResult.success && !string.IsNullOrWhiteSpace(logResult.output))
+                    {
+                        // Extract just the error message (after "ERROR: ")
+                        var errorMatch = logResult.output;
+                        var errorIdx = errorMatch.IndexOf("ERROR: ", StringComparison.Ordinal);
+                        errorOutput = errorIdx >= 0 ? errorMatch[(errorIdx + 7)..].Trim() : errorMatch.Trim();
+                    }
+                    else
+                    {
+                        errorOutput = "(unknown error)";
+                    }
+                }
+
                 _logger.LogWarning("SQM adjustment failed for {Wan}: {Output}", wanName, errorOutput);
 
                 // Deduplicate repeated lines (e.g., speedtest CLI may repeat the same error for each server attempt)
