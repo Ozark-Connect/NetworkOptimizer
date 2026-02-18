@@ -200,7 +200,8 @@ public class GatewayWanSpeedTestService
 
         try
         {
-            _logger.LogInformation("Starting gateway WAN speed test on interface {Interface}", interfaceName);
+            _logger.LogInformation("Starting gateway WAN speed test on {Interface}",
+                string.IsNullOrEmpty(interfaceName) ? "all WAN links" : $"interface {interfaceName}");
 
             void Report(string phase, int percent, string? status)
             {
@@ -228,11 +229,16 @@ public class GatewayWanSpeedTestService
             // Simulate progress based on known timing (~28s total: 3s latency, 10s download, 10s upload, 5s finalize)
             Report("Testing latency", 12, "Measuring latency...");
 
-            if (!System.Text.RegularExpressions.Regex.IsMatch(interfaceName, @"^[a-zA-Z0-9._-]+$"))
-                throw new ArgumentException($"Invalid interface name: {interfaceName}");
+            var ifaceArg = "";
+            if (!string.IsNullOrEmpty(interfaceName))
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(interfaceName, @"^[a-zA-Z0-9._-]+$"))
+                    throw new ArgumentException($"Invalid interface name: {interfaceName}");
+                ifaceArg = $" --interface {interfaceName}";
+            }
 
             var maxArgs = maxMode ? " -streams 16 -servers 4" : "";
-            var command = $"{RemoteBinaryPath} --interface {interfaceName}{maxArgs} 2>/dev/null";
+            var command = $"{RemoteBinaryPath}{ifaceArg}{maxArgs} 2>/dev/null";
             var sshTask = _gatewaySsh.RunCommandAsync(
                 command, TimeSpan.FromSeconds(120), cancellationToken);
 

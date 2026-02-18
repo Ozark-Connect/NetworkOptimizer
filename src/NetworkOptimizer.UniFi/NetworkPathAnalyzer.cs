@@ -1842,6 +1842,20 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? wanIp = null,
         string? resolvedWanGroup = null)
     {
+        // "ALL_WANS" means combine all WAN link speeds (for multi-WAN load-balanced tests)
+        if (string.Equals(resolvedWanGroup, "ALL_WANS", StringComparison.OrdinalIgnoreCase))
+        {
+            var allWans = topology.Networks.Where(n => n.IsWan && n.Enabled).ToList();
+            var totalDown = allWans.Sum(n => n.WanDownloadMbps ?? 0);
+            var totalUp = allWans.Sum(n => n.WanUploadMbps ?? 0);
+            if (totalDown > 0 && totalUp > 0)
+            {
+                _logger.LogDebug("Combined all WAN speeds: {Down}/{Up} Mbps from {Count} links",
+                    totalDown, totalUp, allWans.Count);
+                return (totalDown, totalUp);
+            }
+        }
+
         // When the WAN was already identified (e.g. by IdentifyWanConnectionAsync for Cloudflare tests),
         // use that resolution directly instead of re-matching by IP
         if (!string.IsNullOrEmpty(resolvedWanGroup))

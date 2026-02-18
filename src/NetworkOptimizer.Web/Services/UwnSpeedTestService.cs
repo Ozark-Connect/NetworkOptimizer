@@ -66,7 +66,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         // Phase 1: Acquire token and fetch IP info (0-3%)
         report("Acquiring token", 1, "Getting test token...");
         var token = await FetchTokenAsync(client, cancellationToken);
-        var ipInfo = await FetchIpInfoAsync(client, cancellationToken);
+        // Skip IP info in max mode - traffic will load balance across WANs so IP is unreliable
+        var ipInfo = MaxMode ? null : await FetchIpInfoAsync(client, cancellationToken);
         if (ipInfo != null)
             Logger.LogInformation("External IP: {Ip} ({Isp}), location: {Lat},{Lon}", ipInfo.Ip, ipInfo.Isp, ipInfo.Lat, ipInfo.Lon);
 
@@ -77,14 +78,17 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         report("Selecting servers", 5, $"Pinging {Math.Min(candidates.Count, ServerCount * 2)} servers...");
         var servers = await SelectBestServersAsync(client, token, candidates, ServerCount, cancellationToken);
-        var serverDesc = string.Join(" | ", servers.Select(s => $"{s.City}, {(!string.IsNullOrEmpty(s.CountryCode) ? s.CountryCode : s.Country)}"));
+        var serverDesc = string.Join(" | ", servers
+            .Select(s => $"{s.City}, {(!string.IsNullOrEmpty(s.CountryCode) ? s.CountryCode : s.Country)}")
+            .GroupBy(s => s)
+            .Select(g => g.Count() > 1 ? $"{g.Key} (x{g.Count()})" : g.Key));
         // Extract hostname/IP from primary server URL for path analysis and PBR
         var primaryServerHost = new Uri(servers[0].Url).Host;
         Logger.LogInformation("Selected servers: {Servers} (primary: {PrimaryHost})", serverDesc, primaryServerHost);
 
         SetMetadata(new WanTestMetadata(
             ServerInfo: serverDesc,
-            Location: ipInfo != null ? $"{ipInfo.Isp} ({ipInfo.Ip})" : servers[0].City + ", " + servers[0].Country,
+            Location: ipInfo?.Isp ?? (servers[0].City + ", " + servers[0].Country),
             WanIp: ipInfo?.Ip));
         report("Servers selected", 8, serverDesc);
 

@@ -55,6 +55,7 @@
                                 {
                                     <option value="@i">@_wanInterfaces[i].Name (@_wanInterfaces[i].Interface)</option>
                                 }
+                                <option value="@_wanInterfaces.Count">All WAN Links</option>
                             </select>
                         }
                         <button class="btn btn-primary test-button wan-test-button"
@@ -134,7 +135,7 @@
                         <span class="metadata-value">@_metadata.ServerInfo</span>
                     </div>
                     <div class="metadata-item">
-                        <span class="metadata-label">Location</span>
+                        <span class="metadata-label">ISP</span>
                         <span class="metadata-value">@_metadata.Location</span>
                     </div>
                     @if (!string.IsNullOrEmpty(_metadata.WanIp))
@@ -925,10 +926,12 @@
     private async Task RunGatewayTest()
     {
         if (_isRunning || _wanInterfaces.Count == 0) return;
-        if (_selectedWanIndex >= _wanInterfaces.Count)
-            _selectedWanIndex = 0;
 
-        var wan = _wanInterfaces[_selectedWanIndex];
+        // "All WAN Links" is the option after all real interfaces
+        var isAllWans = _selectedWanIndex == _wanInterfaces.Count;
+        var interfaceName = isAllWans ? "" : _wanInterfaces[_selectedWanIndex].Interface;
+        var wanGroup = isAllWans ? "ALL_WANS" : _wanInterfaces[_selectedWanIndex].NetworkGroup;
+        var wanName = isAllWans ? "All WANs" : _wanInterfaces[_selectedWanIndex].Name;
 
         _isRunning = true;
         _activeTestType = "gateway";
@@ -942,9 +945,9 @@
         StartPolling();
 
         var result = await GatewayWanTestService.RunTestAsync(
-            wan.Interface,
-            wan.NetworkGroup,
-            wan.Name,
+            interfaceName,
+            wanGroup,
+            wanName,
             progress =>
             {
                 _progressPhase = progress.Phase;

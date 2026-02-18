@@ -96,14 +96,27 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 		return errorResult("select servers: " + err.Error())
 	}
 
-	// Build metadata from selected servers
-	var serverInfoParts []string
+	// Build metadata from selected servers (deduplicate same-city entries)
+	counts := make(map[string]int)
+	var seen []string
 	for _, s := range servers {
 		cc := s.CountryCode
 		if cc == "" {
 			cc = s.Country
 		}
-		serverInfoParts = append(serverInfoParts, fmt.Sprintf("%s, %s", s.City, cc))
+		label := fmt.Sprintf("%s, %s", s.City, cc)
+		if counts[label] == 0 {
+			seen = append(seen, label)
+		}
+		counts[label]++
+	}
+	var serverInfoParts []string
+	for _, label := range seen {
+		if counts[label] > 1 {
+			serverInfoParts = append(serverInfoParts, fmt.Sprintf("%s (x%d)", label, counts[label]))
+		} else {
+			serverInfoParts = append(serverInfoParts, label)
+		}
 	}
 	// Extract primary server host for path analysis
 	var serverHost string
