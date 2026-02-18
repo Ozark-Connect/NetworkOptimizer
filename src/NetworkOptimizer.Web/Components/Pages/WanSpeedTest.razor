@@ -1185,37 +1185,41 @@
         StopPolling();
         _pollTimer = new System.Threading.Timer(async _ =>
         {
-            var serverRunning = WanSpeedTestService.IsRunning;
-            var gatewayRunning = GatewayWanTestService.IsRunning;
-
-            if (!serverRunning && !gatewayRunning)
+            try
             {
-                StopPolling();
-                var testType = _activeTestType;
-                _isRunning = false;
-                _activeTestType = "";
+                var serverRunning = WanSpeedTestService.IsRunning;
+                var gatewayRunning = GatewayWanTestService.IsRunning;
 
-                var lastResult = testType == "gateway"
-                    ? GatewayWanTestService.LastCompletedResult
-                    : WanSpeedTestService.LastCompletedResult;
-                _latestResult = lastResult
-                    ?? WanSpeedTestService.LastCompletedResult
-                    ?? GatewayWanTestService.LastCompletedResult;
-
-                await InvokeAsync(async () =>
+                if (!serverRunning && !gatewayRunning)
                 {
-                    await LoadHistory(resetPage: true);
-                    StateHasChanged();
-                });
-                return;
+                    StopPolling();
+                    var testType = _activeTestType;
+                    _isRunning = false;
+                    _activeTestType = "";
+
+                    var lastResult = testType == "gateway"
+                        ? GatewayWanTestService.LastCompletedResult
+                        : WanSpeedTestService.LastCompletedResult;
+                    _latestResult = lastResult
+                        ?? WanSpeedTestService.LastCompletedResult
+                        ?? GatewayWanTestService.LastCompletedResult;
+
+                    await InvokeAsync(async () =>
+                    {
+                        await LoadHistory(resetPage: true);
+                        StateHasChanged();
+                    });
+                    return;
+                }
+
+                if (_activeTestType == "gateway")
+                    SyncGatewayProgressFromService();
+                else
+                    SyncProgressFromService();
+
+                await InvokeAsync(StateHasChanged);
             }
-
-            if (_activeTestType == "gateway")
-                SyncGatewayProgressFromService();
-            else
-                SyncProgressFromService();
-
-            await InvokeAsync(StateHasChanged);
+            catch { /* prevent timer death */ }
         }, null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
     }
 
