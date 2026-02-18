@@ -156,18 +156,27 @@
                         </div>
                     }
                     <div class="identity-live-group">
-                        <span class="identity-live">
-                            @if (_pollCount > 0)
-                            {
-                                <span class="poll-dot"></span>
-                                <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
-                            }
-                            else
-                            {
-                                <span class="poll-label" style="opacity: 0.5; margin-left: 13px">Connecting...</span>
-                            }
-                        </span>
-                        @if (!_isOwnDevice && _client is { IsWired: false })
+                        @if (_client.IsOffline)
+                        {
+                            <span class="identity-live">
+                                <span class="poll-label" style="opacity: 0.5; margin-left: 13px">Offline</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="identity-live">
+                                @if (_pollCount > 0)
+                                {
+                                    <span class="poll-dot"></span>
+                                    <span class="poll-label">Live@(_isLogging ? " · Logging" : "")</span>
+                                }
+                                else
+                                {
+                                    <span class="poll-label" style="opacity: 0.5; margin-left: 13px">Connecting...</span>
+                                }
+                            </span>
+                        }
+                        @if (!_isOwnDevice && _client is { IsWired: false, IsOffline: false })
                         {
                             <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-mobile"
                                     @onclick="ToggleLogging"
