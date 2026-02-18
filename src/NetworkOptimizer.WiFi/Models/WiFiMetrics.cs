@@ -55,6 +55,12 @@ public class BandMetrics
 
     /// <summary>Client count on this band</summary>
     public int? ClientCount { get; set; }
+
+    /// <summary>Channel number (e.g. 1, 36, 149)</summary>
+    public int? Channel { get; set; }
+
+    /// <summary>Channel width in MHz (e.g. 20, 40, 80, 160, 320)</summary>
+    public int? ChannelWidth { get; set; }
 }
 
 /// <summary>

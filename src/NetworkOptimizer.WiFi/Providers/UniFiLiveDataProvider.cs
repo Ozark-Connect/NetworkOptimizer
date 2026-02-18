@@ -171,7 +171,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             "ng-wifi_tx_attempts", "na-wifi_tx_attempts", "6e-wifi_tx_attempts",
             "ng-wifi_tx_dropped", "na-wifi_tx_dropped", "6e-wifi_tx_dropped",
             "ng-tx_packets", "na-tx_packets", "6e-tx_packets",
-            "ng-rx_packets", "na-rx_packets", "6e-rx_packets"
+            "ng-rx_packets", "na-rx_packets", "6e-rx_packets",
+            // Channel candidates - probing to discover which attrs the AP report supports
+            "ng-channel", "na-channel", "6e-channel",
+            "ng-channel_info_most_common", "na-channel_info_most_common", "6e-channel_info_most_common"
         };
 
         try
@@ -1003,8 +1006,30 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             return metrics;
         }
 
+        var isFirstItem = true;
         foreach (var item in data.EnumerateArray())
         {
+            // Log all property names from the first item to discover available channel attrs
+            if (isFirstItem)
+            {
+                isFirstItem = false;
+                var propNames = new List<string>();
+                foreach (var prop in item.EnumerateObject())
+                {
+                    propNames.Add(prop.Name);
+                }
+                _logger.LogInformation("AP metrics response properties: {Props}", string.Join(", ", propNames));
+
+                // Log channel-related properties specifically
+                foreach (var prop in item.EnumerateObject())
+                {
+                    if (prop.Name.Contains("channel", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogInformation("Channel property found: {Name} = {Value}", prop.Name, prop.Value.ToString());
+                    }
+                }
+            }
+
             if (!item.TryGetProperty("time", out var timeProp))
             {
                 continue;
@@ -1076,10 +1101,53 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 }
             }
 
+            // Parse channel data from whichever attrs are available
+            ParseBandChannel(item, metric.ByBand[RadioBand.Band2_4GHz], "ng");
+            ParseBandChannel(item, metric.ByBand[RadioBand.Band5GHz], "na");
+            ParseBandChannel(item, metric.ByBand[RadioBand.Band6GHz], "6e");
+
             metrics.Add(metric);
         }
 
         return metrics;
+    }
+
+    /// <summary>
+    /// Try to extract channel and width from an AP report response item.
+    /// Supports two formats:
+    /// - Plain int: "{prefix}-channel" = 149
+    /// - "channel:width" string: "{prefix}-channel_info_most_common" = "149:80"
+    /// </summary>
+    private void ParseBandChannel(JsonElement item, BandMetrics band, string prefix)
+    {
+        // Try plain channel number first
+        var channelVal = GetDoubleOrNull(item, $"{prefix}-channel");
+        if (channelVal.HasValue)
+        {
+            band.Channel = (int)channelVal.Value;
+        }
+
+        // Try channel_info_most_common (returns "channel:width" string like client metrics)
+        if (item.TryGetProperty($"{prefix}-channel_info_most_common", out var channelInfoProp))
+        {
+            var channelInfoStr = channelInfoProp.ValueKind == JsonValueKind.String
+                ? channelInfoProp.GetString()
+                : channelInfoProp.ToString();
+
+            if (!string.IsNullOrEmpty(channelInfoStr) && channelInfoStr.Contains(':'))
+            {
+                var parts = channelInfoStr.Split(':');
+                if (parts.Length >= 2 && int.TryParse(parts[0], out var ch) && int.TryParse(parts[1], out var width))
+                {
+                    band.Channel = ch;
+                    band.ChannelWidth = width;
+                }
+            }
+            else if (!string.IsNullOrEmpty(channelInfoStr) && int.TryParse(channelInfoStr, out var plainCh))
+            {
+                band.Channel = plainCh;
+            }
+        }
     }
 
     /// <summary>

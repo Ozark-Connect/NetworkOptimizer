@@ -103,6 +103,10 @@
             <div class="band-chart-container" @key="@($"chart24-{VisibleBandCount}")">
                 <div class="band-chart-header">
                     <span class="band-label band-2ghz">2.4 GHz</span>
+                    @if (!string.IsNullOrEmpty(_selectedApMac) && _currentChannel24 != null)
+                    {
+                        <span class="channel-info">Ch @_currentChannel24 @(_currentWidth24 != null ? $"({_currentWidth24} MHz)" : "")</span>
+                    }
                 </div>
                 <ApexChart @ref="_chart24" TItem="ChartDataPoint"
                            Options="_chartOptions24"
@@ -139,6 +143,10 @@
             <div class="band-chart-container" @key="@($"chart5-{VisibleBandCount}")">
                 <div class="band-chart-header">
                     <span class="band-label band-5ghz">5 GHz</span>
+                    @if (!string.IsNullOrEmpty(_selectedApMac) && _currentChannel5 != null)
+                    {
+                        <span class="channel-info">Ch @_currentChannel5 @(_currentWidth5 != null ? $"({_currentWidth5} MHz)" : "")</span>
+                    }
                 </div>
                 <ApexChart @ref="_chart5" TItem="ChartDataPoint"
                            Options="_chartOptions5"
@@ -175,6 +183,10 @@
             <div class="band-chart-container" @key="@($"chart6-{VisibleBandCount}")">
                 <div class="band-chart-header">
                     <span class="band-label band-6ghz">6 GHz</span>
+                    @if (!string.IsNullOrEmpty(_selectedApMac) && _currentChannel6 != null)
+                    {
+                        <span class="channel-info">Ch @_currentChannel6 @(_currentWidth6 != null ? $"({_currentWidth6} MHz)" : "")</span>
+                    }
                 </div>
                 <ApexChart @ref="_chart6" TItem="ChartDataPoint"
                            Options="_chartOptions6"
@@ -256,6 +268,14 @@
 
     // Empty data list for hidden series (keeps color indices stable)
     private readonly List<ChartDataPoint> _emptyData = new();
+
+    // Current channel info (from most recent data point, shown in headers)
+    private int? _currentChannel24;
+    private int? _currentWidth24;
+    private int? _currentChannel5;
+    private int? _currentWidth5;
+    private int? _currentChannel6;
+    private int? _currentWidth6;
 
     private readonly Dictionary<string, TimeSpan> _timeRanges = new()
     {
@@ -496,16 +516,94 @@
         _data6Interference = new6Interference;
         _data6TxRetries = new6TxRetries;
 
+        // Build channel annotations when a single AP is selected
+        BuildChannelAnnotations();
+
         Logger.LogInformation("TransformDataForCharts complete: 2.4GHz={Count24}, 5GHz={Count5}, 6GHz={Count6}",
             _data24Airtime.Count, _data5Airtime.Count, _data6Airtime.Count);
+    }
 
-        // Log sample values from each band
-        if (_data24Airtime.Count > 0)
-            Logger.LogInformation("2.4GHz sample: Airtime={V}", _data24Airtime[0].Value);
-        if (_data5Airtime.Count > 0)
-            Logger.LogInformation("5GHz sample: Airtime={V}", _data5Airtime[0].Value);
-        if (_data6Airtime.Count > 0)
-            Logger.LogInformation("6GHz sample: Airtime={V}", _data6Airtime[0].Value);
+    private void BuildChannelAnnotations()
+    {
+        // Reset current channel display
+        _currentChannel24 = null; _currentWidth24 = null;
+        _currentChannel5 = null; _currentWidth5 = null;
+        _currentChannel6 = null; _currentWidth6 = null;
+
+        // Only show channel annotations when a single AP is selected
+        if (string.IsNullOrEmpty(_selectedApMac) || _metrics.Count == 0)
+        {
+            _chartOptions24.Annotations = null;
+            _chartOptions5.Annotations = null;
+            _chartOptions6.Annotations = null;
+            return;
+        }
+
+        var annotations24 = new List<AnnotationsXAxis>();
+        var annotations5 = new List<AnnotationsXAxis>();
+        var annotations6 = new List<AnnotationsXAxis>();
+
+        int? prevCh24 = null, prevCh5 = null, prevCh6 = null;
+
+        foreach (var metric in _metrics.OrderBy(m => m.Timestamp))
+        {
+            var ts = new DateTimeOffset(metric.Timestamp.UtcDateTime, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+            if (metric.ByBand.TryGetValue(RadioBand.Band2_4GHz, out var b24) && b24.Channel.HasValue)
+            {
+                _currentChannel24 = b24.Channel;
+                _currentWidth24 = b24.ChannelWidth;
+                if (prevCh24.HasValue && b24.Channel.Value != prevCh24.Value)
+                {
+                    annotations24.Add(CreateChannelAnnotation(ts, b24.Channel.Value, b24.ChannelWidth, "#fbbf24"));
+                }
+                prevCh24 = b24.Channel.Value;
+            }
+
+            if (metric.ByBand.TryGetValue(RadioBand.Band5GHz, out var b5) && b5.Channel.HasValue)
+            {
+                _currentChannel5 = b5.Channel;
+                _currentWidth5 = b5.ChannelWidth;
+                if (prevCh5.HasValue && b5.Channel.Value != prevCh5.Value)
+                {
+                    annotations5.Add(CreateChannelAnnotation(ts, b5.Channel.Value, b5.ChannelWidth, "#3b82f6"));
+                }
+                prevCh5 = b5.Channel.Value;
+            }
+
+            if (metric.ByBand.TryGetValue(RadioBand.Band6GHz, out var b6) && b6.Channel.HasValue)
+            {
+                _currentChannel6 = b6.Channel;
+                _currentWidth6 = b6.ChannelWidth;
+                if (prevCh6.HasValue && b6.Channel.Value != prevCh6.Value)
+                {
+                    annotations6.Add(CreateChannelAnnotation(ts, b6.Channel.Value, b6.ChannelWidth, "#a855f7"));
+                }
+                prevCh6 = b6.Channel.Value;
+            }
+        }
+
+        _chartOptions24.Annotations = annotations24.Count > 0 ? new Annotations { Xaxis = annotations24 } : null;
+        _chartOptions5.Annotations = annotations5.Count > 0 ? new Annotations { Xaxis = annotations5 } : null;
+        _chartOptions6.Annotations = annotations6.Count > 0 ? new Annotations { Xaxis = annotations6 } : null;
+    }
+
+    private static AnnotationsXAxis CreateChannelAnnotation(long timestampMs, int channel, int? width, string color)
+    {
+        var label = width.HasValue ? $"Ch {channel} ({width} MHz)" : $"Ch {channel}";
+        return new AnnotationsXAxis
+        {
+            X = timestampMs,
+            BorderColor = color,
+            StrokeDashArray = 4,
+            Label = new Label
+            {
+                Text = label,
+                Style = new Style { Background = color, Color = "#fff", FontSize = "10px" },
+                Orientation = Orientation.Horizontal,
+                OffsetY = -5
+            }
+        };
     }
 
     private async Task UpdateChartVisibility()

@@ -6806,6 +6806,12 @@ a.path-hop.hop-clickable:hover {
     color: #a855f7;
 }
 
+.band-chart-header .channel-info {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
 /* ApexCharts dark theme overrides */
 .apexcharts-canvas {
     background: transparent !important;
