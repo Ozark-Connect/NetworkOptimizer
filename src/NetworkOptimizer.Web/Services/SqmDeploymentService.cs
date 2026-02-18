@@ -1166,7 +1166,7 @@ WantedBy=multi-user.target
         sb.AppendLine("    [ -z \"$last_error\" ] && echo 'null' && return");
         sb.AppendLine("    local error_num=$(echo \"$last_error\" | cut -d: -f1)");
         sb.AppendLine("    # Check if a successful operation happened after the error");
-        sb.AppendLine("    local last_success=$(grep -n -E 'Adjusted to|Ping adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_success=$(grep -n -i 'adjusted to' \"$log_file\" | tail -1)");
         sb.AppendLine("    if [ -n \"$last_success\" ]; then");
         sb.AppendLine("        local success_num=$(echo \"$last_success\" | cut -d: -f1)");
         sb.AppendLine("        [ \"$success_num\" -gt \"$error_num\" ] && echo 'null' && return");
