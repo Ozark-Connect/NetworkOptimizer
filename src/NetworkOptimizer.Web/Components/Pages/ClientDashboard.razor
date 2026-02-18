@@ -826,6 +826,7 @@
 
     // Polling
     private System.Threading.Timer? _pollTimer;
+    private bool _isTooltipActive;
 
     // GPS
     private double? _gpsLat;
@@ -1052,12 +1053,14 @@
                 if (_pollCount == 1 && _client.IsWired)
                     _isLogging = false;
 
-                // Refresh the active tab data periodically (every 6 polls = ~30s)
-                if (_pollCount % 6 == 0)
-                {
-                    await LoadTabDataAsync();
+                // Check if user is hovering a chart tooltip
+                try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
+                catch { _isTooltipActive = false; }
+
+                // Refresh the active tab data every poll
+                await LoadTabDataAsync();
+                if (!_isTooltipActive)
                     await UpdateActiveChartsAsync();
-                }
 
                 // Add to live signal chart data
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
@@ -1087,7 +1090,10 @@
                     if (_signalApData.Count > 360) _signalApData.RemoveAt(0);
                     if (_signalBandData.Count > 360) _signalBandData.RemoveAt(0);
 
-                    try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
+                    if (!_isTooltipActive)
+                    {
+                        try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
+                    }
 
                     // Add live signal map point when GPS is available
                     if (_gpsLat.HasValue && _gpsLng.HasValue)
@@ -1107,12 +1113,15 @@
                     }
                 }
 
-                // Refresh connection data when trace changes or periodically (every 12 polls = ~60s)
-                if (_activeTab == "connection" && (_latestPoll.TraceChanged || _pollCount % 12 == 0))
+                // Refresh connection data when trace changes or periodically (every 2 polls = ~10s)
+                if (_activeTab == "connection" && (_latestPoll.TraceChanged || _pollCount % 2 == 0))
                 {
                     var (f, t) = GetTimeRange();
                     await LoadConnectionDataAsync(f, t);
-                    try { if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true); } catch { }
+                    if (!_isTooltipActive)
+                    {
+                        try { if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true); } catch { }
+                    }
                 }
             }
         }
