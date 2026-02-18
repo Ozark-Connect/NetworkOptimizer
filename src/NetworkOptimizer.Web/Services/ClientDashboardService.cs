@@ -81,21 +81,21 @@ public class ClientDashboardService
             // Fast path: if we already know the MAC, fetch just this client
             if (_ipToMacCache.TryGetValue(clientIp, out var knownMac))
             {
-                _logger.LogDebug("Identify {Ip}: fast path via stat/sta/{Mac}", clientIp, knownMac);
+                _logger.LogTrace("Identify {Ip}: fast path via stat/sta/{Mac}", clientIp, knownMac);
                 client = await _connectionService.Client.GetClientAsync(knownMac);
 
                 // Verify the IP still matches - if another device took this IP
                 // (DHCP reassignment), the MAC lookup returns the wrong device.
                 if (client != null && client.Ip != clientIp)
                 {
-                    _logger.LogDebug("Identify {Ip}: IP mismatch (device now at {NewIp}), invalidating cache", clientIp, client.Ip);
+                    _logger.LogTrace("Identify {Ip}: IP mismatch (device now at {NewIp}), invalidating cache", clientIp, client.Ip);
                     client = null;
                 }
 
                 // If lookup failed or IP changed, invalidate and fall through to full list
                 if (client == null)
                 {
-                    _logger.LogDebug("Identify {Ip}: fast path miss, falling back to full client list", clientIp);
+                    _logger.LogTrace("Identify {Ip}: fast path miss, falling back to full client list", clientIp);
                     _ipToMacCache.Remove(clientIp);
                 }
             }
@@ -103,7 +103,7 @@ public class ClientDashboardService
             // Slow path: fetch all clients and match by IP
             if (client == null)
             {
-                _logger.LogDebug("Identify {Ip}: slow path via stat/sta (all clients)", clientIp);
+                _logger.LogTrace("Identify {Ip}: slow path via stat/sta (all clients)", clientIp);
                 var clients = await _connectionService.Client.GetClientsAsync();
                 client = clients?.FirstOrDefault(c => c.Ip == clientIp);
             }
