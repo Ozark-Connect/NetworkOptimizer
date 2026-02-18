@@ -289,7 +289,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             });
         }
 
-        _logger.LogInformation("Parsed {Count} channel change events", events.Count);
+        _logger.LogDebug("Parsed {Count} channel change events", events.Count);
         return events;
     }
 

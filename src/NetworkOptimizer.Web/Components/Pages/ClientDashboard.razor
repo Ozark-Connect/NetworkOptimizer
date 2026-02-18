@@ -1223,7 +1223,7 @@
     private void UpdateSignalTooltipFormatter()
     {
         // Build JS array of AP names for lookup in tooltip
-        var apArray = string.Join(",", _apNameLookup.Select(n => "'" + n.Replace("'", "\\'") + "'"));
+        var apArray = string.Join(",", _apNameLookup.Select(n => "'" + n.Replace("\\", "\\\\").Replace("'", "\\'") + "'"));
 
         _signalChartOptions.Tooltip = new Tooltip
         {
@@ -1855,6 +1855,7 @@
             {
                 new YAxis
                 {
+                    SeriesName = "Signal",
                     Min = -100,
                     Max = -20,
                     Labels = new YAxisLabels
