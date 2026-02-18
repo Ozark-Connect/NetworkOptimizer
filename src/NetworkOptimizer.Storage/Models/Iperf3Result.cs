@@ -231,4 +231,42 @@ public class Iperf3Result
     {
         Converters = { new JsonStringEnumConverter() }
     };
+
+    /// <summary>
+    /// Returns true if this result targets a local LAN device (not WAN, VPN, Tailscale, or Teleport).
+    /// Checks direction, IP ranges, and path analysis hops.
+    /// </summary>
+    public bool IsLocalLanDevice()
+    {
+        // WAN directions are never local LAN
+        if (Direction is SpeedTestDirection.CloudflareWan or SpeedTestDirection.CloudflareWanGateway
+            or SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway)
+            return false;
+
+        if (string.IsNullOrEmpty(DeviceHost) || !System.Net.IPAddress.TryParse(DeviceHost, out _))
+            return false;
+
+        // Tailscale CGNAT range: 100.64.0.0/10
+        if (DeviceHost.StartsWith("100."))
+        {
+            var parts = DeviceHost.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet) && secondOctet >= 64 && secondOctet <= 127)
+                return false;
+        }
+
+        // Check path analysis for VPN/Teleport/Tailscale/WAN hops
+        if (PathAnalysis?.Path?.Hops != null)
+        {
+            foreach (var hop in PathAnalysis.Path.Hops)
+            {
+                if (hop.Type is NetworkOptimizer.UniFi.Models.HopType.Vpn
+                    or NetworkOptimizer.UniFi.Models.HopType.Tailscale
+                    or NetworkOptimizer.UniFi.Models.HopType.Teleport
+                    or NetworkOptimizer.UniFi.Models.HopType.Wan)
+                    return false;
+            }
+        }
+
+        return true;
+    }
 }

@@ -730,7 +730,33 @@
                                 class="@(result.Success ? "" : "error-row") @(result.Success ? "history-row-clickable" : "") @(isExpanded ? "history-row-expanded" : "")"
                                 @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
                                 <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
-                                <td>@(result.DeviceName ?? result.DeviceHost)</td>
+                                <td>
+                                    @{
+                                        var showDashLink = result.IsLocalLanDevice();
+                                    }
+                                    @if (!string.IsNullOrEmpty(result.DeviceName))
+                                    {
+                                        <span>@result.DeviceName</span>
+                                        @if (showDashLink)
+                                        {
+                                            <a href="/client-dashboard?ip=@result.DeviceHost&tab=speed&range=30d" class="client-dashboard-link"
+                                               @onclick:stopPropagation data-tooltip="View in Client Performance">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                                            </a>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <code>@result.DeviceHost</code>
+                                        @if (showDashLink)
+                                        {
+                                            <a href="/client-dashboard?ip=@result.DeviceHost&tab=speed&range=30d" class="client-dashboard-link"
+                                               @onclick:stopPropagation data-tooltip="View in Client Performance">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                                            </a>
+                                        }
+                                    }
+                                </td>
                                 <td class="hide-mobile">@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
                                 <td class="hide-mobile">@(result.Success && result.UploadMbps > 0 ? result.UploadMbps.ToString("F1") : "-")</td>
                                 <td class="show-mobile">@(result.Success ? $"{(result.DownloadMbps > 0 ? $"↓{result.DownloadMbps:F0}" : "")}{(result.DownloadMbps > 0 && result.UploadMbps > 0 ? " " : "")}{(result.UploadMbps > 0 ? $"↑{result.UploadMbps:F0}" : "")}" : "-")</td>
@@ -1128,6 +1154,22 @@
         .history-search-row {
             padding-top: 0.75rem;
         }
+    }
+
+    .client-dashboard-link {
+        color: var(--text-muted);
+        margin-left: 4px;
+        vertical-align: middle;
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+
+    .history-row-clickable:hover .client-dashboard-link {
+        opacity: 1;
+    }
+
+    .client-dashboard-link:hover {
+        color: var(--primary-color);
     }
 </style>
 
@@ -2002,4 +2044,5 @@
             return $"...{parts[2]}.{parts[3]}";
         return ip;
     }
+
 }
