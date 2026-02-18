@@ -141,7 +141,7 @@
                             <span class="metadata-value">@_metadata.Location</span>
                         </div>
                     }
-                    @if (!string.IsNullOrEmpty(_metadata.WanIp))
+                    @if (!string.IsNullOrEmpty(_metadata.WanIp) && !(_maxMode && _hasMultipleWans))
                     {
                         <div class="metadata-item">
                             <span class="metadata-label">WAN IP</span>

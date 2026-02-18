@@ -415,7 +415,6 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         long requestCount = 0;
 
         var loadedLatencies = new System.Collections.Concurrent.ConcurrentBag<double>();
-        var uploadPayload = isUpload ? new byte[UploadBytesPerRequest] : null;
         var direction = isUpload ? "upload" : "download";
 
         // Launch workers distributed round-robin across servers.
@@ -433,13 +432,16 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
                 if (isUpload)
                 {
+                    // Per-worker upload buffer to avoid shared buffer corruption under load
+                    var uploadPayload = new byte[UploadBytesPerRequest];
+
                     // Upload: sequential 5MB requests per worker (plenty of data per request)
                     while (!linked.Token.IsCancellationRequested)
                     {
                         try
                         {
                             var url = server.Url + "/upload";
-                            using var content = new ProgressContent(uploadPayload!, bytesWritten =>
+                            using var content = new ProgressContent(uploadPayload, bytesWritten =>
                                 Interlocked.Add(ref totalBytes, bytesWritten));
                             using var request = CreateRequest(HttpMethod.Post, url, token, content);
 
