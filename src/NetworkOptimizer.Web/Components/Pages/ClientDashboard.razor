@@ -1291,7 +1291,7 @@
                     if (_latencyChart != null) await _latencyChart.UpdateSeriesAsync(true);
                     break;
                 case "signal":
-                    if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true);
+                    if (_signalChart != null) await _signalChart.RenderAsync();
                     break;
                 case "connection":
                     if (_connectionChart != null) await _connectionChart.UpdateSeriesAsync(true);
