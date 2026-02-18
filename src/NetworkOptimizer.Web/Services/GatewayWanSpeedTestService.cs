@@ -362,7 +362,7 @@ public class GatewayWanSpeedTestService
         if (parsedResults.Count == 0)
         {
             report("Error", 0, "All WAN tests failed");
-            return SaveFailedResult("All WAN interface tests failed", "ALL_WANS", "All WANs");
+            return SaveFailedResult("All WAN interface tests failed", "ALL_WAN", "All WAN Links");
         }
 
         report("Processing", 92, $"{parsedResults.Count}/{interfaces.Count} WANs completed");
@@ -435,8 +435,8 @@ public class GatewayWanSpeedTestService
             DownloadJitterMs = dlJitters.Count > 0 ? dlJitters.Average() : null,
             UploadLatencyMs = ulLatencies.Count > 0 ? ulLatencies.Average() : null,
             UploadJitterMs = ulJitters.Count > 0 ? ulJitters.Average() : null,
-            WanNetworkGroup = "ALL_WANS",
-            WanName = "All WANs",
+            WanNetworkGroup = "ALL_WAN",
+            WanName = "All WAN Links",
             ParallelStreams = totalStreams,
             DurationSeconds = maxDuration,
             TestTime = DateTime.UtcNow,

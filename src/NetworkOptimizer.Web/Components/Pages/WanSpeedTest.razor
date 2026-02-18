@@ -938,8 +938,8 @@
         // "All WAN Links" is the option after all real interfaces
         var isAllWans = _selectedWanIndex == _wanInterfaces.Count;
         var interfaceName = isAllWans ? "" : _wanInterfaces[_selectedWanIndex].Interface;
-        var wanGroup = isAllWans ? "ALL_WANS" : _wanInterfaces[_selectedWanIndex].NetworkGroup;
-        var wanName = isAllWans ? "All WANs" : _wanInterfaces[_selectedWanIndex].Name;
+        var wanGroup = isAllWans ? "ALL_WAN" : _wanInterfaces[_selectedWanIndex].NetworkGroup;
+        var wanName = isAllWans ? "All WAN Links" : _wanInterfaces[_selectedWanIndex].Name;
 
         _isRunning = true;
         _activeTestType = "gateway";

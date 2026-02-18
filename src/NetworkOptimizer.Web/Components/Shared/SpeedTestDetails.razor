@@ -57,11 +57,11 @@
                         <div class="wan-reassign-overlay" @onclick="CancelWanEdit"></div>
                         <select class="wan-reassign-select" @onchange="HandleWanSelected">
                             <option value="">Select WAN...</option>
-                            <option value="ALL_WAN" selected="@(Result.WanNetworkGroup == "ALL_WAN")">All WAN Links</option>
                             @foreach (var wan in AvailableWans)
                             {
                                 <option value="@wan.NetworkGroup" selected="@(wan.NetworkGroup == Result.WanNetworkGroup)">@wan.DisplayName</option>
                             }
+                            <option value="ALL_WAN" selected="@(Result.WanNetworkGroup == "ALL_WAN")">All WAN Links</option>
                         </select>
                     }
                     else if (_wanSaving)
