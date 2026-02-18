@@ -11625,6 +11625,7 @@ a.affected-client:hover {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+    margin-right: 0.75rem;
     cursor: pointer;
     user-select: none;
 }
