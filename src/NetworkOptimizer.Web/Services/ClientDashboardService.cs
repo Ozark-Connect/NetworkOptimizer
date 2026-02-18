@@ -27,11 +27,8 @@ public class ClientDashboardService
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
 
-    // TODO: Refactor _lastTraceHashes to ConcurrentDictionary and remove _traceHashLock
-    // (same pattern as the caches below - manual lock is unnecessary overhead)
     // Track last trace hash per client MAC to detect changes
-    private readonly Dictionary<string, string> _lastTraceHashes = new();
-    private readonly object _traceHashLock = new();
+    private readonly ConcurrentDictionary<string, string> _lastTraceHashes = new();
     private bool _traceHashesSeeded;
 
     // Cleanup tracking
@@ -217,18 +214,11 @@ public class ClientDashboardService
                 result.TraceHash = ComputeTraceHash(path);
 
                 // Check if trace changed
-                lock (_traceHashLock)
-                {
-                    if (_lastTraceHashes.TryGetValue(identity.Mac, out var lastHash))
-                    {
-                        result.TraceChanged = lastHash != result.TraceHash;
-                    }
-                    else
-                    {
-                        result.TraceChanged = true; // First poll for this client
-                    }
-                    _lastTraceHashes[identity.Mac] = result.TraceHash;
-                }
+                if (_lastTraceHashes.TryGetValue(identity.Mac, out var lastHash))
+                    result.TraceChanged = lastHash != result.TraceHash;
+                else
+                    result.TraceChanged = true; // First poll for this client
+                _lastTraceHashes[identity.Mac] = result.TraceHash;
 
                 // Always store when trace changes (trace snapshots are deduped by hash).
                 // Also store on every poll when persist=true (own device with logging on).
@@ -871,15 +861,12 @@ public class ClientDashboardService
                 })
                 .ToListAsync();
 
-            lock (_traceHashLock)
+            foreach (var entry in latestHashes)
             {
-                foreach (var entry in latestHashes)
-                {
-                    if (entry.TraceHash != null)
-                        _lastTraceHashes.TryAdd(entry.Mac, entry.TraceHash);
-                }
-                _traceHashesSeeded = true;
+                if (entry.TraceHash != null)
+                    _lastTraceHashes.TryAdd(entry.Mac, entry.TraceHash);
             }
+            _traceHashesSeeded = true;
 
             _logger.LogDebug("Seeded trace hashes for {Count} clients from DB", latestHashes.Count);
         }

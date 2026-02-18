@@ -584,6 +584,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         return path;
     }
 
+    // TODO: Consolidate shared topology-walking logic between CalculatePathToGatewayAsync
+    // and CalculatePathAsync (client hop building, uplink traversal, VPN detection, enrichment).
     /// <summary>
     /// Calculates the network path from a client to the gateway.
     /// Simplified version of CalculatePathAsync that always traces to the gateway,
