@@ -37,6 +37,9 @@ public class ClientDashboardService
     // Cache offline identities to avoid hitting the history API every poll
     private readonly Dictionary<string, ClientIdentity> _offlineIdentityCache = new();
 
+    // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
+    private readonly Dictionary<string, string> _ipToMacCache = new();
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },
@@ -63,7 +66,8 @@ public class ClientDashboardService
 
     /// <summary>
     /// Identify a client by its IP address using UniFi controller data.
-    /// Falls back to client history API for offline devices.
+    /// After first identification, uses the single-client endpoint (stat/sta/{mac})
+    /// instead of fetching all clients. Falls back to client history for offline devices.
     /// </summary>
     public async Task<ClientIdentity?> IdentifyClientAsync(string clientIp)
     {
@@ -72,20 +76,41 @@ public class ClientDashboardService
 
         try
         {
-            var clients = await _connectionService.Client.GetClientsAsync();
-            var client = clients?.FirstOrDefault(c => c.Ip == clientIp);
+            UniFiClientResponse? client = null;
+
+            // Fast path: if we already know the MAC, fetch just this client
+            if (_ipToMacCache.TryGetValue(clientIp, out var knownMac))
+            {
+                client = await _connectionService.Client.GetClientAsync(knownMac);
+
+                // Verify the IP still matches - if another device took this IP
+                // (DHCP reassignment), the MAC lookup returns the wrong device.
+                if (client != null && client.Ip != clientIp)
+                    client = null;
+
+                // If lookup failed or IP changed, invalidate and fall through to full list
+                if (client == null)
+                    _ipToMacCache.Remove(clientIp);
+            }
+
+            // Slow path: fetch all clients and match by IP
+            if (client == null)
+            {
+                var clients = await _connectionService.Client.GetClientsAsync();
+                client = clients?.FirstOrDefault(c => c.Ip == clientIp);
+            }
 
             if (client != null)
             {
-                // Device is online - clear any cached offline identity
                 _offlineIdentityCache.Remove(clientIp);
+                _ipToMacCache[clientIp] = client.Mac;
 
                 var identity = MapClientToIdentity(client);
                 await EnrichWithApInfoAsync(identity, client.ApMac);
                 return identity;
             }
 
-            // Device not in active list - check cache first
+            // Device not in active list - check offline cache
             if (_offlineIdentityCache.TryGetValue(clientIp, out var cached))
                 return cached;
 
