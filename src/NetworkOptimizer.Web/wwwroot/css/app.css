@@ -6817,8 +6817,9 @@ a.path-hop.hop-clickable:hover {
     background: transparent !important;
 }
 
-/* ApexCharts dark theme overrides annotation label fill color */
-.apexcharts-xaxis-annotation-label {
+/* ApexCharts dark theme overrides annotation label fill - needs double class
+   specificity to beat .apexcharts-text rule below */
+.apexcharts-text.apexcharts-xaxis-annotation-label {
     fill: #f1f5f9 !important;
 }
 
