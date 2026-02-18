@@ -28,7 +28,7 @@
         <div class="card-body">
             <p class="wan-test-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
             <div class="wan-mode-toggle">
-                <label class="toggle-switch" data-tooltip="Normal: 1 server, 8 connections. Max: 4 servers, 16 connections for saturating high-bandwidth links." data-tooltip-hover-only>
+                <label class="toggle-switch" data-tooltip="Normal: 2 servers, 8 connections. Max: 4 servers, 16 connections for saturating high-bandwidth links." data-tooltip-hover-only>
                     <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
                     <span class="toggle-slider"></span>
                     <span class="toggle-label">Max mode</span>
@@ -134,14 +134,14 @@
                         <span class="metadata-label">@(_metadata.ServerInfo?.Contains(" | ") == true ? "Test Servers" : "Test Server")</span>
                         <span class="metadata-value">@_metadata.ServerInfo</span>
                     </div>
-                    @if (!string.IsNullOrEmpty(_metadata.Location) && !(_maxMode && _hasMultipleWans))
+                    @if (!string.IsNullOrEmpty(_metadata.Location) && !_hideWanIdentity)
                     {
                         <div class="metadata-item">
                             <span class="metadata-label">ISP</span>
                             <span class="metadata-value">@_metadata.Location</span>
                         </div>
                     }
-                    @if (!string.IsNullOrEmpty(_metadata.WanIp) && !(_maxMode && _hasMultipleWans))
+                    @if (!string.IsNullOrEmpty(_metadata.WanIp) && !_hideWanIdentity)
                     {
                         <div class="metadata-item">
                             <span class="metadata-label">WAN IP</span>
@@ -416,6 +416,7 @@
     // Test state
     private bool _isRunning;
     private bool _maxMode;
+    private bool _hideWanIdentity; // captured at test start: max mode + multi-WAN
     private string _activeTestType = ""; // "gateway" or "server"
     private string _progressPhase = "";
     private int _progressPercent;
@@ -938,6 +939,7 @@
 
         _isRunning = true;
         _activeTestType = "gateway";
+        _hideWanIdentity = _maxMode && _hasMultipleWans;
         _errorMessage = null;
         _metadata = null;
         _progressPhase = "Starting";
@@ -957,7 +959,8 @@
                 _progressPercent = progress.Percent;
                 InvokeAsync(StateHasChanged);
             },
-            maxMode: _maxMode);
+            maxMode: _maxMode,
+            allInterfaces: isAllWans ? _wanInterfaces : null);
 
         StopPolling();
         _isRunning = false;
@@ -992,6 +995,7 @@
 
         _isRunning = true;
         _activeTestType = "server";
+        _hideWanIdentity = _maxMode && _hasMultipleWans;
         _errorMessage = null;
         _metadata = null;
         _progressPhase = "Starting";
