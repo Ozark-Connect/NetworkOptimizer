@@ -57,6 +57,11 @@
                                 }
                             </select>
                         }
+                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 streams. Max Load: 6 servers, 24 streams for saturating high-bandwidth links." data-tooltip-hover-only>
+                            <input type="checkbox" @bind="_gatewayMaxMode" disabled="@_isRunning" />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Max Load</span>
+                        </label>
                         <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunGatewayTest"
                                 disabled="@(_isRunning || !_gatewayAvailable)">
@@ -424,6 +429,7 @@
     // Test state
     private bool _isRunning;
     private bool _maxMode;
+    private bool _gatewayMaxMode;
     private bool _hideWanIdentity; // captured at test start: max mode + multi-WAN
     private string _activeTestType = ""; // "gateway" or "server"
     private string _progressPhase = "";
@@ -1229,7 +1235,8 @@
                 _progressPercent = progress.Percent;
                 InvokeAsync(StateHasChanged);
             },
-            allInterfaces: isMulti ? selectedInterfaces : null);
+            allInterfaces: isMulti ? selectedInterfaces : null,
+            maxMode: _gatewayMaxMode);
 
         StopPolling();
         _isRunning = false;
