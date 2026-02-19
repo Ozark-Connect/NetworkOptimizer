@@ -12006,3 +12006,46 @@ a.affected-client:hover {
         height: 20px;
     }
 }
+
+/* ── Stepped distance scale bar (shared by all Leaflet maps) ─────── */
+
+.stepped-scale-bar {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(100, 116, 139, 0.4);
+    border-radius: 4px;
+    padding: 4px 8px 3px;
+    pointer-events: none;
+}
+
+.stepped-scale-segments {
+    display: flex;
+    height: 6px;
+}
+
+.stepped-scale-seg {
+    height: 100%;
+    border: 1px solid #94a3b8;
+    border-right: none;
+    box-sizing: border-box;
+}
+
+.stepped-scale-seg:last-child {
+    border-right: 1px solid #94a3b8;
+}
+
+.stepped-scale-seg-filled {
+    background: #94a3b8;
+}
+
+.stepped-scale-seg-empty {
+    background: transparent;
+}
+
+.stepped-scale-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: #94a3b8;
+    margin-top: 1px;
+    font-weight: 500;
+}

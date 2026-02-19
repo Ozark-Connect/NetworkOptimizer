@@ -744,6 +744,11 @@
                     const apLayerGroup = L.layerGroup({{ pane: 'apIconPane' }}).addTo(map);
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, apGlowGroup: apGlowGroup, apLayerGroup: apLayerGroup, currentSpider: null }};
+
+                    // Stepped distance scale bar
+                    if (typeof SteppedScaleBar !== 'undefined') {{
+                        window._speedTestMaps['{mapId}'].scaleBar = SteppedScaleBar.create(map, 3);
+                    }}
                 }})();
             ");
 
