@@ -61,22 +61,60 @@ public static class FirewallRuleOverlapDetector
     }
 
     /// <summary>
-    /// Check if protocols overlap (same protocol or either is "all")
+    /// Check if protocols overlap (same protocol or either is "all").
+    /// Handles match_opposite_protocol which inverts the protocol matching.
     /// </summary>
     public static bool ProtocolsOverlap(FirewallRule rule1, FirewallRule rule2)
     {
         var p1 = rule1.Protocol?.ToLowerInvariant() ?? "all";
         var p2 = rule2.Protocol?.ToLowerInvariant() ?? "all";
+        var opposite1 = rule1.MatchOppositeProtocol;
+        var opposite2 = rule2.MatchOppositeProtocol;
 
-        // "all" matches everything
-        if (p1 == "all" || p2 == "all")
+        // Resolve effective protocol sets considering inversion.
+        // Normal "tcp" = matches tcp only.
+        // Opposite "tcp" = matches everything EXCEPT tcp (udp, icmp, etc.).
+        // Normal "all" = matches everything. Opposite "all" = matches nothing (nonsensical but handle it).
+
+        // "all" with opposite = matches nothing - can't overlap with anything
+        if ((p1 == "all" && opposite1) || (p2 == "all" && opposite2))
+            return false;
+
+        // "all" without opposite = matches everything
+        if ((p1 == "all" && !opposite1) || (p2 == "all" && !opposite2))
             return true;
 
-        // Same protocol
+        // Neither is "all" - compare specific protocols with inversion
+        // Both normal: overlap if same protocol (or tcp_udp compatibility)
+        if (!opposite1 && !opposite2)
+            return ProtocolsMatch(p1, p2);
+
+        // Both inverted: "NOT tcp" vs "NOT udp" - they overlap on everything
+        // that's neither tcp nor udp (e.g., ICMP). Always overlap unless
+        // they're inverting the same protocol AND it's the only option (it's not).
+        if (opposite1 && opposite2)
+            return true;
+
+        // One inverted, one normal:
+        // Normal "tcp" vs opposite "tcp" = tcp vs NOT-tcp = no overlap
+        // Normal "tcp" vs opposite "udp" = tcp vs NOT-udp = overlap (tcp is in NOT-udp)
+        var normalProto = opposite1 ? p2 : p1;
+        var invertedProto = opposite1 ? p1 : p2;
+
+        // The normal protocol overlaps with "NOT invertedProto" only if
+        // the normal protocol is NOT the same as (or a subset of) the inverted one
+        return !ProtocolsMatch(normalProto, invertedProto);
+    }
+
+    /// <summary>
+    /// Check if two protocol strings match (same protocol or tcp_udp compatibility).
+    /// Does NOT handle "all" or inversion - caller must handle those.
+    /// </summary>
+    private static bool ProtocolsMatch(string p1, string p2)
+    {
         if (p1 == p2)
             return true;
 
-        // tcp_udp overlaps with tcp or udp
         if (p1 == "tcp_udp" && (p2 == "tcp" || p2 == "udp"))
             return true;
         if (p2 == "tcp_udp" && (p1 == "tcp" || p1 == "udp"))
@@ -397,12 +435,16 @@ public static class FirewallRuleOverlapDetector
         var protocol1 = rule1.Protocol?.ToLowerInvariant() ?? "all";
         var protocol2 = rule2.Protocol?.ToLowerInvariant() ?? "all";
 
-        // Ports only matter for TCP/UDP
+        // Ports only matter for TCP/UDP.
+        // When match_opposite_protocol inverts a non-port protocol (e.g., NOT icmp),
+        // the effective protocol includes TCP/UDP, so ports become relevant.
         var portProtocols = new[] { "tcp", "udp", "tcp_udp" };
-        var rule1IsPortProtocol = portProtocols.Contains(protocol1);
-        var rule2IsPortProtocol = portProtocols.Contains(protocol2);
+        var rule1IsPortProtocol = portProtocols.Contains(protocol1) ||
+                                   (rule1.MatchOppositeProtocol && protocol1 != "all");
+        var rule2IsPortProtocol = portProtocols.Contains(protocol2) ||
+                                   (rule2.MatchOppositeProtocol && protocol2 != "all");
 
-        // If neither rule uses a port-based protocol (e.g., both ICMP), ports don't matter
+        // If neither rule's effective protocol involves port-based traffic, ports don't matter
         if (!rule1IsPortProtocol && !rule2IsPortProtocol && protocol1 != "all" && protocol2 != "all")
             return true;
 

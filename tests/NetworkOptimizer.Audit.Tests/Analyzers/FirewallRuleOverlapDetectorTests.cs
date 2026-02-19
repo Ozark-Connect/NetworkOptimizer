@@ -81,6 +81,76 @@ public class FirewallRuleOverlapDetectorTests
         FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeTrue();
     }
 
+    [Fact]
+    public void ProtocolsOverlap_OppositeProtocol_SameProtocol_NoOverlap()
+    {
+        // "NOT tcp" vs "tcp" = no overlap
+        var rule1 = CreateRule(protocol: "tcp", matchOppositeProtocol: true);
+        var rule2 = CreateRule(protocol: "tcp");
+
+        FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ProtocolsOverlap_OppositeProtocol_DifferentProtocol_Overlaps()
+    {
+        // "NOT tcp" vs "udp" = overlap (NOT-tcp includes udp)
+        var rule1 = CreateRule(protocol: "tcp", matchOppositeProtocol: true);
+        var rule2 = CreateRule(protocol: "udp");
+
+        FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtocolsOverlap_OppositeProtocol_IcmpVsTcp_Overlaps()
+    {
+        // "NOT icmp" vs "tcp" = overlap (NOT-icmp includes tcp)
+        var rule1 = CreateRule(protocol: "icmp", matchOppositeProtocol: true);
+        var rule2 = CreateRule(protocol: "tcp");
+
+        FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtocolsOverlap_BothOpposite_AlwaysOverlaps()
+    {
+        // "NOT tcp" vs "NOT udp" = overlap (both match icmp, etc.)
+        var rule1 = CreateRule(protocol: "tcp", matchOppositeProtocol: true);
+        var rule2 = CreateRule(protocol: "udp", matchOppositeProtocol: true);
+
+        FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtocolsOverlap_OppositeAll_NoOverlap()
+    {
+        // "NOT all" = matches nothing
+        var rule1 = CreateRule(protocol: "all", matchOppositeProtocol: true);
+        var rule2 = CreateRule(protocol: "tcp");
+
+        FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ProtocolsOverlap_OppositeVsTcpUdp_Overlaps()
+    {
+        // "NOT icmp" vs "tcp_udp" = overlap (NOT-icmp includes tcp and udp)
+        var rule1 = CreateRule(protocol: "icmp", matchOppositeProtocol: true);
+        var rule2 = CreateRule(protocol: "tcp_udp");
+
+        FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtocolsOverlap_OppositeTcpUdpVsTcp_NoOverlap()
+    {
+        // "NOT tcp_udp" vs "tcp" = no overlap (NOT-tcp_udp excludes tcp)
+        var rule1 = CreateRule(protocol: "tcp_udp", matchOppositeProtocol: true);
+        var rule2 = CreateRule(protocol: "tcp");
+
+        FirewallRuleOverlapDetector.ProtocolsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
     #endregion
 
     #region SourcesOverlap Tests
@@ -2044,6 +2114,7 @@ public class FirewallRuleOverlapDetectorTests
 
     private static FirewallRule CreateRule(
         string? protocol = null,
+        bool matchOppositeProtocol = false,
         string? sourceMatchingTarget = null,
         List<string>? sourceNetworkIds = null,
         List<string>? sourceIps = null,
@@ -2071,6 +2142,7 @@ public class FirewallRuleOverlapDetectorTests
             Name = "Test Rule",
             Enabled = true,
             Protocol = protocol,
+            MatchOppositeProtocol = matchOppositeProtocol,
             SourceMatchingTarget = sourceMatchingTarget,
             SourceNetworkIds = sourceNetworkIds,
             SourceIps = sourceIps,
