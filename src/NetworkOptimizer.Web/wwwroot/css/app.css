@@ -11793,8 +11793,11 @@ a.affected-client:hover {
     margin-bottom: 0.75rem;
 }
 
-.wan-speedtest .wan-reassign-select {
+.wan-speedtest .wan-select-row {
     flex: 0 0 100%;
+}
+
+.wan-speedtest .wan-reassign-select {
     max-width: 200px;
 }
 
