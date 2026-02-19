@@ -458,10 +458,59 @@ public class FirewallRuleOverlapDetectorTests
     }
 
     [Fact]
-    public void PortsOverlap_AllProtocol_IgnoresPorts()
+    public void PortsOverlap_AllProtocolWithSpecificPorts_ComparesPorts()
     {
+        // Protocol "all" with specific ports should still compare ports against TCP/UDP rules
         var rule1 = CreateRule(protocol: "all", destPort: "80");
         var rule2 = CreateRule(protocol: "tcp", destPort: "443");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PortsOverlap_AllProtocolWithSpecificPorts_SamePort_ReturnsTrue()
+    {
+        var rule1 = CreateRule(protocol: "all", destPort: "443");
+        var rule2 = CreateRule(protocol: "tcp", destPort: "443");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PortsOverlap_AllProtocolWithNoPorts_ReturnsTrue()
+    {
+        // Protocol "all" with no specific ports matches everything
+        var rule1 = CreateRule(protocol: "all");
+        var rule2 = CreateRule(protocol: "tcp", destPort: "443");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PortsOverlap_AllProtocolSnmpVsApiPorts_ReturnsFalse()
+    {
+        // Real-world scenario: SNMP ports (161,162) vs API ports (8088-8089)
+        var rule1 = CreateRule(protocol: "all", destPort: "161,162");
+        var rule2 = CreateRule(protocol: "tcp", destPort: "8088-8089");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PortsOverlap_BothAllProtocolDifferentPorts_ReturnsFalse()
+    {
+        // Both rules use protocol "all" but target different ports
+        var rule1 = CreateRule(protocol: "all", destPort: "161,162");
+        var rule2 = CreateRule(protocol: "all", destPort: "8088-8089");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PortsOverlap_BothAllProtocolNoPorts_ReturnsTrue()
+    {
+        var rule1 = CreateRule(protocol: "all");
+        var rule2 = CreateRule(protocol: "all");
 
         FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
     }
@@ -1418,6 +1467,35 @@ public class FirewallRuleOverlapDetectorTests
             destZoneId: "zone-wan-002");
 
         FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_AllowApiPorts_DenySnmpWithInverseIps_NoOverlap()
+    {
+        // Real-world scenario: Allow TCP 8088-8089 from specific IPs,
+        // Deny all protocols to SNMP ports from everyone except .220
+        // These rules don't overlap: different port sets (8088-8089 vs SNMP ports)
+        var allowRule = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.220", "192.168.1.10" },
+            sourceMatchOppositeIps: false,
+            destMatchingTarget: "ANY",
+            destPort: "8088-8089",
+            sourceZoneId: "zone-lan",
+            destZoneId: "zone-gateway");
+
+        var denyRule = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.220" },
+            sourceMatchOppositeIps: true,  // everyone EXCEPT .220
+            destMatchingTarget: "ANY",
+            destPort: "161,162",  // SNMP ports (resolved from port group)
+            sourceZoneId: "zone-lan",
+            destZoneId: "zone-gateway");
+
+        FirewallRuleOverlapDetector.RulesOverlap(allowRule, denyRule).Should().BeFalse();
     }
 
     #endregion

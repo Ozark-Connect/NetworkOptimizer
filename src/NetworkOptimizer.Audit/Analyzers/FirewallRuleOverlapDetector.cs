@@ -399,16 +399,30 @@ public static class FirewallRuleOverlapDetector
 
         // Ports only matter for TCP/UDP
         var portProtocols = new[] { "tcp", "udp", "tcp_udp" };
-        var rule1HasPorts = portProtocols.Contains(protocol1);
-        var rule2HasPorts = portProtocols.Contains(protocol2);
+        var rule1IsPortProtocol = portProtocols.Contains(protocol1);
+        var rule2IsPortProtocol = portProtocols.Contains(protocol2);
 
-        // If neither rule uses port-based protocol, ports don't matter
-        if (!rule1HasPorts && !rule2HasPorts)
+        // If neither rule uses a port-based protocol (e.g., both ICMP), ports don't matter
+        if (!rule1IsPortProtocol && !rule2IsPortProtocol && protocol1 != "all" && protocol2 != "all")
             return true;
 
-        // If one uses "all" protocol, it matches any ports
+        // Handle "all" protocol: it includes TCP/UDP, so port comparison still applies
+        // when the rule has specific destination ports.
+        // Protocol "all" with specific ports means "TCP/UDP on these ports, plus all non-port protocols".
+        // If the other rule is TCP/UDP-only, the overlap is limited to TCP/UDP traffic,
+        // so we must compare ports.
         if (protocol1 == "all" || protocol2 == "all")
-            return true;
+        {
+            var allRule = protocol1 == "all" ? rule1 : rule2;
+            var allRuleHasSpecificPorts = !string.IsNullOrEmpty(allRule.DestinationPort) ||
+                                          allRule.HasUnresolvedDestinationPortGroup;
+
+            // "all" protocol with no specific ports = matches everything
+            if (!allRuleHasSpecificPorts)
+                return true;
+
+            // "all" protocol with specific ports: fall through to compare ports below.
+        }
 
         var port1 = rule1.DestinationPort;
         var port2 = rule2.DestinationPort;
@@ -418,8 +432,6 @@ public static class FirewallRuleOverlapDetector
         // Empty/null port means ANY (unless opposite is set, which would mean "no ports")
         if (string.IsNullOrEmpty(port1))
         {
-            // If opposite1 is true with empty list, it matches ALL ports
-            // If opposite1 is false with empty list, it also matches ALL ports
             return true;
         }
         if (string.IsNullOrEmpty(port2))
