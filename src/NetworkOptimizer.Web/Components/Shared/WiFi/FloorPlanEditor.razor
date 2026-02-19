@@ -108,7 +108,7 @@
                         @(_mode == "aps" ? "Done" : _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs")
                     </button>
                     <button class="fp-btn @(_mode == "plan-aps" ? "fp-btn-warning" : "")" @onclick="TogglePlanApMode">
-                        @(_mode == "plan-aps" ? "Done" : _plannedAps.Count > 0 ? "Edit Plan APs" : "Add Plan APs")
+                        @(_mode == "plan-aps" ? "Done" : _plannedAps.Count > 0 ? "Edit Planned APs" : "Add Planned APs")
                     </button>
                 </div>
 
@@ -247,6 +247,12 @@
                     }
                 </div>
             </div>
+            @if (_plannedAps.Count > 0)
+            {
+                <div class="fp-edit-hint">
+                    Drag Planned APs to adjust their locations
+                </div>
+            }
         }
 
         @if (!ReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
