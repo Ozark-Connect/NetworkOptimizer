@@ -40,23 +40,30 @@
                     <div class="wan-test-option-controls">
                         @if (_wanSelectorOptions.Count > 1)
                         {
-                            <select class="wan-reassign-select"
-                                    @bind="_selectedWanOption"
-                                    @bind:after="OnWanSelectionChanged"
-                                    disabled="@(_isRunning)">
-                                @foreach (var opt in _wanSelectorOptions)
-                                {
-                                    if (opt.IsSeparator)
+                            <div class="wan-select-row">
+                                <select class="wan-reassign-select"
+                                        @bind="_selectedWanOption"
+                                        @bind:after="OnWanSelectionChanged"
+                                        disabled="@(_isRunning)">
+                                    @foreach (var opt in _wanSelectorOptions)
                                     {
-                                        <option disabled value="">──────────</option>
+                                        if (opt.IsSeparator)
+                                        {
+                                            <option disabled value="">──────────</option>
+                                        }
+                                        else
+                                        {
+                                            <option value="@opt.Value">@opt.Label</option>
+                                        }
                                     }
-                                    else
-                                    {
-                                        <option value="@opt.Value">@opt.Label</option>
-                                    }
-                                }
-                            </select>
+                                </select>
+                            </div>
                         }
+                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 streams. Max Load: 6 servers, 24 streams for saturating multi-gig links." data-tooltip-hover-only>
+                            <input type="checkbox" @bind="_gatewayMaxMode" disabled="@_isRunning" />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Max Load</span>
+                        </label>
                         <button class="btn btn-primary test-button wan-test-button"
                                 @onclick="RunGatewayTest"
                                 disabled="@(_isRunning || !_gatewayAvailable)">
@@ -88,7 +95,7 @@
                         <span class="wan-test-option-label">Server</span>
                     </div>
                     <div class="wan-test-option-controls">
-                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 connections. Max Load: up to 12 servers, 48 connections for saturating high-bandwidth links." data-tooltip-hover-only>
+                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 connections. Max Load: up to 12 servers, 48 connections for saturating multi-gig links." data-tooltip-hover-only>
                             <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Max Load</span>
@@ -424,6 +431,7 @@
     // Test state
     private bool _isRunning;
     private bool _maxMode;
+    private bool _gatewayMaxMode;
     private bool _hideWanIdentity; // captured at test start: max mode + multi-WAN
     private string _activeTestType = ""; // "gateway" or "server"
     private string _progressPhase = "";
@@ -1229,7 +1237,8 @@
                 _progressPercent = progress.Percent;
                 InvokeAsync(StateHasChanged);
             },
-            allInterfaces: isMulti ? selectedInterfaces : null);
+            allInterfaces: isMulti ? selectedInterfaces : null,
+            maxMode: _gatewayMaxMode);
 
         StopPolling();
         _isRunning = false;

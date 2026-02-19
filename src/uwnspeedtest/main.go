@@ -111,7 +111,7 @@ func run(cfg uwn.UwnConfig) speedtest.Result {
 	if ipInfo != nil {
 		clientLat, clientLon = ipInfo.Lat, ipInfo.Lon
 	}
-	servers, err := uwn.SelectServers(ctx, client, token, candidates, cfg.ServerCount, clientLat, clientLon)
+	servers, err := uwn.SelectServers(ctx, client, token, candidates, selectCount, clientLat, clientLon)
 	if err != nil {
 		return errorResult("select servers: " + err.Error())
 	}

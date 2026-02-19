@@ -11793,6 +11793,10 @@ a.affected-client:hover {
     margin-bottom: 0.75rem;
 }
 
+.wan-speedtest .wan-select-row {
+    flex: 0 0 100%;
+}
+
 .wan-speedtest .wan-reassign-select {
     max-width: 200px;
 }
@@ -11804,7 +11808,7 @@ a.affected-client:hover {
 }
 
 .wan-speedtest .wan-test-button {
-    min-width: 160px;
+    min-width: 168px;
 }
 
 .wan-speedtest .wan-result-summary {
