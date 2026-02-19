@@ -860,6 +860,7 @@
     private DotNetObjectReference<ClientDashboard>? _dotNetRef;
     private int? _gpsWatcherId;
     private DateTime _lastGpsCallback;
+    private bool _loggingSuspendedByZombie; // true when zombie check paused logging (auto-resume when GPS returns)
 
     // Time filter options
     private static readonly (int hours, string label)[] _timeFilters = new[]
@@ -1054,8 +1055,16 @@
             && !_gpsDenied
             && _lastGpsCallback != default
             && _lastGpsCallback < DateTime.UtcNow.AddSeconds(-15);
-        if (watcherSilent)
+        if (watcherSilent && !_loggingSuspendedByZombie)
+        {
             _isLogging = false;
+            _loggingSuspendedByZombie = true;
+        }
+        else if (!watcherSilent && _loggingSuspendedByZombie)
+        {
+            _isLogging = true;
+            _loggingSuspendedByZombie = false;
+        }
         var persist = _isLogging && !watcherSilent;
         var lat = watcherSilent ? null : _gpsLat;
         var lng = watcherSilent ? null : _gpsLng;
@@ -1404,6 +1413,7 @@
     private void ToggleLogging()
     {
         _isLogging = !_isLogging;
+        _loggingSuspendedByZombie = false; // user explicitly toggled, don't auto-resume
     }
 
     private void SetTimeFilter(int hours)
