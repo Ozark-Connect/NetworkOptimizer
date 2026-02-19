@@ -2040,9 +2040,11 @@
     private async Task TogglePlanApMode()
     {
         _mode = _mode == "plan-aps" ? "view" : "plan-aps";
+        if (_mode == "plan-aps") _showPlannedAps = true;
         _selectedCatalogModel = null;
         _selectedApForPlacement = null;
         await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
         await SetMapClickToPlaceMode(_mode == "plan-aps");
         if (_mode == "view") await UpdateBackgroundWalls();
     }
