@@ -851,8 +851,8 @@
 
     /// <summary>
     /// Collapse dense clusters of similar values into representative points.
-    /// Keeps a point only if its value differs significantly from the last kept point.
-    /// Always preserves first, last, and direction-change points.
+    /// Only collapses points that are close in BOTH value AND time - points
+    /// spread far apart in time are kept even if similar values (they show stability).
     /// </summary>
     private static List<WanChartDataPoint> CollapseClusters(List<WanChartDataPoint> data)
     {
@@ -861,19 +861,27 @@
 
         var range = (double)(data.Max(d => d.Value) - data.Min(d => d.Value));
         if (range < 1) return data;
-        var threshold = range * 0.15; // 15% of range to count as "different"
+        var valueThreshold = range * 0.15; // 15% of range to count as "different"
+        var timeThreshold = TimeSpan.FromHours(2); // Points >2 hrs apart are always kept
 
         var result = new List<WanChartDataPoint> { data[0] };
 
         for (int i = 1; i < data.Count - 1; i++)
         {
-            var lastKeptValue = (double)result[^1].Value;
-            var curr = (double)data[i].Value;
-            var next = (double)data[i + 1].Value;
+            var lastKept = result[^1];
+            var curr = data[i];
+            var timeSinceLastKept = curr.Timestamp - lastKept.Timestamp;
 
-            // Keep only if value changed significantly from last kept point
-            if (Math.Abs(curr - lastKeptValue) > threshold)
-                result.Add(data[i]);
+            // Always keep if enough time has passed (shows stability over time)
+            if (timeSinceLastKept >= timeThreshold)
+            {
+                result.Add(curr);
+                continue;
+            }
+
+            // Within a time cluster: only keep if value changed significantly
+            if (Math.Abs((double)curr.Value - (double)lastKept.Value) > valueThreshold)
+                result.Add(curr);
         }
 
         result.Add(data[^1]);
