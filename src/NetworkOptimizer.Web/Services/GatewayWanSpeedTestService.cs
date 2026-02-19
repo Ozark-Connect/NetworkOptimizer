@@ -325,6 +325,7 @@ public class GatewayWanSpeedTestService
             (1, true) => (6, 24),
             (2, true) => (5, 20),
             (3, true) => (4, 16),
+            (<= 3, false) => (4, 16),
             (4, _) => (3, 12),
             (5, true) => (3, 12),
             (5, false) => (2, 8),
