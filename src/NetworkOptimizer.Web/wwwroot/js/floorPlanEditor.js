@@ -54,6 +54,8 @@ window.fpEditor = {
     _activeMoveHandlers: null, // { moveHandler, finishHandler } for cancellable moves
     _escHandler: null,
     _distanceWarnShown: false,
+    _scaleControl: null,
+    _scaleSteps: 3,
 
     // ── Edge Pan ──────────────────────────────────────────────────────
 
@@ -402,7 +404,12 @@ window.fpEditor = {
                 }, 500);
             });
 
-            L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(m);
+            // Stepped distance scale bar (3 steps normal, 5 fullscreen)
+            self._scaleControl = self._createScaleControl(self._scaleSteps);
+            self._scaleControl.addTo(m);
+            m.on('zoomend moveend', function () { self._updateScaleBar(); });
+            self._updateScaleBar();
+
             resolveReady();
         }
 
@@ -413,6 +420,75 @@ window.fpEditor = {
     setDotNetRef: function (ref) {
         this._dotNetRef = ref;
         this._initEscapeHandler();
+    },
+
+    // ── Stepped Scale Bar ─────────────────────────────────────────────
+
+    _createScaleControl: function (steps) {
+        var ScaleBar = L.Control.extend({
+            options: { position: 'bottomleft' },
+            onAdd: function () {
+                var el = L.DomUtil.create('div', 'fp-scale-bar');
+                this._container = el;
+                return el;
+            }
+        });
+        return new ScaleBar();
+    },
+
+    _updateScaleBar: function () {
+        if (!this._scaleControl || !this._map) return;
+        var el = this._scaleControl._container;
+        if (!el) return;
+
+        var m = this._map;
+        var steps = this._scaleSteps;
+
+        // Calculate meters-per-pixel at map center
+        var center = m.getCenter();
+        var size = m.getSize();
+        var p1 = m.containerPointToLatLng([0, size.y / 2]);
+        var p2 = m.containerPointToLatLng([size.x, size.y / 2]);
+        var totalMeters = m.distance(p1, p2);
+        var mPerPx = totalMeters / size.x;
+
+        // Target: bar should be ~180px wide (normal) or ~280px (fullscreen/5 steps)
+        var targetPx = steps <= 3 ? 180 : 280;
+        var totalFeet = (mPerPx * targetPx) * 3.28084;
+
+        // Pick a "nice" round number per step
+        var niceSteps = [1, 2, 5, 10, 15, 20, 25, 50, 100, 150, 200, 250, 500, 1000, 2000, 5000, 10000];
+        var rawStep = totalFeet / steps;
+        var stepFeet = niceSteps[0];
+        for (var i = 0; i < niceSteps.length; i++) {
+            if (niceSteps[i] >= rawStep) { stepFeet = niceSteps[i]; break; }
+            stepFeet = niceSteps[niceSteps.length - 1];
+        }
+
+        var totalStepFeet = stepFeet * steps;
+        var totalStepMeters = totalStepFeet / 3.28084;
+        var barPx = totalStepMeters / mPerPx;
+        var segPx = barPx / steps;
+
+        // Build HTML
+        var html = '<div class="fp-scale-segments">';
+        for (var s = 0; s < steps; s++) {
+            var cls = s % 2 === 0 ? 'fp-scale-seg-filled' : 'fp-scale-seg-empty';
+            html += '<div class="fp-scale-seg ' + cls + '" style="width:' + segPx.toFixed(1) + 'px"></div>';
+        }
+        html += '</div><div class="fp-scale-labels">';
+        for (var s = 0; s <= steps; s++) {
+            var ft = stepFeet * s;
+            var label = ft === 0 ? '0' : (ft >= 5280 ? (ft / 5280).toFixed(1) + ' mi' : ft + ' ft');
+            html += '<span>' + label + '</span>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+    },
+
+    setScaleSteps: function (steps) {
+        this._scaleSteps = steps;
+        this._updateScaleBar();
     },
 
     // ── View ─────────────────────────────────────────────────────────
@@ -2543,6 +2619,7 @@ window.fpEditor = {
     destroy: function () {
         this._removeEscapeHandler();
         this._stopEdgePan();
+        if (this._scaleControl && this._map) { this._map.removeControl(this._scaleControl); this._scaleControl = null; }
         if (this._map) { this._map.remove(); this._map = null; }
         this._dotNetRef = null;
         this._overlay = null;
