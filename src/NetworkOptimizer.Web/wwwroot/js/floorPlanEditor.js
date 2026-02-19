@@ -473,14 +473,14 @@ window.fpEditor = {
 
     // ── Rotation Geometry Helpers ─────────────────────────────────────
 
-    // Rotate a pixel point around a center point by angleDeg
+    // Rotate a pixel point around a center point by angleDeg (clockwise, matching CSS rotate())
     _rotatePointPx: function (pt, center, angleDeg) {
         var rad = angleDeg * Math.PI / 180;
         var dx = pt.x - center.x;
         var dy = pt.y - center.y;
         return L.point(
-            center.x + dx * Math.cos(rad) - dy * Math.sin(rad),
-            center.y + dx * Math.sin(rad) + dy * Math.cos(rad)
+            center.x + dx * Math.cos(rad) + dy * Math.sin(rad),
+            center.y - dx * Math.sin(rad) + dy * Math.cos(rad)
         );
     },
 
@@ -609,6 +609,8 @@ window.fpEditor = {
         if (!entry) return;
         entry.overlay._rotationDeg = deg;
         entry.overlay._reset();
+        // Update position mode handles if active for this image
+        if (this._positionUpdateFn) this._positionUpdateFn(deg);
     },
 
     setImageCrop: function (imageId, top, right, bottom, left) {
@@ -2473,15 +2475,16 @@ window.fpEditor = {
         var seM = makeHandle(rc.se, 'se');
         this._corners = [swM, neM, nwM, seM];
 
-        // Set cursor on marker elements to match the rotated diagonal direction
-        var swNeCursor = self._getResizeCursor(45, rotation);
-        var nwSeCursor = self._getResizeCursor(135, rotation);
-        setTimeout(function () {
+        // Set/update cursor on marker elements to match the rotated diagonal direction
+        function updateCursors() {
+            var c1 = self._getResizeCursor(45, rotation);
+            var c2 = self._getResizeCursor(135, rotation);
             [swM, neM, nwM, seM].forEach(function (marker, i) {
                 var el = marker.getElement();
-                if (el) el.style.cursor = (i < 2) ? swNeCursor : nwSeCursor;
+                if (el) el.style.cursor = (i < 2) ? c1 : c2;
             });
-        }, 50);
+        }
+        setTimeout(updateCursors, 50);
 
         // Helper: update overlay bounds and reposition all handles from new axis-aligned bounds
         function updateFromBounds(newBounds, draggedMarker) {
@@ -2494,6 +2497,18 @@ window.fpEditor = {
                 if (draggedMarker !== seM) seM.setLatLng(rc2.se);
             }
         }
+
+        // Allow setImageRotation to update handles live during position mode
+        self._positionUpdateFn = function (newDeg) {
+            rotation = newDeg;
+            var curBounds = targetOverlay ? targetOverlay.getBounds() : axisBounds;
+            var rc2 = self._getRotatedCorners(curBounds, rotation, m);
+            swM.setLatLng(rc2.sw);
+            neM.setLatLng(rc2.ne);
+            nwM.setLatLng(rc2.nw);
+            seM.setLatLng(rc2.se);
+            updateCursors();
+        };
 
         // Corner drag handlers - for rotated images, un-rotate drag positions to get axis-aligned bounds
         // SW and NE are on one diagonal, NW and SE on the other
@@ -2659,6 +2674,7 @@ window.fpEditor = {
         }
         this._positionDragState = null;
         this._positionMouseDown = null;
+        this._positionUpdateFn = null;
     },
 
     // ── Building Move Mode ──────────────────────────────────────────
