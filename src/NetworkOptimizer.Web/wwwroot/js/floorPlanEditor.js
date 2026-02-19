@@ -515,6 +515,17 @@ window.fpEditor = {
         );
     },
 
+    // Pick the closest CSS resize cursor for a diagonal at baseAngle + rotationDeg
+    _getResizeCursor: function (baseAngle, rotationDeg) {
+        var a = ((baseAngle + rotationDeg) % 360 + 360) % 360;
+        if (a >= 180) a -= 180;
+        // 0=ew, 45=nesw, 90=ns, 135=nwse (each covers ±22.5°)
+        if (a < 22.5 || a >= 157.5) return 'ew-resize';
+        if (a < 67.5) return 'nesw-resize';
+        if (a < 112.5) return 'ns-resize';
+        return 'nwse-resize';
+    },
+
     // Apply rotation + crop transforms to an overlay element
     _applyOverlayTransforms: function (overlay) {
         var el = overlay.getElement ? overlay.getElement() : overlay._image;
@@ -2462,11 +2473,13 @@ window.fpEditor = {
         var seM = makeHandle(rc.se, 'se');
         this._corners = [swM, neM, nwM, seM];
 
-        // Set cursor on marker elements once they render
+        // Set cursor on marker elements to match the rotated diagonal direction
+        var swNeCursor = self._getResizeCursor(45, rotation);
+        var nwSeCursor = self._getResizeCursor(135, rotation);
         setTimeout(function () {
             [swM, neM, nwM, seM].forEach(function (marker, i) {
                 var el = marker.getElement();
-                if (el) el.style.cursor = ['nesw-resize', 'nesw-resize', 'nwse-resize', 'nwse-resize'][i];
+                if (el) el.style.cursor = (i < 2) ? swNeCursor : nwSeCursor;
             });
         }, 50);
 
