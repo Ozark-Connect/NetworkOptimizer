@@ -37,6 +37,7 @@ public static class FirewallRuleOverlapDetector
                SourcesOverlap(rule1, rule2, networkConfigs) &&
                DestinationsOverlap(rule1, rule2, networkConfigs) &&
                PortsOverlap(rule1, rule2) &&
+               SourcePortsOverlap(rule1, rule2) &&
                IcmpTypesOverlap(rule1, rule2);
     }
 
@@ -61,22 +62,60 @@ public static class FirewallRuleOverlapDetector
     }
 
     /// <summary>
-    /// Check if protocols overlap (same protocol or either is "all")
+    /// Check if protocols overlap (same protocol or either is "all").
+    /// Handles match_opposite_protocol which inverts the protocol matching.
     /// </summary>
     public static bool ProtocolsOverlap(FirewallRule rule1, FirewallRule rule2)
     {
         var p1 = rule1.Protocol?.ToLowerInvariant() ?? "all";
         var p2 = rule2.Protocol?.ToLowerInvariant() ?? "all";
+        var opposite1 = rule1.MatchOppositeProtocol;
+        var opposite2 = rule2.MatchOppositeProtocol;
 
-        // "all" matches everything
-        if (p1 == "all" || p2 == "all")
+        // Resolve effective protocol sets considering inversion.
+        // Normal "tcp" = matches tcp only.
+        // Opposite "tcp" = matches everything EXCEPT tcp (udp, icmp, etc.).
+        // Normal "all" = matches everything. Opposite "all" = matches nothing (nonsensical but handle it).
+
+        // "all" with opposite = matches nothing - can't overlap with anything
+        if ((p1 == "all" && opposite1) || (p2 == "all" && opposite2))
+            return false;
+
+        // "all" without opposite = matches everything
+        if ((p1 == "all" && !opposite1) || (p2 == "all" && !opposite2))
             return true;
 
-        // Same protocol
+        // Neither is "all" - compare specific protocols with inversion
+        // Both normal: overlap if same protocol (or tcp_udp compatibility)
+        if (!opposite1 && !opposite2)
+            return ProtocolsMatch(p1, p2);
+
+        // Both inverted: "NOT tcp" vs "NOT udp" - they overlap on everything
+        // that's neither tcp nor udp (e.g., ICMP). Always overlap unless
+        // they're inverting the same protocol AND it's the only option (it's not).
+        if (opposite1 && opposite2)
+            return true;
+
+        // One inverted, one normal:
+        // Normal "tcp" vs opposite "tcp" = tcp vs NOT-tcp = no overlap
+        // Normal "tcp" vs opposite "udp" = tcp vs NOT-udp = overlap (tcp is in NOT-udp)
+        var normalProto = opposite1 ? p2 : p1;
+        var invertedProto = opposite1 ? p1 : p2;
+
+        // The normal protocol overlaps with "NOT invertedProto" only if
+        // the normal protocol is NOT the same as (or a subset of) the inverted one
+        return !ProtocolsMatch(normalProto, invertedProto);
+    }
+
+    /// <summary>
+    /// Check if two protocol strings match (same protocol or tcp_udp compatibility).
+    /// Does NOT handle "all" or inversion - caller must handle those.
+    /// </summary>
+    private static bool ProtocolsMatch(string p1, string p2)
+    {
         if (p1 == p2)
             return true;
 
-        // tcp_udp overlaps with tcp or udp
         if (p1 == "tcp_udp" && (p2 == "tcp" || p2 == "udp"))
             return true;
         if (p2 == "tcp_udp" && (p1 == "tcp" || p1 == "udp"))
@@ -397,18 +436,36 @@ public static class FirewallRuleOverlapDetector
         var protocol1 = rule1.Protocol?.ToLowerInvariant() ?? "all";
         var protocol2 = rule2.Protocol?.ToLowerInvariant() ?? "all";
 
-        // Ports only matter for TCP/UDP
+        // Ports only matter for TCP/UDP.
+        // When match_opposite_protocol inverts a non-port protocol (e.g., NOT icmp),
+        // the effective protocol includes TCP/UDP, so ports become relevant.
         var portProtocols = new[] { "tcp", "udp", "tcp_udp" };
-        var rule1HasPorts = portProtocols.Contains(protocol1);
-        var rule2HasPorts = portProtocols.Contains(protocol2);
+        var rule1IsPortProtocol = portProtocols.Contains(protocol1) ||
+                                   (rule1.MatchOppositeProtocol && protocol1 != "all");
+        var rule2IsPortProtocol = portProtocols.Contains(protocol2) ||
+                                   (rule2.MatchOppositeProtocol && protocol2 != "all");
 
-        // If neither rule uses port-based protocol, ports don't matter
-        if (!rule1HasPorts && !rule2HasPorts)
+        // If neither rule's effective protocol involves port-based traffic, ports don't matter
+        if (!rule1IsPortProtocol && !rule2IsPortProtocol && protocol1 != "all" && protocol2 != "all")
             return true;
 
-        // If one uses "all" protocol, it matches any ports
+        // Handle "all" protocol: it includes TCP/UDP, so port comparison still applies
+        // when the rule has specific destination ports.
+        // Protocol "all" with specific ports means "TCP/UDP on these ports, plus all non-port protocols".
+        // If the other rule is TCP/UDP-only, the overlap is limited to TCP/UDP traffic,
+        // so we must compare ports.
         if (protocol1 == "all" || protocol2 == "all")
-            return true;
+        {
+            var allRule = protocol1 == "all" ? rule1 : rule2;
+            var allRuleHasSpecificPorts = !string.IsNullOrEmpty(allRule.DestinationPort) ||
+                                          allRule.HasUnresolvedDestinationPortGroup;
+
+            // "all" protocol with no specific ports = matches everything
+            if (!allRuleHasSpecificPorts)
+                return true;
+
+            // "all" protocol with specific ports: fall through to compare ports below.
+        }
 
         var port1 = rule1.DestinationPort;
         var port2 = rule2.DestinationPort;
@@ -418,8 +475,6 @@ public static class FirewallRuleOverlapDetector
         // Empty/null port means ANY (unless opposite is set, which would mean "no ports")
         if (string.IsNullOrEmpty(port1))
         {
-            // If opposite1 is true with empty list, it matches ALL ports
-            // If opposite1 is false with empty list, it also matches ALL ports
             return true;
         }
         if (string.IsNullOrEmpty(port2))
@@ -433,6 +488,41 @@ public static class FirewallRuleOverlapDetector
 
         // Handle match_opposite logic
         return PortSetsOverlapWithOpposite(ports1, opposite1, ports2, opposite2);
+    }
+
+    /// <summary>
+    /// Check if source ports overlap (either is ANY/empty, or ports intersect).
+    /// Handles match_opposite_ports flag which inverts the matching.
+    /// Source ports are rarely specified; null/empty means ANY (match all source ports).
+    /// </summary>
+    public static bool SourcePortsOverlap(FirewallRule rule1, FirewallRule rule2)
+    {
+        var protocol1 = rule1.Protocol?.ToLowerInvariant() ?? "all";
+        var protocol2 = rule2.Protocol?.ToLowerInvariant() ?? "all";
+
+        var portProtocols = new[] { "tcp", "udp", "tcp_udp" };
+        var rule1IsPortProtocol = portProtocols.Contains(protocol1) ||
+                                   (rule1.MatchOppositeProtocol && protocol1 != "all");
+        var rule2IsPortProtocol = portProtocols.Contains(protocol2) ||
+                                   (rule2.MatchOppositeProtocol && protocol2 != "all");
+
+        // If neither rule's effective protocol involves port-based traffic, source ports don't matter
+        if (!rule1IsPortProtocol && !rule2IsPortProtocol && protocol1 != "all" && protocol2 != "all")
+            return true;
+
+        var port1 = rule1.SourcePort;
+        var port2 = rule2.SourcePort;
+
+        // Empty/null source port means ANY - most rules don't specify source ports
+        if (string.IsNullOrEmpty(port1) || string.IsNullOrEmpty(port2))
+            return true;
+
+        // Both have specific source ports - compare them
+        var ports1 = ParsePortString(port1);
+        var ports2 = ParsePortString(port2);
+
+        return PortSetsOverlapWithOpposite(ports1, rule1.SourceMatchOppositePorts,
+                                            ports2, rule2.SourceMatchOppositePorts);
     }
 
     /// <summary>
