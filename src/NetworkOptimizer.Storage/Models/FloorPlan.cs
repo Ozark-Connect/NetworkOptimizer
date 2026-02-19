@@ -51,4 +51,6 @@ public class FloorPlan
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public Building Building { get; set; } = null!;
+
+    public List<FloorPlanImage> Images { get; set; } = new();
 }

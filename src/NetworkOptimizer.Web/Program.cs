@@ -1007,6 +1007,68 @@ app.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext 
     return Results.Ok(new { success = true });
 });
 
+// --- FloorPlanImage (multi-image per floor) ---
+
+app.MapGet("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, FloorPlanService svc) =>
+{
+    var images = await svc.GetFloorImagesAsync(floorId);
+    return Results.Ok(images.Select(i => new
+    {
+        i.Id, i.FloorPlanId, i.Label, i.SwLatitude, i.SwLongitude,
+        i.NeLatitude, i.NeLongitude, i.Opacity, i.RotationDeg, i.CropJson,
+        i.SortOrder, HasFile = !string.IsNullOrEmpty(i.ImagePath)
+    }));
+});
+
+app.MapPost("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, HttpContext context, FloorPlanService svc) =>
+{
+    var form = await context.Request.ReadFormAsync();
+    var file = form.Files.GetFile("image");
+    if (file == null || file.Length == 0)
+        return Results.BadRequest(new { error = "No image file provided" });
+
+    double.TryParse(form["swLat"], System.Globalization.CultureInfo.InvariantCulture, out var swLat);
+    double.TryParse(form["swLng"], System.Globalization.CultureInfo.InvariantCulture, out var swLng);
+    double.TryParse(form["neLat"], System.Globalization.CultureInfo.InvariantCulture, out var neLat);
+    double.TryParse(form["neLng"], System.Globalization.CultureInfo.InvariantCulture, out var neLng);
+    var label = form["label"].FirstOrDefault() ?? "";
+
+    using var stream = file.OpenReadStream();
+    var image = await svc.CreateFloorImageAsync(floorId, stream, swLat, swLng, neLat, neLng, label);
+    return Results.Ok(new
+    {
+        image.Id, image.FloorPlanId, image.Label, image.SwLatitude, image.SwLongitude,
+        image.NeLatitude, image.NeLongitude, image.Opacity, image.RotationDeg, image.CropJson,
+        image.SortOrder, HasFile = true
+    });
+});
+
+app.MapGet("/api/floor-plan/images/{imageId:int}/file", async (int imageId, FloorPlanService svc) =>
+{
+    var image = await svc.GetFloorImageAsync(imageId);
+    if (image == null) return Results.NotFound();
+    var filePath = svc.GetFloorImageFilePath(image);
+    if (filePath == null) return Results.NotFound();
+    return Results.File(filePath, "image/png");
+});
+
+app.MapPut("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorImageUpdateRequest req, FloorPlanService svc) =>
+{
+    var image = await svc.UpdateFloorImageAsync(imageId, req.SwLatitude, req.SwLongitude,
+        req.NeLatitude, req.NeLongitude, req.Opacity, req.RotationDeg, req.CropJson, req.Label);
+    if (image == null) return Results.NotFound();
+    return Results.Ok(new
+    {
+        image.Id, image.FloorPlanId, image.Label, image.SwLatitude, image.SwLongitude,
+        image.NeLatitude, image.NeLongitude, image.Opacity, image.RotationDeg, image.CropJson, image.SortOrder
+    });
+});
+
+app.MapDelete("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorPlanService svc) =>
+{
+    return await svc.DeleteFloorImageAsync(imageId) ? Results.NoContent() : Results.NotFound();
+});
+
 app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     FloorPlanService floorSvc, ApMapService apMapSvc,
     PlannedApService plannedApSvc,
@@ -1381,3 +1443,6 @@ record FloorRequest(int FloorNumber, string Label, double SwLatitude, double SwL
 record FloorUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
     double? NeLongitude = null, double? Opacity = null, string? WallsJson = null, string? Label = null,
     string? FloorMaterial = null);
+record FloorImageUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
+    double? NeLongitude = null, double? Opacity = null, double? RotationDeg = null, string? CropJson = null,
+    string? Label = null);

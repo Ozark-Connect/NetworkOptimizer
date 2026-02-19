@@ -7,7 +7,9 @@ window.fpEditor = {
     // ── State ────────────────────────────────────────────────────────
     _map: null,
     _dotNetRef: null,
-    _overlay: null,
+    _overlay: null, // legacy single overlay (kept for backward compat)
+    _overlays: [],  // array of { id, overlay } for multi-image
+    _selectedOverlayId: null,
     _apLayer: null,
     _apGlowLayer: null,
     _bgWallLayer: null,
@@ -465,6 +467,82 @@ window.fpEditor = {
         if (this._overlay) {
             this._overlay.setOpacity(opacity);
         }
+    },
+
+    // ── Multi-Image Overlays ──────────────────────────────────────────
+
+    updateFloorOverlays: function (imagesJson) {
+        var m = this._map;
+        if (!m) return;
+        var self = this;
+
+        // Remove existing overlays
+        this._overlays.forEach(function (o) { m.removeLayer(o.overlay); });
+        this._overlays = [];
+        this._selectedOverlayId = null;
+
+        if (!imagesJson || imagesJson.length === 0) return;
+
+        imagesJson.forEach(function (img) {
+            var bounds = [[img.swLatitude, img.swLongitude], [img.neLat || img.neLatitude, img.neLng || img.neLongitude]];
+            var overlay = L.imageOverlay(img.imageUrl, bounds, {
+                opacity: img.opacity || 0.7,
+                interactive: true,
+                pane: 'fpOverlayPane',
+                className: 'fp-image-overlay'
+            }).addTo(m);
+
+            overlay.on('click', function () {
+                if (self._dotNetRef) {
+                    self._dotNetRef.invokeMethodAsync('OnImageSelectedFromJs', img.id);
+                }
+            });
+
+            self._overlays.push({ id: img.id, overlay: overlay });
+        });
+    },
+
+    selectOverlay: function (imageId) {
+        var self = this;
+        this._selectedOverlayId = imageId;
+        this._overlays.forEach(function (o) {
+            var el = o.overlay.getElement();
+            if (!el) return;
+            if (o.id === imageId) {
+                el.style.outline = '3px solid #3b82f6';
+                el.style.outlineOffset = '-3px';
+            } else {
+                el.style.outline = '';
+                el.style.outlineOffset = '';
+            }
+        });
+    },
+
+    deselectOverlay: function () {
+        this._selectedOverlayId = null;
+        this._overlays.forEach(function (o) {
+            var el = o.overlay.getElement();
+            if (!el) return;
+            el.style.outline = '';
+            el.style.outlineOffset = '';
+        });
+    },
+
+    setImageOpacity: function (imageId, opacity) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        if (entry) entry.overlay.setOpacity(opacity);
+    },
+
+    setOverlaysInteractive: function (interactive) {
+        this._overlays.forEach(function (o) {
+            var el = o.overlay.getElement();
+            if (el) el.style.pointerEvents = interactive ? 'auto' : 'none';
+        });
+    },
+
+    _getOverlay: function (imageId) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        return entry ? entry.overlay : null;
     },
 
     // ── AP Markers ───────────────────────────────────────────────────
@@ -2121,7 +2199,7 @@ window.fpEditor = {
 
     // ── Position Mode ────────────────────────────────────────────────
 
-    enterPositionMode: function (swLat, swLng, neLat, neLng) {
+    enterPositionMode: function (swLat, swLng, neLat, neLng, imageId) {
         var m = this._map;
         if (!m) return;
         var self = this;
@@ -2142,20 +2220,28 @@ window.fpEditor = {
         } else {
             return;
         }
+
+        // Find the target overlay (multi-image or legacy single)
+        var targetOverlay = imageId ? self._getOverlay(imageId) : self._overlay;
+
         var ci = L.divIcon({ className: 'fp-corner-handle', iconSize: [14, 14], iconAnchor: [7, 7] });
         var swM = L.marker(sw, { icon: ci, draggable: true }).addTo(m);
         var neM = L.marker(ne, { icon: ci, draggable: true }).addTo(m);
         this._corners = [swM, neM];
 
         function upd() {
-            if (self._overlay) self._overlay.setBounds([swM.getLatLng(), neM.getLatLng()]);
+            if (targetOverlay) targetOverlay.setBounds([swM.getLatLng(), neM.getLatLng()]);
         }
         swM.on('drag', upd);
         neM.on('drag', upd);
 
         function save() {
             var s = swM.getLatLng(), n = neM.getLatLng();
-            self._dotNetRef.invokeMethodAsync('OnBoundsChangedFromJs', s.lat, s.lng, n.lat, n.lng);
+            if (imageId) {
+                self._dotNetRef.invokeMethodAsync('OnImageBoundsChangedFromJs', imageId, s.lat, s.lng, n.lat, n.lng);
+            } else {
+                self._dotNetRef.invokeMethodAsync('OnBoundsChangedFromJs', s.lat, s.lng, n.lat, n.lng);
+            }
         }
         swM.on('dragend', save);
         neM.on('dragend', save);
@@ -2185,16 +2271,29 @@ window.fpEditor = {
         this._moveMarker = L.marker([centerLat, centerLng], { icon: ci, draggable: true }).addTo(m);
         this._moveStartCenter = L.latLng(centerLat, centerLng);
 
-        // Live preview: move overlay and walls during drag + edge pan
+        // Live preview: move overlays and walls during drag + edge pan
         this._moveMarker.on('drag', function (e) {
-            if (!self._overlay || !self._moveStartCenter) return;
+            if (!self._moveStartCenter) return;
             var pos = e.target.getLatLng();
             var dLat = pos.lat - self._moveStartCenter.lat;
             var dLng = pos.lng - self._moveStartCenter.lng;
-            var b = self._overlay.getBounds();
-            var sw = b.getSouthWest();
-            var ne = b.getNorthEast();
-            self._overlay.setBounds([[sw.lat + dLat, sw.lng + dLng], [ne.lat + dLat, ne.lng + dLng]]);
+
+            // Shift legacy single overlay
+            if (self._overlay) {
+                var b = self._overlay.getBounds();
+                var sw = b.getSouthWest();
+                var ne = b.getNorthEast();
+                self._overlay.setBounds([[sw.lat + dLat, sw.lng + dLng], [ne.lat + dLat, ne.lng + dLng]]);
+            }
+
+            // Shift all multi-image overlays
+            self._overlays.forEach(function (o) {
+                var ob = o.overlay.getBounds();
+                var osw = ob.getSouthWest();
+                var one = ob.getNorthEast();
+                o.overlay.setBounds([[osw.lat + dLat, osw.lng + dLng], [one.lat + dLat, one.lng + dLng]]);
+            });
+
             self._moveStartCenter = pos;
 
             // Edge pan during marker drag
@@ -2540,6 +2639,12 @@ window.fpEditor = {
 
     clearFloorLayers: function () {
         if (this._overlay && this._map) { this._map.removeLayer(this._overlay); this._overlay = null; }
+        var m = this._map;
+        if (m) {
+            this._overlays.forEach(function (o) { m.removeLayer(o.overlay); });
+        }
+        this._overlays = [];
+        this._selectedOverlayId = null;
         if (this._heatmapOverlay && this._map) { this._map.removeLayer(this._heatmapOverlay); this._heatmapOverlay = null; }
         if (this._contourLayer && this._map) { this._map.removeLayer(this._contourLayer); this._contourLayer = null; }
         if (this._signalClusterGroup) this._signalClusterGroup.clearLayers();
@@ -2554,6 +2659,8 @@ window.fpEditor = {
         if (this._map) { this._map.remove(); this._map = null; }
         this._dotNetRef = null;
         this._overlay = null;
+        this._overlays = [];
+        this._selectedOverlayId = null;
         this._apLayer = null;
         this._apGlowLayer = null;
         this._bgWallLayer = null;

@@ -317,12 +317,31 @@
     @if (!ReadOnly && _selectedFloor != null)
     {
         <div class="fp-bottom-bar">
-            @* TODO: Re-enable once floor plan image sizing/positioning is implemented
-            <label class="fp-upload-btn">
-                Upload Floor Plan
-                <InputFile OnChange="OnFloorPlanUpload" accept="image/*" style="display:none" />
-            </label>
-            *@
+            <div class="fp-image-controls">
+                <label class="fp-upload-btn">
+                    + Image
+                    <InputFile OnChange="OnFloorImageUpload" accept="image/*" style="display:none" />
+                </label>
+                @foreach (var img in _floorImages)
+                {
+                    <button class="fp-image-chip @(img.Id == _selectedImageId ? "active" : "")"
+                            @onclick="() => SelectImage(img.Id)">
+                        @(string.IsNullOrEmpty(img.Label) ? "Image " + (_floorImages.IndexOf(img) + 1) : img.Label)
+                    </button>
+                }
+            </div>
+            @if (_selectedImage != null)
+            {
+                <div class="fp-separator"></div>
+                <button class="fp-btn @(_mode == "image-position" ? "fp-btn-active" : "")" @onclick="ToggleImagePositionMode">Position</button>
+                <div class="fp-opacity-control">
+                    <span>Opacity:</span>
+                    <input type="range" min="0" max="100" value="@((int)((_selectedImage?.Opacity ?? 0.7) * 100))"
+                           @oninput="OnImageOpacityChange" class="fp-opacity-slider" />
+                </div>
+                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedImage">Delete Image</button>
+                <div class="fp-separator"></div>
+            }
             <div class="fp-opacity-control">
                 <span>Floor:</span>
                 <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
@@ -330,13 +349,6 @@
                     <option value="floor_concrete">Concrete Slab</option>
                 </select>
             </div>
-            @* TODO: Re-enable alongside floor plan image upload
-            <div class="fp-opacity-control">
-                <span>Opacity:</span>
-                <input type="range" min="0" max="100" value="@((int)(_floorOpacity * 100))"
-                       @oninput="OnOpacityChange" class="fp-opacity-slider" />
-            </div>
-            *@
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
             <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
             <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
@@ -596,6 +608,43 @@
     }
 
     .fp-opacity-slider { width: 100px; accent-color: var(--accent-color, #4f46e5); }
+
+    .fp-image-controls {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    .fp-image-chip {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .fp-image-chip:hover { background: var(--btn-hover-bg, #3d3d5c); }
+    .fp-image-chip.active {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: #3b82f6;
+        color: #93bbfc;
+    }
+
+    .fp-separator {
+        width: 1px;
+        height: 20px;
+        background: var(--border-color, #3d3d5c);
+        flex-shrink: 0;
+    }
+
+    .fp-btn-active {
+        background: rgba(59, 130, 246, 0.2) !important;
+        border-color: #3b82f6 !important;
+        color: #93bbfc !important;
+    }
 
     .fp-dialog-backdrop {
         position: fixed;
@@ -1348,6 +1397,9 @@
     private string _wallMaterial = "drywall";
     private bool _isDrawingShape;
     private double _floorOpacity = 0.7;
+    private List<FloorImageDto> _floorImages = new();
+    private int? _selectedImageId;
+    private FloorImageDto? _selectedImage;
     private bool _showAddBuilding;
     private bool _showAddFloor;
     private string _newBuildingName = "";
@@ -1648,11 +1700,18 @@
         {
             _globalActiveFloor = _selectedFloor.FloorNumber;
             _floorOpacity = _selectedFloor.Opacity;
+            await LoadFloorImages();
             await UpdateFloorOverlay();
             await UpdateApMarkers();
             await UpdateWalls();
             await UpdateBackgroundWalls();
             if (_showHeatmap) await ComputeHeatmap();
+        }
+        else
+        {
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
         }
         StateHasChanged();
     }
@@ -1667,6 +1726,169 @@
         await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", imageUrl,
             _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
             _selectedFloor.NeLatitude, _selectedFloor.NeLongitude, _floorOpacity);
+        await UpdateFloorOverlays();
+    }
+
+    private async Task LoadFloorImages()
+    {
+        if (_selectedFloor == null)
+        {
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
+            return;
+        }
+        var images = await FloorPlanSvc.GetFloorImagesAsync(_selectedFloor.Id);
+        _floorImages = images.Select(i => new FloorImageDto
+        {
+            Id = i.Id,
+            FloorPlanId = i.FloorPlanId,
+            Label = i.Label,
+            SwLatitude = i.SwLatitude,
+            SwLongitude = i.SwLongitude,
+            NeLatitude = i.NeLatitude,
+            NeLongitude = i.NeLongitude,
+            Opacity = i.Opacity,
+            RotationDeg = i.RotationDeg,
+            CropJson = i.CropJson,
+            SortOrder = i.SortOrder
+        }).ToList();
+        _selectedImageId = null;
+        _selectedImage = null;
+    }
+
+    private async Task UpdateFloorOverlays()
+    {
+        if (!_mapInitialized || _floorImages.Count == 0)
+        {
+            await JS.InvokeVoidAsync("fpEditor.updateFloorOverlays", Array.Empty<object>());
+            return;
+        }
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        var overlayData = _floorImages.Select(img => new
+        {
+            id = img.Id,
+            imageUrl = baseUrl + "/api/floor-plan/images/" + img.Id + "/file",
+            swLatitude = img.SwLatitude,
+            swLongitude = img.SwLongitude,
+            neLatitude = img.NeLatitude,
+            neLongitude = img.NeLongitude,
+            opacity = img.Opacity
+        }).ToArray();
+        await JS.InvokeVoidAsync("fpEditor.updateFloorOverlays", (object)overlayData);
+        if (_selectedImageId.HasValue)
+            await JS.InvokeVoidAsync("fpEditor.selectOverlay", _selectedImageId.Value);
+    }
+
+    private async Task SelectImage(int imageId)
+    {
+        _selectedImageId = imageId;
+        _selectedImage = _floorImages.FirstOrDefault(i => i.Id == imageId);
+        if (_mode == "image-position") _mode = "view";
+        await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        await JS.InvokeVoidAsync("fpEditor.selectOverlay", imageId);
+    }
+
+    [JSInvokable]
+    public async Task OnImageSelectedFromJs(int imageId)
+    {
+        _selectedImageId = imageId;
+        _selectedImage = _floorImages.FirstOrDefault(i => i.Id == imageId);
+        if (_mode == "image-position") _mode = "view";
+        await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        await JS.InvokeVoidAsync("fpEditor.selectOverlay", imageId);
+        StateHasChanged();
+    }
+
+    private async Task OnFloorImageUpload(InputFileChangeEventArgs e)
+    {
+        if (_selectedFloor == null || _selectedBuilding == null) return;
+        var file = e.File;
+        if (file.Size > 20 * 1024 * 1024) return;
+
+        // Auto-position at building center +/- 25m
+        var centerLat = _selectedBuilding.CenterLatitude;
+        var centerLng = _selectedBuilding.CenterLongitude;
+        if (centerLat == 0 && centerLng == 0) { centerLat = 38.0; centerLng = -92.0; }
+        var latOffset = 25.0 / 111320.0;
+        var lngOffset = 25.0 / (111320.0 * Math.Cos(centerLat * Math.PI / 180));
+
+        using var stream = file.OpenReadStream(20 * 1024 * 1024);
+        var image = await FloorPlanSvc.CreateFloorImageAsync(_selectedFloor.Id, stream,
+            centerLat - latOffset, centerLng - lngOffset,
+            centerLat + latOffset, centerLng + lngOffset);
+
+        await LoadFloorImages();
+        await UpdateFloorOverlays();
+
+        // Auto-select the new image
+        _selectedImageId = image.Id;
+        _selectedImage = _floorImages.FirstOrDefault(i => i.Id == image.Id);
+        if (_selectedImage != null)
+            await JS.InvokeVoidAsync("fpEditor.selectOverlay", image.Id);
+
+        StateHasChanged();
+    }
+
+    private async Task OnImageOpacityChange(ChangeEventArgs e)
+    {
+        if (_selectedImage == null) return;
+        if (int.TryParse(e.Value?.ToString(), out var pct))
+        {
+            var opacity = pct / 100.0;
+            _selectedImage.Opacity = opacity;
+            await FloorPlanSvc.UpdateFloorImageAsync(_selectedImage.Id, opacity: opacity);
+            await JS.InvokeVoidAsync("fpEditor.setImageOpacity", _selectedImage.Id, opacity);
+        }
+    }
+
+    private async Task ToggleImagePositionMode()
+    {
+        if (_selectedImage == null) return;
+        if (_mode == "move") await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
+
+        _mode = _mode == "image-position" ? "view" : "image-position";
+        if (_mode == "image-position")
+        {
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", false);
+            await JS.InvokeVoidAsync("fpEditor.enterPositionMode",
+                _selectedImage.SwLatitude, _selectedImage.SwLongitude,
+                _selectedImage.NeLatitude, _selectedImage.NeLongitude, _selectedImage.Id);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnImageBoundsChangedFromJs(int imageId, double swLat, double swLng, double neLat, double neLng)
+    {
+        var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
+        if (img == null) return;
+        img.SwLatitude = swLat;
+        img.SwLongitude = swLng;
+        img.NeLatitude = neLat;
+        img.NeLongitude = neLng;
+        await FloorPlanSvc.UpdateFloorImageAsync(imageId, swLat, swLng, neLat, neLng);
+    }
+
+    private async Task DeleteSelectedImage()
+    {
+        if (_selectedImage == null) return;
+        var imageId = _selectedImage.Id;
+        await FloorPlanSvc.DeleteFloorImageAsync(imageId);
+        _selectedImageId = null;
+        _selectedImage = null;
+        if (_mode == "image-position")
+        {
+            _mode = "view";
+            await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        }
+        await LoadFloorImages();
+        await UpdateFloorOverlays();
+        StateHasChanged();
     }
 
     // ── AP markers (match Coverage Map) ──────────────────────────────
@@ -2033,6 +2255,7 @@
         _mode = _mode == "plan-aps" ? "view" : "plan-aps";
         _selectedCatalogModel = null;
         _selectedApForPlacement = null;
+        await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", _mode != "plan-aps");
         await UpdateApMarkers();
         await SetMapClickToPlaceMode(_mode == "plan-aps");
         if (_mode == "view") await UpdateBackgroundWalls();
@@ -2198,21 +2421,18 @@
         if (_mode == "walls")
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
-            // Default to exterior_residential for empty floors (saves a click when drawing the building outline)
-            // Otherwise reset to drywall (first material)
             _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
                 ? "exterior_residential"
                 : "drywall";
-            // Temporarily hide heatmap while drawing walls
             if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", false);
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
         }
         else
         {
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
-            // Re-render walls from DB state after exiting draw mode
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
             if (_selectedFloor != null) await UpdateWalls();
-            // Restore heatmap if it was on
             if (_showHeatmap) await ComputeHeatmap();
         }
         await UpdateApMarkers();
@@ -2876,6 +3096,8 @@
             _showAddBuilding = false;
         else if (_showAddFloor)
             _showAddFloor = false;
+        else if (_mode == "image-position")
+            await ToggleImagePositionMode();
         else if (_mode == "walls")
             await ToggleWallDrawMode();
         else if (_mode == "aps")
@@ -3037,6 +3259,21 @@
         public string? WallsJson { get; set; }
         public bool HasImage { get; set; }
         public string FloorMaterial { get; set; } = "floor_wood";
+    }
+
+    private class FloorImageDto
+    {
+        public int Id { get; set; }
+        public int FloorPlanId { get; set; }
+        public string Label { get; set; } = "";
+        public double SwLatitude { get; set; }
+        public double SwLongitude { get; set; }
+        public double NeLatitude { get; set; }
+        public double NeLongitude { get; set; }
+        public double Opacity { get; set; } = 0.7;
+        public double RotationDeg { get; set; }
+        public string? CropJson { get; set; }
+        public int SortOrder { get; set; }
     }
 
     private class WallShape

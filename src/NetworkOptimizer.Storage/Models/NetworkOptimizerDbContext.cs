@@ -31,6 +31,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<Building> Buildings { get; set; }
     public DbSet<FloorPlan> FloorPlans { get; set; }
     public DbSet<PlannedAp> PlannedAps { get; set; }
+    public DbSet<FloorPlanImage> FloorPlanImages { get; set; }
     public DbSet<ClientSignalLog> ClientSignalLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -178,6 +179,17 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("FloorPlans");
             entity.HasIndex(e => e.BuildingId);
+            entity.HasMany(e => e.Images)
+                .WithOne(e => e.FloorPlan)
+                .HasForeignKey(e => e.FloorPlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // FloorPlanImage configuration
+        modelBuilder.Entity<FloorPlanImage>(entity =>
+        {
+            entity.ToTable("FloorPlanImages");
+            entity.HasIndex(e => e.FloorPlanId);
         });
 
         // PlannedAp configuration
