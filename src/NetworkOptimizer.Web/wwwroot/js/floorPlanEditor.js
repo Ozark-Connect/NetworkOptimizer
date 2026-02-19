@@ -37,8 +37,9 @@ window.fpEditor = {
     _txPowerOverrides: {},
     _antennaModeOverrides: {},
     _disabledAps: {},
+    _disabledForPlanAps: {},
     _heatmapBand: '5',
-    _excludePlannedAps: false,
+    _excludePlannedAps: true,
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
@@ -218,6 +219,7 @@ window.fpEditor = {
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
         this._disabledAps = {};
+        this._disabledForPlanAps = {};
         var resolveReady;
         var readyPromise = new Promise(function (resolve) { resolveReady = resolve; });
 
@@ -495,7 +497,7 @@ window.fpEditor = {
                 html: '<div class="' + glowClass + '"></div>',
                 iconSize: [48, 48], iconAnchor: [24, 24]
             });
-            var isDisabled = !!self._disabledAps[ap.mac.toLowerCase()];
+            var isDisabled = self._isApEffectivelyDisabled(ap.mac.toLowerCase());
             var glowMarker = L.marker([ap.lat, ap.lng], {
                 icon: glowIcon, interactive: false, pane: 'apGlowPane',
                 opacity: isDisabled ? 0 : 1
@@ -647,17 +649,25 @@ window.fpEditor = {
                 }
             }
 
-            // Disable AP toggle button
+            // Disable AP toggle buttons (two modes)
             var disableApHtml = '';
             var macLower = ap.mac.toLowerCase();
+            var isSimDisabled = !!self._disabledAps[macLower];
+            var isPlanDisabled = !!self._disabledForPlanAps[macLower];
             var disableHeader = (txPowerHtml || antennaModeHtml) ? '' :
                 '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
             disableApHtml = disableHeader +
                 '<div class="fp-ap-popup-row" style="margin-top:4px">' +
-                '<button class="fp-disable-ap-btn' + (isDisabled ? ' active' : '') + '" ' +
-                'data-tooltip="Simulate removing this AP to test coverage with a replacement" data-tooltip-hover-only ' +
+                '<button class="fp-disable-ap-btn' + (isSimDisabled ? ' active' : '') + '" ' +
+                'data-tooltip="Simulate disabling this AP to see how coverage is affected" data-tooltip-hover-only ' +
                 'onclick="fpEditor._toggleDisableAp(\'' + esc(macLower) + '\')">' +
-                (isDisabled ? 'Enable AP' : 'Disable AP') +
+                (isSimDisabled ? 'Enable AP' : 'Disable AP') +
+                '</button></div>' +
+                '<div class="fp-ap-popup-row" style="margin-top:2px">' +
+                '<button class="fp-disable-ap-btn fp-disable-plan' + (isPlanDisabled ? ' active' : '') + '" ' +
+                'data-tooltip="Simulate removing this AP to test coverage with a replacement" data-tooltip-hover-only ' +
+                'onclick="fpEditor._toggleDisableForPlanAp(\'' + esc(macLower) + '\')">' +
+                (isPlanDisabled ? 'Enable AP (Plan)' : 'Disable AP (Plan)') +
                 '</button></div>';
 
             var safeMac = esc(ap.mac);
@@ -843,6 +853,12 @@ window.fpEditor = {
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
     },
 
+    _isApEffectivelyDisabled: function (macLower) {
+        if (this._disabledAps[macLower]) return true;
+        if (this._disabledForPlanAps[macLower] && !this._excludePlannedAps) return true;
+        return false;
+    },
+
     _toggleDisableAp: function (macLower) {
         if (this._disabledAps[macLower]) {
             delete this._disabledAps[macLower];
@@ -855,11 +871,23 @@ window.fpEditor = {
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
     },
 
+    _toggleDisableForPlanAp: function (macLower) {
+        if (this._disabledForPlanAps[macLower]) {
+            delete this._disabledForPlanAps[macLower];
+        } else {
+            this._disabledForPlanAps[macLower] = true;
+        }
+        this._updateResetSimBtn();
+        this.computeHeatmap();
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
+    },
+
     _updateResetSimBtn: function () {
         var btn = document.getElementById('fp-reset-sim-btn');
         var hasOverrides = Object.keys(this._txPowerOverrides).length > 0 ||
                            Object.keys(this._antennaModeOverrides).length > 0 ||
-                           Object.keys(this._disabledAps).length > 0;
+                           Object.keys(this._disabledAps).length > 0 ||
+                           Object.keys(this._disabledForPlanAps).length > 0;
         if (btn) btn.style.display = hasOverrides ? '' : 'none';
     },
 
@@ -867,6 +895,7 @@ window.fpEditor = {
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
         this._disabledAps = {};
+        this._disabledForPlanAps = {};
         this._updateResetSimBtn();
         this.computeHeatmap();
         // Rebuild markers to restore opacity
@@ -2265,6 +2294,11 @@ window.fpEditor = {
         }
         // Disabled APs to exclude from heatmap
         var disabledList = Object.keys(self._disabledAps);
+        if (!self._excludePlannedAps) {
+            Object.keys(self._disabledForPlanAps).forEach(function (mac) {
+                if (disabledList.indexOf(mac) === -1) disabledList.push(mac);
+            });
+        }
         if (disabledList.length > 0) {
             body.disabledMacs = disabledList;
         }

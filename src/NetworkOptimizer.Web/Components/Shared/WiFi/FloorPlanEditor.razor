@@ -1239,6 +1239,14 @@
     .fp-disable-ap-btn.active:hover {
         background: rgba(56, 189, 248, 0.2);
     }
+    .fp-disable-ap-btn.fp-disable-plan.active {
+        border-color: #f59e0b;
+        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.1);
+    }
+    .fp-disable-ap-btn.fp-disable-plan.active:hover {
+        background: rgba(245, 158, 11, 0.2);
+    }
 
     .fp-btn-reset-sim {
         background: transparent;
@@ -1341,7 +1349,7 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
-    private bool _showPlannedAps = true;
+    private bool _showPlannedAps;
     private bool _showSignalData;
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
@@ -2077,6 +2085,7 @@
             };
             await PlannedApSvc.CreateAsync(ap);
             await LoadPlannedAps();
+            _showPlannedAps = true;
             await InvokeAsync(async () =>
             {
                 StateHasChanged();
