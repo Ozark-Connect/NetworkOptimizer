@@ -496,7 +496,7 @@
     };
 
     // Chart downsampling: max points per series when time range > 4 hrs
-    private const int MaxChartPoints = 18;
+    private const int MaxChartPoints = 20;
 
     // WAN color palette
     private static readonly string[] WanColors = new[]
@@ -850,6 +850,47 @@
     }
 
     /// <summary>
+    /// Collapse dense clusters of similar values into representative points.
+    /// Keeps a point only if its value differs significantly from the last kept point.
+    /// Always preserves first, last, and direction-change points.
+    /// </summary>
+    private static List<WanChartDataPoint> CollapseClusters(List<WanChartDataPoint> data)
+    {
+        if (data.Count <= 3)
+            return data;
+
+        var range = (double)(data.Max(d => d.Value) - data.Min(d => d.Value));
+        if (range < 1) return data;
+        var threshold = range * 0.05; // 5% of range to count as "different"
+
+        var result = new List<WanChartDataPoint> { data[0] };
+
+        for (int i = 1; i < data.Count - 1; i++)
+        {
+            var lastKeptValue = (double)result[^1].Value;
+            var curr = (double)data[i].Value;
+            var next = (double)data[i + 1].Value;
+
+            // Always keep if value changed significantly from last kept point
+            if (Math.Abs(curr - lastKeptValue) > threshold)
+            {
+                result.Add(data[i]);
+                continue;
+            }
+
+            // Keep if direction changes (even small) to preserve shape at transitions
+            var prev = (double)data[i - 1].Value;
+            bool rising = curr > prev;
+            bool nextRising = next > curr;
+            if (rising != nextRising && Math.Abs(curr - prev) > threshold * 0.5)
+                result.Add(data[i]);
+        }
+
+        result.Add(data[^1]);
+        return result;
+    }
+
+    /// <summary>
     /// Largest-Triangle-Three-Buckets downsampling. Selects real data points
     /// that best preserve the visual shape of the time series.
     /// Data must be sorted by Timestamp ascending.
@@ -957,8 +998,8 @@
                 .OrderBy(p => p.Timestamp)
                 .ToList();
 
-            wan.DownloadData = shouldDownsample ? DownsampleLttb(downloadRaw, MaxChartPoints) : downloadRaw;
-            wan.UploadData = shouldDownsample ? DownsampleLttb(uploadRaw, MaxChartPoints) : uploadRaw;
+            wan.DownloadData = shouldDownsample ? DownsampleLttb(CollapseClusters(downloadRaw), MaxChartPoints) : downloadRaw;
+            wan.UploadData = shouldDownsample ? DownsampleLttb(CollapseClusters(uploadRaw), MaxChartPoints) : uploadRaw;
         }
     }
 
