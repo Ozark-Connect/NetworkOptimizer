@@ -495,6 +495,9 @@
         (0, "All time")      // 10
     };
 
+    // Chart downsampling: max points per series when time range > 4 hrs
+    private const int MaxChartPoints = 150;
+
     // WAN color palette
     private static readonly string[] WanColors = new[]
     {
@@ -846,6 +849,82 @@
         return _testHistory.Where(r => r.TestTime >= cutoff).ToList();
     }
 
+    /// <summary>
+    /// Largest-Triangle-Three-Buckets downsampling. Selects real data points
+    /// that best preserve the visual shape of the time series.
+    /// Data must be sorted by Timestamp ascending.
+    /// </summary>
+    private static List<WanChartDataPoint> DownsampleLttb(List<WanChartDataPoint> data, int targetCount)
+    {
+        if (data.Count <= targetCount || targetCount < 3)
+            return data;
+
+        var result = new List<WanChartDataPoint>(targetCount);
+        result.Add(data[0]); // Always keep first point
+
+        double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
+        int prevSelectedIndex = 0;
+
+        for (int bucket = 0; bucket < targetCount - 2; bucket++)
+        {
+            // Current bucket range
+            int currStart = (int)Math.Floor(bucket * bucketSize) + 1;
+            int currEnd = (int)Math.Floor((bucket + 1) * bucketSize) + 1;
+            currEnd = Math.Min(currEnd, data.Count - 1);
+
+            // Calculate average point of next bucket (for triangle area)
+            double avgX, avgY;
+            if (bucket == targetCount - 3)
+            {
+                // Last bucket: "next" is the final data point
+                avgX = data[^1].X;
+                avgY = (double)data[^1].Value;
+            }
+            else
+            {
+                int nextStart = currEnd;
+                int nextEnd = (int)Math.Floor((bucket + 2) * bucketSize) + 1;
+                nextEnd = Math.Min(nextEnd, data.Count - 1);
+
+                avgX = 0; avgY = 0;
+                int count = 0;
+                for (int j = nextStart; j < nextEnd; j++)
+                {
+                    avgX += data[j].X;
+                    avgY += (double)data[j].Value;
+                    count++;
+                }
+                if (count > 0) { avgX /= count; avgY /= count; }
+                else { avgX = data[nextStart].X; avgY = (double)data[nextStart].Value; }
+            }
+
+            // Find point in current bucket with largest triangle area
+            double maxArea = -1;
+            int bestIndex = currStart;
+            double prevX = data[prevSelectedIndex].X;
+            double prevY = (double)data[prevSelectedIndex].Value;
+
+            for (int j = currStart; j < currEnd; j++)
+            {
+                double area = Math.Abs(
+                    (prevX - avgX) * ((double)data[j].Value - prevY) -
+                    (prevX - data[j].X) * (avgY - prevY)
+                );
+                if (area > maxArea)
+                {
+                    maxArea = area;
+                    bestIndex = j;
+                }
+            }
+
+            result.Add(data[bestIndex]);
+            prevSelectedIndex = bestIndex;
+        }
+
+        result.Add(data[^1]); // Always keep last point
+        return result;
+    }
+
     private void ApplyFilters()
     {
         var timeFiltered = GetTimeFilteredResults();
@@ -866,16 +945,24 @@
                 .ToList();
 
         // Update chart data for the active time window
+        var clampedIndex = Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1);
+        var shouldDownsample = TimeBreakpoints[clampedIndex].hours is 0 or > 4;
+
         foreach (var wan in _wanSeries)
         {
-            wan.DownloadData = timeFiltered
+            var downloadRaw = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
                 .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
+                .OrderBy(p => p.Timestamp)
                 .ToList();
-            wan.UploadData = timeFiltered
+            var uploadRaw = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
                 .Select(r => new WanChartDataPoint(r.TestTime, r.UploadMbps, r.Id))
+                .OrderBy(p => p.Timestamp)
                 .ToList();
+
+            wan.DownloadData = shouldDownsample ? DownsampleLttb(downloadRaw, MaxChartPoints) : downloadRaw;
+            wan.UploadData = shouldDownsample ? DownsampleLttb(uploadRaw, MaxChartPoints) : uploadRaw;
         }
     }
 
