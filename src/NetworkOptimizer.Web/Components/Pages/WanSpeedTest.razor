@@ -861,7 +861,7 @@
 
         var range = (double)(data.Max(d => d.Value) - data.Min(d => d.Value));
         if (range < 1) return data;
-        var threshold = range * 0.05; // 5% of range to count as "different"
+        var threshold = range * 0.15; // 15% of range to count as "different"
 
         var result = new List<WanChartDataPoint> { data[0] };
 
