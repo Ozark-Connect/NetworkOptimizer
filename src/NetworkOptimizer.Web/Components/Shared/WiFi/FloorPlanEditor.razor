@@ -2007,6 +2007,7 @@
     {
         await PlannedApSvc.DeleteAsync(plannedId);
         await LoadPlannedAps();
+        if (_plannedAps.Count == 0) _showPlannedAps = false;
         await InvokeAsync(async () =>
         {
             StateHasChanged();
