@@ -509,7 +509,8 @@ window.fpEditor = {
                 var el = this.getElement();
                 if (!el) return;
                 if (this._rotationDeg) {
-                    el.style.transform += ' rotate(' + this._rotationDeg + 'deg)';
+                    // translate to center, rotate, translate back - rotates around image center
+                    el.style.transform += ' translate(50%, 50%) rotate(' + this._rotationDeg + 'deg) translate(-50%, -50%)';
                 }
                 if (this._crop) {
                     el.style.clipPath = 'inset(' + (this._crop.top || 0) + '% ' + (this._crop.right || 0) + '% ' +

@@ -346,7 +346,7 @@
                 <div class="fp-opacity-control">
                     <span>Rotation:</span>
                     <input type="range" min="0" max="360" step="1" value="@((int)(_selectedImage?.RotationDeg ?? 0))"
-                           @oninput="OnImageRotationInput" @onchange="OnImageRotationChange" class="fp-opacity-slider" />
+                           @oninput="OnImageRotationChange" class="fp-opacity-slider" />
                     <span class="fp-rotation-value">@((int)(_selectedImage?.RotationDeg ?? 0))°</span>
                 </div>
                 <button class="fp-btn @(_showCropControls ? "fp-btn-active" : "")" @onclick="() => _showCropControls = !_showCropControls">Crop</button>
@@ -372,7 +372,7 @@
                     <div class="fp-crop-slider">
                         <span>@side.Item1:</span>
                         <input type="range" min="0" max="50" step="1" value="@side.Item2"
-                               @oninput="e => OnCropInput(side.Item1, e)" @onchange="OnCropChange" class="fp-opacity-slider" />
+                               @oninput="e => OnCropChange(side.Item1, e)" class="fp-opacity-slider" />
                         <span>@side.Item2%</span>
                     </div>
                 }
@@ -1013,7 +1013,7 @@
     /* Chip stack (bottom-left of map) */
     .fp-chip-stack {
         position: absolute;
-        bottom: 10px;
+        bottom: 45px;
         left: 10px;
         z-index: 1000;
         display: flex;
@@ -1935,27 +1935,18 @@
         }
     }
 
-    private async Task OnImageRotationInput(ChangeEventArgs e)
-    {
-        if (_selectedImage == null) return;
-        if (int.TryParse(e.Value?.ToString(), out var deg))
-        {
-            _selectedImage.RotationDeg = deg;
-            await JS.InvokeVoidAsync("fpEditor.setImageRotation", _selectedImage.Id, deg);
-        }
-    }
-
     private async Task OnImageRotationChange(ChangeEventArgs e)
     {
         if (_selectedImage == null) return;
         if (int.TryParse(e.Value?.ToString(), out var deg))
         {
             _selectedImage.RotationDeg = deg;
+            await JS.InvokeVoidAsync("fpEditor.setImageRotation", _selectedImage.Id, deg);
             await FloorPlanSvc.UpdateFloorImageAsync(_selectedImage.Id, rotationDeg: (double)deg);
         }
     }
 
-    private async Task OnCropInput(string side, ChangeEventArgs e)
+    private async Task OnCropChange(string side, ChangeEventArgs e)
     {
         if (_selectedImage == null) return;
         if (!int.TryParse(e.Value?.ToString(), out var val)) return;
@@ -1967,11 +1958,6 @@
             case "Left": _cropLeft = val; break;
         }
         await JS.InvokeVoidAsync("fpEditor.setImageCrop", _selectedImage.Id, _cropTop, _cropRight, _cropBottom, _cropLeft);
-    }
-
-    private async Task OnCropChange(ChangeEventArgs e)
-    {
-        if (_selectedImage == null) return;
         var json = System.Text.Json.JsonSerializer.Serialize(new { top = _cropTop, right = _cropRight, bottom = _cropBottom, left = _cropLeft });
         _selectedImage.CropJson = json;
         await FloorPlanSvc.UpdateFloorImageAsync(_selectedImage.Id, cropJson: json);
