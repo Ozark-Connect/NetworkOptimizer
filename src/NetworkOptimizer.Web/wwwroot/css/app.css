@@ -2336,6 +2336,11 @@ select.form-control {
         transform: none;
     }
 
+    .card-header-collapsible .card-header-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
     /* Filter tabs mobile - wrap below title, compact sizing */
     .filter-tabs {
         width: 100%;
