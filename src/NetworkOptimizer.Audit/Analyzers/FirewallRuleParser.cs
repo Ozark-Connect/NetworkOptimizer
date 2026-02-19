@@ -407,6 +407,10 @@ public class FirewallRuleParser
                 ? srcNetProp.GetString()
                 : null;
 
+        var srcNetworkConfId = rule.TryGetProperty("src_networkconf_id", out var srcNetConfProp)
+            ? srcNetConfProp.GetString()
+            : null;
+
         var sourcePort = rule.TryGetProperty("src_port", out var srcPortProp)
             ? srcPortProp.GetString()
             : null;
@@ -422,35 +426,86 @@ public class FirewallRuleParser
                 ? dstNetProp.GetString()
                 : null;
 
+        var dstNetworkConfId = rule.TryGetProperty("dst_networkconf_id", out var dstNetConfProp)
+            ? dstNetConfProp.GetString()
+            : null;
+
         var destinationPort = rule.TryGetProperty("dst_port", out var dstPortProp)
             ? dstPortProp.GetString()
             : null;
 
-        // Legacy rules may use dst_firewallgroup_ids for port groups instead of dst_port
-        // Resolve port groups if dst_port is empty and dst_firewallgroup_ids exists
-        if (string.IsNullOrEmpty(destinationPort) &&
-            rule.TryGetProperty("dst_firewallgroup_ids", out var dstGroupIds) &&
+        // Legacy rules may use dst_firewallgroup_ids for port groups and/or address groups
+        List<string>? destIps = null;
+        if (rule.TryGetProperty("dst_firewallgroup_ids", out var dstGroupIds) &&
             dstGroupIds.ValueKind == JsonValueKind.Array)
         {
             var resolvedPorts = new List<string>();
+            var resolvedIps = new List<string>();
             foreach (var groupIdElement in dstGroupIds.EnumerateArray())
             {
                 var groupId = groupIdElement.GetString();
                 if (!string.IsNullOrEmpty(groupId))
                 {
-                    var resolved = ResolvePortGroup(groupId);
-                    if (!string.IsNullOrEmpty(resolved))
+                    var resolvedPort = ResolvePortGroup(groupId);
+                    if (!string.IsNullOrEmpty(resolvedPort))
                     {
-                        resolvedPorts.Add(resolved);
+                        resolvedPorts.Add(resolvedPort);
+                    }
+
+                    var resolvedAddresses = ResolveAddressGroup(groupId);
+                    if (resolvedAddresses is { Count: > 0 })
+                    {
+                        resolvedIps.AddRange(resolvedAddresses);
                     }
                 }
             }
 
-            if (resolvedPorts.Count > 0)
+            if (resolvedPorts.Count > 0 && string.IsNullOrEmpty(destinationPort))
             {
                 destinationPort = string.Join(",", resolvedPorts);
                 _logger.LogDebug("Resolved legacy rule destination ports from firewall groups: {Ports}", destinationPort);
             }
+
+            if (resolvedIps.Count > 0)
+            {
+                destIps = resolvedIps;
+            }
+        }
+
+        // Legacy rules may use src_firewallgroup_ids for address groups
+        List<string>? sourceIps = null;
+        if (rule.TryGetProperty("src_firewallgroup_ids", out var srcGroupIds) &&
+            srcGroupIds.ValueKind == JsonValueKind.Array)
+        {
+            var resolvedIps = new List<string>();
+            foreach (var groupIdElement in srcGroupIds.EnumerateArray())
+            {
+                var groupId = groupIdElement.GetString();
+                if (!string.IsNullOrEmpty(groupId))
+                {
+                    var resolvedAddresses = ResolveAddressGroup(groupId);
+                    if (resolvedAddresses is { Count: > 0 })
+                    {
+                        resolvedIps.AddRange(resolvedAddresses);
+                    }
+                }
+            }
+
+            if (resolvedIps.Count > 0)
+            {
+                sourceIps = resolvedIps;
+            }
+        }
+
+        // Handle direct IPs in src_address and dst_address
+        if (sourceIps == null && !string.IsNullOrEmpty(source) && source.Contains('.'))
+        {
+            sourceIps = new List<string> { source };
+        }
+
+        if (destIps == null && !string.IsNullOrEmpty(destination) && destination.Contains('.'))
+        {
+            destIps = new List<string> { destination };
         }
 
         // Statistics
@@ -474,10 +529,25 @@ public class FirewallRuleParser
                     .ToList();
             }
         }
-        // Fallback to flat format
-        if (sourceNetworkIds == null && !string.IsNullOrEmpty(source))
+        // Fallback to flat format using src_networkconf_id, then src_network_id
+        if (sourceNetworkIds == null)
         {
-            sourceNetworkIds = new List<string> { source };
+            if (!string.IsNullOrEmpty(srcNetworkConfId))
+            {
+                sourceNetworkIds = new List<string> { srcNetworkConfId };
+            }
+            else if (!string.IsNullOrEmpty(source) && !source.Contains('.'))
+            {
+                // source is from src_network_id (not an IP address from src_address)
+                sourceNetworkIds = new List<string> { source };
+            }
+        }
+
+        // Extract destination network IDs from dst_networkconf_id
+        List<string>? destinationNetworkIds = null;
+        if (!string.IsNullOrEmpty(dstNetworkConfId))
+        {
+            destinationNetworkIds = new List<string> { dstNetworkConfId };
         }
 
         // Extract web domains (from nested destination object)
@@ -495,6 +565,19 @@ public class FirewallRuleParser
 
         // Map legacy ruleset to zone IDs for compatibility with zone-based analysis
         var (sourceZoneId, destZoneId) = MapRulesetToZones(ruleset);
+
+        // Determine matching targets based on resolved fields
+        string? sourceMatchingTarget = null;
+        if (sourceIps is { Count: > 0 })
+            sourceMatchingTarget = "IP";
+        else if (sourceNetworkIds is { Count: > 0 })
+            sourceMatchingTarget = "NETWORK";
+
+        string? destMatchingTarget = null;
+        if (destIps is { Count: > 0 })
+            destMatchingTarget = "IP";
+        else if (destinationNetworkIds is { Count: > 0 })
+            destMatchingTarget = "NETWORK";
 
         return new FirewallRule
         {
@@ -514,6 +597,11 @@ public class FirewallRuleParser
             HitCount = hitCount,
             Ruleset = ruleset,
             SourceNetworkIds = sourceNetworkIds,
+            SourceMatchingTarget = sourceMatchingTarget,
+            SourceIps = sourceIps,
+            DestinationNetworkIds = destinationNetworkIds,
+            DestinationMatchingTarget = destMatchingTarget,
+            DestinationIps = destIps,
             WebDomains = webDomains,
             // Zone IDs derived from ruleset for compatibility with zone-based analysis
             SourceZoneId = sourceZoneId,
