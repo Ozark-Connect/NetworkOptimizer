@@ -492,7 +492,7 @@ window.fpEditor = {
                 interactive: true,
                 pane: 'fpOverlayPane',
                 className: 'fp-image-overlay'
-            }).addTo(m);
+            });
 
             // Store rotation/crop state on the overlay instance
             overlay._rotationDeg = img.rotationDeg || 0;
@@ -502,14 +502,13 @@ window.fpEditor = {
                 catch (e) { /* invalid crop JSON */ }
             }
 
-            // Monkey-patch _reset to apply rotation and crop after Leaflet positions the element
+            // Monkey-patch _reset BEFORE addTo so Leaflet's initial _reset uses our version
             var origReset = overlay._reset.bind(overlay);
             overlay._reset = function () {
                 origReset();
                 var el = this.getElement();
                 if (!el) return;
                 if (this._rotationDeg) {
-                    // translate to center, rotate, translate back - rotates around image center
                     el.style.transform += ' translate(50%, 50%) rotate(' + this._rotationDeg + 'deg) translate(-50%, -50%)';
                 }
                 if (this._crop) {
@@ -519,8 +518,11 @@ window.fpEditor = {
                     el.style.clipPath = '';
                 }
             };
-            // Apply immediately if element exists
-            if (overlay.getElement()) overlay._reset();
+
+            // Now add to map - Leaflet's _reset will use our patched version
+            overlay.addTo(m);
+            // Also re-apply when image finishes loading (triggers another _reset)
+            overlay.once('load', function () { overlay._reset(); });
 
             overlay.on('click', function () {
                 if (self._dotNetRef) {
@@ -2487,54 +2489,70 @@ window.fpEditor = {
 
         // ── Drag overlay body to move ──
         if (targetOverlay) {
-            var overlayEl = targetOverlay.getElement();
-            if (overlayEl) {
-                overlayEl.style.cursor = 'move';
-                this._positionDragState = null;
+            self._positionDragState = null;
 
-                this._positionMouseDown = function (e) {
-                    // Only start move on left-click directly on the overlay (not on corner handles)
-                    if (e.button !== 0) return;
-                    e.stopPropagation();
-                    e.preventDefault();
-                    var startPx = m.mouseEventToContainerPoint(e);
-                    self._positionDragState = { startPx: startPx, startSw: swM.getLatLng(), startNe: neM.getLatLng(),
-                        startNw: nwM.getLatLng(), startSe: seM.getLatLng() };
-                    m.dragging.disable();
-                };
+            self._positionMouseDown = function (e) {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                e.preventDefault();
+                var startPx = m.mouseEventToContainerPoint(e);
+                self._positionDragState = { startPx: startPx, startSw: swM.getLatLng(), startNe: neM.getLatLng(),
+                    startNw: nwM.getLatLng(), startSe: seM.getLatLng() };
+                m.dragging.disable();
+            };
 
-                this._positionMouseMove = function (e) {
-                    if (!self._positionDragState) return;
-                    var ds = self._positionDragState;
-                    var curPx = m.mouseEventToContainerPoint(e);
-                    var startLL = m.containerPointToLatLng(ds.startPx);
-                    var curLL = m.containerPointToLatLng(curPx);
-                    var dLat = curLL.lat - startLL.lat;
-                    var dLng = curLL.lng - startLL.lng;
+            self._positionMouseMove = function (e) {
+                if (!self._positionDragState) return;
+                var ds = self._positionDragState;
+                var curPx = m.mouseEventToContainerPoint(e);
+                var startLL = m.containerPointToLatLng(ds.startPx);
+                var curLL = m.containerPointToLatLng(curPx);
+                var dLat = curLL.lat - startLL.lat;
+                var dLng = curLL.lng - startLL.lng;
 
-                    var newSw = L.latLng(ds.startSw.lat + dLat, ds.startSw.lng + dLng);
-                    var newNe = L.latLng(ds.startNe.lat + dLat, ds.startNe.lng + dLng);
-                    var newNw = L.latLng(ds.startNw.lat + dLat, ds.startNw.lng + dLng);
-                    var newSe = L.latLng(ds.startSe.lat + dLat, ds.startSe.lng + dLng);
+                var newSw = L.latLng(ds.startSw.lat + dLat, ds.startSw.lng + dLng);
+                var newNe = L.latLng(ds.startNe.lat + dLat, ds.startNe.lng + dLng);
+                var newNw = L.latLng(ds.startNw.lat + dLat, ds.startNw.lng + dLng);
+                var newSe = L.latLng(ds.startSe.lat + dLat, ds.startSe.lng + dLng);
 
-                    swM.setLatLng(newSw);
-                    neM.setLatLng(newNe);
-                    nwM.setLatLng(newNw);
-                    seM.setLatLng(newSe);
-                    if (targetOverlay) targetOverlay.setBounds([newSw, newNe]);
-                };
+                swM.setLatLng(newSw);
+                neM.setLatLng(newNe);
+                nwM.setLatLng(newNw);
+                seM.setLatLng(newSe);
+                targetOverlay.setBounds([newSw, newNe]);
+            };
 
-                this._positionMouseUp = function (e) {
-                    if (!self._positionDragState) return;
-                    self._positionDragState = null;
-                    m.dragging.enable();
-                    save();
-                };
+            self._positionMouseUp = function (e) {
+                if (!self._positionDragState) return;
+                self._positionDragState = null;
+                m.dragging.enable();
+                save();
+            };
 
-                overlayEl.addEventListener('mousedown', this._positionMouseDown);
-                document.addEventListener('mousemove', this._positionMouseMove);
-                document.addEventListener('mouseup', this._positionMouseUp);
+            document.addEventListener('mousemove', self._positionMouseMove);
+            document.addEventListener('mouseup', self._positionMouseUp);
+
+            // Re-enable pointer events on the target overlay and attach drag handler
+            // (setOverlaysInteractive(false) may have disabled them)
+            function attachDragToOverlay() {
+                var el = targetOverlay.getElement();
+                if (el) {
+                    el.style.pointerEvents = 'auto';
+                    el.style.cursor = 'move';
+                    el.addEventListener('mousedown', self._positionMouseDown);
+                } else {
+                    // Image may not have loaded yet - retry once it does
+                    targetOverlay.once('load', function () {
+                        var el2 = targetOverlay.getElement();
+                        if (el2) {
+                            el2.style.pointerEvents = 'auto';
+                            el2.style.cursor = 'move';
+                            el2.addEventListener('mousedown', self._positionMouseDown);
+                        }
+                    });
+                }
             }
+            attachDragToOverlay();
         }
     },
 
