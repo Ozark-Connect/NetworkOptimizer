@@ -525,6 +525,8 @@ window.fpEditor = {
             overlay.once('load', function () { overlay._reset(); });
 
             overlay.on('click', function () {
+                // Don't fire selection when in position mode (drag-to-move triggers click)
+                if (self._corners) return;
                 if (self._dotNetRef) {
                     self._dotNetRef.invokeMethodAsync('OnImageSelectedFromJs', img.id);
                 }
@@ -2563,7 +2565,16 @@ window.fpEditor = {
             this._corners.forEach(function (c) { m.removeLayer(c); });
             this._corners = null;
         }
-        // Clean up drag-to-move listeners
+        // Clean up drag-to-move listeners and reset cursor
+        if (this._positionMouseDown) {
+            this._overlays.forEach(function (o) {
+                var el = o.overlay.getElement();
+                if (el) {
+                    el.removeEventListener('mousedown', this._positionMouseDown);
+                    el.style.cursor = '';
+                }
+            }.bind(this));
+        }
         if (this._positionMouseMove) {
             document.removeEventListener('mousemove', this._positionMouseMove);
             this._positionMouseMove = null;
