@@ -996,8 +996,19 @@
                 .OrderBy(p => p.Timestamp)
                 .ToList();
 
-            wan.DownloadData = shouldDownsample ? DownsampleLttb(CollapseClusters(downloadRaw), MaxChartPoints) : downloadRaw;
-            wan.UploadData = shouldDownsample ? DownsampleLttb(CollapseClusters(uploadRaw), MaxChartPoints) : uploadRaw;
+            if (shouldDownsample)
+            {
+                // Downsample download, then sync upload to the same timestamps
+                // so shared tooltips can pair both values at each point
+                wan.DownloadData = DownsampleLttb(CollapseClusters(downloadRaw), MaxChartPoints);
+                var keptResultIds = wan.DownloadData.Select(d => d.ResultId).ToHashSet();
+                wan.UploadData = uploadRaw.Where(u => keptResultIds.Contains(u.ResultId)).ToList();
+            }
+            else
+            {
+                wan.DownloadData = downloadRaw;
+                wan.UploadData = uploadRaw;
+            }
         }
     }
 
