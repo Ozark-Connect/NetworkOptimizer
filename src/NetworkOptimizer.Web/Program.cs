@@ -992,7 +992,8 @@ app.MapGet("/api/floor-plan/floors/{id:int}/image", async (int id, FloorPlanServ
     if (floor == null) return Results.NotFound();
     var imagePath = svc.GetFloorImagePath(floor);
     if (imagePath == null) return Results.NotFound();
-    return Results.File(imagePath, "image/png");
+    var mimeType = DetectImageMimeType(imagePath);
+    return Results.File(imagePath, mimeType);
 });
 
 app.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext context, FloorPlanService svc) =>
@@ -1049,7 +1050,8 @@ app.MapGet("/api/floor-plan/images/{imageId:int}/file", async (int imageId, Floo
     if (image == null) return Results.NotFound();
     var filePath = svc.GetFloorImageFilePath(image);
     if (filePath == null) return Results.NotFound();
-    return Results.File(filePath, "image/png");
+    var mimeType = DetectImageMimeType(filePath);
+    return Results.File(filePath, mimeType);
 });
 
 app.MapPut("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorImageUpdateRequest req, FloorPlanService svc) =>
@@ -1429,6 +1431,39 @@ static string GetClientIp(HttpContext context)
         clientIp = forwardedFor.Split(',')[0].Trim();
     }
     return clientIp;
+}
+
+static string DetectImageMimeType(string filePath)
+{
+    try
+    {
+        var header = new byte[12];
+        using var fs = File.OpenRead(filePath);
+        var bytesRead = fs.Read(header, 0, header.Length);
+        if (bytesRead >= 4)
+        {
+            // PNG: 89 50 4E 47
+            if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+                return "image/png";
+            // JPEG: FF D8 FF
+            if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
+                return "image/jpeg";
+            // WebP: RIFF + 4 byte size + WEBP
+            if (bytesRead >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+                && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
+                return "image/webp";
+        }
+    }
+    catch { /* fall through */ }
+
+    // Fallback by extension
+    var ext = Path.GetExtension(filePath).ToLowerInvariant();
+    return ext switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".webp" => "image/webp",
+        _ => "image/png"
+    };
 }
 
 // Request DTO for UPnP notes

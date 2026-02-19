@@ -492,6 +492,33 @@ window.fpEditor = {
                 className: 'fp-image-overlay'
             }).addTo(m);
 
+            // Store rotation/crop state on the overlay instance
+            overlay._rotationDeg = img.rotationDeg || 0;
+            overlay._crop = null;
+            if (img.cropJson) {
+                try { overlay._crop = typeof img.cropJson === 'string' ? JSON.parse(img.cropJson) : img.cropJson; }
+                catch (e) { /* invalid crop JSON */ }
+            }
+
+            // Monkey-patch _reset to apply rotation and crop after Leaflet positions the element
+            var origReset = overlay._reset.bind(overlay);
+            overlay._reset = function () {
+                origReset();
+                var el = this.getElement();
+                if (!el) return;
+                if (this._rotationDeg) {
+                    el.style.transform += ' rotate(' + this._rotationDeg + 'deg)';
+                }
+                if (this._crop) {
+                    el.style.clipPath = 'inset(' + (this._crop.top || 0) + '% ' + (this._crop.right || 0) + '% ' +
+                        (this._crop.bottom || 0) + '% ' + (this._crop.left || 0) + '%)';
+                } else {
+                    el.style.clipPath = '';
+                }
+            };
+            // Apply immediately if element exists
+            if (overlay.getElement()) overlay._reset();
+
             overlay.on('click', function () {
                 if (self._dotNetRef) {
                     self._dotNetRef.invokeMethodAsync('OnImageSelectedFromJs', img.id);
@@ -500,6 +527,20 @@ window.fpEditor = {
 
             self._overlays.push({ id: img.id, overlay: overlay });
         });
+    },
+
+    setImageRotation: function (imageId, deg) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        if (!entry) return;
+        entry.overlay._rotationDeg = deg;
+        entry.overlay._reset();
+    },
+
+    setImageCrop: function (imageId, top, right, bottom, left) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        if (!entry) return;
+        entry.overlay._crop = { top: top, right: right, bottom: bottom, left: left };
+        entry.overlay._reset();
     },
 
     selectOverlay: function (imageId) {
@@ -543,6 +584,86 @@ window.fpEditor = {
     _getOverlay: function (imageId) {
         var entry = this._overlays.find(function (o) { return o.id === imageId; });
         return entry ? entry.overlay : null;
+    },
+
+    // ── Underlay Upload (HEIC/PDF conversion) ────────────────────────
+
+    uploadUnderlay: function (floorId, swLat, swLng, neLat, neLng) {
+        var self = this;
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*,.pdf,.heic,.heif';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+
+        input.addEventListener('change', async function () {
+            var file = input.files && input.files[0];
+            document.body.removeChild(input);
+            if (!file) return;
+
+            try {
+                var blob = await self._convertToImage(file);
+                var formData = new FormData();
+                formData.append('image', blob, 'underlay.png');
+                formData.append('swLat', swLat.toString());
+                formData.append('swLng', swLng.toString());
+                formData.append('neLat', neLat.toString());
+                formData.append('neLng', neLng.toString());
+
+                var resp = await fetch('/api/floor-plan/floors/' + floorId + '/images', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!resp.ok) throw new Error('Upload failed: ' + resp.status);
+                var result = await resp.json();
+                if (self._dotNetRef) {
+                    self._dotNetRef.invokeMethodAsync('OnUnderlayUploadedFromJs', result.id);
+                }
+            } catch (err) {
+                console.error('Underlay upload error:', err);
+            }
+        });
+
+        input.click();
+    },
+
+    _convertToImage: async function (file) {
+        var name = file.name.toLowerCase();
+        var type = file.type.toLowerCase();
+
+        // HEIC/HEIF: convert to PNG via heic2any
+        if (type === 'image/heic' || type === 'image/heif' ||
+            name.endsWith('.heic') || name.endsWith('.heif')) {
+            if (typeof heic2any === 'undefined') {
+                throw new Error('heic2any library not loaded');
+            }
+            var result = await heic2any({ blob: file, toType: 'image/png', quality: 0.92 });
+            // heic2any may return an array for multi-frame HEIC; take first
+            return Array.isArray(result) ? result[0] : result;
+        }
+
+        // PDF: render page 1 to canvas via pdf.js
+        if (type === 'application/pdf' || name.endsWith('.pdf')) {
+            var pdfjsLib = await import('/lib/pdf.min.mjs');
+            pdfjsLib.GlobalWorkerOptions.workerSrc = '/lib/pdf.worker.min.mjs';
+            var arrayBuf = await file.arrayBuffer();
+            var pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+            var page = await pdf.getPage(1);
+            // Render at 2x scale for good resolution
+            var scale = 2;
+            var viewport = page.getViewport({ scale: scale });
+            var canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            var ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+            return new Promise(function (resolve) {
+                canvas.toBlob(function (blob) { resolve(blob); }, 'image/png');
+            });
+        }
+
+        // Other images (JPEG, PNG, WebP, etc.): pass through
+        return file;
     },
 
     // ── AP Markers ───────────────────────────────────────────────────
@@ -2197,16 +2318,14 @@ window.fpEditor = {
         if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
     },
 
-    // ── Position Mode ────────────────────────────────────────────────
+    // ── Position Mode (4-corner resize + drag-to-move) ─────────────
 
     enterPositionMode: function (swLat, swLng, neLat, neLng, imageId) {
         var m = this._map;
         if (!m) return;
         var self = this;
 
-        if (this._corners) {
-            this._corners.forEach(function (c) { m.removeLayer(c); });
-        }
+        this.exitPositionMode();
 
         // Use provided bounds (from C#) so position mode works even without a floor plan image
         var sw, ne;
@@ -2224,16 +2343,100 @@ window.fpEditor = {
         // Find the target overlay (multi-image or legacy single)
         var targetOverlay = imageId ? self._getOverlay(imageId) : self._overlay;
 
-        var ci = L.divIcon({ className: 'fp-corner-handle', iconSize: [14, 14], iconAnchor: [7, 7] });
-        var swM = L.marker(sw, { icon: ci, draggable: true }).addTo(m);
-        var neM = L.marker(ne, { icon: ci, draggable: true }).addTo(m);
-        this._corners = [swM, neM];
+        // Corner cursors for resize handles
+        var cursorMap = { sw: 'nesw-resize', ne: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize' };
 
-        function upd() {
-            if (targetOverlay) targetOverlay.setBounds([swM.getLatLng(), neM.getLatLng()]);
+        function makeHandle(latlng, corner) {
+            var icon = L.divIcon({
+                className: 'fp-corner-handle fp-corner-' + corner,
+                iconSize: [12, 12],
+                iconAnchor: [6, 6]
+            });
+            return L.marker(latlng, { icon: icon, draggable: true }).addTo(m);
         }
-        swM.on('drag', upd);
-        neM.on('drag', upd);
+
+        var swM = makeHandle(sw, 'sw');
+        var neM = makeHandle(ne, 'ne');
+        var nwM = makeHandle(L.latLng(ne.lat, sw.lng), 'nw');
+        var seM = makeHandle(L.latLng(sw.lat, ne.lng), 'se');
+        this._corners = [swM, neM, nwM, seM];
+
+        // Set cursor on marker elements once they render
+        setTimeout(function () {
+            [swM, neM, nwM, seM].forEach(function (marker, i) {
+                var el = marker.getElement();
+                if (el) el.style.cursor = ['nesw-resize', 'nesw-resize', 'nwse-resize', 'nwse-resize'][i];
+            });
+        }, 50);
+
+        function syncOverlayAndHandles(anchorCorner) {
+            // anchorCorner: 'sw' means SW was dragged, so NE is fixed, etc.
+            var sPos = swM.getLatLng(), nPos = neM.getLatLng();
+            var nwPos = nwM.getLatLng(), sePos = seM.getLatLng();
+
+            var newSw, newNe;
+            if (anchorCorner === 'sw') {
+                newSw = sPos;
+                newNe = nPos;
+                nwM.setLatLng(L.latLng(nPos.lat, sPos.lng));
+                seM.setLatLng(L.latLng(sPos.lat, nPos.lng));
+            } else if (anchorCorner === 'ne') {
+                newSw = sPos;
+                newNe = nPos;
+                nwM.setLatLng(L.latLng(nPos.lat, sPos.lng));
+                seM.setLatLng(L.latLng(sPos.lat, nPos.lng));
+            } else if (anchorCorner === 'nw') {
+                newSw = L.latLng(sePos.lat, nwPos.lng);
+                newNe = L.latLng(nwPos.lat, sePos.lng);
+                swM.setLatLng(newSw);
+                neM.setLatLng(newNe);
+            } else if (anchorCorner === 'se') {
+                newSw = L.latLng(sePos.lat, nwPos.lng);
+                newNe = L.latLng(nwPos.lat, sePos.lng);
+                swM.setLatLng(newSw);
+                neM.setLatLng(newNe);
+            }
+
+            if (targetOverlay && newSw && newNe) {
+                targetOverlay.setBounds([newSw, newNe]);
+            }
+        }
+
+        // SW drag: NE stays fixed, update NW/SE
+        swM.on('drag', function () {
+            var s = swM.getLatLng();
+            neM.getLatLng(); // NE fixed
+            nwM.setLatLng(L.latLng(neM.getLatLng().lat, s.lng));
+            seM.setLatLng(L.latLng(s.lat, neM.getLatLng().lng));
+            if (targetOverlay) targetOverlay.setBounds([s, neM.getLatLng()]);
+        });
+
+        // NE drag: SW stays fixed, update NW/SE
+        neM.on('drag', function () {
+            var n = neM.getLatLng();
+            var s = swM.getLatLng();
+            nwM.setLatLng(L.latLng(n.lat, s.lng));
+            seM.setLatLng(L.latLng(s.lat, n.lng));
+            if (targetOverlay) targetOverlay.setBounds([s, n]);
+        });
+
+        // NW drag: SE stays fixed, update SW/NE
+        nwM.on('drag', function () {
+            var nw = nwM.getLatLng();
+            var se = seM.getLatLng();
+            swM.setLatLng(L.latLng(se.lat, nw.lng));
+            neM.setLatLng(L.latLng(nw.lat, se.lng));
+            if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+        });
+
+        // SE drag: NW stays fixed, update SW/NE
+        seM.on('drag', function () {
+            var se = seM.getLatLng();
+            var nw = nwM.getLatLng();
+            swM.setLatLng(L.latLng(se.lat, nw.lng));
+            neM.setLatLng(L.latLng(nw.lat, se.lng));
+            if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+        });
 
         function save() {
             var s = swM.getLatLng(), n = neM.getLatLng();
@@ -2245,6 +2448,60 @@ window.fpEditor = {
         }
         swM.on('dragend', save);
         neM.on('dragend', save);
+        nwM.on('dragend', save);
+        seM.on('dragend', save);
+
+        // ── Drag overlay body to move ──
+        if (targetOverlay) {
+            var overlayEl = targetOverlay.getElement();
+            if (overlayEl) {
+                overlayEl.style.cursor = 'move';
+                this._positionDragState = null;
+
+                this._positionMouseDown = function (e) {
+                    // Only start move on left-click directly on the overlay (not on corner handles)
+                    if (e.button !== 0) return;
+                    e.stopPropagation();
+                    e.preventDefault();
+                    var startPx = m.mouseEventToContainerPoint(e);
+                    self._positionDragState = { startPx: startPx, startSw: swM.getLatLng(), startNe: neM.getLatLng(),
+                        startNw: nwM.getLatLng(), startSe: seM.getLatLng() };
+                    m.dragging.disable();
+                };
+
+                this._positionMouseMove = function (e) {
+                    if (!self._positionDragState) return;
+                    var ds = self._positionDragState;
+                    var curPx = m.mouseEventToContainerPoint(e);
+                    var startLL = m.containerPointToLatLng(ds.startPx);
+                    var curLL = m.containerPointToLatLng(curPx);
+                    var dLat = curLL.lat - startLL.lat;
+                    var dLng = curLL.lng - startLL.lng;
+
+                    var newSw = L.latLng(ds.startSw.lat + dLat, ds.startSw.lng + dLng);
+                    var newNe = L.latLng(ds.startNe.lat + dLat, ds.startNe.lng + dLng);
+                    var newNw = L.latLng(ds.startNw.lat + dLat, ds.startNw.lng + dLng);
+                    var newSe = L.latLng(ds.startSe.lat + dLat, ds.startSe.lng + dLng);
+
+                    swM.setLatLng(newSw);
+                    neM.setLatLng(newNe);
+                    nwM.setLatLng(newNw);
+                    seM.setLatLng(newSe);
+                    if (targetOverlay) targetOverlay.setBounds([newSw, newNe]);
+                };
+
+                this._positionMouseUp = function (e) {
+                    if (!self._positionDragState) return;
+                    self._positionDragState = null;
+                    m.dragging.enable();
+                    save();
+                };
+
+                overlayEl.addEventListener('mousedown', this._positionMouseDown);
+                document.addEventListener('mousemove', this._positionMouseMove);
+                document.addEventListener('mouseup', this._positionMouseUp);
+            }
+        }
     },
 
     exitPositionMode: function () {
@@ -2254,6 +2511,17 @@ window.fpEditor = {
             this._corners.forEach(function (c) { m.removeLayer(c); });
             this._corners = null;
         }
+        // Clean up drag-to-move listeners
+        if (this._positionMouseMove) {
+            document.removeEventListener('mousemove', this._positionMouseMove);
+            this._positionMouseMove = null;
+        }
+        if (this._positionMouseUp) {
+            document.removeEventListener('mouseup', this._positionMouseUp);
+            this._positionMouseUp = null;
+        }
+        this._positionDragState = null;
+        this._positionMouseDown = null;
     },
 
     // ── Building Move Mode ──────────────────────────────────────────

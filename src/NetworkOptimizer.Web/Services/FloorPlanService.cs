@@ -277,14 +277,31 @@ public class FloorPlanService
         db.FloorPlanImages.Add(image);
         await db.SaveChangesAsync();
 
-        // Save image file using the generated ID
+        // Save image file using the generated ID, detecting format from stream header
         var buildingDir = Path.Combine(_floorPlanDirectory, floor.BuildingId.ToString());
         Directory.CreateDirectory(buildingDir);
-        var fileName = $"floor_{floor.FloorNumber}_img_{image.Id}.png";
+
+        // Read first 12 bytes to detect image type, then reset stream
+        var header = new byte[12];
+        var headerRead = await imageStream.ReadAsync(header, 0, header.Length);
+        var ext = ".png"; // default
+        if (headerRead >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
+            ext = ".jpg";
+        else if (headerRead >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+                 && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
+            ext = ".webp";
+        if (imageStream.CanSeek) imageStream.Position = 0;
+
+        var fileName = $"floor_{floor.FloorNumber}_img_{image.Id}{ext}";
         var filePath = Path.Combine(buildingDir, fileName);
 
         using (var fileStream = File.Create(filePath))
         {
+            if (!imageStream.CanSeek)
+            {
+                // Stream was not seekable - write header bytes first, then rest
+                await fileStream.WriteAsync(header, 0, headerRead);
+            }
             await imageStream.CopyToAsync(fileStream);
         }
 
