@@ -473,14 +473,14 @@ window.fpEditor = {
 
     // ── Rotation Geometry Helpers ─────────────────────────────────────
 
-    // Rotate a pixel point around a center point by angleDeg (clockwise, matching CSS rotate())
+    // Rotate a pixel point around a center point by angleDeg (CW in screen coords, matching CSS rotate())
     _rotatePointPx: function (pt, center, angleDeg) {
         var rad = angleDeg * Math.PI / 180;
         var dx = pt.x - center.x;
         var dy = pt.y - center.y;
         return L.point(
-            center.x + dx * Math.cos(rad) + dy * Math.sin(rad),
-            center.y - dx * Math.sin(rad) + dy * Math.cos(rad)
+            center.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+            center.y + dx * Math.sin(rad) + dy * Math.cos(rad)
         );
     },
 
@@ -2476,9 +2476,10 @@ window.fpEditor = {
         this._corners = [swM, neM, nwM, seM];
 
         // Set/update cursor on marker elements to match the rotated diagonal direction
+        // CW screen rotation subtracts from diagonal angle, so negate
         function updateCursors() {
-            var c1 = self._getResizeCursor(45, rotation);
-            var c2 = self._getResizeCursor(135, rotation);
+            var c1 = self._getResizeCursor(45, -rotation);
+            var c2 = self._getResizeCursor(135, -rotation);
             [swM, neM, nwM, seM].forEach(function (marker, i) {
                 var el = marker.getElement();
                 if (el) el.style.cursor = (i < 2) ? c1 : c2;

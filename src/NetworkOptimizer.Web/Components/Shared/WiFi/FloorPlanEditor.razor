@@ -1643,8 +1643,12 @@
         }
         else
         {
-            // Deselected: clear floor overlay, active walls, and move/position modes
+            // Deselected: clear floor overlay, underlays, active walls, and move/position modes
             await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", "", 0, 0, 0, 0, 0);
+            await JS.InvokeVoidAsync("fpEditor.updateFloorOverlays", Array.Empty<object>());
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
             await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
             await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
             if (_mapInitialized)
@@ -1878,6 +1882,12 @@
     [JSInvokable]
     public async Task OnImageSelectedFromJs(int imageId)
     {
+        if (_selectedImageId == imageId)
+        {
+            await DeselectImage();
+            StateHasChanged();
+            return;
+        }
         _selectedImageId = imageId;
         _selectedImage = _floorImages.FirstOrDefault(i => i.Id == imageId);
         LoadCropFromSelectedImage();
