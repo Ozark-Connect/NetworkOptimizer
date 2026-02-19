@@ -1718,6 +1718,82 @@ public class FirewallRuleOverlapDetectorTests
         FirewallRuleOverlapDetector.RulesOverlap(allowRule, denyRule).Should().BeFalse();
     }
 
+    [Fact]
+    public void RulesOverlap_DisjointSourcePorts_ReturnsFalse()
+    {
+        // Two TCP rules that match same dest but different source ports should not overlap
+        var rule1 = CreateRule(
+            protocol: "tcp",
+            sourcePort: "1024-2048",
+            destPort: "443");
+        var rule2 = CreateRule(
+            protocol: "tcp",
+            sourcePort: "3000-4000",
+            destPort: "443");
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_OverlappingSourcePorts_ReturnsTrue()
+    {
+        // Two TCP rules with overlapping source ports and same dest should overlap
+        var rule1 = CreateRule(
+            protocol: "tcp",
+            sourcePort: "1024-2048",
+            destPort: "443");
+        var rule2 = CreateRule(
+            protocol: "tcp",
+            sourcePort: "2000-3000",
+            destPort: "443");
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void RulesOverlap_OppositeProtocol_SameProtocol_ReturnsFalse()
+    {
+        // "NOT tcp" vs "tcp" cannot overlap - protocols are mutually exclusive
+        var rule1 = CreateRule(
+            protocol: "tcp",
+            matchOppositeProtocol: true,
+            destPort: "443");
+        var rule2 = CreateRule(
+            protocol: "tcp",
+            destPort: "443");
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_OppositeProtocol_DifferentProtocol_ReturnsTrue()
+    {
+        // "NOT icmp" vs "tcp" overlaps - NOT-icmp includes tcp
+        var rule1 = CreateRule(
+            protocol: "icmp",
+            matchOppositeProtocol: true);
+        var rule2 = CreateRule(
+            protocol: "tcp",
+            destPort: "443");
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void RulesOverlap_AllProtocolWithSpecificPorts_DisjointFromOtherPorts_ReturnsFalse()
+    {
+        // Protocol "all" with specific dest ports vs TCP with different ports - no overlap
+        // This is the core fix for the original false positive
+        var rule1 = CreateRule(
+            protocol: "all",
+            destPort: "161,162");
+        var rule2 = CreateRule(
+            protocol: "tcp",
+            destPort: "8088-8089");
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
     #endregion
 
     #region IpMatchesCidr - IPv6 Tests
