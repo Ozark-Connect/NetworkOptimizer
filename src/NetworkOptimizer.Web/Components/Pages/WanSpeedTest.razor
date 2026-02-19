@@ -495,6 +495,9 @@
         (0, "All time")      // 10
     };
 
+    // Chart downsampling: max points per series when time range > 4 hrs
+    private const int MaxChartPoints = 20;
+
     // WAN color palette
     private static readonly string[] WanColors = new[]
     {
@@ -846,6 +849,117 @@
         return _testHistory.Where(r => r.TestTime >= cutoff).ToList();
     }
 
+    /// <summary>
+    /// Collapse dense clusters of similar values into representative points.
+    /// Only collapses points that are close in BOTH value AND time - points
+    /// spread far apart in time are kept even if similar values (they show stability).
+    /// </summary>
+    private static List<WanChartDataPoint> CollapseClusters(List<WanChartDataPoint> data)
+    {
+        if (data.Count <= 3)
+            return data;
+
+        var range = (double)(data.Max(d => d.Value) - data.Min(d => d.Value));
+        if (range < 1) return data;
+        var valueThreshold = range * 0.15; // 15% of range to count as "different"
+        var timeThreshold = TimeSpan.FromHours(2); // Points >2 hrs apart are always kept
+
+        var result = new List<WanChartDataPoint> { data[0] };
+
+        for (int i = 1; i < data.Count - 1; i++)
+        {
+            var lastKept = result[^1];
+            var curr = data[i];
+            var timeSinceLastKept = curr.Timestamp - lastKept.Timestamp;
+
+            // Always keep if enough time has passed (shows stability over time)
+            if (timeSinceLastKept >= timeThreshold)
+            {
+                result.Add(curr);
+                continue;
+            }
+
+            // Within a time cluster: only keep if value changed significantly
+            if (Math.Abs((double)curr.Value - (double)lastKept.Value) > valueThreshold)
+                result.Add(curr);
+        }
+
+        result.Add(data[^1]);
+        return result;
+    }
+
+    /// <summary>
+    /// Largest-Triangle-Three-Buckets downsampling. Selects real data points
+    /// that best preserve the visual shape of the time series.
+    /// Data must be sorted by Timestamp ascending.
+    /// </summary>
+    private static List<WanChartDataPoint> DownsampleLttb(List<WanChartDataPoint> data, int targetCount)
+    {
+        if (data.Count <= targetCount || targetCount < 3)
+            return data;
+
+        var result = new List<WanChartDataPoint>(targetCount);
+        result.Add(data[0]);
+
+        double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
+        int prevSelectedIndex = 0;
+
+        for (int bucket = 0; bucket < targetCount - 2; bucket++)
+        {
+            int currStart = (int)Math.Floor(bucket * bucketSize) + 1;
+            int currEnd = (int)Math.Floor((bucket + 1) * bucketSize) + 1;
+            currEnd = Math.Min(currEnd, data.Count - 1);
+
+            double avgX, avgY;
+            if (bucket == targetCount - 3)
+            {
+                avgX = data[^1].X;
+                avgY = (double)data[^1].Value;
+            }
+            else
+            {
+                int nextStart = currEnd;
+                int nextEnd = (int)Math.Floor((bucket + 2) * bucketSize) + 1;
+                nextEnd = Math.Min(nextEnd, data.Count - 1);
+
+                avgX = 0; avgY = 0;
+                int count = 0;
+                for (int j = nextStart; j < nextEnd; j++)
+                {
+                    avgX += data[j].X;
+                    avgY += (double)data[j].Value;
+                    count++;
+                }
+                if (count > 0) { avgX /= count; avgY /= count; }
+                else { avgX = data[nextStart].X; avgY = (double)data[nextStart].Value; }
+            }
+
+            double maxArea = -1;
+            int bestIndex = currStart;
+            double prevX = data[prevSelectedIndex].X;
+            double prevY = (double)data[prevSelectedIndex].Value;
+
+            for (int j = currStart; j < currEnd; j++)
+            {
+                double area = Math.Abs(
+                    (prevX - avgX) * ((double)data[j].Value - prevY) -
+                    (prevX - data[j].X) * (avgY - prevY)
+                );
+                if (area > maxArea)
+                {
+                    maxArea = area;
+                    bestIndex = j;
+                }
+            }
+
+            result.Add(data[bestIndex]);
+            prevSelectedIndex = bestIndex;
+        }
+
+        result.Add(data[^1]);
+        return result;
+    }
+
     private void ApplyFilters()
     {
         var timeFiltered = GetTimeFilteredResults();
@@ -866,16 +980,35 @@
                 .ToList();
 
         // Update chart data for the active time window
+        var clampedIndex = Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1);
+        var shouldDownsample = TimeBreakpoints[clampedIndex].hours is 0 or > 4;
+
         foreach (var wan in _wanSeries)
         {
-            wan.DownloadData = timeFiltered
+            var downloadRaw = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
                 .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
+                .OrderBy(p => p.Timestamp)
                 .ToList();
-            wan.UploadData = timeFiltered
+            var uploadRaw = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
                 .Select(r => new WanChartDataPoint(r.TestTime, r.UploadMbps, r.Id))
+                .OrderBy(p => p.Timestamp)
                 .ToList();
+
+            if (shouldDownsample)
+            {
+                // Downsample download, then sync upload to the same timestamps
+                // so shared tooltips can pair both values at each point
+                wan.DownloadData = DownsampleLttb(CollapseClusters(downloadRaw), MaxChartPoints);
+                var keptResultIds = wan.DownloadData.Select(d => d.ResultId).ToHashSet();
+                wan.UploadData = uploadRaw.Where(u => keptResultIds.Contains(u.ResultId)).ToList();
+            }
+            else
+            {
+                wan.DownloadData = downloadRaw;
+                wan.UploadData = uploadRaw;
+            }
         }
     }
 
