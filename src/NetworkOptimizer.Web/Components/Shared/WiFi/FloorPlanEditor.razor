@@ -135,7 +135,7 @@
                 @if (!ReadOnly && _plannedAps.Count > 0)
                 {
                     <button class="fp-btn @(_showPlannedAps ? "active" : "")" @onclick="TogglePlannedAps"
-                            data-tooltip="Show/hide planned APs on map and heatmap">
+                            data-tooltip="Show/hide planned APs on map and heatmap" data-tooltip-hover-only>
                         Planned APs
                     </button>
                 }
