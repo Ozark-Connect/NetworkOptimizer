@@ -108,7 +108,7 @@
                         @(_mode == "aps" ? "Done" : _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs")
                     </button>
                     <button class="fp-btn @(_mode == "plan-aps" ? "fp-btn-warning" : "")" @onclick="TogglePlanApMode">
-                        @(_mode == "plan-aps" ? "Done" : "Plan APs")
+                        @(_mode == "plan-aps" ? "Done" : _plannedAps.Count > 0 ? "Edit Planned APs" : "Add Planned APs")
                     </button>
                 </div>
 
@@ -128,14 +128,15 @@
                 </select>
                 @if (_showHeatmap)
                 {
-                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
+                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn"
+                            data-tooltip="Clear all simulation overrides (TX power, antenna, disabled APs)" data-tooltip-hover-only>
                         Reset Sim
                     </button>
                 }
                 @if (!ReadOnly && _plannedAps.Count > 0)
                 {
                     <button class="fp-btn @(_showPlannedAps ? "active" : "")" @onclick="TogglePlannedAps"
-                            data-tooltip="Show/hide planned APs on map and heatmap">
+                            data-tooltip="Show/hide planned APs on map and heatmap" data-tooltip-hover-only>
                         Planned APs
                     </button>
                 }
@@ -246,6 +247,12 @@
                     }
                 </div>
             </div>
+            @if (_plannedAps.Count > 0)
+            {
+                <div class="fp-edit-hint">
+                    Drag Planned APs to adjust their locations
+                </div>
+            }
         }
 
         @if (!ReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
@@ -1333,6 +1340,14 @@
     .fp-disable-ap-btn.active:hover {
         background: rgba(56, 189, 248, 0.2);
     }
+    .fp-disable-ap-btn.fp-disable-plan.active {
+        border-color: #f59e0b;
+        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.1);
+    }
+    .fp-disable-ap-btn.fp-disable-plan.active:hover {
+        background: rgba(245, 158, 11, 0.2);
+    }
 
     .fp-btn-reset-sim {
         background: transparent;
@@ -1435,7 +1450,7 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
-    private bool _showPlannedAps = true;
+    private bool _showPlannedAps;
     private bool _showSignalData;
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
@@ -2341,6 +2356,8 @@
     {
         await PlannedApSvc.DeleteAsync(plannedId);
         await LoadPlannedAps();
+        if (_plannedAps.Count == 0) _showPlannedAps = false;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         await InvokeAsync(async () =>
         {
             StateHasChanged();
@@ -2373,10 +2390,13 @@
     private async Task TogglePlanApMode()
     {
         _mode = _mode == "plan-aps" ? "view" : "plan-aps";
+        if (_mode == "plan-aps") _showPlannedAps = true;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         _selectedCatalogModel = null;
         _selectedApForPlacement = null;
         await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", _mode != "plan-aps");
         await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
         await SetMapClickToPlaceMode(_mode == "plan-aps");
         if (_mode == "view") await UpdateBackgroundWalls();
     }
@@ -2420,6 +2440,8 @@
             };
             await PlannedApSvc.CreateAsync(ap);
             await LoadPlannedAps();
+            _showPlannedAps = true;
+            await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", false);
             await InvokeAsync(async () =>
             {
                 StateHasChanged();
@@ -2685,7 +2707,10 @@
     {
         _showHeatmap = !_showHeatmap;
         if (_showHeatmap)
+        {
             await ComputeHeatmap();
+            await JS.InvokeVoidAsync("fpEditor._updateResetSimBtn");
+        }
         else
             await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
     }
@@ -2713,6 +2738,7 @@
     private async Task TogglePlannedAps()
     {
         _showPlannedAps = !_showPlannedAps;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
     }
