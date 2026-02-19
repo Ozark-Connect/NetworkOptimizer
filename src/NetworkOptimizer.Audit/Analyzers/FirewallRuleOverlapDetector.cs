@@ -37,6 +37,7 @@ public static class FirewallRuleOverlapDetector
                SourcesOverlap(rule1, rule2, networkConfigs) &&
                DestinationsOverlap(rule1, rule2, networkConfigs) &&
                PortsOverlap(rule1, rule2) &&
+               SourcePortsOverlap(rule1, rule2) &&
                IcmpTypesOverlap(rule1, rule2);
     }
 
@@ -487,6 +488,41 @@ public static class FirewallRuleOverlapDetector
 
         // Handle match_opposite logic
         return PortSetsOverlapWithOpposite(ports1, opposite1, ports2, opposite2);
+    }
+
+    /// <summary>
+    /// Check if source ports overlap (either is ANY/empty, or ports intersect).
+    /// Handles match_opposite_ports flag which inverts the matching.
+    /// Source ports are rarely specified; null/empty means ANY (match all source ports).
+    /// </summary>
+    public static bool SourcePortsOverlap(FirewallRule rule1, FirewallRule rule2)
+    {
+        var protocol1 = rule1.Protocol?.ToLowerInvariant() ?? "all";
+        var protocol2 = rule2.Protocol?.ToLowerInvariant() ?? "all";
+
+        var portProtocols = new[] { "tcp", "udp", "tcp_udp" };
+        var rule1IsPortProtocol = portProtocols.Contains(protocol1) ||
+                                   (rule1.MatchOppositeProtocol && protocol1 != "all");
+        var rule2IsPortProtocol = portProtocols.Contains(protocol2) ||
+                                   (rule2.MatchOppositeProtocol && protocol2 != "all");
+
+        // If neither rule's effective protocol involves port-based traffic, source ports don't matter
+        if (!rule1IsPortProtocol && !rule2IsPortProtocol && protocol1 != "all" && protocol2 != "all")
+            return true;
+
+        var port1 = rule1.SourcePort;
+        var port2 = rule2.SourcePort;
+
+        // Empty/null source port means ANY - most rules don't specify source ports
+        if (string.IsNullOrEmpty(port1) || string.IsNullOrEmpty(port2))
+            return true;
+
+        // Both have specific source ports - compare them
+        var ports1 = ParsePortString(port1);
+        var ports2 = ParsePortString(port2);
+
+        return PortSetsOverlapWithOpposite(ports1, rule1.SourceMatchOppositePorts,
+                                            ports2, rule2.SourceMatchOppositePorts);
     }
 
     /// <summary>
