@@ -496,7 +496,7 @@
     };
 
     // Chart downsampling: max points per series when time range > 4 hrs
-    private const int MaxChartPoints = 15;
+    private const int MaxChartPoints = 18;
 
     // WAN color palette
     private static readonly string[] WanColors = new[]
@@ -850,43 +850,15 @@
     }
 
     /// <summary>
-    /// Peak-preserving LTTB downsampling. Identifies significant peaks and valleys
-    /// first (always included), then fills remaining budget with LTTB-selected points.
-    /// All returned points are real data points. Data must be sorted by Timestamp ascending.
+    /// Largest-Triangle-Three-Buckets downsampling. Selects real data points
+    /// that best preserve the visual shape of the time series.
+    /// Data must be sorted by Timestamp ascending.
     /// </summary>
     private static List<WanChartDataPoint> DownsampleLttb(List<WanChartDataPoint> data, int targetCount)
     {
         if (data.Count <= targetCount || targetCount < 3)
             return data;
 
-        // Identify significant peaks and valleys
-        var range = (double)(data.Max(d => d.Value) - data.Min(d => d.Value));
-        var threshold = Math.Max(range * 0.10, 5); // 10% of range or 5 Mbps
-
-        var peakIndices = new HashSet<int>();
-        for (int i = 1; i < data.Count - 1; i++)
-        {
-            var prev = (double)data[i - 1].Value;
-            var curr = (double)data[i].Value;
-            var next = (double)data[i + 1].Value;
-
-            bool isPeak = curr >= prev && curr >= next && (curr - Math.Min(prev, next)) > threshold;
-            bool isValley = curr <= prev && curr <= next && (Math.Max(prev, next) - curr) > threshold;
-
-            if (isPeak || isValley)
-                peakIndices.Add(i);
-        }
-
-        // If peaks alone fill the budget, just return first + peaks + last
-        if (peakIndices.Count + 2 >= targetCount)
-        {
-            var peakResult = new List<WanChartDataPoint> { data[0] };
-            peakResult.AddRange(peakIndices.OrderBy(i => i).Select(i => data[i]));
-            peakResult.Add(data[^1]);
-            return peakResult;
-        }
-
-        // LTTB with forced peak/valley selection
         var result = new List<WanChartDataPoint>(targetCount);
         result.Add(data[0]);
 
@@ -899,30 +871,6 @@
             int currEnd = (int)Math.Floor((bucket + 1) * bucketSize) + 1;
             currEnd = Math.Min(currEnd, data.Count - 1);
 
-            // Force-select the most extreme peak/valley in this bucket
-            int forcedIndex = -1;
-            double maxDeviation = 0;
-            for (int j = currStart; j < currEnd; j++)
-            {
-                if (peakIndices.Contains(j))
-                {
-                    double deviation = Math.Abs((double)data[j].Value - (double)data[prevSelectedIndex].Value);
-                    if (deviation > maxDeviation)
-                    {
-                        maxDeviation = deviation;
-                        forcedIndex = j;
-                    }
-                }
-            }
-
-            if (forcedIndex >= 0)
-            {
-                result.Add(data[forcedIndex]);
-                prevSelectedIndex = forcedIndex;
-                continue;
-            }
-
-            // Standard LTTB triangle selection for non-peak buckets
             double avgX, avgY;
             if (bucket == targetCount - 3)
             {
