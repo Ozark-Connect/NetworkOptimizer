@@ -128,7 +128,8 @@
                 </select>
                 @if (_showHeatmap)
                 {
-                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
+                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn"
+                            data-tooltip="Clear all simulation overrides (TX power, antenna, disabled APs)" data-tooltip-hover-only>
                         Reset Sim
                     </button>
                 }
