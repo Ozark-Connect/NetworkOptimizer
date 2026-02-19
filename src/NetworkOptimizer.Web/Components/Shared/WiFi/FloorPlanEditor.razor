@@ -329,7 +329,7 @@
                 @foreach (var img in _floorImages)
                 {
                     <button class="fp-image-chip @(img.Id == _selectedImageId ? "active" : "")"
-                            @onclick="() => SelectImage(img.Id)">
+                            @onclick="() => ToggleImageSelection(img.Id)">
                         @(string.IsNullOrEmpty(img.Label) ? "Underlay " + (_floorImages.IndexOf(img) + 1) : img.Label)
                     </button>
                 }
@@ -1842,6 +1842,27 @@
         await JS.InvokeVoidAsync("fpEditor.updateFloorOverlays", (object)overlayData);
         if (_selectedImageId.HasValue)
             await JS.InvokeVoidAsync("fpEditor.selectOverlay", _selectedImageId.Value);
+    }
+
+    private async Task ToggleImageSelection(int imageId)
+    {
+        if (_selectedImageId == imageId)
+        {
+            await DeselectImage();
+            return;
+        }
+        await SelectImage(imageId);
+    }
+
+    private async Task DeselectImage()
+    {
+        _selectedImageId = null;
+        _selectedImage = null;
+        _showCropControls = false;
+        if (_mode == "image-position") _mode = "view";
+        await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        await JS.InvokeVoidAsync("fpEditor.deselectOverlay");
+        await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
     }
 
     private async Task SelectImage(int imageId)
