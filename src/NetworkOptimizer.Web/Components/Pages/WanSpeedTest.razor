@@ -871,18 +871,8 @@
             var curr = (double)data[i].Value;
             var next = (double)data[i + 1].Value;
 
-            // Always keep if value changed significantly from last kept point
+            // Keep only if value changed significantly from last kept point
             if (Math.Abs(curr - lastKeptValue) > threshold)
-            {
-                result.Add(data[i]);
-                continue;
-            }
-
-            // Keep if direction changes (even small) to preserve shape at transitions
-            var prev = (double)data[i - 1].Value;
-            bool rising = curr > prev;
-            bool nextRising = next > curr;
-            if (rising != nextRising && Math.Abs(curr - prev) > threshold * 0.5)
                 result.Add(data[i]);
         }
 
