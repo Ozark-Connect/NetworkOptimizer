@@ -515,6 +515,55 @@ public class FirewallRuleOverlapDetectorTests
         FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
     }
 
+    [Fact]
+    public void PortsOverlap_AllProtocolOnRightSide_ComparesPorts()
+    {
+        // "all" protocol on rule2 (right side) should also compare ports
+        var rule1 = CreateRule(protocol: "tcp", destPort: "443");
+        var rule2 = CreateRule(protocol: "all", destPort: "161,162");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PortsOverlap_AllProtocolOnRightSideNoPorts_ReturnsTrue()
+    {
+        var rule1 = CreateRule(protocol: "tcp", destPort: "443");
+        var rule2 = CreateRule(protocol: "all");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PortsOverlap_BothAllProtocolOverlappingPorts_ReturnsTrue()
+    {
+        var rule1 = CreateRule(protocol: "all", destPort: "80,443");
+        var rule2 = CreateRule(protocol: "all", destPort: "443,8080");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PortsOverlap_AllProtocolUnresolvedPortGroup_ReturnsTrue()
+    {
+        // Unresolved port group means we know ports are specific but can't compare them
+        // Conservatively assume overlap
+        var rule1 = CreateRule(protocol: "all", hasUnresolvedDestPortGroup: true);
+        var rule2 = CreateRule(protocol: "tcp", destPort: "8088-8089");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PortsOverlap_TcpUnresolvedPortGroup_ReturnsTrue()
+    {
+        // TCP rule with unresolved port group - port is null but group was referenced
+        var rule1 = CreateRule(protocol: "tcp", hasUnresolvedDestPortGroup: true);
+        var rule2 = CreateRule(protocol: "tcp", destPort: "80");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
     #endregion
 
     #region ParsePortString Tests
@@ -2009,6 +2058,7 @@ public class FirewallRuleOverlapDetectorTests
         List<string>? webDomains = null,
         string? destPort = null,
         bool destMatchOppositePorts = false,
+        bool hasUnresolvedDestPortGroup = false,
         string? icmpTypename = null,
         string? sourceZoneId = null,
         string? destZoneId = null,
@@ -2035,6 +2085,7 @@ public class FirewallRuleOverlapDetectorTests
             WebDomains = webDomains,
             DestinationPort = destPort,
             DestinationMatchOppositePorts = destMatchOppositePorts,
+            HasUnresolvedDestinationPortGroup = hasUnresolvedDestPortGroup,
             IcmpTypename = icmpTypename,
             SourceZoneId = sourceZoneId,
             DestinationZoneId = destZoneId,
