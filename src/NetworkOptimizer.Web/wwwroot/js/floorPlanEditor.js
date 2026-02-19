@@ -882,6 +882,10 @@ window.fpEditor = {
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
     },
 
+    setExcludePlannedAps: function (exclude) {
+        this._excludePlannedAps = exclude;
+    },
+
     _updateResetSimBtn: function () {
         var btn = document.getElementById('fp-reset-sim-btn');
         var hasOverrides = Object.keys(this._txPowerOverrides).length > 0 ||

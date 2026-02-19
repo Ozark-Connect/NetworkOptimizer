@@ -2008,6 +2008,7 @@
         await PlannedApSvc.DeleteAsync(plannedId);
         await LoadPlannedAps();
         if (_plannedAps.Count == 0) _showPlannedAps = false;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         await InvokeAsync(async () =>
         {
             StateHasChanged();
@@ -2041,6 +2042,7 @@
     {
         _mode = _mode == "plan-aps" ? "view" : "plan-aps";
         if (_mode == "plan-aps") _showPlannedAps = true;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         _selectedCatalogModel = null;
         _selectedApForPlacement = null;
         await UpdateApMarkers();
@@ -2089,6 +2091,7 @@
             await PlannedApSvc.CreateAsync(ap);
             await LoadPlannedAps();
             _showPlannedAps = true;
+            await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", false);
             await InvokeAsync(async () =>
             {
                 StateHasChanged();
@@ -2385,6 +2388,7 @@
     private async Task TogglePlannedAps()
     {
         _showPlannedAps = !_showPlannedAps;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
     }
