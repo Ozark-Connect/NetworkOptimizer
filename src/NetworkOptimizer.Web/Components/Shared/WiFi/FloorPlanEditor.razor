@@ -108,7 +108,7 @@
                         @(_mode == "aps" ? "Done" : _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs")
                     </button>
                     <button class="fp-btn @(_mode == "plan-aps" ? "fp-btn-warning" : "")" @onclick="TogglePlanApMode">
-                        @(_mode == "plan-aps" ? "Done" : "Plan APs")
+                        @(_mode == "plan-aps" ? "Done" : _plannedAps.Count > 0 ? "Edit Plan APs" : "Add Plan APs")
                     </button>
                 </div>
 
