@@ -2360,7 +2360,10 @@
     {
         _showHeatmap = !_showHeatmap;
         if (_showHeatmap)
+        {
             await ComputeHeatmap();
+            await JS.InvokeVoidAsync("fpEditor._updateResetSimBtn");
+        }
         else
             await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
     }
