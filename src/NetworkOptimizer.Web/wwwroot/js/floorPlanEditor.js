@@ -471,6 +471,65 @@ window.fpEditor = {
         }
     },
 
+    // ── Rotation Geometry Helpers ─────────────────────────────────────
+
+    // Rotate a pixel point around a center point by angleDeg
+    _rotatePointPx: function (pt, center, angleDeg) {
+        var rad = angleDeg * Math.PI / 180;
+        var dx = pt.x - center.x;
+        var dy = pt.y - center.y;
+        return L.point(
+            center.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+            center.y + dx * Math.sin(rad) + dy * Math.cos(rad)
+        );
+    },
+
+    // Get rotated corner LatLngs for a given axis-aligned bounds and rotation
+    _getRotatedCorners: function (bounds, rotationDeg, map) {
+        var sw = bounds.getSouthWest();
+        var ne = bounds.getNorthEast();
+        var center = bounds.getCenter();
+        var cPx = map.latLngToContainerPoint(center);
+        var swPx = map.latLngToContainerPoint(sw);
+        var nePx = map.latLngToContainerPoint(ne);
+        var nwPx = map.latLngToContainerPoint(L.latLng(ne.lat, sw.lng));
+        var sePx = map.latLngToContainerPoint(L.latLng(sw.lat, ne.lng));
+        return {
+            sw: map.containerPointToLatLng(this._rotatePointPx(swPx, cPx, rotationDeg)),
+            ne: map.containerPointToLatLng(this._rotatePointPx(nePx, cPx, rotationDeg)),
+            nw: map.containerPointToLatLng(this._rotatePointPx(nwPx, cPx, rotationDeg)),
+            se: map.containerPointToLatLng(this._rotatePointPx(sePx, cPx, rotationDeg))
+        };
+    },
+
+    // Given two diagonally-opposite rotated corner LatLngs, compute axis-aligned bounds
+    _boundsFromRotatedDiagonal: function (rotA, rotB, rotationDeg, map) {
+        var aPx = map.latLngToContainerPoint(rotA);
+        var bPx = map.latLngToContainerPoint(rotB);
+        var cPx = L.point((aPx.x + bPx.x) / 2, (aPx.y + bPx.y) / 2);
+        var aAl = map.containerPointToLatLng(this._rotatePointPx(aPx, cPx, -rotationDeg));
+        var bAl = map.containerPointToLatLng(this._rotatePointPx(bPx, cPx, -rotationDeg));
+        return L.latLngBounds(
+            L.latLng(Math.min(aAl.lat, bAl.lat), Math.min(aAl.lng, bAl.lng)),
+            L.latLng(Math.max(aAl.lat, bAl.lat), Math.max(aAl.lng, bAl.lng))
+        );
+    },
+
+    // Apply rotation + crop transforms to an overlay element
+    _applyOverlayTransforms: function (overlay) {
+        var el = overlay.getElement ? overlay.getElement() : overlay._image;
+        if (!el) return;
+        if (overlay._rotationDeg) {
+            el.style.transform += ' translate(50%, 50%) rotate(' + overlay._rotationDeg + 'deg) translate(-50%, -50%)';
+        }
+        if (overlay._crop) {
+            el.style.clipPath = 'inset(' + (overlay._crop.top || 0) + '% ' + (overlay._crop.right || 0) + '% ' +
+                (overlay._crop.bottom || 0) + '% ' + (overlay._crop.left || 0) + '%)';
+        } else {
+            el.style.clipPath = '';
+        }
+    },
+
     // ── Multi-Image Overlays ──────────────────────────────────────────
 
     updateFloorOverlays: function (imagesJson) {
@@ -506,17 +565,15 @@ window.fpEditor = {
             var origReset = overlay._reset.bind(overlay);
             overlay._reset = function () {
                 origReset();
-                var el = this.getElement();
-                if (!el) return;
-                if (this._rotationDeg) {
-                    el.style.transform += ' translate(50%, 50%) rotate(' + this._rotationDeg + 'deg) translate(-50%, -50%)';
-                }
-                if (this._crop) {
-                    el.style.clipPath = 'inset(' + (this._crop.top || 0) + '% ' + (this._crop.right || 0) + '% ' +
-                        (this._crop.bottom || 0) + '% ' + (this._crop.left || 0) + '%)';
-                } else {
-                    el.style.clipPath = '';
-                }
+                self._applyOverlayTransforms(this);
+            };
+
+            // Monkey-patch _animateZoom to maintain rotation/crop during zoom animation
+            // Without this, Leaflet's zoom animation overwrites transform and rotation flickers
+            var origAnimateZoom = overlay._animateZoom.bind(overlay);
+            overlay._animateZoom = function (e) {
+                origAnimateZoom(e);
+                self._applyOverlayTransforms(this);
             };
 
             // Now add to map - Leaflet's _reset will use our patched version
@@ -2380,9 +2437,7 @@ window.fpEditor = {
 
         // Find the target overlay (multi-image or legacy single)
         var targetOverlay = imageId ? self._getOverlay(imageId) : self._overlay;
-
-        // Corner cursors for resize handles
-        var cursorMap = { sw: 'nesw-resize', ne: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize' };
+        var rotation = targetOverlay ? (targetOverlay._rotationDeg || 0) : 0;
 
         function makeHandle(latlng, corner) {
             var icon = L.divIcon({
@@ -2393,10 +2448,18 @@ window.fpEditor = {
             return L.marker(latlng, { icon: icon, draggable: true }).addTo(m);
         }
 
-        var swM = makeHandle(sw, 'sw');
-        var neM = makeHandle(ne, 'ne');
-        var nwM = makeHandle(L.latLng(ne.lat, sw.lng), 'nw');
-        var seM = makeHandle(L.latLng(sw.lat, ne.lng), 'se');
+        // Place handles at rotated corners if image is rotated
+        var axisBounds = L.latLngBounds(sw, ne);
+        var rc = rotation ? self._getRotatedCorners(axisBounds, rotation, m) : {
+            sw: sw, ne: ne,
+            nw: L.latLng(ne.lat, sw.lng),
+            se: L.latLng(sw.lat, ne.lng)
+        };
+
+        var swM = makeHandle(rc.sw, 'sw');
+        var neM = makeHandle(rc.ne, 'ne');
+        var nwM = makeHandle(rc.nw, 'nw');
+        var seM = makeHandle(rc.se, 'se');
         this._corners = [swM, neM, nwM, seM];
 
         // Set cursor on marker elements once they render
@@ -2407,77 +2470,69 @@ window.fpEditor = {
             });
         }, 50);
 
-        function syncOverlayAndHandles(anchorCorner) {
-            // anchorCorner: 'sw' means SW was dragged, so NE is fixed, etc.
-            var sPos = swM.getLatLng(), nPos = neM.getLatLng();
-            var nwPos = nwM.getLatLng(), sePos = seM.getLatLng();
-
-            var newSw, newNe;
-            if (anchorCorner === 'sw') {
-                newSw = sPos;
-                newNe = nPos;
-                nwM.setLatLng(L.latLng(nPos.lat, sPos.lng));
-                seM.setLatLng(L.latLng(sPos.lat, nPos.lng));
-            } else if (anchorCorner === 'ne') {
-                newSw = sPos;
-                newNe = nPos;
-                nwM.setLatLng(L.latLng(nPos.lat, sPos.lng));
-                seM.setLatLng(L.latLng(sPos.lat, nPos.lng));
-            } else if (anchorCorner === 'nw') {
-                newSw = L.latLng(sePos.lat, nwPos.lng);
-                newNe = L.latLng(nwPos.lat, sePos.lng);
-                swM.setLatLng(newSw);
-                neM.setLatLng(newNe);
-            } else if (anchorCorner === 'se') {
-                newSw = L.latLng(sePos.lat, nwPos.lng);
-                newNe = L.latLng(nwPos.lat, sePos.lng);
-                swM.setLatLng(newSw);
-                neM.setLatLng(newNe);
-            }
-
-            if (targetOverlay && newSw && newNe) {
-                targetOverlay.setBounds([newSw, newNe]);
+        // Helper: update overlay bounds and reposition all handles from new axis-aligned bounds
+        function updateFromBounds(newBounds, draggedMarker) {
+            if (targetOverlay) targetOverlay.setBounds([newBounds.getSouthWest(), newBounds.getNorthEast()]);
+            if (rotation) {
+                var rc2 = self._getRotatedCorners(newBounds, rotation, m);
+                if (draggedMarker !== swM) swM.setLatLng(rc2.sw);
+                if (draggedMarker !== neM) neM.setLatLng(rc2.ne);
+                if (draggedMarker !== nwM) nwM.setLatLng(rc2.nw);
+                if (draggedMarker !== seM) seM.setLatLng(rc2.se);
             }
         }
 
-        // SW drag: NE stays fixed, update NW/SE
+        // Corner drag handlers - for rotated images, un-rotate drag positions to get axis-aligned bounds
+        // SW and NE are on one diagonal, NW and SE on the other
         swM.on('drag', function () {
-            var s = swM.getLatLng();
-            neM.getLatLng(); // NE fixed
-            nwM.setLatLng(L.latLng(neM.getLatLng().lat, s.lng));
-            seM.setLatLng(L.latLng(s.lat, neM.getLatLng().lng));
-            if (targetOverlay) targetOverlay.setBounds([s, neM.getLatLng()]);
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(swM.getLatLng(), neM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, swM);
+            } else {
+                var s = swM.getLatLng(), n = neM.getLatLng();
+                nwM.setLatLng(L.latLng(n.lat, s.lng));
+                seM.setLatLng(L.latLng(s.lat, n.lng));
+                if (targetOverlay) targetOverlay.setBounds([s, n]);
+            }
         });
-
-        // NE drag: SW stays fixed, update NW/SE
         neM.on('drag', function () {
-            var n = neM.getLatLng();
-            var s = swM.getLatLng();
-            nwM.setLatLng(L.latLng(n.lat, s.lng));
-            seM.setLatLng(L.latLng(s.lat, n.lng));
-            if (targetOverlay) targetOverlay.setBounds([s, n]);
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(swM.getLatLng(), neM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, neM);
+            } else {
+                var s = swM.getLatLng(), n = neM.getLatLng();
+                nwM.setLatLng(L.latLng(n.lat, s.lng));
+                seM.setLatLng(L.latLng(s.lat, n.lng));
+                if (targetOverlay) targetOverlay.setBounds([s, n]);
+            }
         });
-
-        // NW drag: SE stays fixed, update SW/NE
         nwM.on('drag', function () {
-            var nw = nwM.getLatLng();
-            var se = seM.getLatLng();
-            swM.setLatLng(L.latLng(se.lat, nw.lng));
-            neM.setLatLng(L.latLng(nw.lat, se.lng));
-            if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(nwM.getLatLng(), seM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, nwM);
+            } else {
+                var nw = nwM.getLatLng(), se = seM.getLatLng();
+                swM.setLatLng(L.latLng(se.lat, nw.lng));
+                neM.setLatLng(L.latLng(nw.lat, se.lng));
+                if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+            }
         });
-
-        // SE drag: NW stays fixed, update SW/NE
         seM.on('drag', function () {
-            var se = seM.getLatLng();
-            var nw = nwM.getLatLng();
-            swM.setLatLng(L.latLng(se.lat, nw.lng));
-            neM.setLatLng(L.latLng(nw.lat, se.lng));
-            if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(nwM.getLatLng(), seM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, seM);
+            } else {
+                var nw = nwM.getLatLng(), se = seM.getLatLng();
+                swM.setLatLng(L.latLng(se.lat, nw.lng));
+                neM.setLatLng(L.latLng(nw.lat, se.lng));
+                if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+            }
         });
 
         function save() {
-            var s = swM.getLatLng(), n = neM.getLatLng();
+            // Always save axis-aligned bounds (from the overlay, not from handle positions)
+            var b = targetOverlay ? targetOverlay.getBounds() : axisBounds;
+            var s = b.getSouthWest(), n = b.getNorthEast();
             if (imageId) {
                 self._dotNetRef.invokeMethodAsync('OnImageBoundsChangedFromJs', imageId, s.lat, s.lng, n.lat, n.lng);
             } else {
@@ -2498,8 +2553,12 @@ window.fpEditor = {
                 e.stopPropagation();
                 e.preventDefault();
                 var startPx = m.mouseEventToContainerPoint(e);
-                self._positionDragState = { startPx: startPx, startSw: swM.getLatLng(), startNe: neM.getLatLng(),
-                    startNw: nwM.getLatLng(), startSe: seM.getLatLng() };
+                self._positionDragState = {
+                    startPx: startPx,
+                    startBounds: targetOverlay.getBounds(),
+                    startSw: swM.getLatLng(), startNe: neM.getLatLng(),
+                    startNw: nwM.getLatLng(), startSe: seM.getLatLng()
+                };
                 m.dragging.disable();
             };
 
@@ -2512,16 +2571,18 @@ window.fpEditor = {
                 var dLat = curLL.lat - startLL.lat;
                 var dLng = curLL.lng - startLL.lng;
 
-                var newSw = L.latLng(ds.startSw.lat + dLat, ds.startSw.lng + dLng);
-                var newNe = L.latLng(ds.startNe.lat + dLat, ds.startNe.lng + dLng);
-                var newNw = L.latLng(ds.startNw.lat + dLat, ds.startNw.lng + dLng);
-                var newSe = L.latLng(ds.startSe.lat + dLat, ds.startSe.lng + dLng);
+                // Shift axis-aligned bounds
+                var bSw = ds.startBounds.getSouthWest();
+                var bNe = ds.startBounds.getNorthEast();
+                var newAxisSw = L.latLng(bSw.lat + dLat, bSw.lng + dLng);
+                var newAxisNe = L.latLng(bNe.lat + dLat, bNe.lng + dLng);
+                targetOverlay.setBounds([newAxisSw, newAxisNe]);
 
-                swM.setLatLng(newSw);
-                neM.setLatLng(newNe);
-                nwM.setLatLng(newNw);
-                seM.setLatLng(newSe);
-                targetOverlay.setBounds([newSw, newNe]);
+                // Shift all handles (they're at rotated positions, shift by same delta)
+                swM.setLatLng(L.latLng(ds.startSw.lat + dLat, ds.startSw.lng + dLng));
+                neM.setLatLng(L.latLng(ds.startNe.lat + dLat, ds.startNe.lng + dLng));
+                nwM.setLatLng(L.latLng(ds.startNw.lat + dLat, ds.startNw.lng + dLng));
+                seM.setLatLng(L.latLng(ds.startSe.lat + dLat, ds.startSe.lng + dLng));
             };
 
             self._positionMouseUp = function (e) {
