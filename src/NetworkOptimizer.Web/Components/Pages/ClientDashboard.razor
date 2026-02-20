@@ -1531,8 +1531,8 @@
                 ? data.OrderBy(e => e.Channel ?? 0)
                 : data.OrderByDescending(e => e.Channel ?? 0),
             _ => _signalSortAsc
-                ? data.OrderBy(e => e.Timestamp)
-                : data.OrderByDescending(e => e.Timestamp)
+                ? data.OrderBy(e => e.Timestamp).ThenByDescending(e => e.DataSource)
+                : data.OrderByDescending(e => e.Timestamp).ThenBy(e => e.DataSource)
         };
 
         // Collapse consecutive identical rows into ranges
