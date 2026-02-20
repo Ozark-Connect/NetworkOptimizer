@@ -6,7 +6,7 @@ services:
     network_mode: host
     volumes:
       - ./data:/app/data              # SQLite, configs, license
-      - ./ssh-keys:/app/ssh-keys:ro   # Optional: SSH keys for agent deployment
+      - ./ssh-keys:/app/ssh-keys      # Optional: SSH keys for agent deployment
       - ./logs:/app/logs              # Application logs
     environment:
       - TZ=${TZ:-America/Chicago}

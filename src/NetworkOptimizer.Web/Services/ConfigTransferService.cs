@@ -366,7 +366,7 @@ public class ConfigTransferService
                 _logger.LogDebug("No floor-plans in import archive");
             }
 
-            // Replace data protection keys (full export only)
+            // Replace data protection keys
             var importedKeys = Path.Combine(stagingDir, "keys");
             if (Directory.Exists(importedKeys))
             {
@@ -382,15 +382,17 @@ public class ConfigTransferService
                 _logger.LogDebug("No data protection keys in import archive");
             }
 
-            // Replace SSH keys (full export only)
+            // Copy SSH keys into existing directory (may be a Docker mount point)
             var importedSshKeys = Path.Combine(stagingDir, "ssh-keys");
             if (Directory.Exists(importedSshKeys))
             {
                 var sshKeyFiles = Directory.GetFiles(importedSshKeys, "*", SearchOption.AllDirectories);
-                _logger.LogDebug("Replacing SSH keys: {Count} files", sshKeyFiles.Length);
-                if (Directory.Exists(_sshKeysDirectory))
-                    Directory.Delete(_sshKeysDirectory, recursive: true);
-                CopyDirectory(importedSshKeys, _sshKeysDirectory);
+                _logger.LogDebug("Copying SSH keys: {Count} files", sshKeyFiles.Length);
+                foreach (var file in sshKeyFiles)
+                {
+                    var targetPath = Path.Combine(_sshKeysDirectory, Path.GetFileName(file));
+                    File.Copy(file, targetPath, overwrite: true);
+                }
             }
             else
             {
