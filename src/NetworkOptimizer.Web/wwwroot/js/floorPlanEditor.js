@@ -487,7 +487,12 @@ window.fpEditor = {
         var sv = this._savedView;
         this._savedView = null;
         if (sv.buildingLat != null && sv.buildingLng != null) {
-            if (!this._map.getBounds().contains([sv.buildingLat, sv.buildingLng])) return;
+            // Check in pixel space so the map's aspect ratio doesn't matter.
+            // Building must be within the center 66% of the container in both axes.
+            var px = this._map.latLngToContainerPoint([sv.buildingLat, sv.buildingLng]);
+            var sz = this._map.getSize();
+            var mx = sz.x * 0.17, my = sz.y * 0.17;
+            if (px.x < mx || px.x > sz.x - mx || px.y < my || px.y > sz.y - my) return;
         }
         // Don't restore if it would zoom in more than current view
         if (sv.zoom > this._map.getZoom()) return;
