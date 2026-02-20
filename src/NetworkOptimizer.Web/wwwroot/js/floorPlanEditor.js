@@ -665,7 +665,8 @@ window.fpEditor = {
 
     // ── Underlay Upload (HEIC/PDF conversion) ────────────────────────
 
-    uploadUnderlay: function (floorId, swLat, swLng, neLat, neLng) {
+    // Opens file picker immediately (must be called from native onclick to work on iOS Safari)
+    pickUnderlayFile: function () {
         var self = this;
         var input = document.createElement('input');
         input.type = 'file';
@@ -679,15 +680,19 @@ window.fpEditor = {
             if (!file) return;
 
             try {
+                // Get bounds from C# (after file is picked, so user gesture isn't needed)
+                var info = await self._dotNetRef.invokeMethodAsync('GetUnderlayUploadInfo');
+                if (!info) return;
+
                 var blob = await self._convertToImage(file);
                 var formData = new FormData();
                 formData.append('image', blob, 'underlay.png');
-                formData.append('swLat', swLat.toString());
-                formData.append('swLng', swLng.toString());
-                formData.append('neLat', neLat.toString());
-                formData.append('neLng', neLng.toString());
+                formData.append('swLat', info.swLat.toString());
+                formData.append('swLng', info.swLng.toString());
+                formData.append('neLat', info.neLat.toString());
+                formData.append('neLng', info.neLng.toString());
 
-                var resp = await fetch('/api/floor-plan/floors/' + floorId + '/images', {
+                var resp = await fetch('/api/floor-plan/floors/' + info.floorId + '/images', {
                     method: 'POST',
                     body: formData
                 });

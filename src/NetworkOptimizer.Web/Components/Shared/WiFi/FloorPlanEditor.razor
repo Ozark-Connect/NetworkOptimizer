@@ -325,7 +325,7 @@
     {
         <div class="fp-bottom-bar">
             <div class="fp-image-controls">
-                <button class="fp-upload-btn" @onclick="UploadUnderlayViaJs">Upload Floorplan</button>
+                <button class="fp-upload-btn" onclick="fpEditor.pickUnderlayFile()">Upload Floorplan</button>
                 @foreach (var img in _floorImages)
                 {
                     <button class="fp-image-chip @(img.Id == _selectedImageId ? "active" : "")"
@@ -1914,11 +1914,16 @@
         catch { /* invalid JSON - reset to defaults */ }
     }
 
-    private async Task UploadUnderlayViaJs()
+    /// <summary>
+    /// Called from JS (pickUnderlayFile) to get the floor ID and initial bounds for a new underlay.
+    /// Uses JSInvokable so the file picker can open first (preserving user gesture on iOS Safari),
+    /// then get bounds asynchronously.
+    /// </summary>
+    [JSInvokable]
+    public object? GetUnderlayUploadInfo()
     {
-        if (_selectedFloor == null || _selectedBuilding == null) return;
+        if (_selectedFloor == null || _selectedBuilding == null) return null;
 
-        // Compute initial bounds from minimum bounding rectangle of building outline
         double swLat, swLng, neLat, neLng;
         if (BuildingHasWalls())
         {
@@ -1939,7 +1944,7 @@
             neLng = centerLng + lngOffset;
         }
 
-        await JS.InvokeVoidAsync("fpEditor.uploadUnderlay", _selectedFloor.Id, swLat, swLng, neLat, neLng);
+        return new { floorId = _selectedFloor.Id, swLat, swLng, neLat, neLng };
     }
 
     [JSInvokable]
@@ -2115,26 +2120,25 @@
         // Convert back to lat/lng
         var centerLat = refLat + centerY / 111320;
         var centerLng = refLng + centerX / (111320 * cosLat);
-        var latHalf = hh / 111320;
-        var lngHalf = hw / (111320 * cosLat);
-
         // Rotation in degrees: angle of the edge from east, converted to CSS rotation
         // CSS rotate() is clockwise in screen coords (y-down), our angle is CCW from east (y-up)
         var rotDeg = -bestAngle * 180.0 / Math.PI;
         // Normalize to [-180, 180]
         rotDeg = ((rotDeg + 180) % 360 + 360) % 360 - 180;
         // Pick the smaller rotation (prefer |angle| <= 90)
-        if (rotDeg > 90) rotDeg -= 180;
-        if (rotDeg < -90) rotDeg += 180;
+        // When we add/subtract 180°, the overlay axes swap (width ↔ height)
+        bool swapped = false;
+        if (rotDeg > 90) { rotDeg -= 180; swapped = true; }
+        if (rotDeg < -90) { rotDeg += 180; swapped = true; }
         rotDeg = Math.Round(rotDeg);
 
-        // If rotation flipped the axes, swap half-widths
-        // At ~0° or ~180°, hw = width (lng), hh = height (lat) → correct
-        // At ~90° or ~-90°, the axes swap
-        if (Math.Abs(rotDeg) > 45)
-        {
-            (latHalf, lngHalf) = (lngHalf, latHalf);
-        }
+        // Assign meter dimensions to lat/lng, swapping if rotation normalization flipped axes.
+        // hw = extent along edge direction → overlay horizontal (lng) unless swapped
+        // hh = extent perpendicular → overlay vertical (lat) unless swapped
+        double latMeters = swapped ? hw : hh;
+        double lngMeters = swapped ? hh : hw;
+        var latHalf = latMeters / 111320;
+        var lngHalf = lngMeters / (111320 * cosLat);
 
         return (centerLat - latHalf, centerLng - lngHalf, centerLat + latHalf, centerLng + lngHalf, rotDeg);
     }
