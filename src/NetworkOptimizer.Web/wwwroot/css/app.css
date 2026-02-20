@@ -25,27 +25,31 @@
     --purple-color: #a855f7;
     --purple-light: #c084fc;
 
-    /* Dark Mode Backgrounds - Ozark Connect blue-tinted */
-    --bg-primary: #1a2029;
-    --bg-secondary: #242c39;
-    --bg-tertiary: #334155;
-    --bg-card: #242c39;
-    --bg-hover: #334155;
-    --surface: #242c39;
-    --surface-secondary: #2d3748;
+    /* Dark Mode Backgrounds - neutral dark, Linear/Vercel inspired */
+    --bg-primary: #0f0f11;
+    --bg-secondary: #161618;
+    --bg-tertiary: #232326;
+    --bg-card: #161618;
+    --bg-hover: #232326;
+    --surface: #161618;
+    --surface-secondary: #1c1c1f;
 
-    /* Text Colors */
-    --text-primary: #f1f5f9;
-    --text-secondary: #cbd5e1;
-    --text-muted: #64748b;
-    --text-dark: #1F2937;
+    /* Text Colors - neutral, no blue tint */
+    --text-primary: #ededef;
+    --text-secondary: #a0a0a8;
+    --text-muted: #5c5c66;
+    --text-dark: #171717;
+
+    /* Blue accent variants for text/links */
+    --primary-light: #60a5fa;
+    --primary-lighter: #93c5fd;
 
     /* Borders & Effects */
-    --border-color: #334155;
+    --border-color: #232326;
     --border-radius: 4px;
     --border-radius-lg: 6px;
-    --shadow: rgba(0, 0, 0, 0.4) 0px 4px 12px 0px, rgba(255, 255, 255, 0.03) 0px 0px 1px 0px;
-    --shadow-lg: rgba(0, 0, 0, 0.5) 0px 8px 24px 0px, rgba(255, 255, 255, 0.03) 0px 0px 1px 0px;
+    --shadow: none;
+    --shadow-lg: rgba(0, 0, 0, 0.4) 0px 4px 12px 0px;
     --focus-ring: 0 0 0 1px var(--primary-color);
 
     /* Layout */
@@ -327,7 +331,7 @@ a:hover {
 /* Cards */
 .card {
     background: var(--bg-card);
-    border: 1px solid var(--border-color);
+    border: none;
     border-radius: var(--border-radius-lg);
     margin-bottom: 1rem;
     overflow: hidden;
@@ -335,7 +339,7 @@ a:hover {
 
 .card-header {
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -622,9 +626,8 @@ a.stat-card-link:visited {
 }
 
 a.stat-card-link:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
-    border-color: var(--primary-color);
+    transform: translateY(-1px);
+    background: var(--bg-hover);
 }
 
 a.stat-card-link:active {
@@ -949,7 +952,7 @@ a.stat-card-link:active {
     background: var(--info-color);
     color: white;
     padding: 0.25rem 0.75rem;
-    border-radius: 1rem;
+    border-radius: var(--border-radius-lg);
     font-size: 0.75rem;
     font-weight: 600;
 }
@@ -1150,7 +1153,7 @@ a.stat-card-link:active {
 }
 
 .data-table tr:not(.history-details-row):hover {
-    background: #2d3a4d;
+    background: var(--bg-hover);
 }
 
 .data-table code {
@@ -1219,7 +1222,7 @@ a.stat-card-link:active {
     align-items: center;
     gap: 0.25rem;
     padding: 0.25rem 0.75rem;
-    border-radius: 1rem;
+    border-radius: var(--border-radius-lg);
     font-size: 0.75rem;
     font-weight: 600;
 }
@@ -1325,7 +1328,7 @@ a.btn-lg {
 
 .btn-secondary:hover:not(:disabled),
 .btn-ghost:hover:not(:disabled) {
-    background: #475569;
+    background: #2c2c30;
 }
 
 /* Danger - Red (for destructive actions) */
@@ -1560,7 +1563,7 @@ select.form-control {
     width: 100%;
     height: 8px;
     background: var(--bg-primary);
-    border-radius: 1rem;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
     margin-top: 1rem;
 }
@@ -2971,7 +2974,7 @@ select.form-control {
 .interface-status {
     font-size: 0.75rem;
     padding: 0.125rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: var(--bg-secondary);
 }
 
@@ -3372,7 +3375,7 @@ select.form-control {
     z-index: 100;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-primary);
     padding: 0.25rem 0.5rem;
     font-size: 0.8rem;
@@ -3415,7 +3418,7 @@ select.form-control {
     width: 100%;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     padding: 0.25rem 0.5rem;
     font-family: inherit;
     font-size: 0.8125rem;
@@ -3589,7 +3592,7 @@ select.form-control {
 
 .path-analysis .grade-badge {
     padding: 0.35rem 0.6rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     font-weight: 600;
     cursor: help;
@@ -3621,7 +3624,7 @@ select.form-control {
     gap: 0.4rem;
     padding: 0.4rem 0.6rem;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     white-space: nowrap;
     min-height: 41px;
@@ -3669,7 +3672,7 @@ select.form-control {
 
 .path-analysis .path-connector .connector-speed {
     font-size: 0.6rem;
-    color: #93c5fd;
+    color: var(--primary-lighter);
     white-space: nowrap;
 }
 
@@ -3951,17 +3954,17 @@ select.form-control {
     font-weight: 600;
     font-size: 0.9rem;
     margin-bottom: 0.35rem;
-    color: #f1f5f9;
+    color: var(--text-primary);
 }
 
 .wifi-tooltip-row {
     font-size: 0.8rem;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin-bottom: 0.2rem;
 }
 
 .wifi-tooltip-signal {
-    color: #60a5fa;
+    color: var(--primary-light);
 }
 
 .wifi-tooltip-speed {
@@ -3985,14 +3988,14 @@ select.form-control {
 
 .wifi-tooltip-link-signal {
     font-size: 0.75rem;
-    color: #64748b;
+    color: var(--text-muted);
     margin-bottom: 0.3rem;
     padding-left: 0.25rem;
 }
 
 .wifi-tooltip-link-speed {
     font-size: 0.75rem;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin-bottom: 0.15rem;
     padding-left: 0.25rem;
 }
@@ -4029,7 +4032,7 @@ select.form-control {
 
 .wifi-band-badge.wifi-band-na {
     background: rgba(59, 130, 246, 0.2);
-    color: #60a5fa;
+    color: var(--primary-light);
 }
 
 .wifi-band-badge.wifi-band-6e {
@@ -4044,7 +4047,7 @@ select.form-control {
     gap: 0.4rem;
     font-size: 0.8rem;
     margin-bottom: 0.15rem;
-    color: #e2e8f0;
+    color: var(--text-secondary);
 }
 
 .device-tooltip-row:last-child {
@@ -4052,7 +4055,7 @@ select.form-control {
 }
 
 .device-tooltip-label {
-    color: #94a3b8;
+    color: var(--text-secondary);
     font-weight: 500;
 }
 
@@ -4060,12 +4063,12 @@ select.form-control {
     margin-top: 0.5rem;
     padding-top: 0.4rem;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
-    color: #60a5fa;
+    color: var(--primary-light);
     font-size: 0.75rem;
 }
 
 .device-tooltip-link {
-    color: #60a5fa;
+    color: var(--primary-light);
     font-size: 0.75rem;
     margin-top: 0.25rem;
 }
@@ -4093,7 +4096,7 @@ a.path-hop.hop-clickable {
 }
 
 a.path-hop.hop-clickable:hover {
-    border-color: #60a5fa;
+    border-color: var(--primary-light);
     background: rgba(59, 130, 246, 0.15);
 }
 
@@ -4125,7 +4128,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .path-analysis .path-hop.hop-tailscale .hop-icon {
-    color: #60a5fa;
+    color: var(--primary-light);
 }
 
 .path-analysis .path-hop.hop-wan {
@@ -4151,7 +4154,7 @@ a.path-hop.hop-clickable:hover {
     padding: 0.5rem 0.75rem;
     background: rgba(234, 179, 8, 0.1);
     border-left: 3px solid var(--warning-color);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     font-size: 0.8rem;
     color: var(--warning-color);
     margin-bottom: 0.5rem;
@@ -4162,16 +4165,16 @@ a.path-hop.hop-clickable:hover {
     padding: 0.3rem 0.6rem;
     background: rgba(59, 130, 246, 0.2);
     border: 1px solid rgba(59, 130, 246, 0.4);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
-    color: #93c5fd;
+    color: var(--primary-lighter);
     margin-bottom: 0.5rem;
 }
 
 .path-analysis .path-error {
     padding: 0.75rem;
     background: rgba(239, 68, 68, 0.1);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-muted);
     font-size: 0.85rem;
     margin-bottom: 0.75rem;
@@ -4207,7 +4210,7 @@ a.path-hop.hop-clickable:hover {
 
 /* Trending up arrow for recommendations */
 .path-analysis .note.recommendation {
-    color: #93c5fd;
+    color: var(--primary-lighter);
     --note-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='23 6 13.5 15.5 8.5 10.5 1 18'/%3E%3Cpolyline points='17 6 23 6 23 12'/%3E%3C/svg%3E");
 }
 
@@ -4233,15 +4236,15 @@ a.path-hop.hop-clickable:hover {
 }
 
 .history-row-clickable:hover {
-    background: #2d3a4d;
+    background: var(--bg-hover);
 }
 
 .history-row-expanded {
-    background: #2d3a4d;
+    background: var(--bg-hover);
 }
 
 .history-details-row {
-    background: #2d3a4d;
+    background: var(--bg-hover);
 }
 
 .expand-chevron {
@@ -5014,7 +5017,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--bg-primary) 0%, #0d1117 50%, var(--bg-secondary) 100%);
+    background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-primary) 50%, var(--bg-secondary) 100%);
     padding: 1rem;
 }
 
@@ -5261,7 +5264,7 @@ a.path-hop.hop-clickable:hover {
 .setup-guide {
     margin-top: 1.5rem;
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-secondary);
 }
 
@@ -5294,11 +5297,11 @@ a.path-hop.hop-clickable:hover {
 .setup-guide summary:hover {
     color: var(--text-primary);
     background: var(--bg-tertiary);
-    border-radius: 8px 8px 0 0;
+    border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
 }
 
 .setup-guide:not([open]) summary:hover {
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
 }
 
 .setup-guide-content {
@@ -5340,7 +5343,7 @@ a.path-hop.hop-clickable:hover {
 .setup-guide-content code {
     background: var(--bg-tertiary);
     padding: 0.15rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.85em;
 }
 
@@ -5417,7 +5420,7 @@ a.path-hop.hop-clickable:hover {
 .summary-card {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
 }
@@ -5450,7 +5453,7 @@ a.path-hop.hop-clickable:hover {
 .upnp-device-group {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     margin-bottom: 0.75rem;
     overflow: hidden;
 }
@@ -5536,7 +5539,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .rule-status.status-stale .status-dot {
-    background: #94a3b8;
+    background: var(--text-secondary);
 }
 
 .rule-status.status-disabled .status-dot {
@@ -5579,7 +5582,7 @@ a.path-hop.hop-clickable:hover {
 
 .rule-protocol {
     background: rgba(59, 130, 246, 0.2);
-    color: #60a5fa;
+    color: var(--primary-light);
     padding: 0.125rem 0.375rem;
     border-radius: 3px;
     font-size: 0.75rem;
@@ -5654,7 +5657,7 @@ a.path-hop.hop-clickable:hover {
     flex-shrink: 0;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     padding: 0.25rem 0.5rem;
     font-size: 0.8125rem;
     color: var(--text-primary);
@@ -5695,7 +5698,7 @@ a.path-hop.hop-clickable:hover {
 .badge {
     display: inline-block;
     padding: 0.2rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
     font-weight: 500;
 }
@@ -5965,7 +5968,7 @@ a.path-hop.hop-clickable:hover {
     min-width: 24px;
     height: 24px;
     padding: 0 0.5rem;
-    border-radius: 12px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-tertiary);
     font-size: 0.75rem;
     font-weight: 600;
@@ -6208,13 +6211,13 @@ a.path-hop.hop-clickable:hover {
 .dimension-bar-container {
     height: 8px;
     background: var(--bg-tertiary);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
 }
 
 .dimension-bar {
     height: 100%;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -6321,7 +6324,7 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     padding: 1rem;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     border-left: 4px solid var(--border-color);
 }
 
@@ -6349,7 +6352,7 @@ a.path-hop.hop-clickable:hover {
     font-weight: 600;
     text-transform: uppercase;
     padding: 0.2rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: var(--bg-primary);
 }
 
@@ -6449,7 +6452,7 @@ a.path-hop.hop-clickable:hover {
 .ap-card {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
 }
 
@@ -6538,7 +6541,7 @@ a.path-hop.hop-clickable:hover {
 .radio-band {
     font-weight: 600;
     padding: 0.125rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
 }
 
@@ -6697,7 +6700,7 @@ a.path-hop.hop-clickable:hover {
     font-weight: 500;
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.15s ease;
@@ -6721,7 +6724,7 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
     padding: 0.75rem;
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
 }
 
 .filter-group {
@@ -6753,7 +6756,7 @@ a.path-hop.hop-clickable:hover {
 .ap-filter-select {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-primary);
     padding: 0.25rem 0.5rem;
     font-size: 0.8rem;
@@ -6828,7 +6831,7 @@ a.path-hop.hop-clickable:hover {
     padding-bottom: 2.2rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -6857,7 +6860,7 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.875rem;
     font-weight: 600;
     padding: 0.25rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .band-chart-header .band-label.band-2ghz {
@@ -6889,7 +6892,7 @@ a.path-hop.hop-clickable:hover {
 /* ApexCharts dark theme overrides annotation label fill - needs double class
    specificity to beat .apexcharts-text rule below */
 .apexcharts-text.apexcharts-xaxis-annotation-label {
-    fill: #f1f5f9 !important;
+    fill: var(--text-primary) !important;
 }
 
 /* Hide hover dots and tooltip markers for transparent (hidden) series */
@@ -6903,11 +6906,11 @@ a.path-hop.hop-clickable:hover {
 }
 
 .apexcharts-text {
-    fill: #9ca3af !important;
+    fill: var(--text-muted) !important;
 }
 
 .apexcharts-gridline {
-    stroke: #374151 !important;
+    stroke: var(--border-color) !important;
 }
 
 .apexcharts-tooltip {
@@ -7048,7 +7051,7 @@ a.path-hop.hop-clickable:hover {
     padding: 0.5rem 0.75rem;
     margin-right: 0.5rem;
     border: 1px solid var(--border-color);
-    border-radius: 0.375rem;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-primary);
     color: var(--text-primary);
     font-size: 0.875rem;
@@ -7238,7 +7241,7 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.85rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-primary);
     cursor: pointer;
     transition: all 0.15s ease;
@@ -7271,7 +7274,7 @@ a.path-hop.hop-clickable:hover {
 .client-info-banner {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     display: flex;
     flex-direction: column;
@@ -7375,14 +7378,14 @@ a.path-hop.hop-clickable:hover {
 
 .band-badge {
     padding: 0.125rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
 }
 
 .timeline-chart-section {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -7415,7 +7418,7 @@ a.path-hop.hop-clickable:hover {
 .events-section {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
 }
 
 .events-header {
@@ -7605,7 +7608,7 @@ a.path-hop.hop-clickable:hover {
 .wifi-view-tab.active {
     background: var(--primary-color);
     color: white;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 @@media (max-width: 768px) {
@@ -7659,7 +7662,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     min-width: 120px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
 }
@@ -7679,7 +7682,7 @@ a.path-hop.hop-clickable:hover {
 /* Topology Visualization */
 .roaming-topology-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -7706,7 +7709,7 @@ a.path-hop.hop-clickable:hover {
     width: 100%;
     height: 300px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
     padding: 10px 0;
 }
@@ -7822,7 +7825,7 @@ a.path-hop.hop-clickable:hover {
 /* Roaming Paths Table */
 .roaming-paths-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -7886,7 +7889,7 @@ a.path-hop.hop-clickable:hover {
 /* Edge Details */
 .edge-details-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
     border: 1px solid var(--primary-color);
@@ -7987,7 +7990,7 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
     padding: 0.5rem;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
 }
 
@@ -8015,7 +8018,7 @@ a.path-hop.hop-clickable:hover {
 /* Roaming Clients Grid */
 .roaming-clients-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
 }
 
@@ -8138,7 +8141,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     min-width: 100px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
 }
@@ -8187,7 +8190,7 @@ a.path-hop.hop-clickable:hover {
 .band-tab.active.band-2ghz {
     background: #fbbf24;
     border-color: #fbbf24;
-    color: #1a1a1a;
+    color: var(--text-dark);
 }
 
 .band-tab.active.band-5ghz {
@@ -8232,7 +8235,7 @@ a.path-hop.hop-clickable:hover {
 /* Channel Map */
 .channel-map-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -8273,7 +8276,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .channel-slot.mesh {
-    border-color: #60a5fa;
+    border-color: var(--primary-light);
     background: rgba(59, 130, 246, 0.1);
 }
 
@@ -8308,7 +8311,7 @@ a.path-hop.hop-clickable:hover {
     border-top: 2px solid var(--group-border-color);
     border-left: 2px solid var(--group-border-color);
     border-right: 2px solid var(--group-border-color);
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
 }
 
 /* Start of group - odd: top border extending right + left vertical from top to 50% */
@@ -8319,7 +8322,7 @@ a.path-hop.hop-clickable:hover {
     bottom: 50%;
     border-top: 2px solid var(--group-border-color);
     border-left: 2px solid var(--group-border-color);
-    border-radius: 4px 0 0 0;
+    border-radius: var(--border-radius) 0 0 0;
 }
 
 /* Middle of group - odd: top border only */
@@ -8339,7 +8342,7 @@ a.path-hop.hop-clickable:hover {
     bottom: 50%;
     border-top: 2px solid var(--group-border-color);
     border-right: 2px solid var(--group-border-color);
-    border-radius: 0 4px 0 0;
+    border-radius: 0 var(--border-radius) 0 0;
 }
 
 /* === EVEN GROUPS: "Cup" shape (bottom half) === */
@@ -8353,7 +8356,7 @@ a.path-hop.hop-clickable:hover {
     border-bottom: 2px solid var(--group-border-color);
     border-left: 2px solid var(--group-border-color);
     border-right: 2px solid var(--group-border-color);
-    border-radius: 0 0 4px 4px;
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
 }
 
 /* Start of group - even: bottom border extending right + left vertical from 50% to bottom */
@@ -8364,7 +8367,7 @@ a.path-hop.hop-clickable:hover {
     bottom: -3px;
     border-bottom: 2px solid var(--group-border-color);
     border-left: 2px solid var(--group-border-color);
-    border-radius: 0 0 0 4px;
+    border-radius: 0 0 0 var(--border-radius);
 }
 
 /* Middle of group - even: bottom border only */
@@ -8384,7 +8387,7 @@ a.path-hop.hop-clickable:hover {
     bottom: -3px;
     border-bottom: 2px solid var(--group-border-color);
     border-right: 2px solid var(--group-border-color);
-    border-radius: 0 0 4px 0;
+    border-radius: 0 0 var(--border-radius) 0;
 }
 
 /* Hatched pattern for overlapping width groups - applied via background on element */
@@ -8425,7 +8428,7 @@ a.path-hop.hop-clickable:hover {
     border-top: 2px solid var(--group2-border-color);
     border-left: 2px solid var(--group2-border-color);
     border-right: 2px solid var(--group2-border-color);
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
 }
 
 .channel-slot.has-group2.group2-start.group2-group-odd::after {
@@ -8435,7 +8438,7 @@ a.path-hop.hop-clickable:hover {
     bottom: 50%;
     border-top: 2px solid var(--group2-border-color);
     border-left: 2px solid var(--group2-border-color);
-    border-radius: 4px 0 0 0;
+    border-radius: var(--border-radius) 0 0 0;
 }
 
 .channel-slot.has-group2.group2-middle.group2-group-odd::after {
@@ -8453,7 +8456,7 @@ a.path-hop.hop-clickable:hover {
     bottom: 50%;
     border-top: 2px solid var(--group2-border-color);
     border-right: 2px solid var(--group2-border-color);
-    border-radius: 0 4px 0 0;
+    border-radius: 0 var(--border-radius) 0 0;
 }
 
 /* Second group EVEN (cup/bottom) */
@@ -8465,7 +8468,7 @@ a.path-hop.hop-clickable:hover {
     border-bottom: 2px solid var(--group2-border-color);
     border-left: 2px solid var(--group2-border-color);
     border-right: 2px solid var(--group2-border-color);
-    border-radius: 0 0 4px 4px;
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
 }
 
 .channel-slot.has-group2.group2-start.group2-group-even::after {
@@ -8475,7 +8478,7 @@ a.path-hop.hop-clickable:hover {
     bottom: -3px;
     border-bottom: 2px solid var(--group2-border-color);
     border-left: 2px solid var(--group2-border-color);
-    border-radius: 0 0 0 4px;
+    border-radius: 0 0 0 var(--border-radius);
 }
 
 .channel-slot.has-group2.group2-middle.group2-group-even::after {
@@ -8493,7 +8496,7 @@ a.path-hop.hop-clickable:hover {
     bottom: -3px;
     border-bottom: 2px solid var(--group2-border-color);
     border-right: 2px solid var(--group2-border-color);
-    border-radius: 0 0 4px 0;
+    border-radius: 0 0 var(--border-radius) 0;
 }
 
 .channel-number {
@@ -8560,7 +8563,7 @@ a.path-hop.hop-clickable:hover {
 /* Channel Details Section */
 .channel-details-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
     border: 1px solid var(--primary-color);
@@ -8602,7 +8605,7 @@ a.path-hop.hop-clickable:hover {
     border-radius: 6px;
     margin-bottom: 1rem;
     font-size: 0.875rem;
-    color: #60a5fa;
+    color: var(--primary-light);
 }
 
 .mesh-info .mesh-icon {
@@ -8685,7 +8688,7 @@ a.path-hop.hop-clickable:hover {
 /* APs Band Table */
 .aps-band-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -8742,7 +8745,7 @@ a.path-hop.hop-clickable:hover {
     justify-content: center;
     padding: 0.25rem 0.5rem;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-weight: 600;
 }
 
@@ -8753,7 +8756,7 @@ a.path-hop.hop-clickable:hover {
 
 .channel-badge.mesh {
     background: rgba(59, 130, 246, 0.15);
-    color: #60a5fa;
+    color: var(--primary-light);
 }
 
 .power-value {
@@ -8797,7 +8800,7 @@ a.path-hop.hop-clickable:hover {
 /* Channel Issues Section - wrapper only, issue styling from IssuesList component */
 .channel-issues-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
 }
 
@@ -8879,7 +8882,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     min-width: 100px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
 }
@@ -8898,7 +8901,7 @@ a.path-hop.hop-clickable:hover {
 /* Load Chart Section */
 .load-chart-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -8966,7 +8969,7 @@ a.path-hop.hop-clickable:hover {
 
 .load-bar {
     height: 24px;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     display: flex;
     overflow: hidden;
     min-width: 4px;
@@ -9019,7 +9022,7 @@ a.path-hop.hop-clickable:hover {
 /* AP Details Section */
 .ap-details-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -9153,7 +9156,7 @@ a.path-hop.hop-clickable:hover {
 .ap-info-msg {
     margin-top: 0.5rem;
     padding: 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
 }
 
@@ -9170,7 +9173,7 @@ a.path-hop.hop-clickable:hover {
 /* Load Recommendations Section */
 .load-recommendations-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
 }
 
@@ -9239,7 +9242,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.5rem;
     padding: 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     color: var(--text-muted);
     border-left: 2px solid var(--info-color);
@@ -9332,7 +9335,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     min-width: 100px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
 }
@@ -9392,7 +9395,7 @@ a.path-hop.hop-clickable:hover {
 /* Power Sections */
 .power-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -9436,12 +9439,12 @@ a.path-hop.hop-clickable:hover {
     flex-direction: column;
     align-items: center;
     height: 100%;
-    border-radius: 0 0 4px 4px;
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
 }
 
 .signal-bar {
     width: 100%;
-    border-radius: 0 0 4px 4px;
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
     display: flex;
     align-items: flex-end;
     justify-content: center;
@@ -9579,7 +9582,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     height: 20px;
     background: var(--bg-secondary);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
     position: relative;
     display: flex;
@@ -9608,7 +9611,7 @@ a.path-hop.hop-clickable:hover {
 .power-bar-gain {
     height: 100%;
     border-left: 1px dashed rgba(255, 255, 255, 0.3);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -9660,7 +9663,7 @@ a.path-hop.hop-clickable:hover {
 .power-warning {
     margin-top: 0.75rem;
     padding: 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: rgba(231, 150, 19, 0.1);
     color: var(--warning-color);
     font-size: 0.75rem;
@@ -9722,7 +9725,7 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     padding: 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .coverage-metric .metric-label {
@@ -9738,7 +9741,7 @@ a.path-hop.hop-clickable:hover {
 
 .weak-clients-warning {
     padding: 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: rgba(239, 68, 68, 0.1);
     color: var(--danger-color);
     font-size: 0.75rem;
@@ -9748,7 +9751,7 @@ a.path-hop.hop-clickable:hover {
 .coverage-distribution {
     height: 8px;
     display: flex;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     overflow: hidden;
     background: var(--bg-secondary);
 }
@@ -9814,7 +9817,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.5rem;
     padding: 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     color: var(--text-muted);
     border-left: 2px solid var(--info-color);
@@ -9893,7 +9896,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     min-width: 100px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
 }
@@ -9923,7 +9926,7 @@ a.path-hop.hop-clickable:hover {
 /* Steering Sections */
 .steering-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -10027,7 +10030,7 @@ a.path-hop.hop-clickable:hover {
 
 .steerable-band {
     padding: 0.25rem 0.75rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     font-weight: 500;
 }
@@ -10059,7 +10062,7 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
     padding: 0.5rem 0.75rem;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .steerable-client-row .client-info {
@@ -10181,7 +10184,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     height: 16px;
     background: var(--bg-tertiary);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
@@ -10189,7 +10192,7 @@ a.path-hop.hop-clickable:hover {
 
 .wifi-gen-bar {
     height: 100%;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -10258,7 +10261,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.5rem;
     padding: 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     color: var(--text-muted);
     border-left: 2px solid var(--info-color);
@@ -10353,7 +10356,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     min-width: 100px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
 }
@@ -10374,7 +10377,7 @@ a.path-hop.hop-clickable:hover {
     gap: 0.75rem;
     padding: 1rem;
     background: var(--bg-primary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     margin-bottom: 1.5rem;
     border-left: 3px solid var(--info-color);
 }
@@ -10407,7 +10410,7 @@ a.path-hop.hop-clickable:hover {
 /* Airtime Sections */
 .airtime-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -10496,14 +10499,14 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     height: 16px;
     background: var(--bg-secondary);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
     position: relative;
 }
 
 .radio-util-bar {
     height: 100%;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -10531,7 +10534,7 @@ a.path-hop.hop-clickable:hover {
 .util-warning {
     margin-top: 0.75rem;
     padding: 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: rgba(239, 68, 68, 0.1);
     color: var(--danger-color);
     font-size: 0.75rem;
@@ -10567,7 +10570,7 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     height: 20px;
     background: var(--bg-tertiary);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
@@ -10575,7 +10578,7 @@ a.path-hop.hop-clickable:hover {
 
 .gen-bar {
     height: 100%;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -10592,7 +10595,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .gen-bar-segment:last-child {
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
 }
 
 .gen-bar-segment.band-2ghz {
@@ -10769,13 +10772,13 @@ a.path-hop.hop-clickable:hover {
     flex: 1;
     height: 12px;
     background: var(--bg-tertiary);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
 }
 
 .retry-bar {
     height: 100%;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -10799,7 +10802,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.5rem;
     padding: 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     color: var(--text-muted);
     border-left: 2px solid var(--info-color);
@@ -10869,7 +10872,7 @@ a.path-hop.hop-clickable:hover {
 
 .time-range-select {
     padding: 0.375rem 0.75rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     border: 1px solid var(--border-color);
     background: var(--bg-tertiary);
     color: var(--text-primary);
@@ -10890,7 +10893,7 @@ a.path-hop.hop-clickable:hover {
 /* Environmental Sections */
 .env-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -11208,7 +11211,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.5rem;
     padding: 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8rem;
     color: var(--text-muted);
     border-left: 2px solid var(--info-color);
@@ -11290,7 +11293,7 @@ a.path-hop.hop-clickable:hover {
 /* Flow Sections */
 .flow-section {
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -11327,7 +11330,7 @@ a.path-hop.hop-clickable:hover {
     flex-direction: column;
     padding: 1rem;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     min-width: 140px;
 }
 
@@ -11448,7 +11451,7 @@ a.path-hop.hop-clickable:hover {
     background: rgba(239, 68, 68, 0.15);
     color: var(--danger-color);
     padding: 0.25rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
     white-space: nowrap;
@@ -11463,7 +11466,7 @@ a.path-hop.hop-clickable:hover {
     padding: 1rem;
     margin-top: 1rem;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
 }
 
 .success-rate-label {
@@ -11487,7 +11490,7 @@ a.path-hop.hop-clickable:hover {
     font-size: 1.125rem;
     padding: 0.25rem 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .issue-item.issue-warning .connection-issue-count { color: var(--warning-color); }
@@ -11503,18 +11506,18 @@ a.path-hop.hop-clickable:hover {
 .affected-client {
     padding: 0.25rem 0.5rem;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
     color: var(--text-secondary);
 }
 
 a.affected-client {
-    color: #60a5fa;
+    color: var(--primary-light);
     text-decoration: none;
 }
 
 a.affected-client:hover {
-    color: #93c5fd;
+    color: var(--primary-lighter);
     text-decoration: underline;
 }
 
@@ -11534,7 +11537,7 @@ a.affected-client:hover {
 
 .status-card {
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1.25rem;
     text-align: center;
     position: relative;
@@ -11605,13 +11608,13 @@ a.affected-client:hover {
 .ap-success-bar-container {
     height: 8px;
     background: var(--bg-secondary);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
 }
 
 .ap-success-bar {
     height: 100%;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -11646,11 +11649,11 @@ a.affected-client:hover {
     }
 
     .flow-stage:first-child {
-        border-radius: 8px 8px 0 0;
+        border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
     }
 
     .flow-stage:last-child {
-        border-radius: 0 0 8px 8px;
+        border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
     }
 
     .stage-header {
@@ -11771,7 +11774,7 @@ a.affected-client:hover {
     width: 36px;
     height: 20px;
     background: var(--bg-secondary);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     border: 1px solid var(--border-color);
     transition: background 0.2s;
 }
@@ -11819,7 +11822,7 @@ a.affected-client:hover {
     flex: 1;
     padding: 1rem;
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-tertiary);
 }
 
@@ -11843,7 +11846,7 @@ a.affected-client:hover {
 .wan-speedtest .wan-test-option-badge {
     font-size: 0.7rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-secondary);
     color: var(--text-muted);
     border: 1px solid var(--border-color);
@@ -11891,7 +11894,7 @@ a.affected-client:hover {
     margin-top: 1rem;
     padding: 0.75rem 1rem;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     border: 1px solid var(--border-color);
 }
 
@@ -12011,7 +12014,7 @@ a.affected-client:hover {
     align-items: center;
     gap: 0.5rem;
     padding: 0.45rem 1rem;
-    border-radius: 20px;
+    border-radius: var(--border-radius-lg);
     border: 1px solid var(--border-color);
     background: transparent;
     color: var(--text-primary);
@@ -12076,7 +12079,7 @@ a.affected-client:hover {
 .stepped-scale-bar {
     background: rgba(15, 23, 42, 0.85);
     border: 1px solid rgba(100, 116, 139, 0.4);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     padding: 4px 8px 3px;
     pointer-events: none;
 }
@@ -12088,17 +12091,17 @@ a.affected-client:hover {
 
 .stepped-scale-seg {
     height: 100%;
-    border: 1px solid #94a3b8;
+    border: 1px solid var(--text-secondary);
     border-right: none;
     box-sizing: border-box;
 }
 
 .stepped-scale-seg:last-child {
-    border-right: 1px solid #94a3b8;
+    border-right: 1px solid var(--text-secondary);
 }
 
 .stepped-scale-seg-filled {
-    background: #94a3b8;
+    background: var(--text-secondary);
 }
 
 .stepped-scale-seg-empty {
@@ -12109,7 +12112,7 @@ a.affected-client:hover {
     display: flex;
     justify-content: space-between;
     font-size: 9px;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin-top: 1px;
     font-weight: 500;
 }
