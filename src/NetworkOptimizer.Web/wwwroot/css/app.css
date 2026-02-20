@@ -5311,6 +5311,7 @@ a.path-hop.hop-clickable:hover {
 .setup-guide-content {
     padding: 1rem;
     border-top: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
     color: var(--text-secondary);
     font-size: 0.9rem;
     line-height: 1.6;
@@ -6695,6 +6696,11 @@ a.path-hop.hop-clickable:hover {
 .card .card .btn-secondary,
 .card .card .btn-ghost {
     background: var(--bg-secondary);
+}
+
+.card .card .btn-secondary:hover:not(:disabled),
+.card .card .btn-ghost:hover:not(:disabled) {
+    background: var(--bg-primary);
 }
 
 .pill-btn,
