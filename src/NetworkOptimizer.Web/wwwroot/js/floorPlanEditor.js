@@ -746,14 +746,20 @@ window.fpEditor = {
             throw new Error('Cannot convert HEIC. Install "HEIF Image Extensions" from the Microsoft Store.');
         }
 
-        // PDF: render page 1 to canvas via pdf.js
+        // PDF: let user pick a page, then render at high resolution
         if (type === 'application/pdf' || name.endsWith('.pdf')) {
             var pdfjsLib = await import('/lib/pdf.min.mjs');
             pdfjsLib.GlobalWorkerOptions.workerSrc = '/lib/pdf.worker.min.mjs';
             var arrayBuf = await file.arrayBuffer();
             var pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-            var page = await pdf.getPage(1);
-            // Render at 2x scale for good resolution
+
+            var pageNum = 1;
+            if (pdf.numPages > 1) {
+                pageNum = await this._showPdfPagePicker(pdf);
+                if (!pageNum) throw new Error('PDF page selection cancelled');
+            }
+
+            var page = await pdf.getPage(pageNum);
             var scale = 2;
             var viewport = page.getViewport({ scale: scale });
             var canvas = document.createElement('canvas');
@@ -806,6 +812,94 @@ window.fpEditor = {
                 reject(new Error('Could not read image dimensions'));
             };
             img.src = url;
+        });
+    },
+
+    _showPdfPagePicker: function (pdf) {
+        return new Promise(function (resolve) {
+            // Build modal DOM
+            var backdrop = document.createElement('div');
+            backdrop.className = 'fp-dialog-backdrop';
+
+            var dialog = document.createElement('div');
+            dialog.className = 'fp-dialog';
+            dialog.style.maxWidth = '680px';
+            dialog.style.maxHeight = '80vh';
+            dialog.style.display = 'flex';
+            dialog.style.flexDirection = 'column';
+
+            var title = document.createElement('h3');
+            title.textContent = 'Select PDF Page (' + pdf.numPages + ' pages)';
+            dialog.appendChild(title);
+
+            var grid = document.createElement('div');
+            grid.style.display = 'grid';
+            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(140px, 1fr))';
+            grid.style.gap = '12px';
+            grid.style.overflowY = 'auto';
+            grid.style.flex = '1';
+            grid.style.padding = '4px';
+            dialog.appendChild(grid);
+
+            var actions = document.createElement('div');
+            actions.className = 'fp-dialog-actions';
+            actions.style.marginTop = '12px';
+            var cancelBtn = document.createElement('button');
+            cancelBtn.className = 'fp-btn';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.onclick = function () {
+                document.body.removeChild(backdrop);
+                resolve(0);
+            };
+            actions.appendChild(cancelBtn);
+            dialog.appendChild(actions);
+
+            backdrop.appendChild(dialog);
+            document.body.appendChild(backdrop);
+
+            // Render thumbnails
+            var thumbScale = 0.5;
+            for (var i = 1; i <= pdf.numPages; i++) {
+                (function (pageNum) {
+                    var cell = document.createElement('div');
+                    cell.style.cursor = 'pointer';
+                    cell.style.border = '2px solid transparent';
+                    cell.style.borderRadius = '4px';
+                    cell.style.padding = '4px';
+                    cell.style.textAlign = 'center';
+                    cell.style.transition = 'border-color 0.15s';
+                    cell.onmouseenter = function () { cell.style.borderColor = '#3b82f6'; };
+                    cell.onmouseleave = function () { cell.style.borderColor = 'transparent'; };
+                    cell.onclick = function () {
+                        document.body.removeChild(backdrop);
+                        resolve(pageNum);
+                    };
+
+                    var label = document.createElement('div');
+                    label.textContent = 'Page ' + pageNum;
+                    label.style.fontSize = '12px';
+                    label.style.color = '#cbd5e1';
+                    label.style.marginTop = '4px';
+
+                    pdf.getPage(pageNum).then(function (page) {
+                        var vp = page.getViewport({ scale: thumbScale });
+                        var canvas = document.createElement('canvas');
+                        canvas.width = vp.width;
+                        canvas.height = vp.height;
+                        canvas.style.width = '100%';
+                        canvas.style.height = 'auto';
+                        canvas.style.borderRadius = '2px';
+                        canvas.style.background = '#fff';
+                        var ctx = canvas.getContext('2d');
+                        page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+                            cell.insertBefore(canvas, label);
+                        });
+                    });
+
+                    cell.appendChild(label);
+                    grid.appendChild(cell);
+                })(i);
+            }
         });
     },
 
