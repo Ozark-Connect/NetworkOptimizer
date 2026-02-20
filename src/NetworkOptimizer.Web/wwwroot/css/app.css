@@ -5317,6 +5317,16 @@ a.path-hop.hop-clickable:hover {
     line-height: 1.6;
 }
 
+.setup-guide-content .btn-secondary,
+.setup-guide-content .btn-ghost {
+    background: var(--bg-secondary);
+}
+
+.setup-guide-content .btn-secondary:hover:not(:disabled),
+.setup-guide-content .btn-ghost:hover:not(:disabled) {
+    background: var(--bg-primary);
+}
+
 .setup-guide-content h4 {
     color: var(--text-primary);
     margin: 1rem 0 0.5rem 0;
