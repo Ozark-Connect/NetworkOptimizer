@@ -3373,7 +3373,7 @@ select.form-control {
 .wan-reassign-select {
     position: relative;
     z-index: 100;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     color: var(--text-primary);
@@ -3388,7 +3388,7 @@ select.form-control {
 }
 
 .wan-reassign-select option {
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     color: var(--text-primary);
 }
 
@@ -5402,7 +5402,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .upnp-controls .filter-select {
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     color: var(--text-primary);
@@ -6754,7 +6754,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .ap-filter-select {
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     color: var(--text-primary);
@@ -6769,7 +6769,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .ap-filter-select option {
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     color: var(--text-primary);
 }
 
@@ -6984,7 +6984,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .client-selector .form-select {
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     color: var(--text-primary);
@@ -6994,7 +6994,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .client-selector .form-select option {
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     color: var(--text-primary);
 }
 
