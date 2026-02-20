@@ -2600,6 +2600,8 @@ select.form-control {
     font-weight: 500;
     white-space: nowrap;
     animation: purposeFadeIn 0.2s ease-out;
+    position: absolute;
+    left: calc(140px + 0.5rem);
 }
 
 @@keyframes purposeFadeIn {
