@@ -1381,9 +1381,9 @@ app.MapGet("/api/demo-mappings", () =>
     return Results.Ok(new { mappings });
 });
 
-// --- Config Export/Import API ---
+// --- Config Backup/Restore API ---
 
-app.MapGet("/api/config/export", async (string type, ConfigTransferService service) =>
+app.MapGet("/api/config/backups", async (string type, ConfigTransferService service) =>
 {
     var exportType = type?.Equals("settings", StringComparison.OrdinalIgnoreCase) == true
         ? ExportType.SettingsOnly
@@ -1395,7 +1395,7 @@ app.MapGet("/api/config/export", async (string type, ConfigTransferService servi
     return Results.File(bytes, "application/octet-stream", fileName);
 });
 
-app.MapPost("/api/config/import/validate", async (HttpContext context, ConfigTransferService service) =>
+app.MapPost("/api/config/backups", async (HttpContext context, ConfigTransferService service) =>
 {
     var form = await context.Request.ReadFormAsync();
     var file = form.Files.GetFile("file");
@@ -1414,12 +1414,12 @@ app.MapPost("/api/config/import/validate", async (HttpContext context, ConfigTra
     }
 });
 
-app.MapPost("/api/config/import/apply", async (ConfigTransferService service) =>
+app.MapPut("/api/config", async (ConfigTransferService service) =>
 {
     try
     {
         await service.ApplyImportAsync();
-        return Results.Ok(new { message = "Import applied. Restarting..." });
+        return Results.Ok(new { message = "Config restored. Restarting..." });
     }
     catch (Exception ex)
     {
@@ -1427,10 +1427,10 @@ app.MapPost("/api/config/import/apply", async (ConfigTransferService service) =>
     }
 });
 
-app.MapDelete("/api/config/import/pending", (ConfigTransferService service) =>
+app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
 {
     service.CancelPendingImport();
-    return Results.Ok(new { message = "Pending import cancelled" });
+    return Results.Ok(new { message = "Pending backup cancelled" });
 });
 
 app.Run();
