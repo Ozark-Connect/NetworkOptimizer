@@ -453,45 +453,8 @@ public class ConfigAuditEngine
         ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData, ctx.ZoneLookup);
         _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
 
-        // Apply user purpose overrides (rebuild NetworkInfo since Purpose is init-only)
-        _logger.LogDebug("Network purpose overrides in context: {Count}", ctx.NetworkPurposeOverrides?.Count ?? 0);
-        if (ctx.NetworkPurposeOverrides is { Count: > 0 })
-        {
-            for (var i = 0; i < ctx.Networks.Count; i++)
-            {
-                var network = ctx.Networks[i];
-                if (ctx.NetworkPurposeOverrides.TryGetValue(network.Id, out var purposeStr) &&
-                    Enum.TryParse<NetworkPurpose>(purposeStr, ignoreCase: true, out var purpose))
-                {
-                    var oldPurpose = network.Purpose;
-                    ctx.Networks[i] = new NetworkInfo
-                    {
-                        Id = network.Id,
-                        Name = network.Name,
-                        VlanId = network.VlanId,
-                        Purpose = purpose,
-                        Subnet = network.Subnet,
-                        Gateway = network.Gateway,
-                        DnsServers = network.DnsServers,
-                        AllowsRouting = network.AllowsRouting,
-                        DhcpEnabled = network.DhcpEnabled,
-                        NetworkIsolationEnabled = network.NetworkIsolationEnabled,
-                        InternetAccessEnabled = network.InternetAccessEnabled,
-                        IsUniFiGuestNetwork = network.IsUniFiGuestNetwork,
-                        FirewallZoneId = network.FirewallZoneId,
-                        NetworkGroup = network.NetworkGroup,
-                        UpnpLanEnabled = network.UpnpLanEnabled,
-                        Enabled = network.Enabled,
-                        HasPurposeOverride = true
-                    };
-                    if (oldPurpose != purpose)
-                    {
-                        _logger.LogInformation("Applied user override: Network '{Name}' ({Id}) purpose changed from {OldPurpose} to {NewPurpose}",
-                            network.Name, network.Id, oldPurpose, purpose);
-                    }
-                }
-            }
-        }
+        // Apply user purpose overrides
+        _vlanAnalyzer.ApplyPurposeOverrides(ctx.Networks, ctx.NetworkPurposeOverrides);
     }
 
     private void ExecutePhase2_ExtractSwitches(AuditContext ctx)

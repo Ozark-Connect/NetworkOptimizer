@@ -119,6 +119,51 @@ public class VlanAnalyzer
     }
 
     /// <summary>
+    /// Apply user purpose overrides to a list of networks.
+    /// Rebuilds NetworkInfo objects (since Purpose is init-only) and sets HasPurposeOverride = true.
+    /// </summary>
+    public void ApplyPurposeOverrides(List<NetworkInfo> networks, Dictionary<string, string>? overrides)
+    {
+        if (overrides is not { Count: > 0 })
+            return;
+
+        for (var i = 0; i < networks.Count; i++)
+        {
+            var network = networks[i];
+            if (overrides.TryGetValue(network.Id, out var purposeStr) &&
+                Enum.TryParse<NetworkPurpose>(purposeStr, ignoreCase: true, out var purpose))
+            {
+                var oldPurpose = network.Purpose;
+                networks[i] = new NetworkInfo
+                {
+                    Id = network.Id,
+                    Name = network.Name,
+                    VlanId = network.VlanId,
+                    Purpose = purpose,
+                    Subnet = network.Subnet,
+                    Gateway = network.Gateway,
+                    DnsServers = network.DnsServers,
+                    AllowsRouting = network.AllowsRouting,
+                    DhcpEnabled = network.DhcpEnabled,
+                    NetworkIsolationEnabled = network.NetworkIsolationEnabled,
+                    InternetAccessEnabled = network.InternetAccessEnabled,
+                    IsUniFiGuestNetwork = network.IsUniFiGuestNetwork,
+                    FirewallZoneId = network.FirewallZoneId,
+                    NetworkGroup = network.NetworkGroup,
+                    UpnpLanEnabled = network.UpnpLanEnabled,
+                    Enabled = network.Enabled,
+                    HasPurposeOverride = true
+                };
+                if (oldPurpose != purpose)
+                {
+                    _logger.LogInformation("Applied user override: Network '{Name}' ({Id}) purpose changed from {OldPurpose} to {NewPurpose}",
+                        network.Name, network.Id, oldPurpose, purpose);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Parse a single network from JSON
     /// </summary>
     private NetworkInfo? ParseNetwork(JsonElement network, FirewallZoneLookup? zoneLookup = null)
