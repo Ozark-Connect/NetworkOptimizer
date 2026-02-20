@@ -460,9 +460,9 @@ public class ConfigAuditEngine
             {
                 var network = ctx.Networks[i];
                 if (ctx.NetworkPurposeOverrides.TryGetValue(network.Id, out var purposeStr) &&
-                    Enum.TryParse<NetworkPurpose>(purposeStr, ignoreCase: true, out var purpose) &&
-                    purpose != network.Purpose)
+                    Enum.TryParse<NetworkPurpose>(purposeStr, ignoreCase: true, out var purpose))
                 {
+                    var oldPurpose = network.Purpose;
                     ctx.Networks[i] = new NetworkInfo
                     {
                         Id = network.Id,
@@ -482,8 +482,11 @@ public class ConfigAuditEngine
                         UpnpLanEnabled = network.UpnpLanEnabled,
                         Enabled = network.Enabled
                     };
-                    _logger.LogInformation("Applied user override: Network '{Name}' ({Id}) purpose changed from {OldPurpose} to {NewPurpose}",
-                        network.Name, network.Id, network.Purpose, purpose);
+                    if (oldPurpose != purpose)
+                    {
+                        _logger.LogInformation("Applied user override: Network '{Name}' ({Id}) purpose changed from {OldPurpose} to {NewPurpose}",
+                            network.Name, network.Id, oldPurpose, purpose);
+                    }
                 }
             }
         }
