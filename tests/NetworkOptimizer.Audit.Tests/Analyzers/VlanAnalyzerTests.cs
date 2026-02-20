@@ -2269,6 +2269,188 @@ public class VlanAnalyzerTests
 
     #endregion
 
+    #region ApplyPurposeOverrides Tests
+
+    [Fact]
+    public void ApplyPurposeOverrides_ChangesPurpose()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1"),
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, vlanId: 20, id: "net-2")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "Management" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Management);
+        networks[0].HasPurposeOverride.Should().BeTrue();
+        // Untouched network stays the same
+        networks[1].Purpose.Should().Be(NetworkPurpose.IoT);
+        networks[1].HasPurposeOverride.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_SamePurpose_StillSetsOverrideFlag()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Management, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "Management" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Management);
+        networks[0].HasPurposeOverride.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_InvalidEnumValue_Skipped()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "NotARealPurpose" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+        networks[0].HasPurposeOverride.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_NetworkIdNotFound_Skipped()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "nonexistent-id", "IoT" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+        networks[0].HasPurposeOverride.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_NullOrEmpty_NoOp()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, null);
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>());
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_CaseInsensitive()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "iot" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.IoT);
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_PreservesAllProperties()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Test Network",
+                VlanId = 42,
+                Purpose = NetworkPurpose.Corporate,
+                Subnet = "10.0.42.0/24",
+                Gateway = "10.0.42.1",
+                DnsServers = new List<string> { "1.1.1.1" },
+                AllowsRouting = true,
+                DhcpEnabled = true,
+                NetworkIsolationEnabled = true,
+                InternetAccessEnabled = false,
+                IsUniFiGuestNetwork = true,
+                FirewallZoneId = "zone-123",
+                NetworkGroup = "LAN",
+                UpnpLanEnabled = true,
+                Enabled = false
+            }
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "IoT" }
+        });
+
+        var n = networks[0];
+        n.Purpose.Should().Be(NetworkPurpose.IoT);
+        n.HasPurposeOverride.Should().BeTrue();
+        // All other properties preserved
+        n.Name.Should().Be("Test Network");
+        n.VlanId.Should().Be(42);
+        n.Subnet.Should().Be("10.0.42.0/24");
+        n.Gateway.Should().Be("10.0.42.1");
+        n.DnsServers.Should().ContainSingle("1.1.1.1");
+        n.AllowsRouting.Should().BeTrue();
+        n.DhcpEnabled.Should().BeTrue();
+        n.NetworkIsolationEnabled.Should().BeTrue();
+        n.InternetAccessEnabled.Should().BeFalse();
+        n.IsUniFiGuestNetwork.Should().BeTrue();
+        n.FirewallZoneId.Should().Be("zone-123");
+        n.NetworkGroup.Should().Be("LAN");
+        n.UpnpLanEnabled.Should().BeTrue();
+        n.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_MultipleOverrides()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Network A", NetworkPurpose.Corporate, vlanId: 1, id: "net-1"),
+            CreateNetwork("Network B", NetworkPurpose.Home, vlanId: 10, id: "net-2"),
+            CreateNetwork("Network C", NetworkPurpose.Unknown, vlanId: 20, id: "net-3")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "Management" },
+            { "net-3", "Security" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Management);
+        networks[0].HasPurposeOverride.Should().BeTrue();
+        networks[1].Purpose.Should().Be(NetworkPurpose.Home);
+        networks[1].HasPurposeOverride.Should().BeFalse();
+        networks[2].Purpose.Should().Be(NetworkPurpose.Security);
+        networks[2].HasPurposeOverride.Should().BeTrue();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
