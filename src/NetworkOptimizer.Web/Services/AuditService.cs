@@ -981,7 +981,7 @@ public class AuditService
             await LoadAuditSettingsAsync(options);
 
             if (options.NetworkPurposeOverrides is { Count: > 0 })
-                _logger.LogInformation("Network purpose overrides loaded: {Overrides}", JsonSerializer.Serialize(options.NetworkPurposeOverrides));
+                _logger.LogDebug("Network purpose overrides loaded: {Overrides}", JsonSerializer.Serialize(options.NetworkPurposeOverrides));
 
             // Get raw device data from UniFi API
             var deviceDataJson = await _connectionService.Client.GetDevicesRawJsonAsync();

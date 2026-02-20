@@ -132,7 +132,7 @@ public class VlanAnalyzerTests
     [Fact]
     public void AnalyzeNetworkIsolation_NativeVlan_SkipsCheck()
     {
-        // Arrange - Native VLAN (ID 1) should be skipped even if not isolated
+        // Arrange - Native VLAN (ID 1) should be skipped for non-Management purposes
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("Main Home Network", NetworkPurpose.Home, vlanId: 1, networkIsolationEnabled: false)
@@ -143,6 +143,34 @@ public class VlanAnalyzerTests
 
         // Assert
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_NativeVlanManagement_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Management, vlanId: 1, networkIsolationEnabled: false)
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.MgmtNetworkNotIsolated);
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_NativeVlanWithPurposeOverride_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Security, vlanId: 1, networkIsolationEnabled: false, hasPurposeOverride: true)
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.SecurityNetworkNotIsolated);
     }
 
     [Fact]
@@ -1237,7 +1265,7 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeManagementVlanDhcp_NativeVlan_SkipsCheck()
+    public void AnalyzeManagementVlanDhcp_NativeVlan_StillChecked()
     {
         var networks = new List<NetworkInfo>
         {
@@ -1246,7 +1274,8 @@ public class VlanAnalyzerTests
 
         var result = _analyzer.AnalyzeManagementVlanDhcp(networks);
 
-        result.Should().BeEmpty();
+        result.Should().NotBeEmpty();
+        result.First().Type.Should().Be(IssueTypes.MgmtDhcpEnabled);
     }
 
     #endregion
@@ -1388,7 +1417,7 @@ public class VlanAnalyzerTests
     [Fact]
     public void AnalyzeInternetAccess_NativeVlan_SkipsCheck()
     {
-        // Arrange - Native VLAN should be skipped
+        // Arrange - Native VLAN should be skipped for non-Management purposes without override
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("Main Home Network", NetworkPurpose.Security, vlanId: 1, internetAccessEnabled: true)
@@ -1399,6 +1428,34 @@ public class VlanAnalyzerTests
 
         // Assert
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_NativeVlanManagement_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Management, vlanId: 1, internetAccessEnabled: true)
+        };
+
+        var issues = _analyzer.AnalyzeInternetAccess(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.MgmtNetworkHasInternet);
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_NativeVlanWithPurposeOverride_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Security, vlanId: 1, internetAccessEnabled: true, hasPurposeOverride: true)
+        };
+
+        var issues = _analyzer.AnalyzeInternetAccess(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.SecurityNetworkHasInternet);
     }
 
     [Fact]
@@ -2223,7 +2280,8 @@ public class VlanAnalyzerTests
         bool dhcpEnabled = true,
         string? firewallZoneId = null,
         string? networkGroup = null,
-        string? id = null)
+        string? id = null,
+        bool hasPurposeOverride = false)
     {
         return new NetworkInfo
         {
@@ -2237,7 +2295,8 @@ public class VlanAnalyzerTests
             NetworkIsolationEnabled = networkIsolationEnabled,
             InternetAccessEnabled = internetAccessEnabled,
             FirewallZoneId = firewallZoneId,
-            NetworkGroup = networkGroup
+            NetworkGroup = networkGroup,
+            HasPurposeOverride = hasPurposeOverride
         };
     }
 

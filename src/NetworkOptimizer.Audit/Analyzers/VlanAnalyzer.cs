@@ -615,9 +615,9 @@ public class VlanAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // Find management networks that are not the native VLAN
+        // Find management networks (native VLAN included if classified or overridden as Management)
         var managementNetworks = networks.Where(n =>
-            n.Purpose == NetworkPurpose.Management && !n.IsNative).ToList();
+            n.Purpose == NetworkPurpose.Management).ToList();
 
         foreach (var network in managementNetworks)
         {
@@ -661,8 +661,9 @@ public class VlanAnalyzer
 
         foreach (var network in networks)
         {
-            // Skip native VLAN - it's the default network and usually doesn't need isolation
-            if (network.IsNative)
+            // Skip native VLAN unless it's classified as a purpose that needs isolation
+            if (network.IsNative && !network.HasPurposeOverride
+                && network.Purpose != NetworkPurpose.Management)
                 continue;
 
             // Check if network is effectively isolated (via setting or firewall rule)
@@ -904,8 +905,9 @@ public class VlanAnalyzer
 
         foreach (var network in networks)
         {
-            // Skip native VLAN
-            if (network.IsNative)
+            // Skip native VLAN unless it's classified as a purpose that needs internet checks
+            if (network.IsNative && !network.HasPurposeOverride
+                && network.Purpose != NetworkPurpose.Management)
                 continue;
 
             // Check if internet is effectively enabled (not disabled via setting OR firewall rule)
