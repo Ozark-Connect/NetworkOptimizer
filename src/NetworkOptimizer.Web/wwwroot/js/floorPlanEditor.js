@@ -463,8 +463,12 @@ window.fpEditor = {
                     return;
                 }
                 if (!armed) {
-                    // First zoomend after save = fitBounds completed; record this zoom
+                    // First zoomend after save = fitBounds completed; record zoom and
+                    // actual map center (may differ from DB center for asymmetric buildings)
                     self._savedView.buildingZoom = self._map.getZoom();
+                    var fc = self._map.getCenter();
+                    self._savedView.fitCenterLat = fc.lat;
+                    self._savedView.fitCenterLng = fc.lng;
                     armed = true;
                     return;
                 }
@@ -489,10 +493,14 @@ window.fpEditor = {
         // if the user has panned away, they navigated intentionally.
         var sv = this._savedView;
         this._savedView = null;
-        if (sv.buildingLat != null && sv.buildingLng != null) {
+        // Use the post-fitBounds center (actual viewport center when editing started)
+        // rather than the DB building center, which may not match for asymmetric buildings.
+        var checkLat = sv.fitCenterLat != null ? sv.fitCenterLat : sv.buildingLat;
+        var checkLng = sv.fitCenterLng != null ? sv.fitCenterLng : sv.buildingLng;
+        if (checkLat != null && checkLng != null) {
             // Check in pixel space so the map's aspect ratio doesn't matter.
             // Building must be within the center 66% of the container in both axes.
-            var px = this._map.latLngToContainerPoint([sv.buildingLat, sv.buildingLng]);
+            var px = this._map.latLngToContainerPoint([checkLat, checkLng]);
             var sz = this._map.getSize();
             var mx = sz.x * 0.17, my = sz.y * 0.17;
             if (px.x < mx || px.x > sz.x - mx || px.y < my || px.y > sz.y - my) return;
