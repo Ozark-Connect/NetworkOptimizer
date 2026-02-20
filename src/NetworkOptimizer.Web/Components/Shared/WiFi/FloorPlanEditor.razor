@@ -346,7 +346,7 @@
                     </div>
                     <div class="fp-opacity-control">
                         <span>Rotation:</span>
-                        <input type="range" min="0" max="360" step="1" value="@((int)(_selectedImage?.RotationDeg ?? 0))"
+                        <input type="range" min="-180" max="180" step="1" value="@((int)(_selectedImage?.RotationDeg ?? 0))"
                                @oninput="OnImageRotationChange" class="fp-opacity-slider" />
                         <span class="fp-rotation-value">@((int)(_selectedImage?.RotationDeg ?? 0))°</span>
                     </div>
@@ -2144,13 +2144,14 @@
         // CSS rotate() is clockwise in screen coords (y-down), our angle is CCW from east (y-up).
         // Negate to convert.
         var rotDegA = -bestAngle * 180.0 / Math.PI;
-        // Normalize to [0, 360)
-        rotDegA = ((rotDegA % 360) + 360) % 360;
+        // Normalize to [-180, 180] to minimize rotation magnitude
+        rotDegA = ((rotDegA + 180) % 360 + 360) % 360 - 180;
 
         // Two valid rotation choices that both cover the building correctly:
         // Choice A: rotation = rotDegA, overlay lng-meters = hw (along edge), lat-meters = hh (perpendicular)
         // Choice B: rotation = rotDegA + 90, overlay lng-meters = hh, lat-meters = hw (swapped, rotated 90°)
-        var rotDegB = (rotDegA + 90) % 360;
+        var rotDegB = rotDegA + 90;
+        if (rotDegB > 180) rotDegB -= 360;
 
         double chosenRot;
         double lngMeters, latMeters;
@@ -2177,9 +2178,9 @@
         }
         else
         {
-            // No image info: pick the choice with smaller rotation (closer to 0/360)
-            double distA = Math.Min(rotDegA, 360 - rotDegA);
-            double distB = Math.Min(rotDegB, 360 - rotDegB);
+            // No image info: pick the choice with smaller absolute rotation
+            double distA = Math.Abs(rotDegA);
+            double distB = Math.Abs(rotDegB);
             if (distA <= distB)
             {
                 chosenRot = rotDegA; lngMeters = hw; latMeters = hh;
@@ -2190,7 +2191,7 @@
             }
         }
 
-        chosenRot = Math.Round(chosenRot) % 360;
+        chosenRot = Math.Round(chosenRot);
         var latHalf = latMeters / 111320;
         var lngHalf = lngMeters / (111320 * cosLat);
 
