@@ -1366,12 +1366,12 @@ a.btn-lg {
 }
 
 .btn-warning {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
+    background: var(--warning-color);
+    color: #1a1a1a;
 }
 
 .btn-warning:hover:not(:disabled) {
-    background: var(--bg-hover);
+    background: #c47e10;
 }
 
 /* Outline variant - primary only */
