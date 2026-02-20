@@ -29,6 +29,7 @@
     --bg-primary: #0f0f11;
     --bg-secondary: #161618;
     --bg-tertiary: #232326;
+    --bg-elevated: #2c2c30;
     --bg-card: #161618;
     --bg-hover: #232326;
     --surface: #161618;
@@ -44,8 +45,8 @@
     --primary-light: #60a5fa;
     --primary-lighter: #93c5fd;
 
-    /* Map toolbar buttons - brighter base for contrast against bright map content */
-    --btn-map-bg: #2c2c30;
+    /* Map toolbar buttons */
+    --btn-map-bg: var(--bg-elevated);
     --btn-map-hover: #35353a;
 
     /* Borders & Effects */
@@ -1332,7 +1333,7 @@ a.btn-lg {
 
 .btn-secondary:hover:not(:disabled),
 .btn-ghost:hover:not(:disabled) {
-    background: #2c2c30;
+    background: var(--bg-elevated);
 }
 
 /* Danger - Red (for destructive actions) */
@@ -1366,12 +1367,12 @@ a.btn-lg {
 }
 
 .btn-warning {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
+    background: var(--warning-color);
+    color: #1a1a1a;
 }
 
 .btn-warning:hover:not(:disabled) {
-    background: var(--bg-hover);
+    background: #c47e10;
 }
 
 /* Outline variant - primary only */
@@ -5269,7 +5270,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 1.5rem;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
 }
 
 .setup-guide summary {
@@ -5300,7 +5301,7 @@ a.path-hop.hop-clickable:hover {
 
 .setup-guide summary:hover {
     color: var(--text-primary);
-    background: var(--bg-tertiary);
+    background: var(--bg-elevated);
     border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
 }
 
@@ -6695,6 +6696,11 @@ a.path-hop.hop-clickable:hover {
 .card .card .btn-secondary,
 .card .card .btn-ghost {
     background: var(--bg-secondary);
+}
+
+.card .card .btn-secondary:hover:not(:disabled),
+.card .card .btn-ghost:hover:not(:disabled) {
+    background: var(--bg-elevated);
 }
 
 .pill-btn,

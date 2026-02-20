@@ -297,6 +297,7 @@ builder.Services.AddScoped<WiFiOptimizerService>();
 builder.Services.AddScoped<ApMapService>();
 builder.Services.AddSingleton<FloorPlanService>();
 builder.Services.AddSingleton<PlannedApService>();
+builder.Services.AddSingleton<ConfigTransferService>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.PropagationService>();
 
@@ -433,6 +434,9 @@ using (var scope = app.Services.CreateScope())
 
 // Pre-generate the credential encryption key (resolves singleton, triggering key creation)
 app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialProtectionService>().EnsureKeyExists();
+
+// Clean up any leftover config transfer temp files from previous sessions
+app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
 
 // Configure the HTTP request pipeline
 if (!app.Environment.IsDevelopment())
@@ -1375,6 +1379,58 @@ app.MapGet("/api/demo-mappings", () =>
         .ToArray();
 
     return Results.Ok(new { mappings });
+});
+
+// --- Config Backup/Restore API ---
+
+app.MapGet("/api/config/backups", async (string type, ConfigTransferService service) =>
+{
+    var exportType = type?.Equals("settings", StringComparison.OrdinalIgnoreCase) == true
+        ? ExportType.SettingsOnly
+        : ExportType.Full;
+
+    var bytes = await service.ExportAsync(exportType);
+    var label = exportType == ExportType.Full ? "full" : "settings";
+    var fileName = $"NetworkOptimizer-{label}-{DateTime.UtcNow:yyyyMMdd}.nopt";
+    return Results.File(bytes, "application/octet-stream", fileName);
+});
+
+app.MapPost("/api/config/backups", async (HttpContext context, ConfigTransferService service) =>
+{
+    var form = await context.Request.ReadFormAsync();
+    var file = form.Files.GetFile("file");
+    if (file == null || file.Length == 0)
+        return Results.BadRequest(new { error = "No file provided" });
+
+    try
+    {
+        using var stream = file.OpenReadStream();
+        var preview = await service.ValidateImportAsync(stream);
+        return Results.Ok(preview);
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = $"Invalid file: {ex.Message}" });
+    }
+});
+
+app.MapPut("/api/config", async (ConfigTransferService service) =>
+{
+    try
+    {
+        await service.ApplyImportAsync();
+        return Results.Ok(new { message = "Config restored. Restarting..." });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
+{
+    service.CancelPendingImport();
+    return Results.Ok(new { message = "Pending backup cancelled" });
 });
 
 app.Run();

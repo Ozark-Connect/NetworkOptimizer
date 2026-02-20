@@ -32,6 +32,7 @@ public interface ISpeedTestRepository
 
     Task<bool> DeleteIperf3ResultAsync(int id, CancellationToken cancellationToken = default);
     Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default);
+    Task ClearAllIperf3ResultsAsync(CancellationToken cancellationToken = default);
     Task<int> GetIperf3ResultCountAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

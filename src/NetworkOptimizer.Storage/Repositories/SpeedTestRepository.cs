@@ -335,6 +335,23 @@ public class SpeedTestRepository : ISpeedTestRepository
     }
 
     /// <summary>
+    /// Clears all iperf3 test results (LAN and WAN).
+    /// </summary>
+    public async Task ClearAllIperf3ResultsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _context.Database.ExecuteSqlRawAsync("DELETE FROM Iperf3Results", cancellationToken);
+            _logger.LogInformation("Cleared all speed test results");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear all iperf3 results");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Gets the total count of iperf3 test results.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>

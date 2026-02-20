@@ -18,6 +18,8 @@
 @inject GatewaySpeedTestService GatewayService
 @inject SystemSettingsService SystemSettings
 @inject IAdminAuthService AdminAuth
+@inject IJSRuntime JS
+@inject DiagnosticsService DiagnosticsService
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
@@ -1147,31 +1149,162 @@
             <div class="data-actions">
                 <div class="action-item">
                     <h4>Export Configuration</h4>
-                    <p>Export all settings and configuration to a JSON file</p>
-                    <button class="btn btn-secondary" disabled title="Coming soon">Export Config</button>
+                    <p>Download an encrypted backup of your configuration</p>
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                        <button class="btn btn-primary" @onclick="() => ExportConfig(ExportType.Full)" disabled="@isExporting">
+                            @if (isExportingFull)
+                            {
+                                <span class="spinner spinner-sm"></span> <span>Exporting...</span>
+                            }
+                            else
+                            {
+                                <span>Full Export</span>
+                            }
+                        </button>
+                        <button class="btn btn-secondary" @onclick="() => ExportConfig(ExportType.SettingsOnly)" disabled="@isExporting">
+                            @if (isExportingSettings)
+                            {
+                                <span class="spinner spinner-sm"></span> <span>Exporting...</span>
+                            }
+                            else
+                            {
+                                <span>Settings Only</span>
+                            }
+                        </button>
+                    </div>
+                    <p class="form-hint" style="margin-top: 0.5rem;">Both include controller credentials, SSH keys, and data protection keys. Full adds floor plans, speed test history, audit results, signal logs, etc. Settings Only exports just configuration without history data.</p>
+                    @if (!string.IsNullOrEmpty(exportError))
+                    {
+                        <div class="alert alert-danger" style="margin-top: 0.5rem;">@exportError</div>
+                    }
                 </div>
 
                 <div class="action-item">
                     <h4>Import Configuration</h4>
-                    <p>Import settings from a previously exported JSON file</p>
-                    <button class="btn btn-secondary" disabled title="Coming soon">Import Config</button>
+                    <p>Restore settings from a .nopt backup file</p>
+
+                    @if (importApplied)
+                    {
+                        <div class="alert alert-success">Import applied successfully. The app is restarting - this page will reload automatically.</div>
+                    }
+                    else if (importPreview != null)
+                    {
+                        <div class="card" style="background: var(--bg-tertiary); margin-bottom: 0.75rem;">
+                            <div class="card-body">
+                                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.9rem;">
+                                    <span class="text-muted">Export type:</span>
+                                    <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
+                                    <span class="text-muted">Export date:</span>
+                                    <span>@importPreview.ExportDate.ToString("MMM d, yyyy h:mm tt") UTC</span>
+                                    <span class="text-muted">App version:</span>
+                                    <span>@importPreview.AppVersion</span>
+                                    @if (importPreview.TableCounts.Count > 0)
+                                    {
+                                        <span class="text-muted">Data:</span>
+                                        <span>@importPreview.TableCounts.Where(t => t.Value > 0).Count() tables with data</span>
+                                    }
+                                </div>
+
+                                @if (!importPreview.IsCompatible)
+                                {
+                                    <div class="alert alert-danger" style="margin-top: 0.75rem;">
+                                        This backup is from a newer version (@importPreview.AppVersion) and may not be compatible with your current version (@importPreview.CurrentAppVersion).
+                                    </div>
+                                }
+
+                                @if (importPreview.ExportType == "SettingsOnly")
+                                {
+                                    <p class="form-hint" style="margin-top: 0.5rem;">Your existing speed test and audit history will be preserved.</p>
+                                }
+
+                                @if (!showImportConfirm)
+                                {
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                                        <button class="btn btn-primary" @onclick="() => showImportConfirm = true" disabled="@(!importPreview.IsCompatible)">Apply Import</button>
+                                        <button class="btn btn-secondary" @onclick="CancelImport">Cancel</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="alert alert-warning" style="margin-top: 0.75rem; margin-bottom: 1rem;">
+                                        This will replace all settings and the app will restart automatically. Are you sure?
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem;">
+                                        <button class="btn btn-danger" @onclick="ApplyImport" disabled="@isImporting">
+                                            @if (isImporting)
+                                            {
+                                                <span class="spinner spinner-sm"></span> <span>Importing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Yes, Replace Settings</span>
+                                            }
+                                        </button>
+                                        <button class="btn btn-secondary" @onclick="CancelImport" disabled="@isImporting">Cancel</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <label class="btn btn-secondary" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;">
+                            @if (isValidatingImport)
+                            {
+                                <span class="spinner spinner-sm"></span> <span>Validating...</span>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                <span>Choose .nopt File</span>
+                            }
+                            <InputFile OnChange="OnImportFileSelected" accept=".nopt" style="display: none;" disabled="@isValidatingImport" />
+                        </label>
+                    }
+
+                    @if (!string.IsNullOrEmpty(importError))
+                    {
+                        <div class="alert alert-danger" style="margin-top: 0.5rem;">@importError</div>
+                    }
                 </div>
 
                 <div class="action-item">
                     <h4>Clear Cache</h4>
                     <p>Clear audit history, dismissed issues, and speed test results</p>
-                    <button class="btn btn-warning" @onclick="ClearCache">Clear Cache</button>
+                    @if (!showClearCacheConfirm)
+                    {
+                        <button class="btn btn-warning" @onclick="() => showClearCacheConfirm = true">Clear Cache</button>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning" style="margin-bottom: 1rem;">This will permanently delete all audit history, dismissed issues, and speed test results.</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-danger" @onclick="ClearCache" disabled="@isClearingCache">
+                                @if (isClearingCache)
+                                {
+                                    <span class="spinner spinner-sm"></span> <span>Clearing...</span>
+                                }
+                                else
+                                {
+                                    <span>Yes, Clear Cache</span>
+                                }
+                            </button>
+                            <button class="btn btn-secondary" @onclick="() => showClearCacheConfirm = false" disabled="@isClearingCache">Cancel</button>
+                        </div>
+                    }
                     @if (!string.IsNullOrEmpty(cacheMessage))
                     {
                         <div class="status-message @cacheMessageType" style="margin-top: 0.5rem;">@cacheMessage</div>
                     }
                 </div>
 
+                @* Reset All Settings - not implemented yet
                 <div class="action-item danger-zone">
                     <h4>Reset All Settings</h4>
                     <p>Reset all configuration to defaults</p>
                     <button class="btn btn-danger" disabled title="Coming soon">Reset to Defaults</button>
                 </div>
+                *@
             </div>
         </div>
     </div>
@@ -2308,44 +2441,153 @@
         await Task.CompletedTask;
     }
 
-    private async Task ExportConfig()
+    // Config export state
+    private bool isExporting;
+    private bool isExportingFull;
+    private bool isExportingSettings;
+    private string? exportError;
+
+    // Config import state
+    private ImportPreview? importPreview;
+    private string? importError;
+    private bool isValidatingImport;
+    private bool isImporting;
+    private bool showImportConfirm;
+    private bool importApplied;
+
+    [Inject] private ConfigTransferService ConfigTransfer { get; set; } = default!;
+
+    private async Task ExportConfig(ExportType type)
     {
-        // TODO: Implement export
-        await Task.CompletedTask;
+        isExporting = true;
+        isExportingFull = type == ExportType.Full;
+        isExportingSettings = type == ExportType.SettingsOnly;
+        exportError = null;
+        StateHasChanged();
+
+        try
+        {
+            var bytes = await ConfigTransfer.ExportAsync(type);
+            var label = type == ExportType.Full ? "full" : "settings";
+            var fileName = $"NetworkOptimizer-{label}-{DateTime.UtcNow:yyyyMMdd}.nopt";
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("downloadFile", fileName, "application/octet-stream", base64);
+        }
+        catch (Exception ex)
+        {
+            exportError = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
+            isExportingFull = false;
+            isExportingSettings = false;
+            StateHasChanged();
+        }
     }
 
-    private async Task ImportConfig()
+    private async Task OnImportFileSelected(InputFileChangeEventArgs e)
     {
-        // TODO: Implement import
-        await Task.CompletedTask;
+        importError = null;
+        importPreview = null;
+        showImportConfirm = false;
+        isValidatingImport = true;
+        StateHasChanged();
+
+        try
+        {
+            var file = e.File;
+            if (file.Size > 500 * 1024 * 1024) // 500 MB limit
+            {
+                importError = "File is too large (max 500 MB)";
+                return;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            importPreview = await ConfigTransfer.ValidateImportAsync(ms);
+        }
+        catch (Exception ex)
+        {
+            importError = $"Invalid backup file: {ex.Message}";
+        }
+        finally
+        {
+            isValidatingImport = false;
+            StateHasChanged();
+        }
     }
 
+    private async Task ApplyImport()
+    {
+        isImporting = true;
+        importError = null;
+        StateHasChanged();
+
+        try
+        {
+            await ConfigTransfer.ApplyImportAsync();
+            importApplied = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            importError = $"Import failed: {ex.Message}";
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelImport()
+    {
+        ConfigTransfer.CancelPendingImport();
+        importPreview = null;
+        importError = null;
+        showImportConfirm = false;
+        StateHasChanged();
+    }
+
+    // Clear cache state
     private string? cacheMessage;
     private string? cacheMessageType;
+    private bool showClearCacheConfirm;
+    private bool isClearingCache;
 
     private async Task ClearCache()
     {
+        isClearingCache = true;
+        StateHasChanged();
+
         try
         {
             // Clear audit data (results and dismissed issues) from database
             await AuditRepository.ClearAllAuditsAsync();
             await AuditRepository.ClearAllDismissedIssuesAsync();
 
-            // Clear in-memory audit cache
+            // Clear in-memory caches
             AuditService.ClearCache();
+            DiagnosticsService.ClearCache();
 
-            // Clear speed test history
-            await SpeedTestRepository.ClearIperf3HistoryAsync();
+            // Clear all speed test history (LAN and WAN)
+            await SpeedTestRepository.ClearAllIperf3ResultsAsync();
 
             cacheMessage = "Cache cleared successfully";
             cacheMessageType = "success";
+            showClearCacheConfirm = false;
         }
         catch (Exception ex)
         {
             cacheMessage = $"Error clearing cache: {ex.Message}";
             cacheMessageType = "error";
         }
-        StateHasChanged();
+        finally
+        {
+            isClearingCache = false;
+            StateHasChanged();
+        }
     }
 
     private async Task ResetSettings()

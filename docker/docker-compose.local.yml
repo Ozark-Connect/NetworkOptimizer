@@ -22,7 +22,7 @@ services:
       - "${WEB_PORT:-8042}:8042"      # Blazor web UI
     volumes:
       - ./data:/app/data              # SQLite, configs, license
-      - ./ssh-keys:/app/ssh-keys:ro   # Optional: SSH keys for agent deployment
+      - ./ssh-keys:/app/ssh-keys      # Optional: SSH keys for agent deployment
       - ./logs:/app/logs              # Application logs
     environment:
       - TZ=${TZ:-UTC}
