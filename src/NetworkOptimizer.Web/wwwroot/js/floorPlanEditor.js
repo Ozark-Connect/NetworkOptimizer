@@ -35,6 +35,7 @@ window.fpEditor = {
     _corners: null,
     _moveMarker: null,
     _heatmapOverlay: null,
+    _heatmapRequestId: 0,
     _contourLayer: null,
     _txPowerOverrides: {},
     _antennaModeOverrides: {},
@@ -3032,6 +3033,7 @@ window.fpEditor = {
         var m = this._map;
         if (!m) return;
         var self = this;
+        var requestId = ++this._heatmapRequestId;
 
         // Store params so JS-initiated recomputes (sim toggles, sliders) work without arguments
         if (baseUrl) this._heatmapBaseUrl = baseUrl;
@@ -3093,6 +3095,7 @@ window.fpEditor = {
         .then(function (r) { if (!r.ok) throw new Error('Heatmap request failed: ' + r.status); return r.json(); })
         .then(function (data) {
             if (!data || !data.data) return;
+            if (requestId !== self._heatmapRequestId) return; // stale request, discard
 
             if (self._heatmapOverlay) m.removeLayer(self._heatmapOverlay);
 
@@ -3220,6 +3223,7 @@ window.fpEditor = {
     },
 
     clearHeatmap: function () {
+        this._heatmapRequestId++; // invalidate any in-flight compute
         if (this._heatmapOverlay && this._map) {
             this._map.removeLayer(this._heatmapOverlay);
             this._heatmapOverlay = null;
