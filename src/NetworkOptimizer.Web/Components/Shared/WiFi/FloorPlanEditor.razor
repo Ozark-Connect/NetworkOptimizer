@@ -1525,6 +1525,8 @@
     private bool _showDeleteBuilding;
     private bool _showDeleteFloor;
     private bool _showDeleteUnderlay;
+    private System.Threading.Timer? _sliderSaveTimer;
+    private Func<Task>? _pendingSliderSave;
     private bool _isFullscreen;
     private ApMapMarker? _selectedApForPlacement;
     private List<PlannedAp> _plannedAps = new();
@@ -2243,6 +2245,22 @@
         return (centerLat - latHalf, centerLng - lngHalf, centerLat + latHalf, centerLng + lngHalf, chosenRot);
     }
 
+    private void DebounceSaveSlider(Func<Task> saveAction)
+    {
+        _pendingSliderSave = saveAction;
+        _sliderSaveTimer?.Dispose();
+        _sliderSaveTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                var action = _pendingSliderSave;
+                _pendingSliderSave = null;
+                if (action != null) await InvokeAsync(action);
+            }
+            catch { /* prevent timer death */ }
+        }, null, 300, Timeout.Infinite);
+    }
+
     private async Task OnImageOpacityChange(ChangeEventArgs e)
     {
         if (_selectedImage == null) return;
@@ -2250,8 +2268,9 @@
         {
             var opacity = pct / 100.0;
             _selectedImage.Opacity = opacity;
-            await FloorPlanSvc.UpdateFloorImageAsync(_selectedImage.Id, opacity: opacity);
             await JS.InvokeVoidAsync("fpEditor.setImageOpacity", _selectedImage.Id, opacity);
+            var imageId = _selectedImage.Id;
+            DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, opacity: opacity));
         }
     }
 
@@ -2262,7 +2281,8 @@
         {
             _selectedImage.RotationDeg = deg;
             await JS.InvokeVoidAsync("fpEditor.setImageRotation", _selectedImage.Id, deg);
-            await FloorPlanSvc.UpdateFloorImageAsync(_selectedImage.Id, rotationDeg: (double)deg);
+            var imageId = _selectedImage.Id;
+            DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, rotationDeg: (double)deg));
         }
     }
 
@@ -2280,7 +2300,8 @@
         await JS.InvokeVoidAsync("fpEditor.setImageCrop", _selectedImage.Id, _cropTop, _cropRight, _cropBottom, _cropLeft);
         var json = System.Text.Json.JsonSerializer.Serialize(new { top = _cropTop, right = _cropRight, bottom = _cropBottom, left = _cropLeft });
         _selectedImage.CropJson = json;
-        await FloorPlanSvc.UpdateFloorImageAsync(_selectedImage.Id, cropJson: json);
+        var imageId = _selectedImage.Id;
+        DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, cropJson: json));
     }
 
     private async Task ToggleImagePositionMode()
@@ -3688,6 +3709,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _sliderSaveTimer?.Dispose();
         try { await JS.InvokeVoidAsync("fpEditor.destroy"); }
         catch (JSDisconnectedException) { }
         _dotNetRef?.Dispose();

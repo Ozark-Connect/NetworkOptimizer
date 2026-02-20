@@ -617,7 +617,7 @@ window.fpEditor = {
         if (!imagesJson || imagesJson.length === 0) return;
 
         imagesJson.forEach(function (img) {
-            var bounds = [[img.swLatitude, img.swLongitude], [img.neLat || img.neLatitude, img.neLng || img.neLongitude]];
+            var bounds = [[img.swLatitude, img.swLongitude], [img.neLatitude, img.neLongitude]];
             var overlay = L.imageOverlay(img.imageUrl, bounds, {
                 opacity: img.opacity || 0.7,
                 interactive: true,
@@ -920,6 +920,12 @@ window.fpEditor = {
             };
             actions.appendChild(cancelBtn);
             dialog.appendChild(actions);
+
+            backdrop.onclick = function () {
+                document.body.removeChild(backdrop);
+                resolve(0);
+            };
+            dialog.onclick = function (e) { e.stopPropagation(); };
 
             backdrop.appendChild(dialog);
             document.body.appendChild(backdrop);
