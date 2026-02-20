@@ -742,7 +742,7 @@
                                             var prev = i < _traceHistory.Count - 1 ? _traceHistory[i + 1] : null;
                                             <tr class="result-row @(_expandedTraceTimestamp == trace.Timestamp ? "expanded" : "")"
                                                 @onclick="() => ToggleTraceExpand(trace.Timestamp)">
-                                                <td>@trace.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
+                                                <td>@FormatSignalTime(trace.Timestamp)</td>
                                                 <td>@(trace.HopCount?.ToString() ?? "—")</td>
                                                 <td>@(trace.BottleneckLinkSpeedMbps?.ToString("F0") ?? "—") Mbps</td>
                                                 <td class="trace-change-cell">
@@ -1531,8 +1531,8 @@
                 ? data.OrderBy(e => e.Channel ?? 0)
                 : data.OrderByDescending(e => e.Channel ?? 0),
             _ => _signalSortAsc
-                ? data.OrderBy(e => e.Timestamp)
-                : data.OrderByDescending(e => e.Timestamp)
+                ? data.OrderBy(e => e.Timestamp).ThenByDescending(e => e.DataSource)
+                : data.OrderByDescending(e => e.Timestamp).ThenBy(e => e.DataSource)
         };
 
         // Collapse consecutive identical rows into ranges
