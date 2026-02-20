@@ -1188,59 +1188,61 @@
                     }
                     else if (importPreview != null)
                     {
-                        <div class="import-preview" style="background: var(--bg-tertiary); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem;">
-                            <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.9rem;">
-                                <span class="text-muted">Export type:</span>
-                                <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
-                                <span class="text-muted">Export date:</span>
-                                <span>@importPreview.ExportDate.ToString("MMM d, yyyy h:mm tt") UTC</span>
-                                <span class="text-muted">App version:</span>
-                                <span>@importPreview.AppVersion</span>
-                                @if (importPreview.TableCounts.Count > 0)
+                        <div class="card" style="margin-bottom: 0.75rem;">
+                            <div class="card-body">
+                                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.9rem;">
+                                    <span class="text-muted">Export type:</span>
+                                    <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
+                                    <span class="text-muted">Export date:</span>
+                                    <span>@importPreview.ExportDate.ToString("MMM d, yyyy h:mm tt") UTC</span>
+                                    <span class="text-muted">App version:</span>
+                                    <span>@importPreview.AppVersion</span>
+                                    @if (importPreview.TableCounts.Count > 0)
+                                    {
+                                        <span class="text-muted">Data:</span>
+                                        <span>@importPreview.TableCounts.Where(t => t.Value > 0).Count() tables with data</span>
+                                    }
+                                </div>
+
+                                @if (!importPreview.IsCompatible)
                                 {
-                                    <span class="text-muted">Data:</span>
-                                    <span>@importPreview.TableCounts.Where(t => t.Value > 0).Count() tables with data</span>
+                                    <div class="alert alert-danger" style="margin-top: 0.75rem;">
+                                        This backup is from a newer version (@importPreview.AppVersion) and may not be compatible with your current version (@importPreview.CurrentAppVersion).
+                                    </div>
+                                }
+
+                                @if (importPreview.ExportType == "SettingsOnly")
+                                {
+                                    <p class="form-hint" style="margin-top: 0.5rem;">Your existing speed test and audit history will be preserved.</p>
+                                }
+
+                                @if (!showImportConfirm)
+                                {
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                                        <button class="btn btn-primary" @onclick="() => showImportConfirm = true" disabled="@(!importPreview.IsCompatible)">Apply Import</button>
+                                        <button class="btn btn-secondary" @onclick="CancelImport">Cancel</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="alert alert-warning" style="margin-top: 0.75rem; margin-bottom: 1rem;">
+                                        This will replace all settings and the app will restart automatically. Are you sure?
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem;">
+                                        <button class="btn btn-danger" @onclick="ApplyImport" disabled="@isImporting">
+                                            @if (isImporting)
+                                            {
+                                                <span class="spinner spinner-sm"></span> <span>Importing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Yes, Replace Settings</span>
+                                            }
+                                        </button>
+                                        <button class="btn btn-secondary" @onclick="() => showImportConfirm = false" disabled="@isImporting">Cancel</button>
+                                    </div>
                                 }
                             </div>
-
-                            @if (!importPreview.IsCompatible)
-                            {
-                                <div class="alert alert-danger" style="margin-top: 0.75rem;">
-                                    This backup is from a newer version (@importPreview.AppVersion) and may not be compatible with your current version (@importPreview.CurrentAppVersion).
-                                </div>
-                            }
-
-                            @if (importPreview.ExportType == "SettingsOnly")
-                            {
-                                <p class="form-hint" style="margin-top: 0.5rem;">Your existing speed test and audit history will be preserved.</p>
-                            }
-
-                            @if (!showImportConfirm)
-                            {
-                                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-                                    <button class="btn btn-danger" @onclick="() => showImportConfirm = true" disabled="@(!importPreview.IsCompatible)">Apply Import</button>
-                                    <button class="btn btn-secondary" @onclick="CancelImport">Cancel</button>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="alert alert-warning" style="margin-top: 0.75rem;">
-                                    This will replace all settings and the app will restart automatically. Are you sure?
-                                </div>
-                                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-                                    <button class="btn btn-danger" @onclick="ApplyImport" disabled="@isImporting">
-                                        @if (isImporting)
-                                        {
-                                            <span class="spinner spinner-sm"></span> <span>Importing...</span>
-                                        }
-                                        else
-                                        {
-                                            <span>Yes, Replace Settings</span>
-                                        }
-                                    </button>
-                                    <button class="btn btn-secondary" @onclick="() => showImportConfirm = false" disabled="@isImporting">Cancel</button>
-                                </div>
-                            }
                         </div>
                     }
                     else
