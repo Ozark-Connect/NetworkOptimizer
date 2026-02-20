@@ -1023,10 +1023,13 @@ app.MapGet("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, Fl
 
 app.MapPost("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, HttpContext context, FloorPlanService svc) =>
 {
+    const long maxFileSize = 50 * 1024 * 1024; // 50 MB
     var form = await context.Request.ReadFormAsync();
     var file = form.Files.GetFile("image");
     if (file == null || file.Length == 0)
         return Results.BadRequest(new { error = "No image file provided" });
+    if (file.Length > maxFileSize)
+        return Results.BadRequest(new { error = "File exceeds 50 MB limit" });
 
     double.TryParse(form["swLat"], System.Globalization.CultureInfo.InvariantCulture, out var swLat);
     double.TryParse(form["swLng"], System.Globalization.CultureInfo.InvariantCulture, out var swLng);

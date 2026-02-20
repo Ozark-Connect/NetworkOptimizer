@@ -738,6 +738,12 @@ window.fpEditor = {
             if (!file) return;
 
             try {
+                // Check file size (50 MB limit)
+                if (file.size > 50 * 1024 * 1024) {
+                    alert('File is too large. Maximum size is 50 MB.');
+                    return;
+                }
+
                 // Get bounds from C# (after file is picked, so user gesture isn't needed)
                 var info = await self._dotNetRef.invokeMethodAsync('GetUnderlayUploadInfo');
                 if (!info) return;
@@ -2795,24 +2801,19 @@ window.fpEditor = {
         if (targetOverlay) {
             self._positionDragState = null;
 
-            self._positionMouseDown = function (e) {
-                if (e.button !== 0) return;
-                e.stopPropagation();
-                e.preventDefault();
-                var startPx = m.mouseEventToContainerPoint(e);
+            function startDrag(px) {
                 self._positionDragState = {
-                    startPx: startPx,
+                    startPx: px,
                     startBounds: targetOverlay.getBounds(),
                     startSw: swM.getLatLng(), startNe: neM.getLatLng(),
                     startNw: nwM.getLatLng(), startSe: seM.getLatLng()
                 };
                 m.dragging.disable();
-            };
+            }
 
-            self._positionMouseMove = function (e) {
+            function moveDrag(curPx) {
                 if (!self._positionDragState) return;
                 var ds = self._positionDragState;
-                var curPx = m.mouseEventToContainerPoint(e);
                 var startLL = m.containerPointToLatLng(ds.startPx);
                 var curLL = m.containerPointToLatLng(curPx);
                 var dLat = curLL.lat - startLL.lat;
@@ -2821,43 +2822,74 @@ window.fpEditor = {
                 // Shift axis-aligned bounds
                 var bSw = ds.startBounds.getSouthWest();
                 var bNe = ds.startBounds.getNorthEast();
-                var newAxisSw = L.latLng(bSw.lat + dLat, bSw.lng + dLng);
-                var newAxisNe = L.latLng(bNe.lat + dLat, bNe.lng + dLng);
-                targetOverlay.setBounds([newAxisSw, newAxisNe]);
+                targetOverlay.setBounds([
+                    L.latLng(bSw.lat + dLat, bSw.lng + dLng),
+                    L.latLng(bNe.lat + dLat, bNe.lng + dLng)
+                ]);
 
                 // Shift all handles (they're at rotated positions, shift by same delta)
                 swM.setLatLng(L.latLng(ds.startSw.lat + dLat, ds.startSw.lng + dLng));
                 neM.setLatLng(L.latLng(ds.startNe.lat + dLat, ds.startNe.lng + dLng));
                 nwM.setLatLng(L.latLng(ds.startNw.lat + dLat, ds.startNw.lng + dLng));
                 seM.setLatLng(L.latLng(ds.startSe.lat + dLat, ds.startSe.lng + dLng));
-            };
+            }
 
-            self._positionMouseUp = function (e) {
+            function endDrag() {
                 if (!self._positionDragState) return;
                 self._positionDragState = null;
                 m.dragging.enable();
                 save();
+            }
+
+            self._positionMouseDown = function (e) {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                e.preventDefault();
+                startDrag(m.mouseEventToContainerPoint(e));
             };
+            self._positionMouseMove = function (e) {
+                moveDrag(m.mouseEventToContainerPoint(e));
+            };
+            self._positionMouseUp = function () { endDrag(); };
+
+            self._positionTouchStart = function (e) {
+                if (e.touches.length !== 1) return;
+                e.stopPropagation();
+                e.preventDefault();
+                var touch = e.touches[0];
+                var rect = m.getContainer().getBoundingClientRect();
+                startDrag(L.point(touch.clientX - rect.left, touch.clientY - rect.top));
+            };
+            self._positionTouchMove = function (e) {
+                if (!self._positionDragState || e.touches.length !== 1) return;
+                e.preventDefault();
+                var touch = e.touches[0];
+                var rect = m.getContainer().getBoundingClientRect();
+                moveDrag(L.point(touch.clientX - rect.left, touch.clientY - rect.top));
+            };
+            self._positionTouchEnd = function () { endDrag(); };
 
             document.addEventListener('mousemove', self._positionMouseMove);
             document.addEventListener('mouseup', self._positionMouseUp);
+            document.addEventListener('touchmove', self._positionTouchMove, { passive: false });
+            document.addEventListener('touchend', self._positionTouchEnd);
 
-            // Re-enable pointer events on the target overlay and attach drag handler
-            // (setOverlaysInteractive(false) may have disabled them)
+            // Re-enable pointer events on the target overlay and attach drag handlers
             function attachDragToOverlay() {
                 var el = targetOverlay.getElement();
                 if (el) {
                     el.style.pointerEvents = 'auto';
                     el.style.cursor = 'move';
                     el.addEventListener('mousedown', self._positionMouseDown);
+                    el.addEventListener('touchstart', self._positionTouchStart, { passive: false });
                 } else {
-                    // Image may not have loaded yet - retry once it does
                     targetOverlay.once('load', function () {
                         var el2 = targetOverlay.getElement();
                         if (el2) {
                             el2.style.pointerEvents = 'auto';
                             el2.style.cursor = 'move';
                             el2.addEventListener('mousedown', self._positionMouseDown);
+                            el2.addEventListener('touchstart', self._positionTouchStart, { passive: false });
                         }
                     });
                 }
@@ -2879,6 +2911,7 @@ window.fpEditor = {
                 var el = o.overlay.getElement();
                 if (el) {
                     el.removeEventListener('mousedown', this._positionMouseDown);
+                    el.removeEventListener('touchstart', this._positionTouchStart);
                     el.style.cursor = '';
                 }
             }.bind(this));
@@ -2891,8 +2924,17 @@ window.fpEditor = {
             document.removeEventListener('mouseup', this._positionMouseUp);
             this._positionMouseUp = null;
         }
+        if (this._positionTouchMove) {
+            document.removeEventListener('touchmove', this._positionTouchMove);
+            this._positionTouchMove = null;
+        }
+        if (this._positionTouchEnd) {
+            document.removeEventListener('touchend', this._positionTouchEnd);
+            this._positionTouchEnd = null;
+        }
         this._positionDragState = null;
         this._positionMouseDown = null;
+        this._positionTouchStart = null;
         this._positionUpdateFn = null;
     },
 
@@ -3300,6 +3342,12 @@ window.fpEditor = {
     destroy: function () {
         this._removeEscapeHandler();
         this._stopEdgePan();
+        this.exitPositionMode();
+        if (this._savedViewZoomHandler && this._map) {
+            this._map.off('zoomend', this._savedViewZoomHandler);
+            this._savedViewZoomHandler = null;
+        }
+        this._savedView = null;
         SteppedScaleBar.remove(this._scaleBar); this._scaleBar = null;
         if (this._map) { this._map.remove(); this._map = null; }
         this._dotNetRef = null;
