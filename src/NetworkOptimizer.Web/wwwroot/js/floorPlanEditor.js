@@ -489,6 +489,8 @@ window.fpEditor = {
         if (sv.buildingLat != null && sv.buildingLng != null) {
             if (!this._map.getBounds().contains([sv.buildingLat, sv.buildingLng])) return;
         }
+        // Don't restore if it would zoom in more than current view
+        if (sv.zoom > this._map.getZoom()) return;
         this._map.setView([sv.lat, sv.lng], sv.zoom);
     },
 
