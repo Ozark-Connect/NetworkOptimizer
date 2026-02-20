@@ -44,6 +44,10 @@
     --primary-light: #60a5fa;
     --primary-lighter: #93c5fd;
 
+    /* Map toolbar buttons - brighter base for contrast against bright map content */
+    --btn-map-bg: #2c2c30;
+    --btn-map-hover: #35353a;
+
     /* Borders & Effects */
     --border-color: #232326;
     --border-radius: 4px;
