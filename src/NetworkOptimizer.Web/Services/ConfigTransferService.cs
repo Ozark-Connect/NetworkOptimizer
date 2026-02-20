@@ -17,6 +17,7 @@ public class ConfigTransferService
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<ConfigTransferService> _logger;
     private readonly string _dataDirectory;
+    private readonly string _sshKeysDirectory;
     private readonly string _tempDirectory;
 
     // AES-256-CBC semi-obfuscation key (not real security - credential encryption is the real layer)
@@ -51,6 +52,7 @@ public class ConfigTransferService
         _appLifetime = appLifetime;
         _logger = logger;
         _dataDirectory = GetDataDirectory();
+        _sshKeysDirectory = Path.Combine(Path.GetDirectoryName(_dataDirectory)!, "ssh-keys");
         _tempDirectory = Path.Combine(_dataDirectory, "temp");
     }
 
@@ -166,15 +168,19 @@ public class ConfigTransferService
                     _logger.LogDebug("No .credential_key found at {Path}", credKeyPath);
                 }
 
-                // Full export: include floor plans and data protection keys
+                // Both export types: include data protection keys and SSH keys
+                var keysDir = Path.Combine(_dataDirectory, "keys");
+                _logger.LogDebug("Including data protection keys from {Path} (exists={Exists})", keysDir, Directory.Exists(keysDir));
+                await AddDirectoryToArchiveAsync(archive, keysDir, "keys");
+                _logger.LogDebug("Including SSH keys from {Path} (exists={Exists})", _sshKeysDirectory, Directory.Exists(_sshKeysDirectory));
+                await AddDirectoryToArchiveAsync(archive, _sshKeysDirectory, "ssh-keys");
+
+                // Full export only: include floor plans
                 if (type == ExportType.Full)
                 {
                     var fpDir = Path.Combine(_dataDirectory, "floor-plans");
-                    var keysDir = Path.Combine(_dataDirectory, "keys");
                     _logger.LogDebug("Including floor-plans from {Path} (exists={Exists})", fpDir, Directory.Exists(fpDir));
                     await AddDirectoryToArchiveAsync(archive, fpDir, "floor-plans");
-                    _logger.LogDebug("Including data protection keys from {Path} (exists={Exists})", keysDir, Directory.Exists(keysDir));
-                    await AddDirectoryToArchiveAsync(archive, keysDir, "keys");
                 }
             }
 
@@ -253,10 +259,11 @@ public class ConfigTransferService
                 TableCounts = manifest.TableCounts ?? new Dictionary<string, int>(),
                 HasCredentialKey = archive.GetEntry(".credential_key") != null,
                 HasFloorPlans = archive.Entries.Any(e => e.FullName.StartsWith("floor-plans/")),
-                HasDataProtectionKeys = archive.Entries.Any(e => e.FullName.StartsWith("keys/"))
+                HasDataProtectionKeys = archive.Entries.Any(e => e.FullName.StartsWith("keys/")),
+                HasSshKeys = archive.Entries.Any(e => e.FullName.StartsWith("ssh-keys/"))
             };
-            _logger.LogDebug("Preview: credentialKey={HasKey}, floorPlans={HasFP}, dataProtectionKeys={HasKeys}",
-                preview.HasCredentialKey, preview.HasFloorPlans, preview.HasDataProtectionKeys);
+            _logger.LogDebug("Preview: credentialKey={HasKey}, floorPlans={HasFP}, dataProtectionKeys={HasKeys}, sshKeys={HasSsh}",
+                preview.HasCredentialKey, preview.HasFloorPlans, preview.HasDataProtectionKeys, preview.HasSshKeys);
 
             // Store pending state
             _pendingImportPath = importPath;
@@ -373,6 +380,21 @@ public class ConfigTransferService
             else
             {
                 _logger.LogDebug("No data protection keys in import archive");
+            }
+
+            // Replace SSH keys (full export only)
+            var importedSshKeys = Path.Combine(stagingDir, "ssh-keys");
+            if (Directory.Exists(importedSshKeys))
+            {
+                var sshKeyFiles = Directory.GetFiles(importedSshKeys, "*", SearchOption.AllDirectories);
+                _logger.LogDebug("Replacing SSH keys: {Count} files", sshKeyFiles.Length);
+                if (Directory.Exists(_sshKeysDirectory))
+                    Directory.Delete(_sshKeysDirectory, recursive: true);
+                CopyDirectory(importedSshKeys, _sshKeysDirectory);
+            }
+            else
+            {
+                _logger.LogDebug("No SSH keys in import archive");
             }
 
             _logger.LogInformation("Config import applied successfully, scheduling restart");
@@ -636,4 +658,5 @@ public class ImportPreview
     public bool HasCredentialKey { get; set; }
     public bool HasFloorPlans { get; set; }
     public bool HasDataProtectionKeys { get; set; }
+    public bool HasSshKeys { get; set; }
 }
