@@ -3381,6 +3381,7 @@ window.fpEditor = {
         this._apLayer = null;
         this._apGlowLayer = null;
         this._bgWallLayer = null;
+        this._bgHitAreaLayer = null;
         this._wallLayer = null;
         this._wallHighlightLayer = null;
         this._heatmapOverlay = null;
