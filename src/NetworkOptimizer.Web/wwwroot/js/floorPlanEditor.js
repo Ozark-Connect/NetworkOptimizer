@@ -442,16 +442,45 @@ window.fpEditor = {
     },
 
     saveMapView: function (buildingLat, buildingLng) {
+        var self = this;
         if (this._map) {
             var c = this._map.getCenter();
             this._savedView = {
                 lat: c.lat, lng: c.lng, zoom: this._map.getZoom(),
                 buildingLat: buildingLat, buildingLng: buildingLng
             };
+            // After the next fitBounds settles, record the building zoom level.
+            // Clear saved view if user zooms out more than 1 step from that.
+            if (this._savedViewZoomHandler) this._map.off('zoomend', this._savedViewZoomHandler);
+            var armed = false;
+            this._savedViewZoomHandler = function () {
+                if (!self._savedView) {
+                    self._map.off('zoomend', self._savedViewZoomHandler);
+                    self._savedViewZoomHandler = null;
+                    return;
+                }
+                if (!armed) {
+                    // First zoomend after save = fitBounds completed; record this zoom
+                    self._savedView.buildingZoom = self._map.getZoom();
+                    armed = true;
+                    return;
+                }
+                if (self._map.getZoom() < self._savedView.buildingZoom - 1) {
+                    self._savedView = null;
+                    self._map.off('zoomend', self._savedViewZoomHandler);
+                    self._savedViewZoomHandler = null;
+                }
+            };
+            this._map.on('zoomend', this._savedViewZoomHandler);
         }
     },
 
     restoreMapView: function () {
+        // Clean up zoom listener
+        if (this._savedViewZoomHandler && this._map) {
+            this._map.off('zoomend', this._savedViewZoomHandler);
+            this._savedViewZoomHandler = null;
+        }
         if (!this._map || !this._savedView) return;
         // Only restore if the building is still visible in the viewport;
         // if the user has panned away, they navigated intentionally.
