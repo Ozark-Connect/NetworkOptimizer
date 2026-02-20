@@ -1147,14 +1147,94 @@
             <div class="data-actions">
                 <div class="action-item">
                     <h4>Export Configuration</h4>
-                    <p>Export all settings and configuration to a JSON file</p>
-                    <button class="btn btn-secondary" disabled title="Coming soon">Export Config</button>
+                    <p>Download an encrypted backup of your configuration</p>
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                        <a href="/api/config/export?type=full" download class="btn btn-primary">Full Export</a>
+                        <a href="/api/config/export?type=settings" download class="btn btn-secondary">Settings Only</a>
+                    </div>
+                    <p class="form-hint" style="margin-top: 0.5rem;">Full includes speed test history, audit results, and floor plan images. Settings Only exports just configuration.</p>
                 </div>
 
                 <div class="action-item">
                     <h4>Import Configuration</h4>
-                    <p>Import settings from a previously exported JSON file</p>
-                    <button class="btn btn-secondary" disabled title="Coming soon">Import Config</button>
+                    <p>Restore settings from a .nopt backup file</p>
+
+                    @if (importApplied)
+                    {
+                        <div class="alert alert-success">Import applied successfully. The app is restarting - this page will reload automatically.</div>
+                    }
+                    else if (importPreview != null)
+                    {
+                        <div class="import-preview" style="background: var(--bg-tertiary); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem;">
+                            <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.9rem;">
+                                <span class="text-muted">Export type:</span>
+                                <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
+                                <span class="text-muted">Export date:</span>
+                                <span>@importPreview.ExportDate.ToString("MMM d, yyyy h:mm tt") UTC</span>
+                                <span class="text-muted">App version:</span>
+                                <span>@importPreview.AppVersion</span>
+                                @if (importPreview.TableCounts.Count > 0)
+                                {
+                                    <span class="text-muted">Data:</span>
+                                    <span>@importPreview.TableCounts.Where(t => t.Value > 0).Count() tables with data</span>
+                                }
+                            </div>
+
+                            @if (!importPreview.IsCompatible)
+                            {
+                                <div class="alert alert-danger" style="margin-top: 0.75rem;">
+                                    This backup is from a newer version (@importPreview.AppVersion) and may not be compatible with your current version (@importPreview.CurrentAppVersion).
+                                </div>
+                            }
+
+                            @if (importPreview.ExportType == "SettingsOnly")
+                            {
+                                <p class="form-hint" style="margin-top: 0.5rem;">Your existing speed test and audit history will be preserved.</p>
+                            }
+
+                            @if (!showImportConfirm)
+                            {
+                                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                                    <button class="btn btn-danger" @onclick="() => showImportConfirm = true" disabled="@(!importPreview.IsCompatible)">Apply Import</button>
+                                    <button class="btn btn-secondary" @onclick="CancelImport">Cancel</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                                    This will replace all settings and the app will restart automatically. Are you sure?
+                                </div>
+                                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                    <button class="btn btn-danger" @onclick="ApplyImport" disabled="@isImporting">
+                                        @if (isImporting)
+                                        {
+                                            <span class="spinner spinner-sm"></span> <span>Importing...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Yes, Replace Settings</span>
+                                        }
+                                    </button>
+                                    <button class="btn btn-secondary" @onclick="() => showImportConfirm = false" disabled="@isImporting">Cancel</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <InputFile OnChange="OnImportFileSelected" accept=".nopt" style="margin-bottom: 0.5rem;" />
+                        @if (isValidatingImport)
+                        {
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+                                <span class="spinner spinner-sm"></span> <span>Validating file...</span>
+                            </div>
+                        }
+                    }
+
+                    @if (!string.IsNullOrEmpty(importError))
+                    {
+                        <div class="alert alert-danger" style="margin-top: 0.5rem;">@importError</div>
+                    }
                 </div>
 
                 <div class="action-item">
@@ -2308,16 +2388,82 @@
         await Task.CompletedTask;
     }
 
-    private async Task ExportConfig()
+    // Config import state
+    private ImportPreview? importPreview;
+    private string? importError;
+    private bool isValidatingImport;
+    private bool isImporting;
+    private bool showImportConfirm;
+    private bool importApplied;
+
+    [Inject] private ConfigTransferService ConfigTransfer { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    private async Task OnImportFileSelected(InputFileChangeEventArgs e)
     {
-        // TODO: Implement export
-        await Task.CompletedTask;
+        importError = null;
+        importPreview = null;
+        showImportConfirm = false;
+        isValidatingImport = true;
+        StateHasChanged();
+
+        try
+        {
+            var file = e.File;
+            if (file.Size > 500 * 1024 * 1024) // 500 MB limit
+            {
+                importError = "File is too large (max 500 MB)";
+                return;
+            }
+
+            using var content = new MultipartFormDataContent();
+            using var stream = file.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024);
+
+            // Save to temp MemoryStream since we need to send via HTTP
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            importPreview = await ConfigTransfer.ValidateImportAsync(ms);
+        }
+        catch (Exception ex)
+        {
+            importError = $"Invalid backup file: {ex.Message}";
+        }
+        finally
+        {
+            isValidatingImport = false;
+            StateHasChanged();
+        }
     }
 
-    private async Task ImportConfig()
+    private async Task ApplyImport()
     {
-        // TODO: Implement import
-        await Task.CompletedTask;
+        isImporting = true;
+        importError = null;
+        StateHasChanged();
+
+        try
+        {
+            await ConfigTransfer.ApplyImportAsync();
+            importApplied = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            importError = $"Import failed: {ex.Message}";
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelImport()
+    {
+        ConfigTransfer.CancelPendingImport();
+        importPreview = null;
+        importError = null;
+        showImportConfirm = false;
+        StateHasChanged();
     }
 
     private string? cacheMessage;
