@@ -2191,6 +2191,11 @@
             }
         }
 
+        // Bias toward top-of-image facing north: normalize to [-90, 90].
+        // Adding ±180° flips the image but covers the same rectangular footprint.
+        if (chosenRot > 90) chosenRot -= 180;
+        else if (chosenRot < -90) chosenRot += 180;
+
         chosenRot = Math.Round(chosenRot);
         var latHalf = latMeters / 111320;
         var lngHalf = lngMeters / (111320 * cosLat);
