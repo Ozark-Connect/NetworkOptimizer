@@ -2159,9 +2159,7 @@
     }
 
     .client-dashboard-page {
-        max-width: 1400px;
-        margin: 0 auto;
-        padding: 0 16px 32px;
+        padding: 0 0 32px;
     }
 
     /* Loading */
@@ -2523,12 +2521,12 @@
         font-weight: 500;
     }
     .event-connected {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
+        background: rgba(36, 188, 112, 0.15);
+        color: var(--success-color);
     }
     .event-disconnected {
-        background: rgba(239, 68, 68, 0.15);
-        color: #ef4444;
+        background: rgba(238, 99, 104, 0.15);
+        color: var(--danger-color);
     }
     .event-roamed {
         background: rgba(59, 130, 246, 0.15);
@@ -2627,7 +2625,7 @@
     /* Mobile responsive */
     @@media (max-width: 768px) {
         .client-dashboard-page {
-            padding: 0 12px 24px;
+            padding: 0 0 24px;
         }
         .identity-row-1 {
             flex-direction: column;

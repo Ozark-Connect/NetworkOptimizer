@@ -4,10 +4,10 @@
  */
 
 :root {
-    --ozark-primary: #0559C9;
-    --ozark-accent: #F97316;
-    --ozark-bg: #1a2029;
-    --ozark-text: #f1f5f9;
+    --ozark-primary: #0550B5;
+    --ozark-accent: #E56B11;
+    --ozark-bg: #0f0f11;
+    --ozark-text: #ededef;
 }
 
 /* Override the blue gradient/accent colors */
@@ -127,12 +127,12 @@
     left: 50%;
     transform: translateX(-50%) translateY(100px);
     padding: 16px 32px;
-    border-radius: 12px;
+    border-radius: 6px;
     font-size: 16px;
     font-weight: 600;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #ffffff;
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    background: linear-gradient(135deg, #1c1c1f 0%, #111113 100%);
     border: 2px solid rgba(255, 255, 255, 0.2);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
     z-index: 2000;
@@ -151,15 +151,15 @@
 
 /* Orange for "Please wait..." - matches Ozark accent */
 .save-notification.waiting {
-    border-color: #F97316;
+    border-color: #E56B11;
     background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
     box-shadow: 0 8px 32px rgba(249, 115, 22, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
 /* Blue for "Result saved." - matches Ozark primary */
 .save-notification.success {
-    border-color: #0559C9;
-    background: linear-gradient(135deg, #0559C9 0%, #1e40af 100%);
+    border-color: #0550B5;
+    background: linear-gradient(135deg, #0550B5 0%, #1e40af 100%);
     box-shadow: 0 8px 32px rgba(5, 89, 201, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
@@ -171,8 +171,8 @@
 
 /* Clickable "View Results" - blue with hover effect */
 .save-notification.clickable {
-    border-color: #0559C9;
-    background: linear-gradient(135deg, #0559C9 0%, #1e40af 100%);
+    border-color: #0550B5;
+    background: linear-gradient(135deg, #0550B5 0%, #1e40af 100%);
     box-shadow: 0 8px 32px rgba(5, 89, 201, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
     pointer-events: auto;
     cursor: pointer;

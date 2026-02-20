@@ -387,7 +387,7 @@
                     measuring current speed and adjusting the SQM rate accordingly.
                 </p>
                 <div class="alert alert-warning" style="margin-bottom: 1rem;">
-                    <strong>Warning:</strong> Running a speedtest will temporarily saturate your WAN connection and may interrupt active video calls, gaming, or other real-time activities.
+                    <strong>Note:</strong> Running a speedtest will temporarily saturate your WAN connection and may interrupt active video calls, gaming, or other real-time activities.
                 </div>
                 <div class="adjustment-buttons">
                     @if (wan1Config.Enabled && IsWanActiveInMonitor(wan1Config.Name))
@@ -1012,11 +1012,11 @@
     }
 
     .status-active {
-        background: var(--success);
+        background: var(--success-color);
     }
 
     .status-inactive {
-        background: var(--danger);
+        background: var(--danger-color);
     }
 
     .tc-rates-panel h4 {
@@ -1051,7 +1051,7 @@
 
     .tc-rate {
         font-family: var(--font-mono);
-        color: var(--primary);
+        color: var(--accent-color);
     }
 
     .action-buttons {
@@ -1140,8 +1140,7 @@
     }
 
     .wan-status-indicator.active {
-        background: #10b981;
-        box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+        background: var(--success-color);
     }
 
     .wan-status-name {
@@ -1168,7 +1167,7 @@
         font-size: 3rem;
         font-weight: 700;
         font-family: var(--font-mono);
-        color: var(--primary);
+        color: var(--accent-color);
         line-height: 1;
     }
 
@@ -1388,15 +1387,15 @@
     }
 
     .adjustment-result.success {
-        background: rgba(34, 197, 94, 0.1);
-        color: #22c55e;
-        border: 1px solid rgba(34, 197, 94, 0.3);
+        background: rgba(36, 188, 112, 0.1);
+        color: var(--success-color);
+        border: 1px solid rgba(36, 188, 112, 0.3);
     }
 
     .adjustment-result.error {
-        background: rgba(239, 68, 68, 0.1);
-        color: #ef4444;
-        border: 1px solid rgba(239, 68, 68, 0.3);
+        background: rgba(238, 99, 104, 0.1);
+        color: var(--danger-color);
+        border: 1px solid rgba(238, 99, 104, 0.3);
     }
 
     /* Time input styling */
