@@ -915,18 +915,19 @@ window.fpEditor = {
             var cancelBtn = document.createElement('button');
             cancelBtn.className = 'fp-btn';
             cancelBtn.textContent = 'Cancel';
-            cancelBtn.onclick = function () {
-                document.body.removeChild(backdrop);
-                resolve(0);
-            };
             actions.appendChild(cancelBtn);
             dialog.appendChild(actions);
 
-            backdrop.onclick = function () {
+            var dismiss = function () {
+                document.removeEventListener('keydown', escHandler);
                 document.body.removeChild(backdrop);
                 resolve(0);
             };
+            var escHandler = function (e) { if (e.key === 'Escape') dismiss(); };
+            cancelBtn.onclick = dismiss;
+            backdrop.onclick = dismiss;
             dialog.onclick = function (e) { e.stopPropagation(); };
+            document.addEventListener('keydown', escHandler);
 
             backdrop.appendChild(dialog);
             document.body.appendChild(backdrop);
@@ -945,6 +946,7 @@ window.fpEditor = {
                     cell.onmouseenter = function () { cell.style.borderColor = '#3b82f6'; };
                     cell.onmouseleave = function () { cell.style.borderColor = 'transparent'; };
                     cell.onclick = function () {
+                        document.removeEventListener('keydown', escHandler);
                         document.body.removeChild(backdrop);
                         resolve(pageNum);
                     };
