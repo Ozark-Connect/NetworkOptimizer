@@ -79,6 +79,12 @@ public class ConfigAuditEngine
         public List<UniFiFirewallZone>? FirewallZones { get; init; }
 
         /// <summary>
+        /// User overrides for network purpose classification.
+        /// Keys are network IDs, values are NetworkPurpose enum names.
+        /// </summary>
+        public Dictionary<string, string>? NetworkPurposeOverrides { get; init; }
+
+        /// <summary>
         /// Lookup service for firewall zones.
         /// Provides zone ID to zone key mapping and validation.
         /// </summary>
@@ -391,7 +397,8 @@ public class ConfigAuditEngine
             NetworkConfigs = request.NetworkConfigs,
             FirewallZones = request.FirewallZones,
             ZoneLookup = zoneLookup,
-            ExternalZoneId = externalZoneId
+            ExternalZoneId = externalZoneId,
+            NetworkPurposeOverrides = request.NetworkPurposeOverrides
         };
     }
 
@@ -445,6 +452,41 @@ public class ConfigAuditEngine
         _logger.LogInformation("Phase 1: Extracting network topology");
         ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData, ctx.ZoneLookup);
         _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
+
+        // Apply user purpose overrides (rebuild NetworkInfo since Purpose is init-only)
+        if (ctx.NetworkPurposeOverrides is { Count: > 0 })
+        {
+            for (var i = 0; i < ctx.Networks.Count; i++)
+            {
+                var network = ctx.Networks[i];
+                if (ctx.NetworkPurposeOverrides.TryGetValue(network.Id, out var purposeStr) &&
+                    Enum.TryParse<NetworkPurpose>(purposeStr, ignoreCase: true, out var purpose) &&
+                    purpose != network.Purpose)
+                {
+                    ctx.Networks[i] = new NetworkInfo
+                    {
+                        Id = network.Id,
+                        Name = network.Name,
+                        VlanId = network.VlanId,
+                        Purpose = purpose,
+                        Subnet = network.Subnet,
+                        Gateway = network.Gateway,
+                        DnsServers = network.DnsServers,
+                        AllowsRouting = network.AllowsRouting,
+                        DhcpEnabled = network.DhcpEnabled,
+                        NetworkIsolationEnabled = network.NetworkIsolationEnabled,
+                        InternetAccessEnabled = network.InternetAccessEnabled,
+                        IsUniFiGuestNetwork = network.IsUniFiGuestNetwork,
+                        FirewallZoneId = network.FirewallZoneId,
+                        NetworkGroup = network.NetworkGroup,
+                        UpnpLanEnabled = network.UpnpLanEnabled,
+                        Enabled = network.Enabled
+                    };
+                    _logger.LogInformation("Applied user override: Network '{Name}' ({Id}) purpose changed from {OldPurpose} to {NewPurpose}",
+                        network.Name, network.Id, network.Purpose, purpose);
+                }
+            }
+        }
     }
 
     private void ExecutePhase2_ExtractSwitches(AuditContext ctx)

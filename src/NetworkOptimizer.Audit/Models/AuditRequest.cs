@@ -105,4 +105,11 @@ public class AuditRequest
     /// Used to validate zone assumptions and identify DMZ/Hotspot networks.
     /// </summary>
     public List<UniFiFirewallZone>? FirewallZones { get; init; }
+
+    /// <summary>
+    /// Optional: User overrides for network purpose classification.
+    /// Keys are UniFi network IDs, values are NetworkPurpose enum names (e.g., "IoT", "Guest").
+    /// Overrides are applied after VlanAnalyzer extraction in Phase 1.
+    /// </summary>
+    public Dictionary<string, string>? NetworkPurposeOverrides { get; init; }
 }

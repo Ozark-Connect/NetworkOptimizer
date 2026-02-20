@@ -2568,6 +2568,65 @@ select.form-control {
     }
 }
 
+/* Network Purpose Override */
+.purpose-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.purpose-select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    min-width: 120px;
+}
+
+.purpose-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.purpose-saved {
+    color: var(--success-color);
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+    animation: purposeFadeIn 0.2s ease-out;
+}
+
+@@keyframes purposeFadeIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.purpose-rerun-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 1rem;
+    margin-bottom: 1rem;
+    background: rgba(71, 151, 255, 0.08);
+    border: 1px solid rgba(71, 151, 255, 0.25);
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.purpose-rerun-banner .purpose-rerun-icon {
+    color: var(--info-color);
+    flex-shrink: 0;
+    display: flex;
+}
+
+.purpose-rerun-banner span:nth-child(2) {
+    flex: 1;
+}
+
 /* Utility Classes */
 .text-center {
     text-align: center;
