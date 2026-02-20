@@ -26,13 +26,13 @@
     --purple-light: #c084fc;
 
     /* Dark Mode Backgrounds - neutral dark, Linear/Vercel inspired */
-    --bg-primary: #0f0f11;
-    --bg-secondary: #161618;
-    --bg-tertiary: #232326;
-    --bg-card: #161618;
-    --bg-hover: #232326;
-    --surface: #161618;
-    --surface-secondary: #1c1c1f;
+    --bg-primary: #111113;
+    --bg-secondary: #1c1c1e;
+    --bg-tertiary: #2a2a2d;
+    --bg-card: #1c1c1e;
+    --bg-hover: #2a2a2d;
+    --surface: #1c1c1e;
+    --surface-secondary: #222225;
 
     /* Text Colors - neutral, no blue tint */
     --text-primary: #ededef;
@@ -45,7 +45,7 @@
     --primary-lighter: #93c5fd;
 
     /* Borders & Effects */
-    --border-color: #232326;
+    --border-color: #2a2a2d;
     --border-radius: 4px;
     --border-radius-lg: 6px;
     --shadow: none;
@@ -1328,7 +1328,7 @@ a.btn-lg {
 
 .btn-secondary:hover:not(:disabled),
 .btn-ghost:hover:not(:disabled) {
-    background: #2c2c30;
+    background: #333337;
 }
 
 /* Danger - Red (for destructive actions) */
