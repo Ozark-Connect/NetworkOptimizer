@@ -324,7 +324,7 @@
     @if (!ReadOnly && _selectedFloor != null)
     {
         <div class="fp-bottom-bar">
-            <div class="fp-image-controls">
+            <div class="fp-bar-group">
                 <button class="fp-upload-btn" onclick="fpEditor.pickUnderlayFile()">Upload Floorplan</button>
                 @foreach (var img in _floorImages)
                 {
@@ -337,32 +337,38 @@
             @if (_selectedImage != null)
             {
                 <div class="fp-separator"></div>
-                <button class="fp-btn @(_mode == "image-position" ? "fp-btn-active" : "")" @onclick="ToggleImagePositionMode">Position</button>
-                <div class="fp-opacity-control">
-                    <span>Opacity:</span>
-                    <input type="range" min="0" max="100" value="@((int)((_selectedImage?.Opacity ?? 0.7) * 100))"
-                           @oninput="OnImageOpacityChange" class="fp-opacity-slider" />
+                <div class="fp-bar-group">
+                    <button class="fp-btn @(_mode == "image-position" ? "fp-btn-active" : "")" @onclick="ToggleImagePositionMode">Position</button>
+                    <div class="fp-opacity-control">
+                        <span>Opacity:</span>
+                        <input type="range" min="0" max="100" value="@((int)((_selectedImage?.Opacity ?? 0.7) * 100))"
+                               @oninput="OnImageOpacityChange" class="fp-opacity-slider" />
+                    </div>
+                    <div class="fp-opacity-control">
+                        <span>Rotation:</span>
+                        <input type="range" min="0" max="360" step="1" value="@((int)(_selectedImage?.RotationDeg ?? 0))"
+                               @oninput="OnImageRotationChange" class="fp-opacity-slider" />
+                        <span class="fp-rotation-value">@((int)(_selectedImage?.RotationDeg ?? 0))°</span>
+                    </div>
                 </div>
-                <div class="fp-opacity-control">
-                    <span>Rotation:</span>
-                    <input type="range" min="0" max="360" step="1" value="@((int)(_selectedImage?.RotationDeg ?? 0))"
-                           @oninput="OnImageRotationChange" class="fp-opacity-slider" />
-                    <span class="fp-rotation-value">@((int)(_selectedImage?.RotationDeg ?? 0))°</span>
+                <div class="fp-bar-group">
+                    <button class="fp-btn @(_showCropControls ? "fp-btn-active" : "")" @onclick="() => _showCropControls = !_showCropControls">Crop</button>
+                    <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedImage">Delete Underlay</button>
                 </div>
-                <button class="fp-btn @(_showCropControls ? "fp-btn-active" : "")" @onclick="() => _showCropControls = !_showCropControls">Crop</button>
-                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedImage">Delete Underlay</button>
                 <div class="fp-separator"></div>
             }
-            <div class="fp-opacity-control">
-                <span>Floor:</span>
-                <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
-                    <option value="floor_wood">Wood Frame</option>
-                    <option value="floor_concrete">Concrete Slab</option>
-                </select>
+            <div class="fp-bar-group">
+                <div class="fp-opacity-control">
+                    <span>Floor:</span>
+                    <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
+                        <option value="floor_wood">Wood Frame</option>
+                        <option value="floor_concrete">Concrete Slab</option>
+                    </select>
+                </div>
+                <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
+                <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
+                <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
             </div>
-            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
-            <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
-            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
         @if (_showCropControls && _selectedImage != null)
         {
@@ -610,6 +616,14 @@
         position: relative;
         z-index: 2;
         flex-shrink: 0;
+        flex-wrap: wrap;
+    }
+
+    .fp-bar-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
     }
 
     .fp-upload-btn {
@@ -634,12 +648,6 @@
 
     .fp-opacity-slider { width: 100px; accent-color: var(--accent-color, #4f46e5); }
 
-    .fp-image-controls {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        flex-shrink: 0;
-    }
 
     .fp-image-chip {
         background: var(--btn-bg, #2d2d4a);
@@ -1425,6 +1433,21 @@
             white-space: normal;
             text-align: center;
         }
+        .fp-bottom-bar {
+            gap: 8px 10px;
+            padding: 6px 8px;
+        }
+        .fp-bar-group {
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .fp-separator { display: none; }
+        .fp-opacity-slider { width: 80px; }
+        .fp-crop-panel {
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .fp-crop-slider .fp-opacity-slider { width: 60px; }
     }
 </style>
 
