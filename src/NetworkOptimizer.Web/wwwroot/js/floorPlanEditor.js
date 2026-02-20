@@ -685,6 +685,15 @@ window.fpEditor = {
                 if (!info) return;
 
                 var blob = await self._convertToImage(file);
+
+                // Get image natural dimensions for aspect-ratio matching
+                var imgW = 0, imgH = 0;
+                try {
+                    var dims = await self._getImageDimensions(blob);
+                    imgW = dims.width;
+                    imgH = dims.height;
+                } catch (e) { /* couldn't get dims, C# will use fallback */ }
+
                 var formData = new FormData();
                 formData.append('image', blob, 'underlay.png');
                 formData.append('swLat', info.swLat.toString());
@@ -699,7 +708,7 @@ window.fpEditor = {
                 if (!resp.ok) throw new Error('Upload failed: ' + resp.status);
                 var result = await resp.json();
                 if (self._dotNetRef) {
-                    self._dotNetRef.invokeMethodAsync('OnUnderlayUploadedFromJs', result.id);
+                    self._dotNetRef.invokeMethodAsync('OnUnderlayUploadedFromJs', result.id, imgW, imgH);
                 }
             } catch (err) {
                 console.error('Underlay upload error:', err);
@@ -779,6 +788,22 @@ window.fpEditor = {
             img.onerror = function () {
                 URL.revokeObjectURL(url);
                 reject(new Error('Native decode failed'));
+            };
+            img.src = url;
+        });
+    },
+
+    _getImageDimensions: function (blob) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onload = function () {
+                URL.revokeObjectURL(url);
+                resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            };
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error('Could not read image dimensions'));
             };
             img.src = url;
         });

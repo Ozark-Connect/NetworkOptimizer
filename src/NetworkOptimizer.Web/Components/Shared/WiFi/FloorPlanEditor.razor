@@ -1971,29 +1971,27 @@
     }
 
     [JSInvokable]
-    public async Task OnUnderlayUploadedFromJs(int imageId)
+    public async Task OnUnderlayUploadedFromJs(int imageId, int imgWidth = 0, int imgHeight = 0)
     {
         await LoadFloorImages();
 
-        // Auto-rotate to match building outline orientation
+        // Auto-fit to building outline, using image aspect ratio to resolve rotation ambiguity
         if (BuildingHasWalls())
         {
-            var outline = ComputeBuildingOutline();
-            if (outline.rotationDeg != 0)
+            double aspectRatio = (imgWidth > 0 && imgHeight > 0) ? (double)imgWidth / imgHeight : 0;
+            var outline = ComputeBuildingOutline(aspectRatio);
+            await FloorPlanSvc.UpdateFloorImageAsync(imageId,
+                swLat: outline.swLat, swLng: outline.swLng,
+                neLat: outline.neLat, neLng: outline.neLng,
+                rotationDeg: outline.rotationDeg);
+            var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
+            if (img != null)
             {
-                await FloorPlanSvc.UpdateFloorImageAsync(imageId,
-                    swLat: outline.swLat, swLng: outline.swLng,
-                    neLat: outline.neLat, neLng: outline.neLng,
-                    rotationDeg: outline.rotationDeg);
-                var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
-                if (img != null)
-                {
-                    img.SwLatitude = outline.swLat;
-                    img.SwLongitude = outline.swLng;
-                    img.NeLatitude = outline.neLat;
-                    img.NeLongitude = outline.neLng;
-                    img.RotationDeg = outline.rotationDeg;
-                }
+                img.SwLatitude = outline.swLat;
+                img.SwLongitude = outline.swLng;
+                img.NeLatitude = outline.neLat;
+                img.NeLongitude = outline.neLng;
+                img.RotationDeg = outline.rotationDeg;
             }
         }
 
@@ -2012,7 +2010,7 @@
     /// Returns axis-aligned bounds (for the overlay) and rotation angle.
     /// The axis-aligned bounds, when CSS-rotated by the returned angle, tightly fit the building.
     /// </summary>
-    private (double swLat, double swLng, double neLat, double neLng, double rotationDeg) ComputeBuildingOutline()
+    private (double swLat, double swLng, double neLat, double neLng, double rotationDeg) ComputeBuildingOutline(double imageAspectRatio = 0)
     {
         var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         var points = new List<(double x, double y)>(); // x=lng-meters, y=lat-meters
@@ -2143,27 +2141,60 @@
         // Convert back to lat/lng
         var centerLat = refLat + centerY / 111320;
         var centerLng = refLng + centerX / (111320 * cosLat);
-        // Rotation in degrees: angle of the edge from east, converted to CSS rotation
-        // CSS rotate() is clockwise in screen coords (y-down), our angle is CCW from east (y-up)
-        var rotDeg = -bestAngle * 180.0 / Math.PI;
-        // Normalize to [-180, 180]
-        rotDeg = ((rotDeg + 180) % 360 + 360) % 360 - 180;
-        // Pick the smaller rotation (prefer |angle| <= 90)
-        // When we add/subtract 180°, the overlay axes swap (width ↔ height)
-        bool swapped = false;
-        if (rotDeg > 90) { rotDeg -= 180; swapped = true; }
-        if (rotDeg < -90) { rotDeg += 180; swapped = true; }
-        rotDeg = Math.Round(rotDeg);
+        // CSS rotate() is clockwise in screen coords (y-down), our angle is CCW from east (y-up).
+        // Negate to convert.
+        var rotDegA = -bestAngle * 180.0 / Math.PI;
+        // Normalize to [0, 360)
+        rotDegA = ((rotDegA % 360) + 360) % 360;
 
-        // Assign meter dimensions to lat/lng, swapping if rotation normalization flipped axes.
-        // hw = extent along edge direction → overlay horizontal (lng) unless swapped
-        // hh = extent perpendicular → overlay vertical (lat) unless swapped
-        double latMeters = swapped ? hw : hh;
-        double lngMeters = swapped ? hh : hw;
+        // Two valid rotation choices that both cover the building correctly:
+        // Choice A: rotation = rotDegA, overlay lng-meters = hw (along edge), lat-meters = hh (perpendicular)
+        // Choice B: rotation = rotDegA + 90, overlay lng-meters = hh, lat-meters = hw (swapped, rotated 90°)
+        var rotDegB = (rotDegA + 90) % 360;
+
+        double chosenRot;
+        double lngMeters, latMeters;
+
+        if (imageAspectRatio > 0)
+        {
+            // Match: image landscape (W>H) should get a landscape overlay (lngMeters > latMeters)
+            // and image portrait should get a portrait overlay.
+            double ratioA = hw / Math.Max(hh, 0.01); // Choice A: lng/lat aspect
+            double ratioB = hh / Math.Max(hw, 0.01); // Choice B: lng/lat aspect
+
+            // Pick the choice whose overlay aspect ratio is closer to the image's
+            double diffA = Math.Abs(Math.Log(ratioA / imageAspectRatio));
+            double diffB = Math.Abs(Math.Log(ratioB / imageAspectRatio));
+
+            if (diffA <= diffB)
+            {
+                chosenRot = rotDegA; lngMeters = hw; latMeters = hh;
+            }
+            else
+            {
+                chosenRot = rotDegB; lngMeters = hh; latMeters = hw;
+            }
+        }
+        else
+        {
+            // No image info: pick the choice with smaller rotation (closer to 0/360)
+            double distA = Math.Min(rotDegA, 360 - rotDegA);
+            double distB = Math.Min(rotDegB, 360 - rotDegB);
+            if (distA <= distB)
+            {
+                chosenRot = rotDegA; lngMeters = hw; latMeters = hh;
+            }
+            else
+            {
+                chosenRot = rotDegB; lngMeters = hh; latMeters = hw;
+            }
+        }
+
+        chosenRot = Math.Round(chosenRot) % 360;
         var latHalf = latMeters / 111320;
         var lngHalf = lngMeters / (111320 * cosLat);
 
-        return (centerLat - latHalf, centerLng - lngHalf, centerLat + latHalf, centerLng + lngHalf, rotDeg);
+        return (centerLat - latHalf, centerLng - lngHalf, centerLat + latHalf, centerLng + lngHalf, chosenRot);
     }
 
     private async Task OnImageOpacityChange(ChangeEventArgs e)
