@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -165,17 +166,41 @@ public class SponsorshipService : ISponsorshipService
     {
         var auditRepository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
         var speedTestRepository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
 
-        // Count audits and speed tests in parallel
+        // Count all usage sources in parallel
         var auditCountTask = auditRepository.GetAuditCountAsync();
         var speedTestCountTask = speedTestRepository.GetIperf3ResultCountAsync();
         var sqmWan1Task = speedTestRepository.GetSqmWanConfigAsync(1);
         var sqmWan2Task = speedTestRepository.GetSqmWanConfigAsync(2);
 
-        await Task.WhenAll(auditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task);
+        // Floor plan feature counts via DbContext
+        Task<int> signalLogCountTask;
+        Task<int> placedApCountTask;
+        Task<int> plannedApCountTask;
+        Task<int> floorCountTask;
+        using (var db = await dbFactory.CreateDbContextAsync())
+        {
+            signalLogCountTask = db.ClientSignalLogs.CountAsync();
+            placedApCountTask = db.ApLocations.CountAsync();
+            plannedApCountTask = db.PlannedAps.CountAsync();
+            floorCountTask = db.FloorPlans.CountAsync();
 
-        // Audits count as 1, speed tests count as 0.5
+            await Task.WhenAll(auditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task,
+                signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask);
+        }
+
+        // Audits count as 1, speed tests count as 0.5 (integer division)
         var count = auditCountTask.Result + (speedTestCountTask.Result / 2);
+
+        // 50 signal points = 1 audit equivalent
+        count += signalLogCountTask.Result / 50;
+
+        // 2 placed APs (real + planned) = 1 audit equivalent
+        count += (placedApCountTask.Result + plannedApCountTask.Result) / 2;
+
+        // 2 building-floors = 1 audit equivalent
+        count += floorCountTask.Result / 2;
 
         // Add SQM bonus if enabled on either WAN
         var sqmEnabled = sqmWan1Task.Result?.Enabled == true || sqmWan2Task.Result?.Enabled == true;

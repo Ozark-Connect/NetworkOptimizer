@@ -143,6 +143,8 @@
                 <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
                     Signal Data
                 </button>
+            </div>
+            <div class="fp-toolbar-group fp-toolbar-actions">
                 <button class="fp-btn" @onclick="FitMapToContent"
                         data-tooltip="Fit to view" data-tooltip-hover-only
                         style="padding: 4px 6px; line-height: 0;">
@@ -1444,6 +1446,7 @@
         .fp-toolbar-left { width: 100%; }
         .fp-toolbar-right { width: 100%; }
         .fp-toolbar-group { flex-wrap: wrap; }
+        .fp-toolbar-actions { margin-left: auto; }
         .fp-toolbar-sep { display: none; }
         .fp-edit-hint {
             top: auto;
@@ -1475,7 +1478,7 @@
             gap: 8px;
         }
         .fp-crop-slider .fp-opacity-slider { width: 60px; }
-        .fp-map { min-height: 250px; height: 300px !important; }
+        .fp-map { min-height: 250px; height: 62vh !important; }
     }
 </style>
 

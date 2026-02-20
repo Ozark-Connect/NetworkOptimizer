@@ -30,7 +30,8 @@ public interface ISponsorshipService
     Task MarkLevelShownAsync(int level);
 
     /// <summary>
-    /// Gets the current usage count (audits + speed tests + SQM bonus).
+    /// Gets the current usage count (audits + speed tests/2 + signal points/50
+    /// + placed APs/2 + floors/2 + SQM bonus).
     /// </summary>
     Task<int> GetUsageCountAsync();
 
