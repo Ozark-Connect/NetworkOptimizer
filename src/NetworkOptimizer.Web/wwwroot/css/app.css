@@ -2573,6 +2573,8 @@ select.form-control {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    width: 200px;
+    min-width: 200px;
 }
 
 .purpose-select {
@@ -2580,10 +2582,12 @@ select.form-control {
     color: var(--text-primary);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.8125rem;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
     cursor: pointer;
-    min-width: 120px;
+    width: 140px;
+    min-width: 140px;
 }
 
 .purpose-select:focus {
@@ -2597,6 +2601,7 @@ select.form-control {
     font-weight: 500;
     white-space: nowrap;
     animation: purposeFadeIn 0.2s ease-out;
+    position: absolute;
 }
 
 @@keyframes purposeFadeIn {
