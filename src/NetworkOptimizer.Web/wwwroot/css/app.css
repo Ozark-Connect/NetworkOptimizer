@@ -5300,7 +5300,7 @@ a.path-hop.hop-clickable:hover {
 
 .setup-guide summary:hover {
     color: var(--text-primary);
-    background: var(--bg-secondary);
+    background: var(--btn-map-hover);
     border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
 }
 
