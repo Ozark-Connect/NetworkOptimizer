@@ -1,5 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Storage.Interfaces;
+using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -14,7 +15,7 @@ public class DashboardService : IDashboardService
     private readonly AuditService _auditService;
     private readonly GatewaySpeedTestService _gatewayService;
     private readonly TcMonitorClient _tcMonitorClient;
-    private readonly ISpeedTestRepository _speedTestRepository;
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
 
     public DashboardService(
         ILogger<DashboardService> logger,
@@ -22,14 +23,14 @@ public class DashboardService : IDashboardService
         AuditService auditService,
         GatewaySpeedTestService gatewayService,
         TcMonitorClient tcMonitorClient,
-        ISpeedTestRepository speedTestRepository)
+        IDbContextFactory<NetworkOptimizerDbContext> dbFactory)
     {
         _logger = logger;
         _connectionService = connectionService;
         _auditService = auditService;
         _gatewayService = gatewayService;
         _tcMonitorClient = tcMonitorClient;
-        _speedTestRepository = speedTestRepository;
+        _dbFactory = dbFactory;
     }
 
     /// <summary>
@@ -116,8 +117,13 @@ public class DashboardService : IDashboardService
             }
             else
             {
-                // Check if any SQM WAN configs are enabled before polling
-                var sqmConfigs = await _speedTestRepository.GetAllSqmWanConfigsAsync();
+                // Use a short-lived context to avoid disposed-context errors
+                // when this is called from async void event handlers
+                await using var db = await _dbFactory.CreateDbContextAsync();
+                var sqmConfigs = await db.SqmWanConfigurations
+                    .AsNoTracking()
+                    .OrderBy(c => c.WanNumber)
+                    .ToListAsync();
                 var hasEnabledSqm = sqmConfigs.Any(c => c.Enabled);
 
                 if (!hasEnabledSqm)
