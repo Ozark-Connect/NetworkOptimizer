@@ -1638,6 +1638,7 @@
     private async Task OnBuildingChanged(ChangeEventArgs e)
     {
         await LoadBuildings();
+        var previousBuildingId = _selectedBuildingId;
         _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
@@ -1646,6 +1647,11 @@
         if (_mode == "aps" || _mode == "plan-aps")
             await SetMapClickToPlaceMode(false);
         _mode = "view";
+
+        // Save map view when entering a building, restore when leaving
+        if (_selectedBuilding != null && previousBuildingId == 0 && _mapInitialized)
+            await JS.InvokeVoidAsync("fpEditor.saveMapView",
+                _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude);
 
         if (_selectedBuilding != null && _floors.Count > 0)
         {
@@ -1684,6 +1690,8 @@
                             .Where(m => !m.Key.StartsWith("floor_"))
                             .ToDictionary(m => m.Key, m => m.Value)));
             }
+            // Restore the map view from before the building was selected
+            await JS.InvokeVoidAsync("fpEditor.restoreMapView");
         }
 
         await UpdateApMarkers();

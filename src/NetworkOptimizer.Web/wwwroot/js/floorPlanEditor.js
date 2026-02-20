@@ -441,6 +441,28 @@ window.fpEditor = {
         }
     },
 
+    saveMapView: function (buildingLat, buildingLng) {
+        if (this._map) {
+            var c = this._map.getCenter();
+            this._savedView = {
+                lat: c.lat, lng: c.lng, zoom: this._map.getZoom(),
+                buildingLat: buildingLat, buildingLng: buildingLng
+            };
+        }
+    },
+
+    restoreMapView: function () {
+        if (!this._map || !this._savedView) return;
+        // Only restore if the building is still visible in the viewport;
+        // if the user has panned away, they navigated intentionally.
+        var sv = this._savedView;
+        this._savedView = null;
+        if (sv.buildingLat != null && sv.buildingLng != null) {
+            if (!this._map.getBounds().contains([sv.buildingLat, sv.buildingLng])) return;
+        }
+        this._map.setView([sv.lat, sv.lng], sv.zoom);
+    },
+
     invalidateSize: function () {
         if (this._map) {
             this._map.invalidateSize();
