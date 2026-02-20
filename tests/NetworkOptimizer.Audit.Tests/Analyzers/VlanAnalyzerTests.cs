@@ -132,7 +132,7 @@ public class VlanAnalyzerTests
     [Fact]
     public void AnalyzeNetworkIsolation_NativeVlan_SkipsCheck()
     {
-        // Arrange - Native VLAN (ID 1) should be skipped even if not isolated
+        // Arrange - Native VLAN (ID 1) should be skipped for non-Management purposes
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("Main Home Network", NetworkPurpose.Home, vlanId: 1, networkIsolationEnabled: false)
@@ -143,6 +143,34 @@ public class VlanAnalyzerTests
 
         // Assert
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_NativeVlanManagement_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Management, vlanId: 1, networkIsolationEnabled: false)
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.MgmtNetworkNotIsolated);
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_NativeVlanWithPurposeOverride_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Security, vlanId: 1, networkIsolationEnabled: false, hasPurposeOverride: true)
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.SecurityNetworkNotIsolated);
     }
 
     [Fact]
@@ -1237,7 +1265,7 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeManagementVlanDhcp_NativeVlan_SkipsCheck()
+    public void AnalyzeManagementVlanDhcp_NativeVlan_StillChecked()
     {
         var networks = new List<NetworkInfo>
         {
@@ -1246,7 +1274,8 @@ public class VlanAnalyzerTests
 
         var result = _analyzer.AnalyzeManagementVlanDhcp(networks);
 
-        result.Should().BeEmpty();
+        result.Should().NotBeEmpty();
+        result.First().Type.Should().Be(IssueTypes.MgmtDhcpEnabled);
     }
 
     #endregion
@@ -1388,7 +1417,7 @@ public class VlanAnalyzerTests
     [Fact]
     public void AnalyzeInternetAccess_NativeVlan_SkipsCheck()
     {
-        // Arrange - Native VLAN should be skipped
+        // Arrange - Native VLAN should be skipped for non-Management purposes without override
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("Main Home Network", NetworkPurpose.Security, vlanId: 1, internetAccessEnabled: true)
@@ -1399,6 +1428,34 @@ public class VlanAnalyzerTests
 
         // Assert
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_NativeVlanManagement_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Management, vlanId: 1, internetAccessEnabled: true)
+        };
+
+        var issues = _analyzer.AnalyzeInternetAccess(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.MgmtNetworkHasInternet);
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_NativeVlanWithPurposeOverride_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Security, vlanId: 1, internetAccessEnabled: true, hasPurposeOverride: true)
+        };
+
+        var issues = _analyzer.AnalyzeInternetAccess(networks);
+
+        issues.Should().NotBeEmpty();
+        issues.First().Type.Should().Be(IssueTypes.SecurityNetworkHasInternet);
     }
 
     [Fact]
@@ -2212,6 +2269,188 @@ public class VlanAnalyzerTests
 
     #endregion
 
+    #region ApplyPurposeOverrides Tests
+
+    [Fact]
+    public void ApplyPurposeOverrides_ChangesPurpose()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1"),
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, vlanId: 20, id: "net-2")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "Management" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Management);
+        networks[0].HasPurposeOverride.Should().BeTrue();
+        // Untouched network stays the same
+        networks[1].Purpose.Should().Be(NetworkPurpose.IoT);
+        networks[1].HasPurposeOverride.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_SamePurpose_StillSetsOverrideFlag()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Management, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "Management" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Management);
+        networks[0].HasPurposeOverride.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_InvalidEnumValue_Skipped()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "NotARealPurpose" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+        networks[0].HasPurposeOverride.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_NetworkIdNotFound_Skipped()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "nonexistent-id", "IoT" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+        networks[0].HasPurposeOverride.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_NullOrEmpty_NoOp()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, null);
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>());
+        networks[0].Purpose.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_CaseInsensitive()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Default", NetworkPurpose.Corporate, vlanId: 1, id: "net-1")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "iot" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.IoT);
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_PreservesAllProperties()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Test Network",
+                VlanId = 42,
+                Purpose = NetworkPurpose.Corporate,
+                Subnet = "10.0.42.0/24",
+                Gateway = "10.0.42.1",
+                DnsServers = new List<string> { "1.1.1.1" },
+                AllowsRouting = true,
+                DhcpEnabled = true,
+                NetworkIsolationEnabled = true,
+                InternetAccessEnabled = false,
+                IsUniFiGuestNetwork = true,
+                FirewallZoneId = "zone-123",
+                NetworkGroup = "LAN",
+                UpnpLanEnabled = true,
+                Enabled = false
+            }
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "IoT" }
+        });
+
+        var n = networks[0];
+        n.Purpose.Should().Be(NetworkPurpose.IoT);
+        n.HasPurposeOverride.Should().BeTrue();
+        // All other properties preserved
+        n.Name.Should().Be("Test Network");
+        n.VlanId.Should().Be(42);
+        n.Subnet.Should().Be("10.0.42.0/24");
+        n.Gateway.Should().Be("10.0.42.1");
+        n.DnsServers.Should().ContainSingle("1.1.1.1");
+        n.AllowsRouting.Should().BeTrue();
+        n.DhcpEnabled.Should().BeTrue();
+        n.NetworkIsolationEnabled.Should().BeTrue();
+        n.InternetAccessEnabled.Should().BeFalse();
+        n.IsUniFiGuestNetwork.Should().BeTrue();
+        n.FirewallZoneId.Should().Be("zone-123");
+        n.NetworkGroup.Should().Be("LAN");
+        n.UpnpLanEnabled.Should().BeTrue();
+        n.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyPurposeOverrides_MultipleOverrides()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Network A", NetworkPurpose.Corporate, vlanId: 1, id: "net-1"),
+            CreateNetwork("Network B", NetworkPurpose.Home, vlanId: 10, id: "net-2"),
+            CreateNetwork("Network C", NetworkPurpose.Unknown, vlanId: 20, id: "net-3")
+        };
+
+        _analyzer.ApplyPurposeOverrides(networks, new Dictionary<string, string>
+        {
+            { "net-1", "Management" },
+            { "net-3", "Security" }
+        });
+
+        networks[0].Purpose.Should().Be(NetworkPurpose.Management);
+        networks[0].HasPurposeOverride.Should().BeTrue();
+        networks[1].Purpose.Should().Be(NetworkPurpose.Home);
+        networks[1].HasPurposeOverride.Should().BeFalse();
+        networks[2].Purpose.Should().Be(NetworkPurpose.Security);
+        networks[2].HasPurposeOverride.Should().BeTrue();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
@@ -2223,7 +2462,8 @@ public class VlanAnalyzerTests
         bool dhcpEnabled = true,
         string? firewallZoneId = null,
         string? networkGroup = null,
-        string? id = null)
+        string? id = null,
+        bool hasPurposeOverride = false)
     {
         return new NetworkInfo
         {
@@ -2237,7 +2477,8 @@ public class VlanAnalyzerTests
             NetworkIsolationEnabled = networkIsolationEnabled,
             InternetAccessEnabled = internetAccessEnabled,
             FirewallZoneId = firewallZoneId,
-            NetworkGroup = networkGroup
+            NetworkGroup = networkGroup,
+            HasPurposeOverride = hasPurposeOverride
         };
     }
 

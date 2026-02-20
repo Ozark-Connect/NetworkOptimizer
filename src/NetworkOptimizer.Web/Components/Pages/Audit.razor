@@ -10,6 +10,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<Audit> Logger
 @inject NavigationManager NavigationManager
+@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Security Audit - Network Optimizer</PageTitle>
@@ -461,6 +462,18 @@
                     <h2 class="card-title">Network Reference</h2>
                 </div>
                 <div class="card-body">
+                    @if (_purposeOverridesPending)
+                    {
+                        <div class="purpose-rerun-banner">
+                            <span class="purpose-rerun-icon">
+                                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+                            </span>
+                            <span>Purpose changes will take effect on the next audit run.</span>
+                            <button class="btn btn-sm btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)">
+                                Re-run Audit
+                            </button>
+                        </div>
+                    }
                     <div class="table-responsive">
                     <table class="data-table">
                         <thead>
@@ -478,7 +491,22 @@
                                     <td>@network.Name</td>
                                     <td>@(network.VlanId == 1 ? $"{network.VlanId} (native)" : network.VlanId.ToString())</td>
                                     <td>@(network.Subnet ?? "N/A")</td>
-                                    <td>@network.Purpose</td>
+                                    <td>
+                                        <div class="purpose-cell-inner">
+                                            <select class="purpose-select"
+                                                    value="@GetEffectivePurpose(network.Id, network.Purpose)"
+                                                    @onchange="e => OnPurposeChanged(network.Id, e.Value?.ToString())">
+                                                @foreach (var purpose in _purposeOptions)
+                                                {
+                                                    <option value="@purpose.Value">@purpose.Display</option>
+                                                }
+                                            </select>
+                                            @if (_purposeSaved.TryGetValue(network.Id, out var saved) && saved)
+                                            {
+                                                <span class="purpose-saved">Saved</span>
+                                            }
+                                        </div>
+                                    </td>
                                 </tr>
                             }
                         </tbody>
@@ -841,6 +869,26 @@
     // Collapsible issue type state - starts collapsed by default
     private HashSet<string> expandedIssueTypes = new();
 
+    // Network purpose override state
+    private Dictionary<string, string> _purposeOverrides = new();
+    private Dictionary<string, bool> _purposeSaved = new();
+    private Dictionary<string, System.Timers.Timer> _purposeSavedTimers = new();
+    private bool _purposeOverridesPending;
+
+    private static readonly List<(string Value, string Display)> _purposeOptions =
+    [
+        ("Corporate", "Corporate"),
+        ("Home", "Home"),
+        ("IoT", "IoT"),
+        ("Security", "Security"),
+        ("Guest", "Guest"),
+        ("Management", "Management"),
+        ("Printer", "Printer"),
+        ("Dmz", "DMZ"),
+        ("Server", "Server"),
+        ("Unknown", "Unclassified")
+    ];
+
     protected override async Task OnInitializedAsync()
     {
         // Wait for auto-connect to complete (if credentials are saved)
@@ -869,6 +917,9 @@
             lastAuditTime = previousResult.CompletedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
         }
+
+        // Load network purpose overrides
+        _purposeOverrides = await AuditService.GetNetworkPurposeOverridesAsync();
     }
 
     private async Task RunAudit()
@@ -930,6 +981,7 @@
 
             lastAuditTime = DateTime.Now.ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
+            _purposeOverridesPending = false;
         }
         finally
         {
@@ -1346,6 +1398,61 @@
         infoCount = issues.Count(i => i.Severity == AuditSeverity.Informational);
 
         StateHasChanged();
+    }
+
+    private string GetEffectivePurpose(string networkId, string auditPurpose)
+    {
+        // Show the override if one exists, otherwise the audit-detected purpose
+        if (_purposeOverrides.TryGetValue(networkId, out var overridePurpose))
+            return overridePurpose;
+        // Map display strings back to enum names (e.g., "DMZ" -> "Dmz", "Unclassified" -> "Unknown")
+        return _purposeOptions.FirstOrDefault(p => p.Display == auditPurpose).Value ?? auditPurpose;
+    }
+
+    private async Task OnPurposeChanged(string networkId, string? newPurpose)
+    {
+        if (string.IsNullOrEmpty(newPurpose)) return;
+
+        _purposeOverrides[networkId] = newPurpose;
+        await AuditService.SaveNetworkPurposeOverrideAsync(networkId, newPurpose);
+
+        // Show "Saved" indicator
+        _purposeSaved[networkId] = true;
+        _purposeOverridesPending = true;
+        StateHasChanged();
+
+        // Clear "Saved" after 2 seconds
+        if (_purposeSavedTimers.TryGetValue(networkId, out var existingTimer))
+        {
+            existingTimer.Stop();
+            existingTimer.Dispose();
+        }
+
+        var timer = new System.Timers.Timer(2000) { AutoReset = false };
+        timer.Elapsed += async (_, _) =>
+        {
+            try
+            {
+                await InvokeAsync(() =>
+                {
+                    _purposeSaved[networkId] = false;
+                    StateHasChanged();
+                });
+            }
+            catch { /* component may be disposed */ }
+        };
+        _purposeSavedTimers[networkId] = timer;
+        timer.Start();
+    }
+
+    public void Dispose()
+    {
+        foreach (var timer in _purposeSavedTimers.Values)
+        {
+            timer.Stop();
+            timer.Dispose();
+        }
+        _purposeSavedTimers.Clear();
     }
 
     // Device name formatting uses shared DisplayFormatters class

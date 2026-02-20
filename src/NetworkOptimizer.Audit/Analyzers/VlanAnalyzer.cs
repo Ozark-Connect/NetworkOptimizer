@@ -119,6 +119,51 @@ public class VlanAnalyzer
     }
 
     /// <summary>
+    /// Apply user purpose overrides to a list of networks.
+    /// Rebuilds NetworkInfo objects (since Purpose is init-only) and sets HasPurposeOverride = true.
+    /// </summary>
+    public void ApplyPurposeOverrides(List<NetworkInfo> networks, Dictionary<string, string>? overrides)
+    {
+        if (overrides is not { Count: > 0 })
+            return;
+
+        for (var i = 0; i < networks.Count; i++)
+        {
+            var network = networks[i];
+            if (overrides.TryGetValue(network.Id, out var purposeStr) &&
+                Enum.TryParse<NetworkPurpose>(purposeStr, ignoreCase: true, out var purpose))
+            {
+                var oldPurpose = network.Purpose;
+                networks[i] = new NetworkInfo
+                {
+                    Id = network.Id,
+                    Name = network.Name,
+                    VlanId = network.VlanId,
+                    Purpose = purpose,
+                    Subnet = network.Subnet,
+                    Gateway = network.Gateway,
+                    DnsServers = network.DnsServers,
+                    AllowsRouting = network.AllowsRouting,
+                    DhcpEnabled = network.DhcpEnabled,
+                    NetworkIsolationEnabled = network.NetworkIsolationEnabled,
+                    InternetAccessEnabled = network.InternetAccessEnabled,
+                    IsUniFiGuestNetwork = network.IsUniFiGuestNetwork,
+                    FirewallZoneId = network.FirewallZoneId,
+                    NetworkGroup = network.NetworkGroup,
+                    UpnpLanEnabled = network.UpnpLanEnabled,
+                    Enabled = network.Enabled,
+                    HasPurposeOverride = true
+                };
+                if (oldPurpose != purpose)
+                {
+                    _logger.LogInformation("Applied user override: Network '{Name}' ({Id}) purpose changed from {OldPurpose} to {NewPurpose}",
+                        network.Name, network.Id, oldPurpose, purpose);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Parse a single network from JSON
     /// </summary>
     private NetworkInfo? ParseNetwork(JsonElement network, FirewallZoneLookup? zoneLookup = null)
@@ -615,9 +660,9 @@ public class VlanAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // Find management networks that are not the native VLAN
+        // Find management networks (native VLAN included if classified or overridden as Management)
         var managementNetworks = networks.Where(n =>
-            n.Purpose == NetworkPurpose.Management && !n.IsNative).ToList();
+            n.Purpose == NetworkPurpose.Management).ToList();
 
         foreach (var network in managementNetworks)
         {
@@ -661,8 +706,9 @@ public class VlanAnalyzer
 
         foreach (var network in networks)
         {
-            // Skip native VLAN - it's the default network and usually doesn't need isolation
-            if (network.IsNative)
+            // Skip native VLAN unless it's classified as a purpose that needs isolation
+            if (network.IsNative && !network.HasPurposeOverride
+                && network.Purpose != NetworkPurpose.Management)
                 continue;
 
             // Check if network is effectively isolated (via setting or firewall rule)
@@ -904,8 +950,9 @@ public class VlanAnalyzer
 
         foreach (var network in networks)
         {
-            // Skip native VLAN
-            if (network.IsNative)
+            // Skip native VLAN unless it's classified as a purpose that needs internet checks
+            if (network.IsNative && !network.HasPurposeOverride
+                && network.Purpose != NetworkPurpose.Management)
                 continue;
 
             // Check if internet is effectively enabled (not disabled via setting OR firewall rule)

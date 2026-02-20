@@ -177,4 +177,10 @@ public class NetworkInfo
     /// Disabled networks are configured but not active on the gateway.
     /// </summary>
     public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// Whether the user has explicitly overridden this network's purpose classification.
+    /// When true, native VLAN exemptions are bypassed so audit rules apply based on the overridden purpose.
+    /// </summary>
+    public bool HasPurposeOverride { get; init; }
 }

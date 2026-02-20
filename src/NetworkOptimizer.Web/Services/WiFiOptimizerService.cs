@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Analyzers;
@@ -18,6 +19,7 @@ namespace NetworkOptimizer.Web.Services;
 public class WiFiOptimizerService
 {
     private readonly UniFiConnectionService _connectionService;
+    private readonly ISystemSettingsService _settingsService;
     private readonly ILogger<WiFiOptimizerService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly SiteHealthScorer _healthScorer;
@@ -38,12 +40,14 @@ public class WiFiOptimizerService
         UniFiConnectionService connectionService,
         WiFiOptimizerEngine optimizerEngine,
         VlanAnalyzer vlanAnalyzer,
+        ISystemSettingsService settingsService,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
         _connectionService = connectionService;
         _optimizerEngine = optimizerEngine;
         _vlanAnalyzer = vlanAnalyzer;
+        _settingsService = settingsService;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
@@ -356,6 +360,21 @@ public class WiFiOptimizerService
                         NetworkGroup = n.Networkgroup
                     })
                     .ToList();
+
+                // Apply user purpose overrides (same overrides used by Security Audit)
+                var overridesJson = await _settingsService.GetAsync("audit:networkPurposeOverrides");
+                if (!string.IsNullOrEmpty(overridesJson))
+                {
+                    try
+                    {
+                        var overrides = JsonSerializer.Deserialize<Dictionary<string, string>>(overridesJson);
+                        _vlanAnalyzer.ApplyPurposeOverrides(_cachedNetworks, overrides);
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse network purpose overrides");
+                    }
+                }
             }
             else if (networkTask.IsFaulted)
             {

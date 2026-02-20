@@ -79,6 +79,12 @@ public class ConfigAuditEngine
         public List<UniFiFirewallZone>? FirewallZones { get; init; }
 
         /// <summary>
+        /// User overrides for network purpose classification.
+        /// Keys are network IDs, values are NetworkPurpose enum names.
+        /// </summary>
+        public Dictionary<string, string>? NetworkPurposeOverrides { get; init; }
+
+        /// <summary>
         /// Lookup service for firewall zones.
         /// Provides zone ID to zone key mapping and validation.
         /// </summary>
@@ -391,7 +397,8 @@ public class ConfigAuditEngine
             NetworkConfigs = request.NetworkConfigs,
             FirewallZones = request.FirewallZones,
             ZoneLookup = zoneLookup,
-            ExternalZoneId = externalZoneId
+            ExternalZoneId = externalZoneId,
+            NetworkPurposeOverrides = request.NetworkPurposeOverrides
         };
     }
 
@@ -445,6 +452,9 @@ public class ConfigAuditEngine
         _logger.LogInformation("Phase 1: Extracting network topology");
         ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData, ctx.ZoneLookup);
         _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
+
+        // Apply user purpose overrides
+        _vlanAnalyzer.ApplyPurposeOverrides(ctx.Networks, ctx.NetworkPurposeOverrides);
     }
 
     private void ExecutePhase2_ExtractSwitches(AuditContext ctx)

@@ -178,6 +178,20 @@ public class AuditService
             options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
 
+            // Network purpose overrides
+            var purposeOverridesJson = await _settingsService.GetAsync("audit:networkPurposeOverrides");
+            if (!string.IsNullOrEmpty(purposeOverridesJson))
+            {
+                try
+                {
+                    options.NetworkPurposeOverrides = JsonSerializer.Deserialize<Dictionary<string, string>>(purposeOverridesJson);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse network purpose overrides JSON");
+                }
+            }
+
             _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}, AllowMediaPlayers={MediaPlayers}, AllowPrinters={Printers}",
                 options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork,
                 options.AllowNameBrandTVsOnMainNetwork, options.AllowAllTVsOnMainNetwork, options.AllowMediaPlayersOnMainNetwork, options.AllowPrintersOnMainNetwork);
@@ -303,6 +317,46 @@ public class AuditService
         {
             _logger.LogError(ex, "Failed to clear dismissed issues from database");
         }
+    }
+
+    /// <summary>
+    /// Get current network purpose overrides from settings
+    /// </summary>
+    public async Task<Dictionary<string, string>> GetNetworkPurposeOverridesAsync()
+    {
+        try
+        {
+            var json = await _settingsService.GetAsync("audit:networkPurposeOverrides");
+            if (!string.IsNullOrEmpty(json))
+            {
+                return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load network purpose overrides");
+        }
+        return new();
+    }
+
+    /// <summary>
+    /// Save a network purpose override. If purpose is null or empty, removes the override for that network.
+    /// </summary>
+    public async Task SaveNetworkPurposeOverrideAsync(string networkId, string? purpose)
+    {
+        var overrides = await GetNetworkPurposeOverridesAsync();
+
+        if (string.IsNullOrEmpty(purpose))
+            overrides.Remove(networkId);
+        else
+            overrides[networkId] = purpose;
+
+        var json = overrides.Count > 0
+            ? JsonSerializer.Serialize(overrides)
+            : null;
+
+        await _settingsService.SetAsync("audit:networkPurposeOverrides", json);
+        _logger.LogInformation("Saved network purpose override: {NetworkId} = {Purpose}", networkId, purpose ?? "(removed)");
     }
 
     /// <summary>
@@ -926,6 +980,9 @@ public class AuditService
             // Load streaming device settings from database
             await LoadAuditSettingsAsync(options);
 
+            if (options.NetworkPurposeOverrides is { Count: > 0 })
+                _logger.LogDebug("Network purpose overrides loaded: {Overrides}", JsonSerializer.Serialize(options.NetworkPurposeOverrides));
+
             // Get raw device data from UniFi API
             var deviceDataJson = await _connectionService.Client.GetDevicesRawJsonAsync();
 
@@ -1186,7 +1243,8 @@ public class AuditService
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,
                 NetworkConfigs = networkConfigs,
-                FirewallZones = firewallZones
+                FirewallZones = firewallZones,
+                NetworkPurposeOverrides = options.NetworkPurposeOverrides
             });
 
             // Convert audit result to web models
@@ -1794,6 +1852,9 @@ public class AuditOptions
     // Unused port detection thresholds
     public int UnusedPortInactivityDays { get; set; } = 15;
     public int NamedPortInactivityDays { get; set; } = 45;
+
+    // Network purpose overrides (network ID -> NetworkPurpose enum name)
+    public Dictionary<string, string>? NetworkPurposeOverrides { get; set; }
 }
 
 public class AuditResult
