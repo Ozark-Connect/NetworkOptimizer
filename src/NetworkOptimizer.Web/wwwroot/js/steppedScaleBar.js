@@ -43,6 +43,9 @@ window.SteppedScaleBar = {
         var el = ctrl._container;
         var steps = state.steps;
 
+        if (steps <= 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
+        el.style.display = '';
+
         // meters-per-pixel at map center
         var size = m.getSize();
         if (size.x === 0) return;

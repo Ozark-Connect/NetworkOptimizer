@@ -407,8 +407,9 @@ window.fpEditor = {
                 }, 500);
             });
 
-            // Stepped distance scale bar (3 steps normal, 5 fullscreen)
-            self._scaleBar = SteppedScaleBar.create(m, 3);
+            // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
+            var initSteps = (window.innerWidth <= 768) ? 0 : 3;
+            self._scaleBar = SteppedScaleBar.create(m, initSteps);
 
             resolveReady();
         }
@@ -423,7 +424,9 @@ window.fpEditor = {
     },
 
     setScaleSteps: function (steps) {
-        SteppedScaleBar.setSteps(this._scaleBar, steps);
+        // On mobile, only show scale bar in fullscreen (steps > 3)
+        var isMobile = window.innerWidth <= 768;
+        SteppedScaleBar.setSteps(this._scaleBar, (isMobile && steps <= 3) ? 0 : steps);
     },
 
     // ── View ─────────────────────────────────────────────────────────
