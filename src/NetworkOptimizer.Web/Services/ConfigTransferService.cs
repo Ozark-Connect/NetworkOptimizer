@@ -95,6 +95,7 @@ public class ConfigTransferService
     public async Task<byte[]> ExportAsync(ExportType type)
     {
         _logger.LogInformation("Starting {Type} config export", type);
+        _logger.LogDebug("Data directory: {DataDir}, Temp directory: {TempDir}", _dataDirectory, _tempDirectory);
 
         Directory.CreateDirectory(_tempDirectory);
         var tempDbPath = Path.Combine(_tempDirectory, $"export-{Guid.NewGuid()}.db");
@@ -104,6 +105,7 @@ public class ConfigTransferService
             // VACUUM INTO creates a clean, standalone copy (no WAL/SHM files)
             // This is the only reliable way to copy a SQLite DB while it's in use
             var vacuumPath = tempDbPath.Replace('\\', '/');
+            _logger.LogDebug("Creating DB copy via VACUUM INTO: {Path}", vacuumPath);
             await using (var db = await _dbFactory.CreateDbContextAsync())
             {
                 var conn = db.Database.GetDbConnection();
@@ -116,11 +118,16 @@ public class ConfigTransferService
                 cmd.Parameters.Add(param);
                 await cmd.ExecuteNonQueryAsync();
             }
+            var dbFileSize = new FileInfo(tempDbPath).Length;
+            _logger.LogDebug("DB copy created: {Size} bytes", dbFileSize);
 
             // For settings-only: delete history tables and vacuum
             if (type == ExportType.SettingsOnly)
             {
+                _logger.LogDebug("Pruning history tables for settings-only export");
                 await PruneHistoryTablesAsync(tempDbPath);
+                var prunedSize = new FileInfo(tempDbPath).Length;
+                _logger.LogDebug("DB after pruning: {Size} bytes (was {OriginalSize})", prunedSize, dbFileSize);
             }
 
             // Build the ZIP archive in memory
@@ -129,6 +136,7 @@ public class ConfigTransferService
             {
                 // Add manifest
                 var manifest = BuildManifest(type, tempDbPath);
+                _logger.LogDebug("Manifest built: {TableCount} tables, type={ExportType}", manifest.TableCounts?.Count, manifest.ExportType);
                 var manifestEntry = archive.CreateEntry("manifest.json");
                 await using (var writer = new StreamWriter(manifestEntry.Open()))
                 {
@@ -147,22 +155,32 @@ public class ConfigTransferService
                 var credKeyPath = Path.Combine(_dataDirectory, ".credential_key");
                 if (File.Exists(credKeyPath))
                 {
+                    _logger.LogDebug("Including .credential_key");
                     var keyEntry = archive.CreateEntry(".credential_key");
                     await using var keyStream = keyEntry.Open();
                     await using var sourceKeyStream = File.OpenRead(credKeyPath);
                     await sourceKeyStream.CopyToAsync(keyStream);
                 }
+                else
+                {
+                    _logger.LogDebug("No .credential_key found at {Path}", credKeyPath);
+                }
 
                 // Full export: include floor plans and data protection keys
                 if (type == ExportType.Full)
                 {
-                    await AddDirectoryToArchiveAsync(archive, Path.Combine(_dataDirectory, "floor-plans"), "floor-plans");
-                    await AddDirectoryToArchiveAsync(archive, Path.Combine(_dataDirectory, "keys"), "keys");
+                    var fpDir = Path.Combine(_dataDirectory, "floor-plans");
+                    var keysDir = Path.Combine(_dataDirectory, "keys");
+                    _logger.LogDebug("Including floor-plans from {Path} (exists={Exists})", fpDir, Directory.Exists(fpDir));
+                    await AddDirectoryToArchiveAsync(archive, fpDir, "floor-plans");
+                    _logger.LogDebug("Including data protection keys from {Path} (exists={Exists})", keysDir, Directory.Exists(keysDir));
+                    await AddDirectoryToArchiveAsync(archive, keysDir, "keys");
                 }
             }
 
             // Encrypt the ZIP
             zipStream.Position = 0;
+            _logger.LogDebug("ZIP archive size before encryption: {Size} bytes", zipStream.Length);
             var encrypted = Encrypt(zipStream.ToArray());
 
             _logger.LogInformation("Export complete: {Size} bytes ({Type})", encrypted.Length, type);
@@ -183,6 +201,7 @@ public class ConfigTransferService
     /// </summary>
     public async Task<ImportPreview> ValidateImportAsync(Stream uploadStream)
     {
+        _logger.LogDebug("Starting import validation");
         Directory.CreateDirectory(_tempDirectory);
         var importPath = Path.Combine(_tempDirectory, $"import-{Guid.NewGuid()}.nopt");
 
@@ -191,15 +210,21 @@ public class ConfigTransferService
         {
             await uploadStream.CopyToAsync(fileStream);
         }
+        var uploadSize = new FileInfo(importPath).Length;
+        _logger.LogDebug("Saved uploaded file: {Size} bytes at {Path}", uploadSize, importPath);
 
         try
         {
             // Decrypt and read manifest
+            _logger.LogDebug("Decrypting .nopt file");
             var encrypted = await File.ReadAllBytesAsync(importPath);
             var decrypted = Decrypt(encrypted);
+            _logger.LogDebug("Decrypted: {EncryptedSize} bytes -> {DecryptedSize} bytes", encrypted.Length, decrypted.Length);
 
             using var zipStream = new MemoryStream(decrypted);
             using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+            _logger.LogDebug("ZIP archive contains {Count} entries: {Entries}",
+                archive.Entries.Count, string.Join(", ", archive.Entries.Select(e => e.FullName)));
 
             var manifestEntry = archive.GetEntry("manifest.json")
                 ?? throw new InvalidOperationException("Invalid .nopt file: missing manifest");
@@ -209,9 +234,14 @@ public class ConfigTransferService
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
                 ?? throw new InvalidOperationException("Invalid .nopt file: corrupt manifest");
 
+            _logger.LogDebug("Manifest: version={Version}, type={Type}, date={Date}, tables={TableCount}",
+                manifest.AppVersion, manifest.ExportType, manifest.ExportDate, manifest.TableCounts?.Count);
+
             // Version compatibility check
             var currentVersion = GetAppVersion();
             var isCompatible = IsVersionCompatible(manifest.AppVersion, currentVersion);
+            _logger.LogDebug("Version check: export={ExportVersion}, current={CurrentVersion}, compatible={Compatible}",
+                manifest.AppVersion, currentVersion, isCompatible);
 
             var preview = new ImportPreview
             {
@@ -225,15 +255,20 @@ public class ConfigTransferService
                 HasFloorPlans = archive.Entries.Any(e => e.FullName.StartsWith("floor-plans/")),
                 HasDataProtectionKeys = archive.Entries.Any(e => e.FullName.StartsWith("keys/"))
             };
+            _logger.LogDebug("Preview: credentialKey={HasKey}, floorPlans={HasFP}, dataProtectionKeys={HasKeys}",
+                preview.HasCredentialKey, preview.HasFloorPlans, preview.HasDataProtectionKeys);
 
             // Store pending state
             _pendingImportPath = importPath;
             _pendingPreview = preview;
 
+            _logger.LogInformation("Import validation complete: {Type} export from {Version} ({Date})",
+                preview.ExportType, preview.AppVersion, preview.ExportDate);
             return preview;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Import validation failed");
             // Clean up on error
             try { File.Delete(importPath); } catch { /* ignore */ }
             throw;
@@ -256,59 +291,88 @@ public class ConfigTransferService
 
         var stagingDir = Path.Combine(_tempDirectory, $"staging-{Guid.NewGuid()}");
         Directory.CreateDirectory(stagingDir);
+        _logger.LogDebug("Staging directory: {StagingDir}", stagingDir);
 
         try
         {
             // Decrypt and extract
+            _logger.LogDebug("Decrypting pending import: {Path}", _pendingImportPath);
             var encrypted = await File.ReadAllBytesAsync(_pendingImportPath);
             var decrypted = Decrypt(encrypted);
+            _logger.LogDebug("Decrypted: {Size} bytes", decrypted.Length);
 
             using var zipStream = new MemoryStream(decrypted);
             using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
 
             // Extract everything to staging
+            _logger.LogDebug("Extracting {Count} entries to staging", archive.Entries.Count);
             archive.ExtractToDirectory(stagingDir);
 
             var importedDbPath = Path.Combine(stagingDir, "network_optimizer.db");
             if (!File.Exists(importedDbPath))
                 throw new InvalidOperationException("Import archive missing database file");
 
+            var importedDbSize = new FileInfo(importedDbPath).Length;
+            _logger.LogDebug("Imported DB size: {Size} bytes", importedDbSize);
+
             // If settings-only import: preserve existing history by copying it into the imported DB
             if (_pendingPreview.ExportType == "SettingsOnly")
             {
+                _logger.LogDebug("Settings-only import: preserving existing history tables");
                 await PreserveHistoryAsync(importedDbPath);
+                var afterHistorySize = new FileInfo(importedDbPath).Length;
+                _logger.LogDebug("DB after history preservation: {Size} bytes (was {OriginalSize})", afterHistorySize, importedDbSize);
             }
 
             // Replace files
             var targetDbPath = Path.Combine(_dataDirectory, "network_optimizer.db");
+            _logger.LogDebug("Replacing DB: {Target}", targetDbPath);
             File.Copy(importedDbPath, targetDbPath, overwrite: true);
+            _logger.LogDebug("DB replaced successfully");
 
             // Replace credential key
             var importedKeyPath = Path.Combine(stagingDir, ".credential_key");
             var targetKeyPath = Path.Combine(_dataDirectory, ".credential_key");
             if (File.Exists(importedKeyPath))
             {
+                _logger.LogDebug("Replacing .credential_key");
                 File.Copy(importedKeyPath, targetKeyPath, overwrite: true);
+            }
+            else
+            {
+                _logger.LogDebug("No .credential_key in import archive");
             }
 
             // Replace floor plans (full export only - they'd only exist in full exports)
             var importedFloorPlans = Path.Combine(stagingDir, "floor-plans");
             if (Directory.Exists(importedFloorPlans))
             {
+                var fpFiles = Directory.GetFiles(importedFloorPlans, "*", SearchOption.AllDirectories);
+                _logger.LogDebug("Replacing floor-plans: {Count} files", fpFiles.Length);
                 var targetFloorPlans = Path.Combine(_dataDirectory, "floor-plans");
                 if (Directory.Exists(targetFloorPlans))
                     Directory.Delete(targetFloorPlans, recursive: true);
                 CopyDirectory(importedFloorPlans, targetFloorPlans);
+            }
+            else
+            {
+                _logger.LogDebug("No floor-plans in import archive");
             }
 
             // Replace data protection keys (full export only)
             var importedKeys = Path.Combine(stagingDir, "keys");
             if (Directory.Exists(importedKeys))
             {
+                var keyFiles = Directory.GetFiles(importedKeys, "*", SearchOption.AllDirectories);
+                _logger.LogDebug("Replacing data protection keys: {Count} files", keyFiles.Length);
                 var targetKeys = Path.Combine(_dataDirectory, "keys");
                 if (Directory.Exists(targetKeys))
                     Directory.Delete(targetKeys, recursive: true);
                 CopyDirectory(importedKeys, targetKeys);
+            }
+            else
+            {
+                _logger.LogDebug("No data protection keys in import archive");
             }
 
             _logger.LogInformation("Config import applied successfully, scheduling restart");
@@ -322,6 +386,7 @@ public class ConfigTransferService
             _ = Task.Run(async () =>
             {
                 await Task.Delay(500);
+                _logger.LogInformation("Restarting application after config import");
                 _appLifetime.StopApplication();
             });
         }
@@ -352,6 +417,7 @@ public class ConfigTransferService
 
     private async Task PruneHistoryTablesAsync(string dbPath)
     {
+        _logger.LogDebug("Pruning history tables from temp DB copy: {Path}", dbPath);
         var connStr = $"Data Source={dbPath}";
         await using var conn = new SqliteConnection(connStr);
         await conn.OpenAsync();
@@ -369,14 +435,16 @@ public class ConfigTransferService
             cmd.CommandText = $"DELETE FROM [{table}]";
             try
             {
-                await cmd.ExecuteNonQueryAsync();
+                var deleted = await cmd.ExecuteNonQueryAsync();
+                _logger.LogDebug("Pruned {Table}: {Count} rows deleted", table, deleted);
             }
-            catch (SqliteException)
+            catch (SqliteException ex)
             {
-                // Table may not exist in older DB schemas - that's fine
+                _logger.LogDebug("Skipped pruning {Table} (may not exist): {Error}", table, ex.Message);
             }
         }
 
+        _logger.LogDebug("Running VACUUM on pruned DB");
         await using var vacuumCmd = conn.CreateCommand();
         vacuumCmd.CommandText = "VACUUM";
         await vacuumCmd.ExecuteNonQueryAsync();
@@ -385,6 +453,8 @@ public class ConfigTransferService
     private async Task PreserveHistoryAsync(string importedDbPath)
     {
         var currentDbPath = Path.Combine(_dataDirectory, "network_optimizer.db");
+        _logger.LogDebug("Preserving history: attaching current DB {CurrentDb} to imported DB {ImportedDb}",
+            currentDbPath, importedDbPath);
         var connStr = $"Data Source={importedDbPath}";
 
         await using var conn = new SqliteConnection(connStr);
@@ -397,6 +467,7 @@ public class ConfigTransferService
             attachCmd.Parameters.AddWithValue("@path", currentDbPath);
             await attachCmd.ExecuteNonQueryAsync();
         }
+        _logger.LogDebug("Current DB attached successfully");
 
         // Copy history tables from current DB into the imported DB
         foreach (var table in HistoryTables)
@@ -405,11 +476,11 @@ public class ConfigTransferService
             cmd.CommandText = $"INSERT OR IGNORE INTO main.[{table}] SELECT * FROM current_db.[{table}]";
             try
             {
-                await cmd.ExecuteNonQueryAsync();
+                var inserted = await cmd.ExecuteNonQueryAsync();
+                _logger.LogDebug("Preserved {Table}: {Count} rows copied from current DB", table, inserted);
             }
             catch (SqliteException ex)
             {
-                // Table may not exist in one of the databases - skip it
                 _logger.LogDebug("Skipping history table {Table} during import: {Error}", table, ex.Message);
             }
         }
@@ -419,6 +490,7 @@ public class ConfigTransferService
             detachCmd.CommandText = "DETACH DATABASE current_db";
             await detachCmd.ExecuteNonQueryAsync();
         }
+        _logger.LogDebug("History preservation complete, current DB detached");
     }
 
     private ExportManifest BuildManifest(ExportType type, string dbPath)
