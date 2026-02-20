@@ -2719,6 +2719,7 @@
     {
         _mode = _mode == "plan-aps" ? "view" : "plan-aps";
         if (_mode == "plan-aps") _showPlannedAps = true;
+        else if (_plannedAps.Count == 0) _showPlannedAps = false;
         await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         _selectedCatalogModel = null;
         _selectedApForPlacement = null;
