@@ -7084,7 +7084,7 @@ a.path-hop.hop-clickable:hover {
     height: 34px;
     cursor: pointer;
     padding: 0 2.5rem 0 0.75rem;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     color: var(--text-primary);
@@ -7109,7 +7109,7 @@ a.path-hop.hop-clickable:hover {
     width: 100%;
     height: 34px;
     padding: 0 2.5rem 0 0.75rem;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
@@ -7150,7 +7150,7 @@ a.path-hop.hop-clickable:hover {
     left: 0;
     right: 0;
     margin-top: 2px;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     max-height: 300px;
