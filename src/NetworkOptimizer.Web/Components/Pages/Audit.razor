@@ -491,19 +491,21 @@
                                     <td>@network.Name</td>
                                     <td>@(network.VlanId == 1 ? $"{network.VlanId} (native)" : network.VlanId.ToString())</td>
                                     <td>@(network.Subnet ?? "N/A")</td>
-                                    <td class="purpose-cell">
-                                        <select class="purpose-select"
-                                                value="@GetEffectivePurpose(network.Id, network.Purpose)"
-                                                @onchange="e => OnPurposeChanged(network.Id, e.Value?.ToString())">
-                                            @foreach (var purpose in _purposeOptions)
+                                    <td>
+                                        <div class="purpose-cell-inner">
+                                            <select class="purpose-select"
+                                                    value="@GetEffectivePurpose(network.Id, network.Purpose)"
+                                                    @onchange="e => OnPurposeChanged(network.Id, e.Value?.ToString())">
+                                                @foreach (var purpose in _purposeOptions)
+                                                {
+                                                    <option value="@purpose.Value">@purpose.Display</option>
+                                                }
+                                            </select>
+                                            @if (_purposeSaved.TryGetValue(network.Id, out var saved) && saved)
                                             {
-                                                <option value="@purpose.Value">@purpose.Display</option>
+                                                <span class="purpose-saved">Saved</span>
                                             }
-                                        </select>
-                                        @if (_purposeSaved.TryGetValue(network.Id, out var saved) && saved)
-                                        {
-                                            <span class="purpose-saved">Saved</span>
-                                        }
+                                        </div>
                                     </td>
                                 </tr>
                             }

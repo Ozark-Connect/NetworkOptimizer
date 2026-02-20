@@ -2569,12 +2569,11 @@ select.form-control {
 }
 
 /* Network Purpose Override */
-.purpose-cell {
+.purpose-cell-inner {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    width: 200px;
-    min-width: 200px;
+    position: relative;
 }
 
 .purpose-select {
