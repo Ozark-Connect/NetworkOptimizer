@@ -1918,11 +1918,13 @@
     {
         if (_selectedFloor == null || _selectedBuilding == null) return;
 
-        // Compute initial bounds: use wall outline if available, else center +/- 25m
+        // Compute initial bounds from minimum bounding rectangle of building outline
         double swLat, swLng, neLat, neLng;
         if (BuildingHasWalls())
         {
-            (swLat, swLng, neLat, neLng) = ComputeBuildingBounds();
+            var outline = ComputeBuildingOutline();
+            swLat = outline.swLat; swLng = outline.swLng;
+            neLat = outline.neLat; neLng = outline.neLng;
         }
         else
         {
@@ -1945,13 +1947,26 @@
     {
         await LoadFloorImages();
 
-        // Auto-rotate to match building wall orientation
-        var rotation = ComputeBuildingRotation();
-        if (rotation != 0)
+        // Auto-rotate to match building outline orientation
+        if (BuildingHasWalls())
         {
-            await FloorPlanSvc.UpdateFloorImageAsync(imageId, rotationDeg: rotation);
-            var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
-            if (img != null) img.RotationDeg = rotation;
+            var outline = ComputeBuildingOutline();
+            if (outline.rotationDeg != 0)
+            {
+                await FloorPlanSvc.UpdateFloorImageAsync(imageId,
+                    swLat: outline.swLat, swLng: outline.swLng,
+                    neLat: outline.neLat, neLng: outline.neLng,
+                    rotationDeg: outline.rotationDeg);
+                var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
+                if (img != null)
+                {
+                    img.SwLatitude = outline.swLat;
+                    img.SwLongitude = outline.swLng;
+                    img.NeLatitude = outline.neLat;
+                    img.NeLongitude = outline.neLng;
+                    img.RotationDeg = outline.rotationDeg;
+                }
+            }
         }
 
         await UpdateFloorOverlays();
@@ -1965,19 +1980,18 @@
     }
 
     /// <summary>
-    /// Compute the dominant orientation angle of the building's walls.
-    /// Returns the angle (in degrees) that the longest wall segments are oriented at,
-    /// which can be used as initial rotation for underlays.
+    /// Compute the minimum area bounding rectangle of all wall points.
+    /// Returns axis-aligned bounds (for the overlay) and rotation angle.
+    /// The axis-aligned bounds, when CSS-rotated by the returned angle, tightly fit the building.
     /// </summary>
-    private double ComputeBuildingRotation()
+    private (double swLat, double swLng, double neLat, double neLng, double rotationDeg) ComputeBuildingOutline()
     {
-        if (!BuildingHasWalls()) return 0;
-
         var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        // Collect all wall segments with their angles and lengths
-        // Angle is measured in degrees from east (horizontal), range [0, 180)
-        var segments = new List<(double angle, double length)>();
+        var points = new List<(double x, double y)>(); // x=lng-meters, y=lat-meters
 
+        // Collect all wall vertices
+        double refLat = 0, refLng = 0;
+        int ptCount = 0;
         foreach (var floor in _floors)
         {
             if (string.IsNullOrEmpty(floor.WallsJson)) continue;
@@ -1986,56 +2000,143 @@
                 var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
                 if (walls == null) continue;
                 foreach (var wall in walls)
-                {
-                    for (int i = 0; i < wall.Points.Count - 1; i++)
-                    {
-                        var p1 = wall.Points[i];
-                        var p2 = wall.Points[i + 1];
-                        var dLat = p2.Lat - p1.Lat;
-                        var dLng = (p2.Lng - p1.Lng) * Math.Cos(p1.Lat * Math.PI / 180); // adjust for latitude
-                        var length = Math.Sqrt(dLat * dLat + dLng * dLng);
-                        if (length < 1e-10) continue;
-                        var angle = Math.Atan2(dLat, dLng) * 180.0 / Math.PI;
-                        // Normalize to [0, 180) since direction doesn't matter
-                        angle = ((angle % 180) + 180) % 180;
-                        segments.Add((angle, length));
-                    }
-                }
+                    foreach (var pt in wall.Points) { refLat += pt.Lat; refLng += pt.Lng; ptCount++; }
             }
-            catch { /* skip malformed */ }
+            catch { }
         }
 
-        if (segments.Count == 0) return 0;
-
-        // Find the dominant angle: weight by segment length, cluster into 5° bins
-        var bins = new double[36]; // 0-5, 5-10, ..., 175-180
-        foreach (var (angle, length) in segments)
+        if (ptCount < 3)
         {
-            var bin = (int)(angle / 5.0);
-            if (bin >= 36) bin = 35;
-            bins[bin] += length;
+            var (s, w, n, e) = ComputeBuildingBounds();
+            return (s, w, n, e, 0);
         }
 
-        // Find the peak bin (consider wrapping: bin 0 and bin 35 are neighbors)
-        int peakBin = 0;
-        double peakWeight = 0;
-        for (int i = 0; i < 36; i++)
+        refLat /= ptCount;
+        refLng /= ptCount;
+        var cosLat = Math.Cos(refLat * Math.PI / 180);
+
+        // Convert to local meters relative to centroid
+        foreach (var floor in _floors)
         {
-            // Sum with neighbors for smoothing
-            var weight = bins[i] + bins[(i + 1) % 36] + bins[(i + 35) % 36];
-            if (weight > peakWeight) { peakWeight = weight; peakBin = i; }
+            if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+            try
+            {
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                if (walls == null) continue;
+                foreach (var wall in walls)
+                    foreach (var pt in wall.Points)
+                        points.Add(((pt.Lng - refLng) * cosLat * 111320, (pt.Lat - refLat) * 111320));
+            }
+            catch { }
         }
 
-        var dominantAngle = peakBin * 5.0 + 2.5; // center of bin
+        // Convex hull (Andrew's monotone chain)
+        var sorted = points.Distinct().OrderBy(p => p.x).ThenBy(p => p.y).ToList();
+        if (sorted.Count < 3)
+        {
+            var (s, w, n, e) = ComputeBuildingBounds();
+            return (s, w, n, e, 0);
+        }
 
-        // The underlay rotation should align the image's horizontal with the dominant wall direction.
-        // If walls are at 0° (horizontal/east-west), no rotation needed.
-        // If walls are at 10°, rotate image by 10° so horizontal edges align with walls.
-        // But we want the SMALLER rotation, so if angle > 90, subtract 180 to get [-90, 90]
-        if (dominantAngle > 90) dominantAngle -= 180;
+        static double cross((double x, double y) o, (double x, double y) a, (double x, double y) b) =>
+            (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
 
-        // Round to nearest degree
-        return Math.Round(dominantAngle);
+        var hull = new List<(double x, double y)>();
+        // Lower hull
+        foreach (var p in sorted)
+        {
+            while (hull.Count >= 2 && cross(hull[^2], hull[^1], p) <= 0) hull.RemoveAt(hull.Count - 1);
+            hull.Add(p);
+        }
+        // Upper hull
+        int lower = hull.Count + 1;
+        for (int i = sorted.Count - 2; i >= 0; i--)
+        {
+            while (hull.Count >= lower && cross(hull[^2], hull[^1], sorted[i]) <= 0) hull.RemoveAt(hull.Count - 1);
+            hull.Add(sorted[i]);
+        }
+        hull.RemoveAt(hull.Count - 1); // remove duplicate of first point
+
+        // Minimum area bounding rectangle: try each hull edge orientation
+        double bestArea = double.MaxValue;
+        double bestAngle = 0, bestMinX = 0, bestMaxX = 0, bestMinY = 0, bestMaxY = 0;
+
+        for (int i = 0; i < hull.Count; i++)
+        {
+            var (x1, y1) = hull[i];
+            var (x2, y2) = hull[(i + 1) % hull.Count];
+            var dx = x2 - x1;
+            var dy = y2 - y1;
+            var len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < 1e-10) continue;
+
+            // Unit vector along this edge
+            var ux = dx / len;
+            var uy = dy / len;
+
+            // Project all hull points onto edge direction (u) and perpendicular (-uy, ux)
+            double minProj = double.MaxValue, maxProj = double.MinValue;
+            double minPerp = double.MaxValue, maxPerp = double.MinValue;
+            foreach (var (px, py) in hull)
+            {
+                var proj = px * ux + py * uy;
+                var perp = -px * uy + py * ux;
+                minProj = Math.Min(minProj, proj);
+                maxProj = Math.Max(maxProj, proj);
+                minPerp = Math.Min(minPerp, perp);
+                maxPerp = Math.Max(maxPerp, perp);
+            }
+
+            var area = (maxProj - minProj) * (maxPerp - minPerp);
+            if (area < bestArea)
+            {
+                bestArea = area;
+                bestAngle = Math.Atan2(uy, ux); // angle of edge in radians
+                bestMinX = minProj;
+                bestMaxX = maxProj;
+                bestMinY = minPerp;
+                bestMaxY = maxPerp;
+            }
+        }
+
+        // The MBR in local meters: center, half-widths along edge direction
+        var cx = (bestMinX + bestMaxX) / 2;
+        var cy = (bestMinY + bestMaxY) / 2;
+        var hw = (bestMaxX - bestMinX) / 2; // half-width along edge
+        var hh = (bestMaxY - bestMinY) / 2; // half-height perpendicular to edge
+
+        // The axis-aligned overlay bounds should be unrotated (the CSS rotation will align them)
+        // Convert center from rotated local coords back to unrotated local coords
+        var cosA = Math.Cos(bestAngle);
+        var sinA = Math.Sin(bestAngle);
+        var centerX = cx * cosA - cy * sinA; // rotate center back to axis-aligned
+        var centerY = cx * sinA + cy * cosA;
+
+        // Convert back to lat/lng
+        var centerLat = refLat + centerY / 111320;
+        var centerLng = refLng + centerX / (111320 * cosLat);
+        var latHalf = hh / 111320;
+        var lngHalf = hw / (111320 * cosLat);
+
+        // Rotation in degrees: angle of the edge from east, converted to CSS rotation
+        // CSS rotate() is clockwise in screen coords (y-down), our angle is CCW from east (y-up)
+        var rotDeg = -bestAngle * 180.0 / Math.PI;
+        // Normalize to [-180, 180]
+        rotDeg = ((rotDeg + 180) % 360 + 360) % 360 - 180;
+        // Pick the smaller rotation (prefer |angle| <= 90)
+        if (rotDeg > 90) rotDeg -= 180;
+        if (rotDeg < -90) rotDeg += 180;
+        rotDeg = Math.Round(rotDeg);
+
+        // If rotation flipped the axes, swap half-widths
+        // At ~0° or ~180°, hw = width (lng), hh = height (lat) → correct
+        // At ~90° or ~-90°, the axes swap
+        if (Math.Abs(rotDeg) > 45)
+        {
+            (latHalf, lngHalf) = (lngHalf, latHalf);
+        }
+
+        return (centerLat - latHalf, centerLng - lngHalf, centerLat + latHalf, centerLng + lngHalf, rotDeg);
     }
 
     private async Task OnImageOpacityChange(ChangeEventArgs e)
