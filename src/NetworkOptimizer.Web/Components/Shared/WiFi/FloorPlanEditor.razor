@@ -3290,6 +3290,8 @@
         var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
         _showAddBuilding = false;
         await LoadBuildings();
+        if (_mapInitialized)
+            await JS.InvokeVoidAsync("fpEditor.saveMapView", lat, lng);
         _selectedBuildingId = building.Id;
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == building.Id);
         _floors = _selectedBuilding?.Floors ?? new();
