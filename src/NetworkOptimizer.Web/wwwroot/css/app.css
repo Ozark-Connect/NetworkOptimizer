@@ -5269,7 +5269,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 1.5rem;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
 }
 
 .setup-guide summary {
@@ -5300,7 +5300,7 @@ a.path-hop.hop-clickable:hover {
 
 .setup-guide summary:hover {
     color: var(--text-primary);
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
 }
 
@@ -5311,20 +5311,9 @@ a.path-hop.hop-clickable:hover {
 .setup-guide-content {
     padding: 1rem;
     border-top: 1px solid var(--border-color);
-    background: var(--bg-tertiary);
     color: var(--text-secondary);
     font-size: 0.9rem;
     line-height: 1.6;
-}
-
-.setup-guide-content .btn-secondary,
-.setup-guide-content .btn-ghost {
-    background: var(--bg-secondary);
-}
-
-.setup-guide-content .btn-secondary:hover:not(:disabled),
-.setup-guide-content .btn-ghost:hover:not(:disabled) {
-    background: var(--bg-primary);
 }
 
 .setup-guide-content h4 {
