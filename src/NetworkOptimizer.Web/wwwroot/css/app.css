@@ -10,10 +10,10 @@
     --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
 
     /* Brand Colors - Ozark Connect Blue + Orange */
-    --primary-color: #0559C9;
-    --primary-hover: #3385d6;
-    --accent-color: #F97316;
-    --accent-hover: #fb923c;
+    --primary-color: #0550B5;
+    --primary-hover: #2E79C4;
+    --accent-color: #E56B11;
+    --accent-hover: #F08530;
 
     /* Status Colors - refined for dark backgrounds */
     --success-color: #24bc70;
