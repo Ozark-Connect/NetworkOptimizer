@@ -698,6 +698,7 @@ window.fpEditor = {
                 }
             } catch (err) {
                 console.error('Underlay upload error:', err);
+                alert(err.message || 'Upload failed');
             }
         });
 
@@ -707,16 +708,28 @@ window.fpEditor = {
     _convertToImage: async function (file) {
         var name = file.name.toLowerCase();
         var type = file.type.toLowerCase();
+        var isHeic = type === 'image/heic' || type === 'image/heif' ||
+            name.endsWith('.heic') || name.endsWith('.heif');
 
-        // HEIC/HEIF: convert to PNG via heic2any
-        if (type === 'image/heic' || type === 'image/heif' ||
-            name.endsWith('.heic') || name.endsWith('.heif')) {
-            if (typeof heic2any === 'undefined') {
-                throw new Error('heic2any library not loaded');
+        // HEIC/HEIF: try native browser decoding first (works if OS has HEIC codec),
+        // then fall back to heic2any JS decoder
+        if (isHeic) {
+            // Attempt 1: native decode via createImageBitmap / img element
+            try {
+                var nativeBlob = await this._tryNativeDecode(file);
+                if (nativeBlob) return nativeBlob;
+            } catch (e) { /* native decode failed, try heic2any */ }
+
+            // Attempt 2: heic2any JS decoder
+            if (typeof heic2any !== 'undefined') {
+                try {
+                    var result = await heic2any({ blob: file, toType: 'image/png', quality: 0.92 });
+                    return Array.isArray(result) ? result[0] : result;
+                } catch (e) {
+                    throw new Error('HEIC conversion failed. On Windows, install "HEIF Image Extensions" from the Microsoft Store, then try again.');
+                }
             }
-            var result = await heic2any({ blob: file, toType: 'image/png', quality: 0.92 });
-            // heic2any may return an array for multi-frame HEIC; take first
-            return Array.isArray(result) ? result[0] : result;
+            throw new Error('Cannot convert HEIC. Install "HEIF Image Extensions" from the Microsoft Store.');
         }
 
         // PDF: render page 1 to canvas via pdf.js
@@ -741,6 +754,29 @@ window.fpEditor = {
 
         // Other images (JPEG, PNG, WebP, etc.): pass through
         return file;
+    },
+
+    // Try decoding an image natively via the browser (uses OS codecs for HEIC etc.)
+    _tryNativeDecode: function (file) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(file);
+            var img = new Image();
+            img.onload = function () {
+                var canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                canvas.toBlob(function (blob) {
+                    URL.revokeObjectURL(url);
+                    resolve(blob);
+                }, 'image/png');
+            };
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error('Native decode failed'));
+            };
+            img.src = url;
+        });
     },
 
     // ── AP Markers ───────────────────────────────────────────────────

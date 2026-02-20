@@ -1944,6 +1944,16 @@
     public async Task OnUnderlayUploadedFromJs(int imageId)
     {
         await LoadFloorImages();
+
+        // Auto-rotate to match building wall orientation
+        var rotation = ComputeBuildingRotation();
+        if (rotation != 0)
+        {
+            await FloorPlanSvc.UpdateFloorImageAsync(imageId, rotationDeg: rotation);
+            var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
+            if (img != null) img.RotationDeg = rotation;
+        }
+
         await UpdateFloorOverlays();
 
         _selectedImageId = imageId;
@@ -1952,6 +1962,80 @@
             await JS.InvokeVoidAsync("fpEditor.selectOverlay", imageId);
 
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Compute the dominant orientation angle of the building's walls.
+    /// Returns the angle (in degrees) that the longest wall segments are oriented at,
+    /// which can be used as initial rotation for underlays.
+    /// </summary>
+    private double ComputeBuildingRotation()
+    {
+        if (!BuildingHasWalls()) return 0;
+
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        // Collect all wall segments with their angles and lengths
+        // Angle is measured in degrees from east (horizontal), range [0, 180)
+        var segments = new List<(double angle, double length)>();
+
+        foreach (var floor in _floors)
+        {
+            if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+            try
+            {
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                if (walls == null) continue;
+                foreach (var wall in walls)
+                {
+                    for (int i = 0; i < wall.Points.Count - 1; i++)
+                    {
+                        var p1 = wall.Points[i];
+                        var p2 = wall.Points[i + 1];
+                        var dLat = p2.Lat - p1.Lat;
+                        var dLng = (p2.Lng - p1.Lng) * Math.Cos(p1.Lat * Math.PI / 180); // adjust for latitude
+                        var length = Math.Sqrt(dLat * dLat + dLng * dLng);
+                        if (length < 1e-10) continue;
+                        var angle = Math.Atan2(dLat, dLng) * 180.0 / Math.PI;
+                        // Normalize to [0, 180) since direction doesn't matter
+                        angle = ((angle % 180) + 180) % 180;
+                        segments.Add((angle, length));
+                    }
+                }
+            }
+            catch { /* skip malformed */ }
+        }
+
+        if (segments.Count == 0) return 0;
+
+        // Find the dominant angle: weight by segment length, cluster into 5° bins
+        var bins = new double[36]; // 0-5, 5-10, ..., 175-180
+        foreach (var (angle, length) in segments)
+        {
+            var bin = (int)(angle / 5.0);
+            if (bin >= 36) bin = 35;
+            bins[bin] += length;
+        }
+
+        // Find the peak bin (consider wrapping: bin 0 and bin 35 are neighbors)
+        int peakBin = 0;
+        double peakWeight = 0;
+        for (int i = 0; i < 36; i++)
+        {
+            // Sum with neighbors for smoothing
+            var weight = bins[i] + bins[(i + 1) % 36] + bins[(i + 35) % 36];
+            if (weight > peakWeight) { peakWeight = weight; peakBin = i; }
+        }
+
+        var dominantAngle = peakBin * 5.0 + 2.5; // center of bin
+
+        // The underlay rotation should align the image's horizontal with the dominant wall direction.
+        // If walls are at 0° (horizontal/east-west), no rotation needed.
+        // If walls are at 10°, rotate image by 10° so horizontal edges align with walls.
+        // But we want the SMALLER rotation, so if angle > 90, subtract 180 to get [-90, 90]
+        if (dominantAngle > 90) dominantAngle -= 180;
+
+        // Round to nearest degree
+        return Math.Round(dominantAngle);
     }
 
     private async Task OnImageOpacityChange(ChangeEventArgs e)
