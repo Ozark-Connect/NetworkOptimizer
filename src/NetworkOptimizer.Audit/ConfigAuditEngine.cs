@@ -454,6 +454,7 @@ public class ConfigAuditEngine
         _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
 
         // Apply user purpose overrides (rebuild NetworkInfo since Purpose is init-only)
+        _logger.LogInformation("Network purpose overrides in context: {Count}", ctx.NetworkPurposeOverrides?.Count ?? 0);
         if (ctx.NetworkPurposeOverrides is { Count: > 0 })
         {
             for (var i = 0; i < ctx.Networks.Count; i++)

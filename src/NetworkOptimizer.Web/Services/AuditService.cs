@@ -980,6 +980,9 @@ public class AuditService
             // Load streaming device settings from database
             await LoadAuditSettingsAsync(options);
 
+            if (options.NetworkPurposeOverrides is { Count: > 0 })
+                _logger.LogInformation("Network purpose overrides loaded: {Overrides}", JsonSerializer.Serialize(options.NetworkPurposeOverrides));
+
             // Get raw device data from UniFi API
             var deviceDataJson = await _connectionService.Client.GetDevicesRawJsonAsync();
 
