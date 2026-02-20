@@ -92,12 +92,16 @@ public class FloorPlanService
     public async Task<bool> DeleteBuildingAsync(int id)
     {
         using var db = await _dbFactory.CreateDbContextAsync();
-        var building = await db.Buildings.Include(b => b.Floors).FirstOrDefaultAsync(b => b.Id == id);
+        var building = await db.Buildings
+            .Include(b => b.Floors).ThenInclude(f => f.Images)
+            .FirstOrDefaultAsync(b => b.Id == id);
         if (building == null) return false;
 
-        // Delete floor plan images
+        // Delete all image files (legacy per-floor + multi-image)
         foreach (var floor in building.Floors)
         {
+            foreach (var image in floor.Images)
+                DeleteImageFile(image);
             DeleteFloorPlanImage(floor);
         }
 
@@ -178,16 +182,20 @@ public class FloorPlanService
     public async Task<bool> DeleteFloorAsync(int floorId)
     {
         using var db = await _dbFactory.CreateDbContextAsync();
-        var floor = await db.FloorPlans.FindAsync(floorId);
+        var floor = await db.FloorPlans.Include(f => f.Images).FirstOrDefaultAsync(f => f.Id == floorId);
         if (floor == null) return false;
 
+        // Delete all image files for this floor
+        foreach (var image in floor.Images)
+            DeleteImageFile(image);
         DeleteFloorPlanImage(floor);
+
         db.FloorPlans.Remove(floor);
         await db.SaveChangesAsync();
         return true;
     }
 
-    // --- Image handling ---
+    // --- Legacy single-image handling (kept for backward compat) ---
 
     public async Task SaveFloorImageAsync(int floorId, Stream imageStream)
     {
@@ -201,7 +209,6 @@ public class FloorPlanService
         var fileName = $"floor_{floor.FloorNumber}.png";
         var filePath = Path.Combine(buildingDir, fileName);
 
-        // Save raw image (no resize - let browser handle scaling)
         using (var fileStream = File.Create(filePath))
         {
             await imageStream.CopyToAsync(fileStream);
@@ -229,6 +236,132 @@ public class FloorPlanService
         {
             try { File.Delete(fullPath); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete floor plan image {Path}", fullPath); }
+        }
+    }
+
+    // --- FloorPlanImage CRUD (multi-image per floor) ---
+
+    public async Task<List<FloorPlanImage>> GetFloorImagesAsync(int floorPlanId)
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        return await db.FloorPlanImages
+            .Where(i => i.FloorPlanId == floorPlanId)
+            .OrderBy(i => i.SortOrder)
+            .ToListAsync();
+    }
+
+    public async Task<FloorPlanImage?> GetFloorImageAsync(int imageId)
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        return await db.FloorPlanImages.FindAsync(imageId);
+    }
+
+    public async Task<FloorPlanImage> CreateFloorImageAsync(int floorPlanId, Stream imageStream,
+        double swLat, double swLng, double neLat, double neLng, string label = "")
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var floor = await db.FloorPlans.FindAsync(floorPlanId);
+        if (floor == null) throw new ArgumentException("Floor not found", nameof(floorPlanId));
+
+        var image = new FloorPlanImage
+        {
+            FloorPlanId = floorPlanId,
+            Label = label,
+            SwLatitude = swLat,
+            SwLongitude = swLng,
+            NeLatitude = neLat,
+            NeLongitude = neLng,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        db.FloorPlanImages.Add(image);
+        await db.SaveChangesAsync();
+
+        // Save image file using the generated ID, detecting format from stream header
+        var buildingDir = Path.Combine(_floorPlanDirectory, floor.BuildingId.ToString());
+        Directory.CreateDirectory(buildingDir);
+
+        // Read first 12 bytes to detect image type, then reset stream
+        var header = new byte[12];
+        var headerRead = await imageStream.ReadAsync(header, 0, header.Length);
+        var ext = ".png"; // default
+        if (headerRead >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
+            ext = ".jpg";
+        else if (headerRead >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+                 && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
+            ext = ".webp";
+        if (imageStream.CanSeek) imageStream.Position = 0;
+
+        var fileName = $"floor_{floor.FloorNumber}_img_{image.Id}{ext}";
+        var filePath = Path.Combine(buildingDir, fileName);
+
+        using (var fileStream = File.Create(filePath))
+        {
+            if (!imageStream.CanSeek)
+            {
+                // Stream was not seekable - write header bytes first, then rest
+                await fileStream.WriteAsync(header, 0, headerRead);
+            }
+            await imageStream.CopyToAsync(fileStream);
+        }
+
+        image.ImagePath = Path.Combine(floor.BuildingId.ToString(), fileName);
+        await db.SaveChangesAsync();
+
+        _logger.LogInformation("Created floor plan image {ImageId} for floor {FloorId} at {Path}", image.Id, floorPlanId, filePath);
+        return image;
+    }
+
+    public async Task<FloorPlanImage?> UpdateFloorImageAsync(int imageId, double? swLat = null, double? swLng = null,
+        double? neLat = null, double? neLng = null, double? opacity = null, double? rotationDeg = null,
+        string? cropJson = null, string? label = null)
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var image = await db.FloorPlanImages.FindAsync(imageId);
+        if (image == null) return null;
+
+        if (swLat.HasValue) image.SwLatitude = swLat.Value;
+        if (swLng.HasValue) image.SwLongitude = swLng.Value;
+        if (neLat.HasValue) image.NeLatitude = neLat.Value;
+        if (neLng.HasValue) image.NeLongitude = neLng.Value;
+        if (opacity.HasValue) image.Opacity = opacity.Value;
+        if (rotationDeg.HasValue) image.RotationDeg = rotationDeg.Value;
+        if (cropJson != null) image.CropJson = cropJson;
+        if (label != null) image.Label = label;
+        image.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync();
+        return image;
+    }
+
+    public async Task<bool> DeleteFloorImageAsync(int imageId)
+    {
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var image = await db.FloorPlanImages.FindAsync(imageId);
+        if (image == null) return false;
+
+        DeleteImageFile(image);
+        db.FloorPlanImages.Remove(image);
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Deleted floor plan image {ImageId}", imageId);
+        return true;
+    }
+
+    public string? GetFloorImageFilePath(FloorPlanImage image)
+    {
+        if (string.IsNullOrEmpty(image.ImagePath)) return null;
+        var fullPath = Path.Combine(_floorPlanDirectory, image.ImagePath);
+        return File.Exists(fullPath) ? fullPath : null;
+    }
+
+    private void DeleteImageFile(FloorPlanImage image)
+    {
+        if (string.IsNullOrEmpty(image.ImagePath)) return;
+        var fullPath = Path.Combine(_floorPlanDirectory, image.ImagePath);
+        if (File.Exists(fullPath))
+        {
+            try { File.Delete(fullPath); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete floor plan image file {Path}", fullPath); }
         }
     }
 }

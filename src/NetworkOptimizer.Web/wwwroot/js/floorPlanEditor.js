@@ -7,7 +7,9 @@ window.fpEditor = {
     // ── State ────────────────────────────────────────────────────────
     _map: null,
     _dotNetRef: null,
-    _overlay: null,
+    _overlay: null, // legacy single overlay (kept for backward compat)
+    _overlays: [],  // array of { id, overlay } for multi-image
+    _selectedOverlayId: null,
     _apLayer: null,
     _apGlowLayer: null,
     _bgWallLayer: null,
@@ -37,8 +39,9 @@ window.fpEditor = {
     _txPowerOverrides: {},
     _antennaModeOverrides: {},
     _disabledAps: {},
+    _disabledForPlanAps: {},
     _heatmapBand: '5',
-    _excludePlannedAps: false,
+    _excludePlannedAps: true,
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
@@ -54,6 +57,7 @@ window.fpEditor = {
     _activeMoveHandlers: null, // { moveHandler, finishHandler } for cancellable moves
     _escHandler: null,
     _distanceWarnShown: false,
+    _scaleBar: null, // SteppedScaleBar state
 
     // ── Edge Pan ──────────────────────────────────────────────────────
 
@@ -218,6 +222,7 @@ window.fpEditor = {
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
         this._disabledAps = {};
+        this._disabledForPlanAps = {};
         var resolveReady;
         var readyPromise = new Promise(function (resolve) { resolveReady = resolve; });
 
@@ -402,7 +407,10 @@ window.fpEditor = {
                 }, 500);
             });
 
-            L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(m);
+            // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
+            var initSteps = (window.innerWidth <= 768) ? 0 : 3;
+            self._scaleBar = SteppedScaleBar.create(m, initSteps);
+
             resolveReady();
         }
 
@@ -413,6 +421,12 @@ window.fpEditor = {
     setDotNetRef: function (ref) {
         this._dotNetRef = ref;
         this._initEscapeHandler();
+    },
+
+    setScaleSteps: function (steps) {
+        // On mobile, only show scale bar in fullscreen (steps > 3)
+        var isMobile = window.innerWidth <= 768;
+        SteppedScaleBar.setSteps(this._scaleBar, (isMobile && steps <= 3) ? 0 : steps);
     },
 
     // ── View ─────────────────────────────────────────────────────────
@@ -428,6 +442,72 @@ window.fpEditor = {
         if (this._map) {
             this._map.setView([lat, lng], zoom);
         }
+    },
+
+    saveMapView: function (buildingLat, buildingLng) {
+        var self = this;
+        if (this._map) {
+            var c = this._map.getCenter();
+            this._savedView = {
+                lat: c.lat, lng: c.lng, zoom: this._map.getZoom(),
+                buildingLat: buildingLat, buildingLng: buildingLng
+            };
+            // After the next fitBounds settles, record the building zoom level.
+            // Clear saved view if user zooms out more than 1 step from that.
+            if (this._savedViewZoomHandler) this._map.off('zoomend', this._savedViewZoomHandler);
+            var armed = false;
+            this._savedViewZoomHandler = function () {
+                if (!self._savedView) {
+                    self._map.off('zoomend', self._savedViewZoomHandler);
+                    self._savedViewZoomHandler = null;
+                    return;
+                }
+                if (!armed) {
+                    // First zoomend after save = fitBounds completed; record zoom and
+                    // actual map center (may differ from DB center for asymmetric buildings)
+                    self._savedView.buildingZoom = self._map.getZoom();
+                    var fc = self._map.getCenter();
+                    self._savedView.fitCenterLat = fc.lat;
+                    self._savedView.fitCenterLng = fc.lng;
+                    armed = true;
+                    return;
+                }
+                if (self._map.getZoom() < self._savedView.buildingZoom - 1) {
+                    self._savedView = null;
+                    self._map.off('zoomend', self._savedViewZoomHandler);
+                    self._savedViewZoomHandler = null;
+                }
+            };
+            this._map.on('zoomend', this._savedViewZoomHandler);
+        }
+    },
+
+    restoreMapView: function () {
+        // Clean up zoom listener
+        if (this._savedViewZoomHandler && this._map) {
+            this._map.off('zoomend', this._savedViewZoomHandler);
+            this._savedViewZoomHandler = null;
+        }
+        if (!this._map || !this._savedView) return;
+        // Only restore if the building is still visible in the viewport;
+        // if the user has panned away, they navigated intentionally.
+        var sv = this._savedView;
+        this._savedView = null;
+        // Use the post-fitBounds center (actual viewport center when editing started)
+        // rather than the DB building center, which may not match for asymmetric buildings.
+        var checkLat = sv.fitCenterLat != null ? sv.fitCenterLat : sv.buildingLat;
+        var checkLng = sv.fitCenterLng != null ? sv.fitCenterLng : sv.buildingLng;
+        if (checkLat != null && checkLng != null) {
+            // Check in pixel space so the map's aspect ratio doesn't matter.
+            // Building must be within the center 66% of the container in both axes.
+            var px = this._map.latLngToContainerPoint([checkLat, checkLng]);
+            var sz = this._map.getSize();
+            var mx = sz.x * 0.17, my = sz.y * 0.17;
+            if (px.x < mx || px.x > sz.x - mx || px.y < my || px.y > sz.y - my) return;
+        }
+        // Don't restore if it would zoom in more than current view
+        if (sv.zoom > this._map.getZoom()) return;
+        this._map.setView([sv.lat, sv.lng], sv.zoom);
     },
 
     invalidateSize: function () {
@@ -458,6 +538,453 @@ window.fpEditor = {
         if (this._overlay) {
             this._overlay.setOpacity(opacity);
         }
+    },
+
+    // ── Rotation Geometry Helpers ─────────────────────────────────────
+
+    // Rotate a pixel point around a center point by angleDeg (CW in screen coords, matching CSS rotate())
+    _rotatePointPx: function (pt, center, angleDeg) {
+        var rad = angleDeg * Math.PI / 180;
+        var dx = pt.x - center.x;
+        var dy = pt.y - center.y;
+        return L.point(
+            center.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+            center.y + dx * Math.sin(rad) + dy * Math.cos(rad)
+        );
+    },
+
+    // Get rotated corner LatLngs for a given axis-aligned bounds and rotation
+    _getRotatedCorners: function (bounds, rotationDeg, map) {
+        var sw = bounds.getSouthWest();
+        var ne = bounds.getNorthEast();
+        var center = bounds.getCenter();
+        var cPx = map.latLngToContainerPoint(center);
+        var swPx = map.latLngToContainerPoint(sw);
+        var nePx = map.latLngToContainerPoint(ne);
+        var nwPx = map.latLngToContainerPoint(L.latLng(ne.lat, sw.lng));
+        var sePx = map.latLngToContainerPoint(L.latLng(sw.lat, ne.lng));
+        return {
+            sw: map.containerPointToLatLng(this._rotatePointPx(swPx, cPx, rotationDeg)),
+            ne: map.containerPointToLatLng(this._rotatePointPx(nePx, cPx, rotationDeg)),
+            nw: map.containerPointToLatLng(this._rotatePointPx(nwPx, cPx, rotationDeg)),
+            se: map.containerPointToLatLng(this._rotatePointPx(sePx, cPx, rotationDeg))
+        };
+    },
+
+    // Given two diagonally-opposite rotated corner LatLngs, compute axis-aligned bounds
+    _boundsFromRotatedDiagonal: function (rotA, rotB, rotationDeg, map) {
+        var aPx = map.latLngToContainerPoint(rotA);
+        var bPx = map.latLngToContainerPoint(rotB);
+        var cPx = L.point((aPx.x + bPx.x) / 2, (aPx.y + bPx.y) / 2);
+        var aAl = map.containerPointToLatLng(this._rotatePointPx(aPx, cPx, -rotationDeg));
+        var bAl = map.containerPointToLatLng(this._rotatePointPx(bPx, cPx, -rotationDeg));
+        return L.latLngBounds(
+            L.latLng(Math.min(aAl.lat, bAl.lat), Math.min(aAl.lng, bAl.lng)),
+            L.latLng(Math.max(aAl.lat, bAl.lat), Math.max(aAl.lng, bAl.lng))
+        );
+    },
+
+    // Pick the closest CSS resize cursor for a diagonal at baseAngle + rotationDeg
+    _getResizeCursor: function (baseAngle, rotationDeg) {
+        var a = ((baseAngle + rotationDeg) % 360 + 360) % 360;
+        if (a >= 180) a -= 180;
+        // 0=ew, 45=nesw, 90=ns, 135=nwse (each covers ±22.5°)
+        if (a < 22.5 || a >= 157.5) return 'ew-resize';
+        if (a < 67.5) return 'nesw-resize';
+        if (a < 112.5) return 'ns-resize';
+        return 'nwse-resize';
+    },
+
+    // Apply rotation + crop transforms to an overlay element
+    _applyOverlayTransforms: function (overlay) {
+        var el = overlay.getElement ? overlay.getElement() : overlay._image;
+        if (!el) return;
+        if (overlay._rotationDeg) {
+            el.style.transform += ' translate(50%, 50%) rotate(' + overlay._rotationDeg + 'deg) translate(-50%, -50%)';
+        }
+        if (overlay._crop) {
+            el.style.clipPath = 'inset(' + (overlay._crop.top || 0) + '% ' + (overlay._crop.right || 0) + '% ' +
+                (overlay._crop.bottom || 0) + '% ' + (overlay._crop.left || 0) + '%)';
+        } else {
+            el.style.clipPath = '';
+        }
+    },
+
+    // ── Multi-Image Overlays ──────────────────────────────────────────
+
+    updateFloorOverlays: function (imagesJson) {
+        var m = this._map;
+        if (!m) return;
+        var self = this;
+
+        // Remove existing overlays
+        this._overlays.forEach(function (o) { m.removeLayer(o.overlay); });
+        this._overlays = [];
+        this._selectedOverlayId = null;
+
+        if (!imagesJson || imagesJson.length === 0) return;
+
+        imagesJson.forEach(function (img) {
+            var bounds = [[img.swLatitude, img.swLongitude], [img.neLatitude, img.neLongitude]];
+            var overlay = L.imageOverlay(img.imageUrl, bounds, {
+                opacity: img.opacity || 0.7,
+                interactive: true,
+                pane: 'fpOverlayPane',
+                className: 'fp-image-overlay'
+            });
+
+            // Store rotation/crop state on the overlay instance
+            overlay._rotationDeg = img.rotationDeg || 0;
+            overlay._crop = null;
+            if (img.cropJson) {
+                try { overlay._crop = typeof img.cropJson === 'string' ? JSON.parse(img.cropJson) : img.cropJson; }
+                catch (e) { /* invalid crop JSON */ }
+            }
+
+            // Monkey-patch _reset BEFORE addTo so Leaflet's initial _reset uses our version
+            var origReset = overlay._reset.bind(overlay);
+            overlay._reset = function () {
+                origReset();
+                self._applyOverlayTransforms(this);
+            };
+
+            // Monkey-patch _animateZoom to maintain rotation/crop during zoom animation
+            // Without this, Leaflet's zoom animation overwrites transform and rotation flickers
+            var origAnimateZoom = overlay._animateZoom.bind(overlay);
+            overlay._animateZoom = function (e) {
+                origAnimateZoom(e);
+                self._applyOverlayTransforms(this);
+            };
+
+            // Now add to map - Leaflet's _reset will use our patched version
+            overlay.addTo(m);
+            // Also re-apply when image finishes loading (triggers another _reset)
+            overlay.once('load', function () { overlay._reset(); });
+
+            overlay.on('click', function () {
+                // Don't fire selection when in position mode (drag-to-move triggers click)
+                if (self._corners) return;
+                if (self._dotNetRef) {
+                    self._dotNetRef.invokeMethodAsync('OnImageSelectedFromJs', img.id);
+                }
+            });
+
+            self._overlays.push({ id: img.id, overlay: overlay });
+        });
+    },
+
+    setImageRotation: function (imageId, deg) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        if (!entry) return;
+        entry.overlay._rotationDeg = deg;
+        entry.overlay._reset();
+        // Update position mode handles if active for this image
+        if (this._positionUpdateFn) this._positionUpdateFn(deg);
+    },
+
+    setImageCrop: function (imageId, top, right, bottom, left) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        if (!entry) return;
+        entry.overlay._crop = { top: top, right: right, bottom: bottom, left: left };
+        entry.overlay._reset();
+    },
+
+    selectOverlay: function (imageId) {
+        var self = this;
+        this._selectedOverlayId = imageId;
+        this._overlays.forEach(function (o) {
+            var el = o.overlay.getElement();
+            if (!el) return;
+            if (o.id === imageId) {
+                el.style.outline = '3px solid #3b82f6';
+                el.style.outlineOffset = '-3px';
+            } else {
+                el.style.outline = '';
+                el.style.outlineOffset = '';
+            }
+        });
+    },
+
+    deselectOverlay: function () {
+        this._selectedOverlayId = null;
+        this._overlays.forEach(function (o) {
+            var el = o.overlay.getElement();
+            if (!el) return;
+            el.style.outline = '';
+            el.style.outlineOffset = '';
+        });
+    },
+
+    setImageOpacity: function (imageId, opacity) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        if (entry) entry.overlay.setOpacity(opacity);
+    },
+
+    setOverlaysInteractive: function (interactive) {
+        this._overlays.forEach(function (o) {
+            var el = o.overlay.getElement();
+            if (el) el.style.pointerEvents = interactive ? 'auto' : 'none';
+        });
+    },
+
+    _getOverlay: function (imageId) {
+        var entry = this._overlays.find(function (o) { return o.id === imageId; });
+        return entry ? entry.overlay : null;
+    },
+
+    // ── Underlay Upload (HEIC/PDF conversion) ────────────────────────
+
+    // Opens file picker immediately (must be called from native onclick to work on iOS Safari)
+    pickUnderlayFile: function () {
+        var self = this;
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*,.pdf,.heic,.heif';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+
+        input.addEventListener('change', async function () {
+            var file = input.files && input.files[0];
+            document.body.removeChild(input);
+            if (!file) return;
+
+            try {
+                // Check file size (50 MB limit)
+                if (file.size > 50 * 1024 * 1024) {
+                    alert('File is too large. Maximum size is 50 MB.');
+                    return;
+                }
+
+                // Get bounds from C# (after file is picked, so user gesture isn't needed)
+                var info = await self._dotNetRef.invokeMethodAsync('GetUnderlayUploadInfo');
+                if (!info) return;
+
+                var blob = await self._convertToImage(file);
+                if (!blob) return; // user cancelled (e.g. PDF page picker)
+
+                // Get image natural dimensions for aspect-ratio matching
+                var imgW = 0, imgH = 0;
+                try {
+                    var dims = await self._getImageDimensions(blob);
+                    imgW = dims.width;
+                    imgH = dims.height;
+                } catch (e) { /* couldn't get dims, C# will use fallback */ }
+
+                var formData = new FormData();
+                formData.append('image', blob, 'underlay.png');
+                formData.append('swLat', info.swLat.toString());
+                formData.append('swLng', info.swLng.toString());
+                formData.append('neLat', info.neLat.toString());
+                formData.append('neLng', info.neLng.toString());
+
+                var resp = await fetch('/api/floor-plan/floors/' + info.floorId + '/images', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!resp.ok) throw new Error('Upload failed: ' + resp.status);
+                var result = await resp.json();
+                if (self._dotNetRef) {
+                    self._dotNetRef.invokeMethodAsync('OnUnderlayUploadedFromJs', result.id, imgW, imgH);
+                }
+            } catch (err) {
+                console.error('Underlay upload error:', err);
+                alert(err.message || 'Upload failed');
+            }
+        });
+
+        input.click();
+    },
+
+    _convertToImage: async function (file) {
+        var name = file.name.toLowerCase();
+        var type = file.type.toLowerCase();
+        var isHeic = type === 'image/heic' || type === 'image/heif' ||
+            name.endsWith('.heic') || name.endsWith('.heif');
+
+        // HEIC/HEIF: try native browser decoding first (works if OS has HEIC codec),
+        // then fall back to heic2any JS decoder
+        if (isHeic) {
+            // Attempt 1: native decode via createImageBitmap / img element
+            try {
+                var nativeBlob = await this._tryNativeDecode(file);
+                if (nativeBlob) return nativeBlob;
+            } catch (e) { /* native decode failed, try heic2any */ }
+
+            // Attempt 2: heic2any JS decoder
+            if (typeof heic2any !== 'undefined') {
+                try {
+                    var result = await heic2any({ blob: file, toType: 'image/png', quality: 0.92 });
+                    return Array.isArray(result) ? result[0] : result;
+                } catch (e) {
+                    throw new Error('HEIC conversion failed. On Windows, install "HEIF Image Extensions" from the Microsoft Store, then try again.');
+                }
+            }
+            throw new Error('Cannot convert HEIC. Install "HEIF Image Extensions" from the Microsoft Store.');
+        }
+
+        // PDF: let user pick a page, then render at high resolution
+        if (type === 'application/pdf' || name.endsWith('.pdf')) {
+            var pdfjsLib = await import('/lib/pdf.min.mjs');
+            pdfjsLib.GlobalWorkerOptions.workerSrc = '/lib/pdf.worker.min.mjs';
+            var arrayBuf = await file.arrayBuffer();
+            var pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+
+            var pageNum = 1;
+            if (pdf.numPages > 1) {
+                pageNum = await this._showPdfPagePicker(pdf);
+                if (!pageNum) return null;
+            }
+
+            var page = await pdf.getPage(pageNum);
+            var scale = 2;
+            var viewport = page.getViewport({ scale: scale });
+            var canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            var ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+            return new Promise(function (resolve) {
+                canvas.toBlob(function (blob) { resolve(blob); }, 'image/png');
+            });
+        }
+
+        // Other images (JPEG, PNG, WebP, etc.): pass through
+        return file;
+    },
+
+    // Try decoding an image natively via the browser (uses OS codecs for HEIC etc.)
+    _tryNativeDecode: function (file) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(file);
+            var img = new Image();
+            img.onload = function () {
+                var canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                canvas.toBlob(function (blob) {
+                    URL.revokeObjectURL(url);
+                    resolve(blob);
+                }, 'image/png');
+            };
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error('Native decode failed'));
+            };
+            img.src = url;
+        });
+    },
+
+    _getImageDimensions: function (blob) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onload = function () {
+                URL.revokeObjectURL(url);
+                resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            };
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error('Could not read image dimensions'));
+            };
+            img.src = url;
+        });
+    },
+
+    _showPdfPagePicker: function (pdf) {
+        return new Promise(function (resolve) {
+            // Build modal DOM
+            var backdrop = document.createElement('div');
+            backdrop.className = 'fp-dialog-backdrop';
+
+            var dialog = document.createElement('div');
+            dialog.className = 'fp-dialog';
+            dialog.style.maxWidth = '680px';
+            dialog.style.maxHeight = '80vh';
+            dialog.style.display = 'flex';
+            dialog.style.flexDirection = 'column';
+
+            var title = document.createElement('h3');
+            title.textContent = 'Select PDF Page (' + pdf.numPages + ' pages)';
+            dialog.appendChild(title);
+
+            var grid = document.createElement('div');
+            grid.style.display = 'grid';
+            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(140px, 1fr))';
+            grid.style.gap = '12px';
+            grid.style.overflowY = 'auto';
+            grid.style.flex = '1';
+            grid.style.padding = '4px';
+            dialog.appendChild(grid);
+
+            var actions = document.createElement('div');
+            actions.className = 'fp-dialog-actions';
+            actions.style.marginTop = '12px';
+            var cancelBtn = document.createElement('button');
+            cancelBtn.className = 'fp-btn';
+            cancelBtn.textContent = 'Cancel';
+            actions.appendChild(cancelBtn);
+            dialog.appendChild(actions);
+
+            var dismiss = function () {
+                document.removeEventListener('keydown', escHandler);
+                document.body.removeChild(backdrop);
+                resolve(0);
+            };
+            var escHandler = function (e) { if (e.key === 'Escape') dismiss(); };
+            cancelBtn.onclick = dismiss;
+            backdrop.onclick = dismiss;
+            dialog.onclick = function (e) { e.stopPropagation(); };
+            document.addEventListener('keydown', escHandler);
+
+            backdrop.appendChild(dialog);
+            document.body.appendChild(backdrop);
+
+            // Render thumbnails
+            var thumbScale = 0.5;
+            for (var i = 1; i <= pdf.numPages; i++) {
+                (function (pageNum) {
+                    var cell = document.createElement('div');
+                    cell.style.cursor = 'pointer';
+                    cell.style.border = '2px solid transparent';
+                    cell.style.borderRadius = '4px';
+                    cell.style.padding = '4px';
+                    cell.style.textAlign = 'center';
+                    cell.style.transition = 'border-color 0.15s';
+                    cell.onmouseenter = function () { cell.style.borderColor = '#3b82f6'; };
+                    cell.onmouseleave = function () { cell.style.borderColor = 'transparent'; };
+                    cell.onclick = function () {
+                        document.removeEventListener('keydown', escHandler);
+                        document.body.removeChild(backdrop);
+                        resolve(pageNum);
+                    };
+
+                    var label = document.createElement('div');
+                    label.textContent = 'Page ' + pageNum;
+                    label.style.fontSize = '12px';
+                    label.style.color = '#cbd5e1';
+                    label.style.marginTop = '4px';
+
+                    pdf.getPage(pageNum).then(function (page) {
+                        var vp = page.getViewport({ scale: thumbScale });
+                        var canvas = document.createElement('canvas');
+                        canvas.width = vp.width;
+                        canvas.height = vp.height;
+                        canvas.style.width = '100%';
+                        canvas.style.height = 'auto';
+                        canvas.style.borderRadius = '2px';
+                        canvas.style.background = '#fff';
+                        var ctx = canvas.getContext('2d');
+                        page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+                            cell.insertBefore(canvas, label);
+                        });
+                    });
+
+                    cell.appendChild(label);
+                    grid.appendChild(cell);
+                })(i);
+            }
+        });
     },
 
     // ── AP Markers ───────────────────────────────────────────────────
@@ -495,7 +1022,7 @@ window.fpEditor = {
                 html: '<div class="' + glowClass + '"></div>',
                 iconSize: [48, 48], iconAnchor: [24, 24]
             });
-            var isDisabled = !!self._disabledAps[ap.mac.toLowerCase()];
+            var isDisabled = self._isApEffectivelyDisabled(ap.mac.toLowerCase());
             var glowMarker = L.marker([ap.lat, ap.lng], {
                 icon: glowIcon, interactive: false, pane: 'apGlowPane',
                 opacity: isDisabled ? 0 : 1
@@ -647,17 +1174,25 @@ window.fpEditor = {
                 }
             }
 
-            // Disable AP toggle button
+            // Disable AP toggle buttons (two modes)
             var disableApHtml = '';
             var macLower = ap.mac.toLowerCase();
+            var isSimDisabled = !!self._disabledAps[macLower];
+            var isPlanDisabled = !!self._disabledForPlanAps[macLower];
             var disableHeader = (txPowerHtml || antennaModeHtml) ? '' :
                 '<div class="fp-ap-popup-divider"></div><div class="fp-ap-popup-section-label">Simulate</div>';
             disableApHtml = disableHeader +
                 '<div class="fp-ap-popup-row" style="margin-top:4px">' +
-                '<button class="fp-disable-ap-btn' + (isDisabled ? ' active' : '') + '" ' +
-                'data-tooltip="Simulate removing this AP to test coverage with a replacement" data-tooltip-hover-only ' +
+                '<button class="fp-disable-ap-btn' + (isSimDisabled ? ' active' : '') + '" ' +
+                'data-tooltip="Simulate disabling this AP to see how coverage is affected" data-tooltip-hover-only ' +
                 'onclick="fpEditor._toggleDisableAp(\'' + esc(macLower) + '\')">' +
-                (isDisabled ? 'Enable AP' : 'Disable AP') +
+                (isSimDisabled ? 'Enable AP' : 'Disable AP') +
+                '</button></div>' +
+                '<div class="fp-ap-popup-row" style="margin-top:2px">' +
+                '<button class="fp-disable-ap-btn fp-disable-plan' + (isPlanDisabled ? ' active' : '') + '" ' +
+                'data-tooltip="Simulate removing this AP to test coverage with a replacement" data-tooltip-hover-only ' +
+                'onclick="fpEditor._toggleDisableForPlanAp(\'' + esc(macLower) + '\')">' +
+                (isPlanDisabled ? 'Enable AP (Plan)' : 'Disable AP (Plan)') +
                 '</button></div>';
 
             var safeMac = esc(ap.mac);
@@ -843,6 +1378,12 @@ window.fpEditor = {
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
     },
 
+    _isApEffectivelyDisabled: function (macLower) {
+        if (this._disabledAps[macLower]) return true;
+        if (this._disabledForPlanAps[macLower] && !this._excludePlannedAps) return true;
+        return false;
+    },
+
     _toggleDisableAp: function (macLower) {
         if (this._disabledAps[macLower]) {
             delete this._disabledAps[macLower];
@@ -855,11 +1396,27 @@ window.fpEditor = {
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
     },
 
+    _toggleDisableForPlanAp: function (macLower) {
+        if (this._disabledForPlanAps[macLower]) {
+            delete this._disabledForPlanAps[macLower];
+        } else {
+            this._disabledForPlanAps[macLower] = true;
+        }
+        this._updateResetSimBtn();
+        this.computeHeatmap();
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnSimulationChanged');
+    },
+
+    setExcludePlannedAps: function (exclude) {
+        this._excludePlannedAps = exclude;
+    },
+
     _updateResetSimBtn: function () {
         var btn = document.getElementById('fp-reset-sim-btn');
         var hasOverrides = Object.keys(this._txPowerOverrides).length > 0 ||
                            Object.keys(this._antennaModeOverrides).length > 0 ||
-                           Object.keys(this._disabledAps).length > 0;
+                           Object.keys(this._disabledAps).length > 0 ||
+                           Object.keys(this._disabledForPlanAps).length > 0;
         if (btn) btn.style.display = hasOverrides ? '' : 'none';
     },
 
@@ -867,6 +1424,7 @@ window.fpEditor = {
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
         this._disabledAps = {};
+        this._disabledForPlanAps = {};
         this._updateResetSimBtn();
         this.computeHeatmap();
         // Rebuild markers to restore opacity
@@ -2112,16 +2670,14 @@ window.fpEditor = {
         if (this._previewLengthLabel) { m.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
     },
 
-    // ── Position Mode ────────────────────────────────────────────────
+    // ── Position Mode (4-corner resize + drag-to-move) ─────────────
 
-    enterPositionMode: function (swLat, swLng, neLat, neLng) {
+    enterPositionMode: function (swLat, swLng, neLat, neLng, imageId) {
         var m = this._map;
         if (!m) return;
         var self = this;
 
-        if (this._corners) {
-            this._corners.forEach(function (c) { m.removeLayer(c); });
-        }
+        this.exitPositionMode();
 
         // Use provided bounds (from C#) so position mode works even without a floor plan image
         var sw, ne;
@@ -2135,23 +2691,231 @@ window.fpEditor = {
         } else {
             return;
         }
-        var ci = L.divIcon({ className: 'fp-corner-handle', iconSize: [14, 14], iconAnchor: [7, 7] });
-        var swM = L.marker(sw, { icon: ci, draggable: true }).addTo(m);
-        var neM = L.marker(ne, { icon: ci, draggable: true }).addTo(m);
-        this._corners = [swM, neM];
 
-        function upd() {
-            if (self._overlay) self._overlay.setBounds([swM.getLatLng(), neM.getLatLng()]);
+        // Find the target overlay (multi-image or legacy single)
+        var targetOverlay = imageId ? self._getOverlay(imageId) : self._overlay;
+        var rotation = targetOverlay ? (targetOverlay._rotationDeg || 0) : 0;
+
+        function makeHandle(latlng, corner) {
+            var icon = L.divIcon({
+                className: 'fp-corner-handle fp-corner-' + corner,
+                iconSize: [12, 12],
+                iconAnchor: [6, 6]
+            });
+            return L.marker(latlng, { icon: icon, draggable: true }).addTo(m);
         }
-        swM.on('drag', upd);
-        neM.on('drag', upd);
+
+        // Place handles at rotated corners if image is rotated
+        var axisBounds = L.latLngBounds(sw, ne);
+        var rc = rotation ? self._getRotatedCorners(axisBounds, rotation, m) : {
+            sw: sw, ne: ne,
+            nw: L.latLng(ne.lat, sw.lng),
+            se: L.latLng(sw.lat, ne.lng)
+        };
+
+        var swM = makeHandle(rc.sw, 'sw');
+        var neM = makeHandle(rc.ne, 'ne');
+        var nwM = makeHandle(rc.nw, 'nw');
+        var seM = makeHandle(rc.se, 'se');
+        this._corners = [swM, neM, nwM, seM];
+
+        // Set/update cursor on marker elements to match the rotated diagonal direction
+        // CW screen rotation subtracts from diagonal angle, so negate
+        function updateCursors() {
+            var c1 = self._getResizeCursor(45, -rotation);
+            var c2 = self._getResizeCursor(135, -rotation);
+            [swM, neM, nwM, seM].forEach(function (marker, i) {
+                var el = marker.getElement();
+                if (el) el.style.cursor = (i < 2) ? c1 : c2;
+            });
+        }
+        setTimeout(updateCursors, 50);
+
+        // Helper: update overlay bounds and reposition all handles from new axis-aligned bounds
+        function updateFromBounds(newBounds, draggedMarker) {
+            if (targetOverlay) targetOverlay.setBounds([newBounds.getSouthWest(), newBounds.getNorthEast()]);
+            if (rotation) {
+                var rc2 = self._getRotatedCorners(newBounds, rotation, m);
+                if (draggedMarker !== swM) swM.setLatLng(rc2.sw);
+                if (draggedMarker !== neM) neM.setLatLng(rc2.ne);
+                if (draggedMarker !== nwM) nwM.setLatLng(rc2.nw);
+                if (draggedMarker !== seM) seM.setLatLng(rc2.se);
+            }
+        }
+
+        // Allow setImageRotation to update handles live during position mode
+        self._positionUpdateFn = function (newDeg) {
+            rotation = newDeg;
+            var curBounds = targetOverlay ? targetOverlay.getBounds() : axisBounds;
+            var rc2 = self._getRotatedCorners(curBounds, rotation, m);
+            swM.setLatLng(rc2.sw);
+            neM.setLatLng(rc2.ne);
+            nwM.setLatLng(rc2.nw);
+            seM.setLatLng(rc2.se);
+            updateCursors();
+        };
+
+        // Corner drag handlers - for rotated images, un-rotate drag positions to get axis-aligned bounds
+        // SW and NE are on one diagonal, NW and SE on the other
+        swM.on('drag', function () {
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(swM.getLatLng(), neM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, swM);
+            } else {
+                var s = swM.getLatLng(), n = neM.getLatLng();
+                nwM.setLatLng(L.latLng(n.lat, s.lng));
+                seM.setLatLng(L.latLng(s.lat, n.lng));
+                if (targetOverlay) targetOverlay.setBounds([s, n]);
+            }
+        });
+        neM.on('drag', function () {
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(swM.getLatLng(), neM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, neM);
+            } else {
+                var s = swM.getLatLng(), n = neM.getLatLng();
+                nwM.setLatLng(L.latLng(n.lat, s.lng));
+                seM.setLatLng(L.latLng(s.lat, n.lng));
+                if (targetOverlay) targetOverlay.setBounds([s, n]);
+            }
+        });
+        nwM.on('drag', function () {
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(nwM.getLatLng(), seM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, nwM);
+            } else {
+                var nw = nwM.getLatLng(), se = seM.getLatLng();
+                swM.setLatLng(L.latLng(se.lat, nw.lng));
+                neM.setLatLng(L.latLng(nw.lat, se.lng));
+                if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+            }
+        });
+        seM.on('drag', function () {
+            if (rotation) {
+                var newBounds = self._boundsFromRotatedDiagonal(nwM.getLatLng(), seM.getLatLng(), rotation, m);
+                updateFromBounds(newBounds, seM);
+            } else {
+                var nw = nwM.getLatLng(), se = seM.getLatLng();
+                swM.setLatLng(L.latLng(se.lat, nw.lng));
+                neM.setLatLng(L.latLng(nw.lat, se.lng));
+                if (targetOverlay) targetOverlay.setBounds([L.latLng(se.lat, nw.lng), L.latLng(nw.lat, se.lng)]);
+            }
+        });
 
         function save() {
-            var s = swM.getLatLng(), n = neM.getLatLng();
-            self._dotNetRef.invokeMethodAsync('OnBoundsChangedFromJs', s.lat, s.lng, n.lat, n.lng);
+            // Always save axis-aligned bounds (from the overlay, not from handle positions)
+            var b = targetOverlay ? targetOverlay.getBounds() : axisBounds;
+            var s = b.getSouthWest(), n = b.getNorthEast();
+            if (imageId) {
+                self._dotNetRef.invokeMethodAsync('OnImageBoundsChangedFromJs', imageId, s.lat, s.lng, n.lat, n.lng);
+            } else {
+                self._dotNetRef.invokeMethodAsync('OnBoundsChangedFromJs', s.lat, s.lng, n.lat, n.lng);
+            }
         }
         swM.on('dragend', save);
         neM.on('dragend', save);
+        nwM.on('dragend', save);
+        seM.on('dragend', save);
+
+        // ── Drag overlay body to move ──
+        if (targetOverlay) {
+            self._positionDragState = null;
+
+            function startDrag(px) {
+                self._positionDragState = {
+                    startPx: px,
+                    startBounds: targetOverlay.getBounds(),
+                    startSw: swM.getLatLng(), startNe: neM.getLatLng(),
+                    startNw: nwM.getLatLng(), startSe: seM.getLatLng()
+                };
+                m.dragging.disable();
+            }
+
+            function moveDrag(curPx) {
+                if (!self._positionDragState) return;
+                var ds = self._positionDragState;
+                var startLL = m.containerPointToLatLng(ds.startPx);
+                var curLL = m.containerPointToLatLng(curPx);
+                var dLat = curLL.lat - startLL.lat;
+                var dLng = curLL.lng - startLL.lng;
+
+                // Shift axis-aligned bounds
+                var bSw = ds.startBounds.getSouthWest();
+                var bNe = ds.startBounds.getNorthEast();
+                targetOverlay.setBounds([
+                    L.latLng(bSw.lat + dLat, bSw.lng + dLng),
+                    L.latLng(bNe.lat + dLat, bNe.lng + dLng)
+                ]);
+
+                // Shift all handles (they're at rotated positions, shift by same delta)
+                swM.setLatLng(L.latLng(ds.startSw.lat + dLat, ds.startSw.lng + dLng));
+                neM.setLatLng(L.latLng(ds.startNe.lat + dLat, ds.startNe.lng + dLng));
+                nwM.setLatLng(L.latLng(ds.startNw.lat + dLat, ds.startNw.lng + dLng));
+                seM.setLatLng(L.latLng(ds.startSe.lat + dLat, ds.startSe.lng + dLng));
+            }
+
+            function endDrag() {
+                if (!self._positionDragState) return;
+                self._positionDragState = null;
+                m.dragging.enable();
+                save();
+            }
+
+            self._positionMouseDown = function (e) {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                e.preventDefault();
+                startDrag(m.mouseEventToContainerPoint(e));
+            };
+            self._positionMouseMove = function (e) {
+                moveDrag(m.mouseEventToContainerPoint(e));
+            };
+            self._positionMouseUp = function () { endDrag(); };
+
+            self._positionTouchStart = function (e) {
+                if (e.touches.length !== 1) return;
+                e.stopPropagation();
+                e.preventDefault();
+                var touch = e.touches[0];
+                var rect = m.getContainer().getBoundingClientRect();
+                startDrag(L.point(touch.clientX - rect.left, touch.clientY - rect.top));
+            };
+            self._positionTouchMove = function (e) {
+                if (!self._positionDragState || e.touches.length !== 1) return;
+                e.preventDefault();
+                var touch = e.touches[0];
+                var rect = m.getContainer().getBoundingClientRect();
+                moveDrag(L.point(touch.clientX - rect.left, touch.clientY - rect.top));
+            };
+            self._positionTouchEnd = function () { endDrag(); };
+
+            document.addEventListener('mousemove', self._positionMouseMove);
+            document.addEventListener('mouseup', self._positionMouseUp);
+            document.addEventListener('touchmove', self._positionTouchMove, { passive: false });
+            document.addEventListener('touchend', self._positionTouchEnd);
+
+            // Re-enable pointer events on the target overlay and attach drag handlers
+            function attachDragToOverlay() {
+                var el = targetOverlay.getElement();
+                if (el) {
+                    el.style.pointerEvents = 'auto';
+                    el.style.cursor = 'move';
+                    el.addEventListener('mousedown', self._positionMouseDown);
+                    el.addEventListener('touchstart', self._positionTouchStart, { passive: false });
+                } else {
+                    targetOverlay.once('load', function () {
+                        var el2 = targetOverlay.getElement();
+                        if (el2) {
+                            el2.style.pointerEvents = 'auto';
+                            el2.style.cursor = 'move';
+                            el2.addEventListener('mousedown', self._positionMouseDown);
+                            el2.addEventListener('touchstart', self._positionTouchStart, { passive: false });
+                        }
+                    });
+                }
+            }
+            attachDragToOverlay();
+        }
     },
 
     exitPositionMode: function () {
@@ -2161,6 +2925,37 @@ window.fpEditor = {
             this._corners.forEach(function (c) { m.removeLayer(c); });
             this._corners = null;
         }
+        // Clean up drag-to-move listeners and reset cursor
+        if (this._positionMouseDown) {
+            this._overlays.forEach(function (o) {
+                var el = o.overlay.getElement();
+                if (el) {
+                    el.removeEventListener('mousedown', this._positionMouseDown);
+                    el.removeEventListener('touchstart', this._positionTouchStart);
+                    el.style.cursor = '';
+                }
+            }.bind(this));
+        }
+        if (this._positionMouseMove) {
+            document.removeEventListener('mousemove', this._positionMouseMove);
+            this._positionMouseMove = null;
+        }
+        if (this._positionMouseUp) {
+            document.removeEventListener('mouseup', this._positionMouseUp);
+            this._positionMouseUp = null;
+        }
+        if (this._positionTouchMove) {
+            document.removeEventListener('touchmove', this._positionTouchMove);
+            this._positionTouchMove = null;
+        }
+        if (this._positionTouchEnd) {
+            document.removeEventListener('touchend', this._positionTouchEnd);
+            this._positionTouchEnd = null;
+        }
+        this._positionDragState = null;
+        this._positionMouseDown = null;
+        this._positionTouchStart = null;
+        this._positionUpdateFn = null;
     },
 
     // ── Building Move Mode ──────────────────────────────────────────
@@ -2178,16 +2973,29 @@ window.fpEditor = {
         this._moveMarker = L.marker([centerLat, centerLng], { icon: ci, draggable: true }).addTo(m);
         this._moveStartCenter = L.latLng(centerLat, centerLng);
 
-        // Live preview: move overlay and walls during drag + edge pan
+        // Live preview: move overlays and walls during drag + edge pan
         this._moveMarker.on('drag', function (e) {
-            if (!self._overlay || !self._moveStartCenter) return;
+            if (!self._moveStartCenter) return;
             var pos = e.target.getLatLng();
             var dLat = pos.lat - self._moveStartCenter.lat;
             var dLng = pos.lng - self._moveStartCenter.lng;
-            var b = self._overlay.getBounds();
-            var sw = b.getSouthWest();
-            var ne = b.getNorthEast();
-            self._overlay.setBounds([[sw.lat + dLat, sw.lng + dLng], [ne.lat + dLat, ne.lng + dLng]]);
+
+            // Shift legacy single overlay
+            if (self._overlay) {
+                var b = self._overlay.getBounds();
+                var sw = b.getSouthWest();
+                var ne = b.getNorthEast();
+                self._overlay.setBounds([[sw.lat + dLat, sw.lng + dLng], [ne.lat + dLat, ne.lng + dLng]]);
+            }
+
+            // Shift all multi-image overlays
+            self._overlays.forEach(function (o) {
+                var ob = o.overlay.getBounds();
+                var osw = ob.getSouthWest();
+                var one = ob.getNorthEast();
+                o.overlay.setBounds([[osw.lat + dLat, osw.lng + dLng], [one.lat + dLat, one.lng + dLng]]);
+            });
+
             self._moveStartCenter = pos;
 
             // Edge pan during marker drag
@@ -2265,6 +3073,11 @@ window.fpEditor = {
         }
         // Disabled APs to exclude from heatmap
         var disabledList = Object.keys(self._disabledAps);
+        if (!self._excludePlannedAps) {
+            Object.keys(self._disabledForPlanAps).forEach(function (mac) {
+                if (disabledList.indexOf(mac) === -1) disabledList.push(mac);
+            });
+        }
         if (disabledList.length > 0) {
             body.disabledMacs = disabledList;
         }
@@ -2533,6 +3346,12 @@ window.fpEditor = {
 
     clearFloorLayers: function () {
         if (this._overlay && this._map) { this._map.removeLayer(this._overlay); this._overlay = null; }
+        var m = this._map;
+        if (m) {
+            this._overlays.forEach(function (o) { m.removeLayer(o.overlay); });
+        }
+        this._overlays = [];
+        this._selectedOverlayId = null;
         if (this._heatmapOverlay && this._map) { this._map.removeLayer(this._heatmapOverlay); this._heatmapOverlay = null; }
         if (this._contourLayer && this._map) { this._map.removeLayer(this._contourLayer); this._contourLayer = null; }
         if (this._signalClusterGroup) this._signalClusterGroup.clearLayers();
@@ -2543,9 +3362,18 @@ window.fpEditor = {
     destroy: function () {
         this._removeEscapeHandler();
         this._stopEdgePan();
+        this.exitPositionMode();
+        if (this._savedViewZoomHandler && this._map) {
+            this._map.off('zoomend', this._savedViewZoomHandler);
+            this._savedViewZoomHandler = null;
+        }
+        this._savedView = null;
+        SteppedScaleBar.remove(this._scaleBar); this._scaleBar = null;
         if (this._map) { this._map.remove(); this._map = null; }
         this._dotNetRef = null;
         this._overlay = null;
+        this._overlays = [];
+        this._selectedOverlayId = null;
         this._apLayer = null;
         this._apGlowLayer = null;
         this._bgWallLayer = null;

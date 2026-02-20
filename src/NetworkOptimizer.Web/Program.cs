@@ -992,7 +992,8 @@ app.MapGet("/api/floor-plan/floors/{id:int}/image", async (int id, FloorPlanServ
     if (floor == null) return Results.NotFound();
     var imagePath = svc.GetFloorImagePath(floor);
     if (imagePath == null) return Results.NotFound();
-    return Results.File(imagePath, "image/png");
+    var mimeType = DetectImageMimeType(imagePath);
+    return Results.File(imagePath, mimeType);
 });
 
 app.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext context, FloorPlanService svc) =>
@@ -1005,6 +1006,72 @@ app.MapPost("/api/floor-plan/floors/{id:int}/image", async (int id, HttpContext 
     using var stream = file.OpenReadStream();
     await svc.SaveFloorImageAsync(id, stream);
     return Results.Ok(new { success = true });
+});
+
+// --- FloorPlanImage (multi-image per floor) ---
+
+app.MapGet("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, FloorPlanService svc) =>
+{
+    var images = await svc.GetFloorImagesAsync(floorId);
+    return Results.Ok(images.Select(i => new
+    {
+        i.Id, i.FloorPlanId, i.Label, i.SwLatitude, i.SwLongitude,
+        i.NeLatitude, i.NeLongitude, i.Opacity, i.RotationDeg, i.CropJson,
+        i.SortOrder, HasFile = !string.IsNullOrEmpty(i.ImagePath)
+    }));
+});
+
+app.MapPost("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, HttpContext context, FloorPlanService svc) =>
+{
+    const long maxFileSize = 50 * 1024 * 1024; // 50 MB
+    var form = await context.Request.ReadFormAsync();
+    var file = form.Files.GetFile("image");
+    if (file == null || file.Length == 0)
+        return Results.BadRequest(new { error = "No image file provided" });
+    if (file.Length > maxFileSize)
+        return Results.BadRequest(new { error = "File exceeds 50 MB limit" });
+
+    double.TryParse(form["swLat"], System.Globalization.CultureInfo.InvariantCulture, out var swLat);
+    double.TryParse(form["swLng"], System.Globalization.CultureInfo.InvariantCulture, out var swLng);
+    double.TryParse(form["neLat"], System.Globalization.CultureInfo.InvariantCulture, out var neLat);
+    double.TryParse(form["neLng"], System.Globalization.CultureInfo.InvariantCulture, out var neLng);
+    var label = form["label"].FirstOrDefault() ?? "";
+
+    using var stream = file.OpenReadStream();
+    var image = await svc.CreateFloorImageAsync(floorId, stream, swLat, swLng, neLat, neLng, label);
+    return Results.Ok(new
+    {
+        image.Id, image.FloorPlanId, image.Label, image.SwLatitude, image.SwLongitude,
+        image.NeLatitude, image.NeLongitude, image.Opacity, image.RotationDeg, image.CropJson,
+        image.SortOrder, HasFile = true
+    });
+});
+
+app.MapGet("/api/floor-plan/images/{imageId:int}/file", async (int imageId, FloorPlanService svc) =>
+{
+    var image = await svc.GetFloorImageAsync(imageId);
+    if (image == null) return Results.NotFound();
+    var filePath = svc.GetFloorImageFilePath(image);
+    if (filePath == null) return Results.NotFound();
+    var mimeType = DetectImageMimeType(filePath);
+    return Results.File(filePath, mimeType);
+});
+
+app.MapPut("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorImageUpdateRequest req, FloorPlanService svc) =>
+{
+    var image = await svc.UpdateFloorImageAsync(imageId, req.SwLatitude, req.SwLongitude,
+        req.NeLatitude, req.NeLongitude, req.Opacity, req.RotationDeg, req.CropJson, req.Label);
+    if (image == null) return Results.NotFound();
+    return Results.Ok(new
+    {
+        image.Id, image.FloorPlanId, image.Label, image.SwLatitude, image.SwLongitude,
+        image.NeLatitude, image.NeLongitude, image.Opacity, image.RotationDeg, image.CropJson, image.SortOrder
+    });
+});
+
+app.MapDelete("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorPlanService svc) =>
+{
+    return await svc.DeleteFloorImageAsync(imageId) ? Results.NoContent() : Results.NotFound();
 });
 
 app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
@@ -1369,6 +1436,39 @@ static string GetClientIp(HttpContext context)
     return clientIp;
 }
 
+static string DetectImageMimeType(string filePath)
+{
+    try
+    {
+        var header = new byte[12];
+        using var fs = File.OpenRead(filePath);
+        var bytesRead = fs.Read(header, 0, header.Length);
+        if (bytesRead >= 4)
+        {
+            // PNG: 89 50 4E 47
+            if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+                return "image/png";
+            // JPEG: FF D8 FF
+            if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
+                return "image/jpeg";
+            // WebP: RIFF + 4 byte size + WEBP
+            if (bytesRead >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+                && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
+                return "image/webp";
+        }
+    }
+    catch { /* fall through */ }
+
+    // Fallback by extension
+    var ext = Path.GetExtension(filePath).ToLowerInvariant();
+    return ext switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".webp" => "image/webp",
+        _ => "image/png"
+    };
+}
+
 // Request DTO for UPnP notes
 record UpnpNoteRequest(string HostIp, string Port, string Protocol, string? Note);
 
@@ -1381,3 +1481,6 @@ record FloorRequest(int FloorNumber, string Label, double SwLatitude, double SwL
 record FloorUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
     double? NeLongitude = null, double? Opacity = null, string? WallsJson = null, string? Label = null,
     string? FloorMaterial = null);
+record FloorImageUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
+    double? NeLongitude = null, double? Opacity = null, double? RotationDeg = null, string? CropJson = null,
+    string? Label = null);

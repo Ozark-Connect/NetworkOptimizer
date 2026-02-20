@@ -108,7 +108,7 @@
                         @(_mode == "aps" ? "Done" : _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs")
                     </button>
                     <button class="fp-btn @(_mode == "plan-aps" ? "fp-btn-warning" : "")" @onclick="TogglePlanApMode">
-                        @(_mode == "plan-aps" ? "Done" : "Plan APs")
+                        @(_mode == "plan-aps" ? "Done" : _plannedAps.Count > 0 ? "Edit Planned APs" : "Add Planned APs")
                     </button>
                 </div>
 
@@ -128,20 +128,23 @@
                 </select>
                 @if (_showHeatmap)
                 {
-                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn">
+                    <button class="fp-btn fp-btn-reset-sim" style="display:none" @onclick="ResetSimulation" id="fp-reset-sim-btn"
+                            data-tooltip="Clear all simulation overrides (TX power, antenna, disabled APs)" data-tooltip-hover-only>
                         Reset Sim
                     </button>
                 }
                 @if (!ReadOnly && _plannedAps.Count > 0)
                 {
                     <button class="fp-btn @(_showPlannedAps ? "active" : "")" @onclick="TogglePlannedAps"
-                            data-tooltip="Show/hide planned APs on map and heatmap">
+                            data-tooltip="Show/hide planned APs on map and heatmap" data-tooltip-hover-only>
                         Planned APs
                     </button>
                 }
                 <button class="fp-btn @(_showSignalData ? "active" : "")" @onclick="ToggleSignalData">
                     Signal Data
                 </button>
+            </div>
+            <div class="fp-toolbar-group fp-toolbar-actions">
                 <button class="fp-btn" @onclick="FitMapToContent"
                         data-tooltip="Fit to view" data-tooltip-hover-only
                         style="padding: 4px 6px; line-height: 0;">
@@ -246,6 +249,12 @@
                     }
                 </div>
             </div>
+            @if (_plannedAps.Count > 0)
+            {
+                <div class="fp-edit-hint">
+                    Drag Planned APs to adjust their locations
+                </div>
+            }
         }
 
         @if (!ReadOnly && _selectedBuilding != null && _mode != "walls" && _mode != "aps" && _mode != "plan-aps")
@@ -317,30 +326,66 @@
     @if (!ReadOnly && _selectedFloor != null)
     {
         <div class="fp-bottom-bar">
-            @* TODO: Re-enable once floor plan image sizing/positioning is implemented
-            <label class="fp-upload-btn">
-                Upload Floor Plan
-                <InputFile OnChange="OnFloorPlanUpload" accept="image/*" style="display:none" />
-            </label>
-            *@
-            <div class="fp-opacity-control">
-                <span>Floor:</span>
-                <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
-                    <option value="floor_wood">Wood Frame</option>
-                    <option value="floor_concrete">Concrete Slab</option>
-                </select>
+            <div class="fp-bar-group">
+                <button class="fp-upload-btn" onclick="fpEditor.pickUnderlayFile()">Upload Floorplan</button>
+                @foreach (var img in _floorImages)
+                {
+                    <button class="fp-image-chip @(img.Id == _selectedImageId ? "active" : "")"
+                            @onclick="() => ToggleImageSelection(img.Id)">
+                        @(string.IsNullOrEmpty(img.Label) ? "Underlay " + (_floorImages.IndexOf(img) + 1) : img.Label)
+                    </button>
+                }
             </div>
-            @* TODO: Re-enable alongside floor plan image upload
-            <div class="fp-opacity-control">
-                <span>Opacity:</span>
-                <input type="range" min="0" max="100" value="@((int)(_floorOpacity * 100))"
-                       @oninput="OnOpacityChange" class="fp-opacity-slider" />
+            @if (_selectedImage != null)
+            {
+                <div class="fp-separator"></div>
+                <div class="fp-bar-group">
+                    <button class="fp-btn @(_mode == "image-position" ? "fp-btn-active" : "")" @onclick="ToggleImagePositionMode">Position</button>
+                    <div class="fp-opacity-control">
+                        <span>Opacity:</span>
+                        <input type="range" min="0" max="100" value="@((int)((_selectedImage?.Opacity ?? 0.7) * 100))"
+                               @oninput="OnImageOpacityChange" class="fp-opacity-slider" />
+                    </div>
+                    <div class="fp-opacity-control">
+                        <span>Rotation:</span>
+                        <input type="range" min="-180" max="180" step="1" value="@((int)(_selectedImage?.RotationDeg ?? 0))"
+                               @oninput="OnImageRotationChange" class="fp-opacity-slider" />
+                        <span class="fp-rotation-value">@((int)(_selectedImage?.RotationDeg ?? 0))°</span>
+                    </div>
+                </div>
+                <div class="fp-bar-group">
+                    <button class="fp-btn @(_showCropControls ? "fp-btn-active" : "")" @onclick="() => _showCropControls = !_showCropControls">Crop</button>
+                    <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteUnderlay = true">Delete Underlay</button>
+                </div>
+                <div class="fp-separator"></div>
+            }
+            <div class="fp-bar-group">
+                <div class="fp-opacity-control">
+                    <span>Floor:</span>
+                    <select class="fp-select fp-select-sm" value="@(_selectedFloor?.FloorMaterial ?? "floor_wood")" @onchange="OnFloorMaterialChange">
+                        <option value="floor_wood">Wood Frame</option>
+                        <option value="floor_concrete">Concrete Slab</option>
+                    </select>
+                </div>
+                <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
+                <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
+                <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
             </div>
-            *@
-            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteFloor = true">Delete Floor</button>
-            <button class="fp-btn" @onclick="StartBuildingMove">Move Building</button>
-            <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteBuilding = true">Delete Building</button>
         </div>
+        @if (_showCropControls && _selectedImage != null)
+        {
+            <div class="fp-crop-panel">
+                @foreach (var side in new[] { ("Top", _cropTop), ("Right", _cropRight), ("Bottom", _cropBottom), ("Left", _cropLeft) })
+                {
+                    <div class="fp-crop-slider">
+                        <span>@side.Item1:</span>
+                        <input type="range" min="0" max="50" step="1" value="@side.Item2"
+                               @oninput="e => OnCropChange(side.Item1, e)" class="fp-opacity-slider" />
+                        <span>@side.Item2%</span>
+                    </div>
+                }
+            </div>
+        }
     }
     else if (!ReadOnly && _selectedBuilding != null)
     {
@@ -410,6 +455,23 @@
             <div class="fp-dialog-actions">
                 <button class="fp-btn" @onclick="() => _showDeleteFloor = false">Cancel</button>
                 <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Underlay Confirmation -->
+@if (_showDeleteUnderlay && _selectedImage != null)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showDeleteUnderlay = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Delete Underlay</h3>
+            <p style="color: var(--text-muted, #aaa); margin: 8px 0 16px;">
+                Delete this underlay image? This cannot be undone.
+            </p>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showDeleteUnderlay = false">Cancel</button>
+                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedImage">Delete</button>
             </div>
         </div>
     </div>
@@ -553,6 +615,7 @@
     .fp-floor-add { font-weight: bold; }
 
     .fp-toolbar-group { display: flex; align-items: center; gap: 4px; }
+    .fp-toolbar-actions { margin-left: auto; }
     .fp-toolbar-sep { width: 1px; height: 20px; background: var(--border-color, #2d2d4a); flex-shrink: 0; }
 
     .fp-map-container { position: relative; z-index: 1; }
@@ -572,6 +635,14 @@
         border-top: 1px solid var(--border-color, #2d2d4a);
         position: relative;
         z-index: 2;
+        flex-shrink: 0;
+        flex-wrap: wrap;
+    }
+
+    .fp-bar-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         flex-shrink: 0;
     }
 
@@ -596,6 +667,62 @@
     }
 
     .fp-opacity-slider { width: 100px; accent-color: var(--accent-color, #4f46e5); }
+
+
+    .fp-image-chip {
+        background: var(--btn-bg, #2d2d4a);
+        color: var(--text-color, #e0e0e0);
+        border: 1px solid var(--border-color, #3d3d5c);
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .fp-image-chip:hover { background: var(--btn-hover-bg, #3d3d5c); }
+    .fp-image-chip.active {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: #3b82f6;
+        color: #93bbfc;
+    }
+
+    .fp-separator {
+        width: 1px;
+        height: 20px;
+        background: var(--border-color, #3d3d5c);
+        flex-shrink: 0;
+    }
+
+    .fp-btn-active {
+        background: rgba(59, 130, 246, 0.2) !important;
+        border-color: #3b82f6 !important;
+        color: #93bbfc !important;
+    }
+
+    .fp-rotation-value {
+        min-width: 30px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .fp-crop-panel {
+        display: flex;
+        gap: 16px;
+        padding: 6px 12px;
+        background: var(--card-header-bg, #16162a);
+        border-top: 1px solid var(--border-color, #2d2d4a);
+        flex-shrink: 0;
+    }
+
+    .fp-crop-slider {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--text-muted, #8888aa);
+    }
+
+    .fp-crop-slider .fp-opacity-slider { width: 80px; }
 
     .fp-dialog-backdrop {
         position: fixed;
@@ -914,7 +1041,7 @@
     /* Chip stack (bottom-left of map) */
     .fp-chip-stack {
         position: absolute;
-        bottom: 10px;
+        bottom: 45px;
         left: 10px;
         z-index: 1000;
         display: flex;
@@ -997,13 +1124,15 @@
 
     /* Floor plan corner handles */
     .fp-corner-handle {
-        width: 14px;
-        height: 14px;
-        background: #4f46e5;
-        border: 2px solid #fff;
-        border-radius: 3px;
+        width: 12px;
+        height: 12px;
+        background: #fff;
+        border: 2px solid #3b82f6;
+        border-radius: 2px;
         cursor: move;
     }
+    .fp-corner-sw, .fp-corner-ne { cursor: nesw-resize; }
+    .fp-corner-nw, .fp-corner-se { cursor: nwse-resize; }
 
     /* Building move handle */
     .fp-move-handle {
@@ -1239,6 +1368,14 @@
     .fp-disable-ap-btn.active:hover {
         background: rgba(56, 189, 248, 0.2);
     }
+    .fp-disable-ap-btn.fp-disable-plan.active {
+        border-color: #f59e0b;
+        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.1);
+    }
+    .fp-disable-ap-btn.fp-disable-plan.active:hover {
+        background: rgba(245, 158, 11, 0.2);
+    }
 
     .fp-btn-reset-sim {
         background: transparent;
@@ -1308,7 +1445,9 @@
     @@media (max-width: 768px) {
         .fp-toolbar { flex-direction: column; align-items: flex-start; }
         .fp-toolbar-left { width: 100%; }
-        .fp-toolbar-right { width: 100%; justify-content: flex-end; }
+        .fp-toolbar-right { width: 100%; }
+        .fp-toolbar-group { flex-wrap: wrap; }
+        .fp-toolbar-sep { display: none; }
         .fp-edit-hint {
             top: auto;
             bottom: 110px;
@@ -1316,6 +1455,30 @@
             white-space: normal;
             text-align: center;
         }
+        .fp-bottom-bar {
+            gap: 6px 8px;
+            padding: 6px 8px;
+        }
+        .fp-bottom-bar .fp-btn,
+        .fp-bottom-bar .fp-upload-btn {
+            padding: 3px 7px;
+            font-size: 12px;
+        }
+        .fp-bar-group {
+            gap: 4px;
+            flex-wrap: wrap;
+            max-width: 100%;
+            flex-shrink: 1;
+        }
+        .fp-separator { display: none; }
+        .fp-opacity-slider { width: 70px; }
+        .fp-opacity-control { font-size: 12px; gap: 4px; }
+        .fp-crop-panel {
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .fp-crop-slider .fp-opacity-slider { width: 60px; }
+        .fp-map { min-height: 250px; height: 62vh !important; }
     }
 </style>
 
@@ -1341,13 +1504,18 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
-    private bool _showPlannedAps = true;
+    private bool _showPlannedAps;
     private bool _showSignalData;
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
     private string _wallMaterial = "drywall";
     private bool _isDrawingShape;
     private double _floorOpacity = 0.7;
+    private List<FloorImageDto> _floorImages = new();
+    private int? _selectedImageId;
+    private FloorImageDto? _selectedImage;
+    private bool _showCropControls;
+    private int _cropTop, _cropRight, _cropBottom, _cropLeft;
     private bool _showAddBuilding;
     private bool _showAddFloor;
     private string _newBuildingName = "";
@@ -1356,6 +1524,9 @@
     private string _newFloorMaterial = "floor_wood";
     private bool _showDeleteBuilding;
     private bool _showDeleteFloor;
+    private bool _showDeleteUnderlay;
+    private System.Threading.Timer? _sliderSaveTimer;
+    private Func<Task>? _pendingSliderSave;
     private bool _isFullscreen;
     private ApMapMarker? _selectedApForPlacement;
     private List<PlannedAp> _plannedAps = new();
@@ -1501,6 +1672,7 @@
     private async Task OnBuildingChanged(ChangeEventArgs e)
     {
         await LoadBuildings();
+        var previousBuildingId = _selectedBuildingId;
         _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
@@ -1509,6 +1681,11 @@
         if (_mode == "aps" || _mode == "plan-aps")
             await SetMapClickToPlaceMode(false);
         _mode = "view";
+
+        // Save map view when entering a building, restore when leaving
+        if (_selectedBuilding != null && previousBuildingId == 0 && _mapInitialized)
+            await JS.InvokeVoidAsync("fpEditor.saveMapView",
+                _selectedBuilding.CenterLatitude, _selectedBuilding.CenterLongitude);
 
         if (_selectedBuilding != null && _floors.Count > 0)
         {
@@ -1529,8 +1706,12 @@
         }
         else
         {
-            // Deselected: clear floor overlay, active walls, and move/position modes
+            // Deselected: clear floor overlay, underlays, active walls, and move/position modes
             await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", "", 0, 0, 0, 0, 0);
+            await JS.InvokeVoidAsync("fpEditor.updateFloorOverlays", Array.Empty<object>());
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
             await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
             await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
             if (_mapInitialized)
@@ -1543,6 +1724,8 @@
                             .Where(m => !m.Key.StartsWith("floor_"))
                             .ToDictionary(m => m.Key, m => m.Value)));
             }
+            // Restore the map view from before the building was selected
+            await JS.InvokeVoidAsync("fpEditor.restoreMapView");
         }
 
         await UpdateApMarkers();
@@ -1648,11 +1831,18 @@
         {
             _globalActiveFloor = _selectedFloor.FloorNumber;
             _floorOpacity = _selectedFloor.Opacity;
+            await LoadFloorImages();
             await UpdateFloorOverlay();
             await UpdateApMarkers();
             await UpdateWalls();
             await UpdateBackgroundWalls();
             if (_showHeatmap) await ComputeHeatmap();
+        }
+        else
+        {
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
         }
         StateHasChanged();
     }
@@ -1667,6 +1857,501 @@
         await JS.InvokeVoidAsync("fpEditor.updateFloorOverlay", imageUrl,
             _selectedFloor.SwLatitude, _selectedFloor.SwLongitude,
             _selectedFloor.NeLatitude, _selectedFloor.NeLongitude, _floorOpacity);
+        await UpdateFloorOverlays();
+    }
+
+    private async Task LoadFloorImages()
+    {
+        if (_selectedFloor == null)
+        {
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
+            return;
+        }
+        var images = await FloorPlanSvc.GetFloorImagesAsync(_selectedFloor.Id);
+        _floorImages = images.Select(i => new FloorImageDto
+        {
+            Id = i.Id,
+            FloorPlanId = i.FloorPlanId,
+            Label = i.Label,
+            SwLatitude = i.SwLatitude,
+            SwLongitude = i.SwLongitude,
+            NeLatitude = i.NeLatitude,
+            NeLongitude = i.NeLongitude,
+            Opacity = i.Opacity,
+            RotationDeg = i.RotationDeg,
+            CropJson = i.CropJson,
+            SortOrder = i.SortOrder
+        }).ToList();
+        _selectedImageId = null;
+        _selectedImage = null;
+    }
+
+    private async Task UpdateFloorOverlays()
+    {
+        if (!_mapInitialized || _floorImages.Count == 0)
+        {
+            await JS.InvokeVoidAsync("fpEditor.updateFloorOverlays", Array.Empty<object>());
+            return;
+        }
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        var overlayData = _floorImages.Select(img => new
+        {
+            id = img.Id,
+            imageUrl = baseUrl + "/api/floor-plan/images/" + img.Id + "/file",
+            swLatitude = img.SwLatitude,
+            swLongitude = img.SwLongitude,
+            neLatitude = img.NeLatitude,
+            neLongitude = img.NeLongitude,
+            opacity = img.Opacity,
+            rotationDeg = img.RotationDeg,
+            cropJson = img.CropJson
+        }).ToArray();
+        await JS.InvokeVoidAsync("fpEditor.updateFloorOverlays", (object)overlayData);
+        if (_selectedImageId.HasValue)
+            await JS.InvokeVoidAsync("fpEditor.selectOverlay", _selectedImageId.Value);
+    }
+
+    private async Task ToggleImageSelection(int imageId)
+    {
+        if (_selectedImageId == imageId)
+        {
+            await DeselectImage();
+            return;
+        }
+        await SelectImage(imageId);
+    }
+
+    private async Task DeselectImage()
+    {
+        _selectedImageId = null;
+        _selectedImage = null;
+        _showCropControls = false;
+        if (_mode == "image-position") _mode = "view";
+        await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        await JS.InvokeVoidAsync("fpEditor.deselectOverlay");
+        await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
+    }
+
+    private async Task SelectImage(int imageId)
+    {
+        _selectedImageId = imageId;
+        _selectedImage = _floorImages.FirstOrDefault(i => i.Id == imageId);
+        LoadCropFromSelectedImage();
+        if (_mode == "image-position") _mode = "view";
+        await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        await JS.InvokeVoidAsync("fpEditor.selectOverlay", imageId);
+    }
+
+    [JSInvokable]
+    public async Task OnImageSelectedFromJs(int imageId)
+    {
+        if (_selectedImageId == imageId)
+        {
+            await DeselectImage();
+            StateHasChanged();
+            return;
+        }
+        _selectedImageId = imageId;
+        _selectedImage = _floorImages.FirstOrDefault(i => i.Id == imageId);
+        LoadCropFromSelectedImage();
+        if (_mode == "image-position") _mode = "view";
+        await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        await JS.InvokeVoidAsync("fpEditor.selectOverlay", imageId);
+        StateHasChanged();
+    }
+
+    private void LoadCropFromSelectedImage()
+    {
+        _cropTop = _cropRight = _cropBottom = _cropLeft = 0;
+        _showCropControls = false;
+        if (_selectedImage?.CropJson == null) return;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(_selectedImage.CropJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("top", out var t)) _cropTop = t.GetInt32();
+            if (root.TryGetProperty("right", out var r)) _cropRight = r.GetInt32();
+            if (root.TryGetProperty("bottom", out var b)) _cropBottom = b.GetInt32();
+            if (root.TryGetProperty("left", out var l)) _cropLeft = l.GetInt32();
+        }
+        catch { /* invalid JSON - reset to defaults */ }
+    }
+
+    /// <summary>
+    /// Called from JS (pickUnderlayFile) to get the floor ID and initial bounds for a new underlay.
+    /// Uses JSInvokable so the file picker can open first (preserving user gesture on iOS Safari),
+    /// then get bounds asynchronously.
+    /// </summary>
+    [JSInvokable]
+    public object? GetUnderlayUploadInfo()
+    {
+        if (_selectedFloor == null || _selectedBuilding == null) return null;
+
+        double swLat, swLng, neLat, neLng;
+        if (BuildingHasWalls())
+        {
+            var outline = ComputeBuildingOutline();
+            swLat = outline.swLat; swLng = outline.swLng;
+            neLat = outline.neLat; neLng = outline.neLng;
+        }
+        else
+        {
+            var centerLat = _selectedBuilding.CenterLatitude;
+            var centerLng = _selectedBuilding.CenterLongitude;
+            if (centerLat == 0 && centerLng == 0) { centerLat = 38.0; centerLng = -92.0; }
+            var latOffset = 25.0 / 111320.0;
+            var lngOffset = 25.0 / (111320.0 * Math.Cos(centerLat * Math.PI / 180));
+            swLat = centerLat - latOffset;
+            swLng = centerLng - lngOffset;
+            neLat = centerLat + latOffset;
+            neLng = centerLng + lngOffset;
+        }
+
+        return new { floorId = _selectedFloor.Id, swLat, swLng, neLat, neLng };
+    }
+
+    [JSInvokable]
+    public async Task OnUnderlayUploadedFromJs(int imageId, int imgWidth = 0, int imgHeight = 0)
+    {
+        await LoadFloorImages();
+
+        // Auto-fit to building outline, using image aspect ratio to resolve rotation ambiguity
+        if (BuildingHasWalls())
+        {
+            double aspectRatio = (imgWidth > 0 && imgHeight > 0) ? (double)imgWidth / imgHeight : 0;
+            var outline = ComputeBuildingOutline(aspectRatio);
+            await FloorPlanSvc.UpdateFloorImageAsync(imageId,
+                swLat: outline.swLat, swLng: outline.swLng,
+                neLat: outline.neLat, neLng: outline.neLng,
+                rotationDeg: outline.rotationDeg);
+            var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
+            if (img != null)
+            {
+                img.SwLatitude = outline.swLat;
+                img.SwLongitude = outline.swLng;
+                img.NeLatitude = outline.neLat;
+                img.NeLongitude = outline.neLng;
+                img.RotationDeg = outline.rotationDeg;
+            }
+        }
+
+        await UpdateFloorOverlays();
+
+        _selectedImageId = imageId;
+        _selectedImage = _floorImages.FirstOrDefault(i => i.Id == imageId);
+        if (_selectedImage != null)
+            await JS.InvokeVoidAsync("fpEditor.selectOverlay", imageId);
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Compute the minimum area bounding rectangle of all wall points.
+    /// Returns axis-aligned bounds (for the overlay) and rotation angle.
+    /// The axis-aligned bounds, when CSS-rotated by the returned angle, tightly fit the building.
+    /// </summary>
+    private (double swLat, double swLng, double neLat, double neLng, double rotationDeg) ComputeBuildingOutline(double imageAspectRatio = 0)
+    {
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var points = new List<(double x, double y)>(); // x=lng-meters, y=lat-meters
+
+        // Collect all wall vertices
+        double refLat = 0, refLng = 0;
+        int ptCount = 0;
+        foreach (var floor in _floors)
+        {
+            if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+            try
+            {
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                if (walls == null) continue;
+                foreach (var wall in walls)
+                    foreach (var pt in wall.Points) { refLat += pt.Lat; refLng += pt.Lng; ptCount++; }
+            }
+            catch { }
+        }
+
+        if (ptCount < 3)
+        {
+            var (s, w, n, e) = ComputeBuildingBounds();
+            return (s, w, n, e, 0);
+        }
+
+        refLat /= ptCount;
+        refLng /= ptCount;
+        var cosLat = Math.Cos(refLat * Math.PI / 180);
+
+        // Convert to local meters relative to centroid
+        foreach (var floor in _floors)
+        {
+            if (string.IsNullOrEmpty(floor.WallsJson)) continue;
+            try
+            {
+                var walls = System.Text.Json.JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOpts);
+                if (walls == null) continue;
+                foreach (var wall in walls)
+                    foreach (var pt in wall.Points)
+                        points.Add(((pt.Lng - refLng) * cosLat * 111320, (pt.Lat - refLat) * 111320));
+            }
+            catch { }
+        }
+
+        // Convex hull (Andrew's monotone chain)
+        var sorted = points.Distinct().OrderBy(p => p.x).ThenBy(p => p.y).ToList();
+        if (sorted.Count < 3)
+        {
+            var (s, w, n, e) = ComputeBuildingBounds();
+            return (s, w, n, e, 0);
+        }
+
+        static double cross((double x, double y) o, (double x, double y) a, (double x, double y) b) =>
+            (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+        var hull = new List<(double x, double y)>();
+        // Lower hull
+        foreach (var p in sorted)
+        {
+            while (hull.Count >= 2 && cross(hull[^2], hull[^1], p) <= 0) hull.RemoveAt(hull.Count - 1);
+            hull.Add(p);
+        }
+        // Upper hull
+        int lower = hull.Count + 1;
+        for (int i = sorted.Count - 2; i >= 0; i--)
+        {
+            while (hull.Count >= lower && cross(hull[^2], hull[^1], sorted[i]) <= 0) hull.RemoveAt(hull.Count - 1);
+            hull.Add(sorted[i]);
+        }
+        hull.RemoveAt(hull.Count - 1); // remove duplicate of first point
+
+        // Minimum area bounding rectangle: try each hull edge orientation
+        double bestArea = double.MaxValue;
+        double bestAngle = 0, bestMinX = 0, bestMaxX = 0, bestMinY = 0, bestMaxY = 0;
+
+        for (int i = 0; i < hull.Count; i++)
+        {
+            var (x1, y1) = hull[i];
+            var (x2, y2) = hull[(i + 1) % hull.Count];
+            var dx = x2 - x1;
+            var dy = y2 - y1;
+            var len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < 1e-10) continue;
+
+            // Unit vector along this edge
+            var ux = dx / len;
+            var uy = dy / len;
+
+            // Project all hull points onto edge direction (u) and perpendicular (-uy, ux)
+            double minProj = double.MaxValue, maxProj = double.MinValue;
+            double minPerp = double.MaxValue, maxPerp = double.MinValue;
+            foreach (var (px, py) in hull)
+            {
+                var proj = px * ux + py * uy;
+                var perp = -px * uy + py * ux;
+                minProj = Math.Min(minProj, proj);
+                maxProj = Math.Max(maxProj, proj);
+                minPerp = Math.Min(minPerp, perp);
+                maxPerp = Math.Max(maxPerp, perp);
+            }
+
+            var area = (maxProj - minProj) * (maxPerp - minPerp);
+            if (area < bestArea)
+            {
+                bestArea = area;
+                bestAngle = Math.Atan2(uy, ux); // angle of edge in radians
+                bestMinX = minProj;
+                bestMaxX = maxProj;
+                bestMinY = minPerp;
+                bestMaxY = maxPerp;
+            }
+        }
+
+        // The MBR in local meters: center, half-widths along edge direction
+        var cx = (bestMinX + bestMaxX) / 2;
+        var cy = (bestMinY + bestMaxY) / 2;
+        var hw = (bestMaxX - bestMinX) / 2; // half-width along edge
+        var hh = (bestMaxY - bestMinY) / 2; // half-height perpendicular to edge
+
+        // The axis-aligned overlay bounds should be unrotated (the CSS rotation will align them)
+        // Convert center from rotated local coords back to unrotated local coords
+        var cosA = Math.Cos(bestAngle);
+        var sinA = Math.Sin(bestAngle);
+        var centerX = cx * cosA - cy * sinA; // rotate center back to axis-aligned
+        var centerY = cx * sinA + cy * cosA;
+
+        // Convert back to lat/lng
+        var centerLat = refLat + centerY / 111320;
+        var centerLng = refLng + centerX / (111320 * cosLat);
+        // CSS rotate() is clockwise in screen coords (y-down), our angle is CCW from east (y-up).
+        // Negate to convert.
+        var rotDegA = -bestAngle * 180.0 / Math.PI;
+        // Normalize to [-180, 180] to minimize rotation magnitude
+        rotDegA = ((rotDegA + 180) % 360 + 360) % 360 - 180;
+
+        // Two valid rotation choices that both cover the building correctly:
+        // Choice A: rotation = rotDegA, overlay lng-meters = hw (along edge), lat-meters = hh (perpendicular)
+        // Choice B: rotation = rotDegA + 90, overlay lng-meters = hh, lat-meters = hw (swapped, rotated 90°)
+        var rotDegB = rotDegA + 90;
+        if (rotDegB > 180) rotDegB -= 360;
+
+        double chosenRot;
+        double lngMeters, latMeters;
+
+        if (imageAspectRatio > 0)
+        {
+            // Match: image landscape (W>H) should get a landscape overlay (lngMeters > latMeters)
+            // and image portrait should get a portrait overlay.
+            double ratioA = hw / Math.Max(hh, 0.01); // Choice A: lng/lat aspect
+            double ratioB = hh / Math.Max(hw, 0.01); // Choice B: lng/lat aspect
+
+            // Pick the choice whose overlay aspect ratio is closer to the image's
+            double diffA = Math.Abs(Math.Log(ratioA / imageAspectRatio));
+            double diffB = Math.Abs(Math.Log(ratioB / imageAspectRatio));
+
+            if (diffA <= diffB)
+            {
+                chosenRot = rotDegA; lngMeters = hw; latMeters = hh;
+            }
+            else
+            {
+                chosenRot = rotDegB; lngMeters = hh; latMeters = hw;
+            }
+        }
+        else
+        {
+            // No image info: pick the choice with smaller absolute rotation
+            double distA = Math.Abs(rotDegA);
+            double distB = Math.Abs(rotDegB);
+            if (distA <= distB)
+            {
+                chosenRot = rotDegA; lngMeters = hw; latMeters = hh;
+            }
+            else
+            {
+                chosenRot = rotDegB; lngMeters = hh; latMeters = hw;
+            }
+        }
+
+        // Bias toward top-of-image facing north: normalize to [-90, 90].
+        // Adding ±180° flips the image but covers the same rectangular footprint.
+        if (chosenRot > 90) chosenRot -= 180;
+        else if (chosenRot < -90) chosenRot += 180;
+
+        chosenRot = Math.Round(chosenRot);
+        var latHalf = latMeters / 111320;
+        var lngHalf = lngMeters / (111320 * cosLat);
+
+        return (centerLat - latHalf, centerLng - lngHalf, centerLat + latHalf, centerLng + lngHalf, chosenRot);
+    }
+
+    private void DebounceSaveSlider(Func<Task> saveAction)
+    {
+        _pendingSliderSave = saveAction;
+        _sliderSaveTimer?.Dispose();
+        _sliderSaveTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                var action = _pendingSliderSave;
+                _pendingSliderSave = null;
+                if (action != null) await InvokeAsync(action);
+            }
+            catch { /* prevent timer death */ }
+        }, null, 300, Timeout.Infinite);
+    }
+
+    private async Task OnImageOpacityChange(ChangeEventArgs e)
+    {
+        if (_selectedImage == null) return;
+        if (int.TryParse(e.Value?.ToString(), out var pct))
+        {
+            var opacity = pct / 100.0;
+            _selectedImage.Opacity = opacity;
+            await JS.InvokeVoidAsync("fpEditor.setImageOpacity", _selectedImage.Id, opacity);
+            var imageId = _selectedImage.Id;
+            DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, opacity: opacity));
+        }
+    }
+
+    private async Task OnImageRotationChange(ChangeEventArgs e)
+    {
+        if (_selectedImage == null) return;
+        if (int.TryParse(e.Value?.ToString(), out var deg))
+        {
+            _selectedImage.RotationDeg = deg;
+            await JS.InvokeVoidAsync("fpEditor.setImageRotation", _selectedImage.Id, deg);
+            var imageId = _selectedImage.Id;
+            DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, rotationDeg: (double)deg));
+        }
+    }
+
+    private async Task OnCropChange(string side, ChangeEventArgs e)
+    {
+        if (_selectedImage == null) return;
+        if (!int.TryParse(e.Value?.ToString(), out var val)) return;
+        switch (side)
+        {
+            case "Top": _cropTop = val; break;
+            case "Right": _cropRight = val; break;
+            case "Bottom": _cropBottom = val; break;
+            case "Left": _cropLeft = val; break;
+        }
+        await JS.InvokeVoidAsync("fpEditor.setImageCrop", _selectedImage.Id, _cropTop, _cropRight, _cropBottom, _cropLeft);
+        var json = System.Text.Json.JsonSerializer.Serialize(new { top = _cropTop, right = _cropRight, bottom = _cropBottom, left = _cropLeft });
+        _selectedImage.CropJson = json;
+        var imageId = _selectedImage.Id;
+        DebounceSaveSlider(() => FloorPlanSvc.UpdateFloorImageAsync(imageId, cropJson: json));
+    }
+
+    private async Task ToggleImagePositionMode()
+    {
+        if (_selectedImage == null) return;
+        if (_mode == "move") await JS.InvokeVoidAsync("fpEditor.exitMoveMode");
+
+        _mode = _mode == "image-position" ? "view" : "image-position";
+        if (_mode == "image-position")
+        {
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", false);
+            await JS.InvokeVoidAsync("fpEditor.enterPositionMode",
+                _selectedImage.SwLatitude, _selectedImage.SwLongitude,
+                _selectedImage.NeLatitude, _selectedImage.NeLongitude, _selectedImage.Id);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnImageBoundsChangedFromJs(int imageId, double swLat, double swLng, double neLat, double neLng)
+    {
+        var img = _floorImages.FirstOrDefault(i => i.Id == imageId);
+        if (img == null) return;
+        img.SwLatitude = swLat;
+        img.SwLongitude = swLng;
+        img.NeLatitude = neLat;
+        img.NeLongitude = neLng;
+        await FloorPlanSvc.UpdateFloorImageAsync(imageId, swLat, swLng, neLat, neLng);
+    }
+
+    private async Task DeleteSelectedImage()
+    {
+        _showDeleteUnderlay = false;
+        if (_selectedImage == null) return;
+        var imageId = _selectedImage.Id;
+        await FloorPlanSvc.DeleteFloorImageAsync(imageId);
+        _selectedImageId = null;
+        _selectedImage = null;
+        if (_mode == "image-position")
+        {
+            _mode = "view";
+            await JS.InvokeVoidAsync("fpEditor.exitPositionMode");
+        }
+        await LoadFloorImages();
+        await UpdateFloorOverlays();
+        StateHasChanged();
     }
 
     // ── AP markers (match Coverage Map) ──────────────────────────────
@@ -1999,6 +2684,8 @@
     {
         await PlannedApSvc.DeleteAsync(plannedId);
         await LoadPlannedAps();
+        if (_plannedAps.Count == 0) _showPlannedAps = false;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         await InvokeAsync(async () =>
         {
             StateHasChanged();
@@ -2031,9 +2718,13 @@
     private async Task TogglePlanApMode()
     {
         _mode = _mode == "plan-aps" ? "view" : "plan-aps";
+        if (_mode == "plan-aps") _showPlannedAps = true;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         _selectedCatalogModel = null;
         _selectedApForPlacement = null;
+        await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", _mode != "plan-aps");
         await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
         await SetMapClickToPlaceMode(_mode == "plan-aps");
         if (_mode == "view") await UpdateBackgroundWalls();
     }
@@ -2077,6 +2768,8 @@
             };
             await PlannedApSvc.CreateAsync(ap);
             await LoadPlannedAps();
+            _showPlannedAps = true;
+            await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", false);
             await InvokeAsync(async () =>
             {
                 StateHasChanged();
@@ -2198,21 +2891,18 @@
         if (_mode == "walls")
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
-            // Default to exterior_residential for empty floors (saves a click when drawing the building outline)
-            // Otherwise reset to drywall (first material)
             _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
                 ? "exterior_residential"
                 : "drywall";
-            // Temporarily hide heatmap while drawing walls
             if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", false);
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
         }
         else
         {
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
-            // Re-render walls from DB state after exiting draw mode
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
             if (_selectedFloor != null) await UpdateWalls();
-            // Restore heatmap if it was on
             if (_showHeatmap) await ComputeHeatmap();
         }
         await UpdateApMarkers();
@@ -2345,7 +3035,10 @@
     {
         _showHeatmap = !_showHeatmap;
         if (_showHeatmap)
+        {
             await ComputeHeatmap();
+            await JS.InvokeVoidAsync("fpEditor._updateResetSimBtn");
+        }
         else
             await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
     }
@@ -2373,6 +3066,7 @@
     private async Task TogglePlannedAps()
     {
         _showPlannedAps = !_showPlannedAps;
+        await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
     }
@@ -2650,6 +3344,8 @@
         var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
         _showAddBuilding = false;
         await LoadBuildings();
+        if (_mapInitialized)
+            await JS.InvokeVoidAsync("fpEditor.saveMapView", lat, lng);
         _selectedBuildingId = building.Id;
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == building.Id);
         _floors = _selectedBuilding?.Floors ?? new();
@@ -2872,10 +3568,14 @@
             _showDeleteBuilding = false;
         else if (_showDeleteFloor)
             _showDeleteFloor = false;
+        else if (_showDeleteUnderlay)
+            _showDeleteUnderlay = false;
         else if (_showAddBuilding)
             _showAddBuilding = false;
         else if (_showAddFloor)
             _showAddFloor = false;
+        else if (_mode == "image-position")
+            await ToggleImagePositionMode();
         else if (_mode == "walls")
             await ToggleWallDrawMode();
         else if (_mode == "aps")
@@ -2910,6 +3610,7 @@
         // Leaflet needs to recalculate its container size after layout change
         await Task.Delay(50);
         await JS.InvokeVoidAsync("fpEditor.invalidateSize");
+        await JS.InvokeVoidAsync("fpEditor.setScaleSteps", _isFullscreen ? 5 : 3);
         await FitMapToContent();
     }
 
@@ -3008,6 +3709,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _sliderSaveTimer?.Dispose();
         try { await JS.InvokeVoidAsync("fpEditor.destroy"); }
         catch (JSDisconnectedException) { }
         _dotNetRef?.Dispose();
@@ -3036,6 +3738,21 @@
         public string? WallsJson { get; set; }
         public bool HasImage { get; set; }
         public string FloorMaterial { get; set; } = "floor_wood";
+    }
+
+    private class FloorImageDto
+    {
+        public int Id { get; set; }
+        public int FloorPlanId { get; set; }
+        public string Label { get; set; } = "";
+        public double SwLatitude { get; set; }
+        public double SwLongitude { get; set; }
+        public double NeLatitude { get; set; }
+        public double NeLongitude { get; set; }
+        public double Opacity { get; set; } = 0.7;
+        public double RotationDeg { get; set; }
+        public string? CropJson { get; set; }
+        public int SortOrder { get; set; }
     }
 
     private class WallShape

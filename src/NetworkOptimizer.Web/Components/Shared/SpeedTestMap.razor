@@ -744,6 +744,11 @@
                     const apLayerGroup = L.layerGroup({{ pane: 'apIconPane' }}).addTo(map);
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, apGlowGroup: apGlowGroup, apLayerGroup: apLayerGroup, currentSpider: null }};
+
+                    // Stepped distance scale bar
+                    if (typeof SteppedScaleBar !== 'undefined') {{
+                        window._speedTestMaps['{mapId}'].scaleBar = SteppedScaleBar.create(map, 3);
+                    }}
                 }})();
             ");
 
@@ -1941,7 +1946,7 @@
     /* On-map AP filter chip */
     .map-ap-filter-chip {
         position: absolute;
-        bottom: 10px;
+        bottom: 45px;
         left: 10px;
         z-index: 1000;
         background: var(--primary-color);
