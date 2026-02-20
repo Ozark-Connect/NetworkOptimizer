@@ -79,7 +79,7 @@ html, body {
 a {
     color: var(--primary-color);
     text-decoration: none;
-    transition: color 0.2s ease;
+    transition: color 0.15s ease-out;
 }
 
 a:visited {
@@ -136,7 +136,8 @@ a:hover {
 
 .app-title {
     font-size: 1.5rem;
-    font-weight: 700;
+    font-weight: 600;
+    letter-spacing: -0.02em;
     color: var(--accent-color);
     margin: 0;
 }
@@ -171,7 +172,7 @@ a:hover {
     padding: 10px 16px 10px 11px;
     color: var(--text-secondary);
     text-decoration: none;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color 0.15s ease-out, color 0.15s ease-out;
     border-left: 2px solid transparent;
 }
 
@@ -320,6 +321,7 @@ a:hover {
 .page-header h1 {
     font-size: 1.5rem;
     font-weight: 600;
+    letter-spacing: -0.02em;
     margin-bottom: 4px;
 }
 
@@ -426,7 +428,7 @@ a:hover {
     text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;
-    transition: color 0.2s ease;
+    transition: color 0.15s ease-out;
 }
 
 .card-action:hover {
@@ -508,7 +510,7 @@ a:hover {
 
 .speed-stat-value {
     font-size: 2rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-primary);
     line-height: 1;
 }
@@ -847,7 +849,7 @@ a.stat-card-link:active {
     display: inline-block;
     padding: 0.5rem 1.5rem;
     border-radius: 2rem;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.875rem;
 }
 
@@ -936,7 +938,6 @@ a.stat-card-link:active {
 
 .status-indicator.status-active {
     background: var(--success-color);
-    box-shadow: 0 0 8px var(--success-color);
 }
 
 .status-indicator.status-inactive {
@@ -945,7 +946,6 @@ a.stat-card-link:active {
 
 .status-indicator.status-danger {
     background: var(--danger-color);
-    box-shadow: 0 0 8px var(--danger-color);
 }
 
 .learning-badge {
@@ -967,7 +967,7 @@ a.stat-card-link:active {
 
 .metric-value {
     font-size: 1.5rem;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1;
     margin-bottom: 0.25rem;
 }
@@ -1258,7 +1258,7 @@ a.stat-card-link:active {
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color 0.15s ease-out, color 0.15s ease-out;
     text-decoration: none;
     white-space: nowrap;
     box-sizing: border-box;
@@ -1757,7 +1757,7 @@ select.form-control {
     color: var(--text-secondary);
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease-out;
 }
 
 .tab:hover {
@@ -2994,7 +2994,7 @@ select.form-control {
 
 .interface-rate .rate-value {
     font-size: 1.75rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--accent-color);
 }
 
@@ -3054,7 +3054,7 @@ select.form-control {
 .link-accent {
     color: var(--accent-color);
     text-decoration: none;
-    transition: color 0.2s ease;
+    transition: color 0.15s ease-out;
 }
 
 .link-accent:hover {
@@ -3065,7 +3065,7 @@ select.form-control {
 .link-primary {
     color: var(--primary-color);
     text-decoration: none;
-    transition: color 0.2s ease;
+    transition: color 0.15s ease-out;
 }
 
 .link-primary:hover {
@@ -3275,7 +3275,7 @@ select.form-control {
 
 .speed-value {
     font-size: 1.75rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-primary);
     line-height: 0.8;
 }
@@ -3564,7 +3564,7 @@ select.form-control {
 
 .path-analysis .path-max-speed .speed-value {
     font-size: 1.1rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-primary);
     line-height: 1.25rem;
 }
@@ -4297,7 +4297,7 @@ a.path-hop.hop-clickable:hover {
     border-radius: var(--border-radius);
     margin: 1rem 0 0;
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: background 0.15s ease-out;
 }
 
 .result-box:hover {
@@ -4346,7 +4346,7 @@ a.path-hop.hop-clickable:hover {
     border-radius: var(--border-radius);
     text-decoration: none;
     color: var(--text-primary);
-    transition: background 0.2s ease;
+    transition: background 0.15s ease-out;
     margin: 1rem 0 0;
 }
 
@@ -4578,7 +4578,7 @@ a.path-hop.hop-clickable:hover {
 
 .score-value {
     font-size: 2.5rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-primary);
 }
 
@@ -4635,7 +4635,7 @@ a.path-hop.hop-clickable:hover {
 
 .issue-count .count {
     font-size: 2rem;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1;
 }
 
@@ -4918,7 +4918,7 @@ a.path-hop.hop-clickable:hover {
     border-radius: 50%;
     cursor: pointer;
     vertical-align: middle;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease-out;
     user-select: none;
     flex-shrink: 0;
     -webkit-tap-highlight-color: transparent;
@@ -5077,7 +5077,7 @@ a.path-hop.hop-clickable:hover {
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     color: var(--text-primary);
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
 }
 
 .login-card .form-control:focus {
@@ -5852,7 +5852,7 @@ a.path-hop.hop-clickable:hover {
 
 .stat-item .stat-value {
     font-size: 1.75rem;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1;
     color: var(--text-primary);
 }
@@ -6101,7 +6101,7 @@ a.path-hop.hop-clickable:hover {
 
 .wifi-health-icon .health-score-num {
     font-size: 1.25rem;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .wifi-health-icon.score-excellent {
@@ -7469,7 +7469,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.8rem;
     flex-shrink: 0;
     background: var(--bg-primary);
@@ -8214,7 +8214,7 @@ a.path-hop.hop-clickable:hover {
     color: white;
     border-radius: 50%;
     font-size: 0.65rem;
-    font-weight: 700;
+    font-weight: 600;
     margin-left: 0.5rem;
 }
 
@@ -8228,7 +8228,7 @@ a.path-hop.hop-clickable:hover {
     color: white;
     border-radius: 50%;
     font-size: 0.5rem;
-    font-weight: 700;
+    font-weight: 600;
     margin-left: 0.5rem;
 }
 
@@ -8591,7 +8591,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.75rem;
 }
 
@@ -8617,7 +8617,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.65rem;
 }
 
@@ -8993,7 +8993,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.75rem;
     flex-shrink: 0;
 }
@@ -9208,7 +9208,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.875rem;
     flex-shrink: 0;
 }
@@ -9792,7 +9792,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.875rem;
     flex-shrink: 0;
 }
@@ -10391,7 +10391,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.875rem;
     flex-shrink: 0;
 }
@@ -11078,7 +11078,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.875rem;
     flex-shrink: 0;
     color: var(--text-muted);
@@ -11349,7 +11349,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.875rem;
     color: var(--text-muted);
     flex-shrink: 0;
@@ -11386,7 +11386,7 @@ a.path-hop.hop-clickable:hover {
 
 .stage-count {
     font-size: 1.5rem;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .stage-count.success { color: var(--success-color); }
@@ -11476,7 +11476,7 @@ a.path-hop.hop-clickable:hover {
 
 .success-rate-value {
     font-size: 1.5rem;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .success-rate-value.rate-excellent { color: var(--success-color); }
@@ -11486,7 +11486,7 @@ a.path-hop.hop-clickable:hover {
 
 /* Connection Issues - WiFi specific additions */
 .connection-issue-count {
-    font-weight: 700;
+    font-weight: 600;
     font-size: 1.125rem;
     padding: 0.25rem 0.5rem;
     background: var(--bg-secondary);
@@ -11551,7 +11551,7 @@ a.affected-client:hover {
 
 .status-value {
     font-size: 2rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 0.25rem;
 }
@@ -11774,9 +11774,9 @@ a.affected-client:hover {
     width: 36px;
     height: 20px;
     background: var(--bg-secondary);
-    border-radius: var(--border-radius-lg);
+    border-radius: 10px;
     border: 1px solid var(--border-color);
-    transition: background 0.2s;
+    transition: background 0.15s ease-out;
 }
 
 .wan-speedtest .toggle-slider::after {
