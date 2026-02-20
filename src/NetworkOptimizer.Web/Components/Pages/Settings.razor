@@ -2569,8 +2569,8 @@
             // Clear in-memory audit cache
             AuditService.ClearCache();
 
-            // Clear speed test history
-            await SpeedTestRepository.ClearIperf3HistoryAsync();
+            // Clear all speed test history (LAN and WAN)
+            await SpeedTestRepository.ClearAllIperf3ResultsAsync();
 
             cacheMessage = "Cache cleared successfully";
             cacheMessageType = "success";
