@@ -801,7 +801,7 @@ a.stat-card-link:active {
 }
 
 .status-dot.offline {
-    background: var(--text-tertiary);
+    background: var(--text-muted);
 }
 
 .device-body {
@@ -6078,7 +6078,7 @@ a.path-hop.hop-clickable:hover {
     width: 3rem;
     height: 3rem;
     opacity: 0.8;
-    color: var(--primary);
+    color: var(--primary-color);
     flex-shrink: 0;
 }
 
@@ -7099,7 +7099,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .filterable-select-input::placeholder {
-    color: var(--text-tertiary);
+    color: var(--text-muted);
 }
 
 .filterable-select-display {
@@ -11906,7 +11906,7 @@ a.affected-client:hover {
 
 .wan-speedtest .metadata-label {
     font-size: 0.75rem;
-    color: var(--text-tertiary);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
