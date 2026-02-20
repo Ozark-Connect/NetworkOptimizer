@@ -353,7 +353,7 @@
                 </div>
                 <div class="fp-bar-group">
                     <button class="fp-btn @(_showCropControls ? "fp-btn-active" : "")" @onclick="() => _showCropControls = !_showCropControls">Crop</button>
-                    <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedImage">Delete Underlay</button>
+                    <button class="fp-btn fp-btn-danger" @onclick="() => _showDeleteUnderlay = true">Delete Underlay</button>
                 </div>
                 <div class="fp-separator"></div>
             }
@@ -453,6 +453,23 @@
             <div class="fp-dialog-actions">
                 <button class="fp-btn" @onclick="() => _showDeleteFloor = false">Cancel</button>
                 <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedFloor">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Underlay Confirmation -->
+@if (_showDeleteUnderlay && _selectedImage != null)
+{
+    <div class="fp-dialog-backdrop" @onclick="() => _showDeleteUnderlay = false">
+        <div class="fp-dialog" @onclick:stopPropagation>
+            <h3>Delete Underlay</h3>
+            <p style="color: var(--text-muted, #aaa); margin: 8px 0 16px;">
+                Delete this underlay image? This cannot be undone.
+            </p>
+            <div class="fp-dialog-actions">
+                <button class="fp-btn" @onclick="() => _showDeleteUnderlay = false">Cancel</button>
+                <button class="fp-btn fp-btn-danger" @onclick="DeleteSelectedImage">Delete</button>
             </div>
         </div>
     </div>
@@ -1493,6 +1510,7 @@
     private string _newFloorMaterial = "floor_wood";
     private bool _showDeleteBuilding;
     private bool _showDeleteFloor;
+    private bool _showDeleteUnderlay;
     private bool _isFullscreen;
     private ApMapMarker? _selectedApForPlacement;
     private List<PlannedAp> _plannedAps = new();
@@ -2285,6 +2303,7 @@
 
     private async Task DeleteSelectedImage()
     {
+        _showDeleteUnderlay = false;
         if (_selectedImage == null) return;
         var imageId = _selectedImage.Id;
         await FloorPlanSvc.DeleteFloorImageAsync(imageId);
@@ -3514,6 +3533,8 @@
             _showDeleteBuilding = false;
         else if (_showDeleteFloor)
             _showDeleteFloor = false;
+        else if (_showDeleteUnderlay)
+            _showDeleteUnderlay = false;
         else if (_showAddBuilding)
             _showAddBuilding = false;
         else if (_showAddFloor)
