@@ -1322,13 +1322,13 @@ a.btn-lg {
 /* Secondary - Grey (alias: btn-secondary, btn-ghost) */
 .btn-secondary,
 .btn-ghost {
-    background: var(--bg-tertiary);
+    background: #2c2c30;
     color: var(--text-primary);
 }
 
 .btn-secondary:hover:not(:disabled),
 .btn-ghost:hover:not(:disabled) {
-    background: #2c2c30;
+    background: #35353a;
 }
 
 /* Danger - Red (for destructive actions) */
