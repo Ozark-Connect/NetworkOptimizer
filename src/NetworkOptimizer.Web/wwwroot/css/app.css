@@ -137,7 +137,7 @@ a:hover {
 .app-title {
     font-size: 1.5rem;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.015em;
     color: var(--accent-color);
     margin: 0;
 }
@@ -321,7 +321,7 @@ a:hover {
 .page-header h1 {
     font-size: 1.5rem;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.015em;
     margin-bottom: 4px;
 }
 
