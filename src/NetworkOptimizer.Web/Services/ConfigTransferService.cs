@@ -101,15 +101,21 @@ public class ConfigTransferService
 
         try
         {
-            // Checkpoint WAL to ensure all data is in the main DB file
+            // VACUUM INTO creates a clean, standalone copy (no WAL/SHM files)
+            // This is the only reliable way to copy a SQLite DB while it's in use
+            var vacuumPath = tempDbPath.Replace('\\', '/');
             await using (var db = await _dbFactory.CreateDbContextAsync())
             {
-                await db.Database.ExecuteSqlRawAsync("PRAGMA wal_checkpoint(TRUNCATE)");
+                var conn = db.Database.GetDbConnection();
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = $"VACUUM INTO @path";
+                var param = cmd.CreateParameter();
+                param.ParameterName = "@path";
+                param.Value = vacuumPath;
+                cmd.Parameters.Add(param);
+                await cmd.ExecuteNonQueryAsync();
             }
-
-            // Copy the database file
-            var sourceDbPath = Path.Combine(_dataDirectory, "network_optimizer.db");
-            File.Copy(sourceDbPath, tempDbPath, overwrite: true);
 
             // For settings-only: delete history tables and vacuum
             if (type == ExportType.SettingsOnly)
@@ -349,6 +355,13 @@ public class ConfigTransferService
         var connStr = $"Data Source={dbPath}";
         await using var conn = new SqliteConnection(connStr);
         await conn.OpenAsync();
+
+        // Switch out of WAL mode so VACUUM produces a single clean file
+        await using (var walCmd = conn.CreateCommand())
+        {
+            walCmd.CommandText = "PRAGMA journal_mode=DELETE";
+            await walCmd.ExecuteNonQueryAsync();
+        }
 
         foreach (var table in HistoryTables)
         {
