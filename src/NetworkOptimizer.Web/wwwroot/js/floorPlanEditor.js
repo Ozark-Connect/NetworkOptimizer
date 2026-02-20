@@ -752,6 +752,7 @@ window.fpEditor = {
                 if (!info) return;
 
                 var blob = await self._convertToImage(file);
+                if (!blob) return; // user cancelled (e.g. PDF page picker)
 
                 // Get image natural dimensions for aspect-ratio matching
                 var imgW = 0, imgH = 0;
@@ -823,7 +824,7 @@ window.fpEditor = {
             var pageNum = 1;
             if (pdf.numPages > 1) {
                 pageNum = await this._showPdfPagePicker(pdf);
-                if (!pageNum) throw new Error('PDF page selection cancelled');
+                if (!pageNum) return null;
             }
 
             var page = await pdf.getPage(pageNum);
