@@ -19,6 +19,7 @@
 @inject SystemSettingsService SystemSettings
 @inject IAdminAuthService AdminAuth
 @inject IJSRuntime JS
+@inject DiagnosticsService DiagnosticsService
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
@@ -2566,8 +2567,9 @@
             await AuditRepository.ClearAllAuditsAsync();
             await AuditRepository.ClearAllDismissedIssuesAsync();
 
-            // Clear in-memory audit cache
+            // Clear in-memory caches
             AuditService.ClearCache();
+            DiagnosticsService.ClearCache();
 
             // Clear all speed test history (LAN and WAN)
             await SpeedTestRepository.ClearAllIperf3ResultsAsync();
