@@ -458,15 +458,7 @@ window.fpEditor = {
         var sv = this._savedView;
         this._savedView = null;
         if (sv.buildingLat != null && sv.buildingLng != null) {
-            // Check if building center is within the center 66% of the viewport
-            var b = this._map.getBounds();
-            var latMargin = (b.getNorth() - b.getSouth()) * 0.17;
-            var lngMargin = (b.getEast() - b.getWest()) * 0.17;
-            var inner = L.latLngBounds(
-                [b.getSouth() + latMargin, b.getWest() + lngMargin],
-                [b.getNorth() - latMargin, b.getEast() - lngMargin]
-            );
-            if (!inner.contains([sv.buildingLat, sv.buildingLng])) return;
+            if (!this._map.getBounds().contains([sv.buildingLat, sv.buildingLng])) return;
         }
         this._map.setView([sv.lat, sv.lng], sv.zoom);
     },
