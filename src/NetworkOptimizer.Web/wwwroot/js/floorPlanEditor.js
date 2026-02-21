@@ -397,11 +397,15 @@ window.fpEditor = {
             m.on('zoomend', updateApScale);
             updateApScale();
 
-            // Re-evaluate heatmap on zoom/pan
+            // Re-evaluate heatmap on zoom/pan (light debounce to coalesce rapid events)
+            var heatmapTimer = null;
             m.on('moveend', function () {
-                if (self._dotNetRef) {
-                    self._dotNetRef.invokeMethodAsync('OnMapMoveEndForHeatmap');
-                }
+                if (heatmapTimer) clearTimeout(heatmapTimer);
+                heatmapTimer = setTimeout(function () {
+                    if (self._dotNetRef) {
+                        self._dotNetRef.invokeMethodAsync('OnMapMoveEndForHeatmap');
+                    }
+                }, 100);
             });
 
             // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
