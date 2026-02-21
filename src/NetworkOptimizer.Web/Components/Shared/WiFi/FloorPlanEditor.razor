@@ -1720,7 +1720,6 @@
 
     private async Task OnBuildingChanged(ChangeEventArgs e)
     {
-        await JS.InvokeVoidAsync("fpEditor.resetUserPanned");
         await LoadBuildings();
         var previousBuildingId = _selectedBuildingId;
         _selectedBuildingId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
@@ -3692,16 +3691,12 @@
         await Task.Delay(50);
         await JS.InvokeVoidAsync("fpEditor.invalidateSize");
         await JS.InvokeVoidAsync("fpEditor.setScaleSteps", _isFullscreen ? 5 : 3);
-        // Only auto-fit if the user hasn't manually panned/zoomed
-        var userPanned = await JS.InvokeAsync<bool>("fpEditor.hasUserPanned");
-        if (!userPanned)
-            await FitMapToContent();
+        await FitMapToContent();
     }
 
     private async Task FitMapToContent()
     {
         if (!_mapInitialized) return;
-        await JS.InvokeVoidAsync("fpEditor.resetUserPanned");
 
         // If a building is selected, fit to that building
         if (_selectedBuilding != null && _floors.Count > 0 && BuildingHasWalls())

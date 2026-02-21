@@ -224,8 +224,6 @@ window.fpEditor = {
         this._antennaModeOverrides = {};
         this._disabledAps = {};
         this._disabledForPlanAps = {};
-        this._userHasPanned = false;
-        this._programmaticMove = false;
         var resolveReady;
         var readyPromise = new Promise(function (resolve) { resolveReady = resolve; });
 
@@ -399,13 +397,6 @@ window.fpEditor = {
             m.on('zoomend', updateApScale);
             updateApScale();
 
-            // Track user-initiated pans (not programmatic fitBounds/setView)
-            m.on('moveend', function () {
-                if (!self._programmaticMove) {
-                    self._userHasPanned = true;
-                }
-            });
-
             // Re-evaluate heatmap on zoom/pan (debounced)
             var heatmapTimer = null;
             m.on('moveend', function () {
@@ -443,18 +434,14 @@ window.fpEditor = {
 
     fitBounds: function (swLat, swLng, neLat, neLng) {
         if (this._map) {
-            this._programmaticMove = true;
             var bounds = L.latLngBounds([[swLat, swLng], [neLat, neLng]]);
             this._map.fitBounds(bounds, { padding: [40, 40], animate: false, maxZoom: 24 });
-            this._programmaticMove = false;
         }
     },
 
     setView: function (lat, lng, zoom) {
         if (this._map) {
-            this._programmaticMove = true;
             this._map.setView([lat, lng], zoom);
-            this._programmaticMove = false;
         }
     },
 
@@ -521,25 +508,13 @@ window.fpEditor = {
         }
         // Don't restore if it would zoom in more than current view
         if (sv.zoom > this._map.getZoom()) return;
-        this._programmaticMove = true;
         this._map.setView([sv.lat, sv.lng], sv.zoom);
-        this._programmaticMove = false;
     },
 
     invalidateSize: function () {
         if (this._map) {
-            this._programmaticMove = true;
             this._map.invalidateSize();
-            this._programmaticMove = false;
         }
-    },
-
-    hasUserPanned: function () {
-        return !!this._userHasPanned;
-    },
-
-    resetUserPanned: function () {
-        this._userHasPanned = false;
     },
 
     // ── Floor Overlay ────────────────────────────────────────────────
