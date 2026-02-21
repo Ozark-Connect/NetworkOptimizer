@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Models;
 using Xunit;
 

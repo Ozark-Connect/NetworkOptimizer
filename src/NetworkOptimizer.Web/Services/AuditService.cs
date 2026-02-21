@@ -9,6 +9,7 @@ using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Alerts.Events;
 using AuditModels = NetworkOptimizer.Audit.Models;
 using StorageAuditResult = NetworkOptimizer.Storage.Models.AuditResult;
 
@@ -32,6 +33,7 @@ public class AuditService
     private readonly PdfStorageService _pdfStorageService;
     private readonly IMemoryCache _cache;
     private readonly Audit.Analyzers.FirewallRuleParser _firewallParser;
+    private readonly IAlertEventBus? _alertEventBus;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -42,7 +44,8 @@ public class AuditService
         FingerprintDatabaseService fingerprintService,
         PdfStorageService pdfStorageService,
         IMemoryCache cache,
-        Audit.Analyzers.FirewallRuleParser firewallParser)
+        Audit.Analyzers.FirewallRuleParser firewallParser,
+        IAlertEventBus? alertEventBus = null)
     {
         _logger = logger;
         _connectionService = connectionService;
@@ -53,6 +56,7 @@ public class AuditService
         _pdfStorageService = pdfStorageService;
         _cache = cache;
         _firewallParser = firewallParser;
+        _alertEventBus = alertEventBus;
     }
 
     // Cache accessors using IMemoryCache
@@ -557,6 +561,55 @@ public class AuditService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist audit result to database");
+        }
+    }
+
+    private async Task PublishAuditAlertsAsync(AuditResult result)
+    {
+        if (_alertEventBus == null) return;
+
+        try
+        {
+            // Publish completed event
+            await _alertEventBus.PublishAsync(new AlertEvent
+            {
+                EventType = "audit.completed",
+                Severity = result.CriticalCount > 0 ? AlertSeverity.Error : AlertSeverity.Info,
+                Source = "audit",
+                Title = $"Security audit completed - Score: {result.Score}",
+                Message = $"{result.CriticalCount} critical, {result.WarningCount} recommended findings",
+                MetricValue = result.Score,
+                Context = new Dictionary<string, string>
+                {
+                    ["criticalCount"] = result.CriticalCount.ToString(),
+                    ["warningCount"] = result.WarningCount.ToString()
+                }
+            });
+
+            // Publish if critical findings exist
+            if (result.CriticalCount > 0)
+            {
+                await _alertEventBus.PublishAsync(new AlertEvent
+                {
+                    EventType = "audit.critical_findings",
+                    Severity = AlertSeverity.Critical,
+                    Source = "audit",
+                    Title = $"{result.CriticalCount} critical security findings detected",
+                    Message = string.Join("; ", result.Issues
+                        .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical)
+                        .Take(5)
+                        .Select(i => i.Title)),
+                    MetricValue = result.CriticalCount,
+                    Context = new Dictionary<string, string>
+                    {
+                        ["score"] = result.Score.ToString()
+                    }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish audit alert events");
         }
     }
 
@@ -1273,6 +1326,9 @@ public class AuditService
 
             _logger.LogInformation("Audit complete: Score={Score}, Critical={Critical}, Recommended={Recommended}",
                 webResult.Score, webResult.CriticalCount, webResult.WarningCount);
+
+            // Publish alert events for audit results
+            await PublishAuditAlertsAsync(webResult);
 
             return webResult;
         }

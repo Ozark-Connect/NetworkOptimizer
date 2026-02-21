@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Models;
 
 namespace NetworkOptimizer.Storage.Models;
 
@@ -33,6 +34,10 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<PlannedAp> PlannedAps { get; set; }
     public DbSet<FloorPlanImage> FloorPlanImages { get; set; }
     public DbSet<ClientSignalLog> ClientSignalLogs { get; set; }
+    public DbSet<AlertRule> AlertRules { get; set; }
+    public DbSet<DeliveryChannel> DeliveryChannels { get; set; }
+    public DbSet<AlertHistoryEntry> AlertHistory { get; set; }
+    public DbSet<AlertIncident> AlertIncidents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -204,6 +209,45 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("ClientSignalLogs");
             entity.HasIndex(e => new { e.ClientMac, e.Timestamp });
             entity.HasIndex(e => e.TraceHash);
+        });
+
+        // AlertRule configuration
+        modelBuilder.Entity<AlertRule>(entity =>
+        {
+            entity.ToTable("AlertRules");
+            entity.Property(e => e.MinSeverity).HasConversion<int>();
+            entity.Property(e => e.EscalationSeverity).HasConversion<int>();
+        });
+
+        // DeliveryChannel configuration
+        modelBuilder.Entity<DeliveryChannel>(entity =>
+        {
+            entity.ToTable("DeliveryChannels");
+            entity.Property(e => e.ChannelType).HasConversion<int>();
+            entity.Property(e => e.MinSeverity).HasConversion<int>();
+        });
+
+        // AlertHistoryEntry configuration
+        modelBuilder.Entity<AlertHistoryEntry>(entity =>
+        {
+            entity.ToTable("AlertHistory");
+            entity.HasIndex(e => e.TriggeredAt);
+            entity.HasIndex(e => new { e.Source, e.TriggeredAt });
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.RuleId);
+            entity.HasIndex(e => e.IncidentId);
+            entity.Property(e => e.Severity).HasConversion<int>();
+            entity.Property(e => e.Status).HasConversion<int>();
+        });
+
+        // AlertIncident configuration
+        modelBuilder.Entity<AlertIncident>(entity =>
+        {
+            entity.ToTable("AlertIncidents");
+            entity.HasIndex(e => e.CorrelationKey);
+            entity.HasIndex(e => e.Status);
+            entity.Property(e => e.Severity).HasConversion<int>();
+            entity.Property(e => e.Status).HasConversion<int>();
         });
     }
 }

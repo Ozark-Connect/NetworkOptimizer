@@ -20,6 +20,10 @@
 @inject IAdminAuthService AdminAuth
 @inject IJSRuntime JS
 @inject DiagnosticsService DiagnosticsService
+@inject NetworkOptimizer.Alerts.Interfaces.IAlertRepository AlertRepository
+@inject IEnumerable<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel> DeliveryChannels
+@inject NetworkOptimizer.Alerts.Delivery.ISecretDecryptor SecretDecryptor
+@using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
@@ -1140,6 +1144,195 @@
         </div>
     </div>
 
+    <!-- Alert Channels Configuration -->
+    <div class="card" id="alert-channels">
+        <div class="card-header">
+            <h2 class="card-title">Alert Channels</h2>
+            @if (alertChannels?.Count > 0)
+            {
+                <span class="status-badge status-active">@alertChannels.Count configured</span>
+            }
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Configure notification channels for the alert engine. Alerts are delivered via email, webhooks, Slack, Discord, or Microsoft Teams.
+            </p>
+
+            @if (alertChannels?.Count > 0)
+            {
+                @foreach (var ch in alertChannels)
+                {
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--bg-tertiary);">
+                        <div>
+                            <strong style="color: var(--text-primary);">@ch.Name</strong>
+                            <span class="status-badge" style="margin-left: 0.5rem;">@ch.ChannelType</span>
+                            @if (!ch.IsEnabled)
+                            {
+                                <span style="color: var(--text-muted); margin-left: 0.5rem;">(disabled)</span>
+                            }
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary btn-sm" @onclick="() => TestAlertChannel(ch.Id)" disabled="@testingAlertChannel">
+                                @if (testingAlertChannel && testingAlertChannelId == ch.Id)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                }
+                                else
+                                {
+                                    <span>Test</span>
+                                }
+                            </button>
+                            <button class="btn btn-secondary btn-sm" @onclick="() => StartEditChannel(ch)">Edit</button>
+                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteAlertChannel(ch.Id)">Delete</button>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="empty-state" style="padding: 2rem;">
+                    <p>No alert channels configured. Add one to start receiving notifications.</p>
+                </div>
+            }
+
+            @if (showChannelForm)
+            {
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 6px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 1rem;">@(editingChannelId.HasValue ? "Edit" : "Add") Channel</h4>
+
+                    <div class="form-group">
+                        <label class="form-label">Channel Name</label>
+                        <input type="text" class="form-control" @bind="channelFormName" placeholder="e.g., Ops Team Slack" />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Channel Type</label>
+                        <select class="form-control" @bind="channelFormType">
+                            <option value="Email">Email (SMTP)</option>
+                            <option value="Webhook">Webhook</option>
+                            <option value="Slack">Slack</option>
+                            <option value="Discord">Discord</option>
+                            <option value="Teams">Microsoft Teams</option>
+                        </select>
+                    </div>
+
+                    @if (channelFormType == "Email")
+                    {
+                        <div class="form-group">
+                            <label class="form-label">SMTP Host</label>
+                            <input type="text" class="form-control" @bind="channelSmtpHost" placeholder="smtp.gmail.com" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">SMTP Port</label>
+                            <input type="number" class="form-control" @bind="channelSmtpPort" />
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="channelSmtpSsl" />
+                                <span>Use SSL/TLS</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" @bind="channelSmtpUser" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" @bind="channelSmtpPass" autocomplete="new-password" placeholder="@(editingChannelId.HasValue ? "Saved - enter new to update" : "")" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">From Address</label>
+                            <input type="email" class="form-control" @bind="channelSmtpFrom" placeholder="alerts@example.com" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">To Addresses</label>
+                            <input type="text" class="form-control" @bind="channelSmtpTo" placeholder="admin@example.com, ops@example.com" />
+                            <small class="form-help">Comma-separated email addresses</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Webhook URL</label>
+                            <input type="url" class="form-control" @bind="channelWebhookUrl" placeholder="https://hooks.slack.com/services/..." autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        @if (channelFormType == "Webhook")
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Secret (for HMAC signature)</label>
+                                <input type="password" class="form-control" @bind="channelWebhookSecret" autocomplete="new-password" placeholder="Optional" data-1p-ignore data-lpignore="true" data-bwignore />
+                            </div>
+                        }
+                    }
+
+                    <div class="form-group">
+                        <label class="form-label">Minimum Severity</label>
+                        <select class="form-control" @bind="channelMinSeverity">
+                            <option value="Info">Info</option>
+                            <option value="Warning">Warning</option>
+                            <option value="Error">Error</option>
+                            <option value="Critical">Critical</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="channelEnabled" />
+                            <span>Enabled</span>
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="channelDigestEnabled" />
+                            <span>Enable digest summaries</span>
+                        </label>
+                    </div>
+
+                    @if (channelDigestEnabled)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Digest Schedule</label>
+                            <select class="form-control" @bind="channelDigestSchedule">
+                                <option value="daily:08:00">Daily at 08:00 UTC</option>
+                                <option value="daily:18:00">Daily at 18:00 UTC</option>
+                                <option value="weekly:monday:08:00">Weekly on Monday</option>
+                            </select>
+                        </div>
+                    }
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveAlertChannel" disabled="@savingAlertChannel">
+                            @if (savingAlertChannel)
+                            {
+                                <span class="spinner"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>Save Channel</span>
+                            }
+                        </button>
+                        <button class="btn btn-secondary" @onclick="CancelChannelForm">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="action-buttons" style="margin-top: 1rem;">
+                    <button class="btn btn-primary" @onclick="StartAddChannel">+ Add Channel</button>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(alertChannelMessage))
+            {
+                <div class="alert alert-@alertChannelMessageClass" style="margin-top: 1rem;">
+                    @alertChannelMessage
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- 12. Data Management -->
     <div class="card">
         <div class="card-header">
@@ -1419,6 +1612,31 @@
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
 
+    // Alert Channels
+    private List<DeliveryChannel>? alertChannels;
+    private bool showChannelForm = false;
+    private int? editingChannelId = null;
+    private string channelFormName = "";
+    private string channelFormType = "Email";
+    private string channelSmtpHost = "";
+    private int channelSmtpPort = 587;
+    private bool channelSmtpSsl = true;
+    private string channelSmtpUser = "";
+    private string channelSmtpPass = "";
+    private string channelSmtpFrom = "";
+    private string channelSmtpTo = "";
+    private string channelWebhookUrl = "";
+    private string channelWebhookSecret = "";
+    private string channelMinSeverity = "Warning";
+    private bool channelEnabled = true;
+    private bool channelDigestEnabled = false;
+    private string channelDigestSchedule = "daily:08:00";
+    private bool savingAlertChannel = false;
+    private bool testingAlertChannel = false;
+    private int testingAlertChannelId = 0;
+    private string alertChannelMessage = "";
+    private string alertChannelMessageClass = "";
+
     protected override async Task OnInitializedAsync()
     {
         // Load saved configuration if available
@@ -1444,6 +1662,7 @@
         await LoadIperf3Settings();
         await LoadAdminPasswordSettings();
         await LoadAuditSettings();
+        await LoadAlertChannels();
     }
 
     private async Task LoadIperf3Settings()
@@ -2776,5 +2995,240 @@
             savingAuditSettings = false;
             StateHasChanged();
         }
+    }
+
+    // ===== Alert Channel Methods =====
+
+    private async Task LoadAlertChannels()
+    {
+        try { alertChannels = await AlertRepository.GetChannelsAsync(); }
+        catch { alertChannels = new(); }
+    }
+
+    private void StartAddChannel()
+    {
+        editingChannelId = null;
+        channelFormName = "";
+        channelFormType = "Email";
+        channelSmtpHost = "";
+        channelSmtpPort = 587;
+        channelSmtpSsl = true;
+        channelSmtpUser = "";
+        channelSmtpPass = "";
+        channelSmtpFrom = "";
+        channelSmtpTo = "";
+        channelWebhookUrl = "";
+        channelWebhookSecret = "";
+        channelMinSeverity = "Warning";
+        channelEnabled = true;
+        channelDigestEnabled = false;
+        channelDigestSchedule = "daily:08:00";
+        showChannelForm = true;
+        alertChannelMessage = "";
+    }
+
+    private void StartEditChannel(DeliveryChannel ch)
+    {
+        editingChannelId = ch.Id;
+        channelFormName = ch.Name;
+        channelFormType = ch.ChannelType.ToString();
+        channelMinSeverity = ch.MinSeverity.ToString();
+        channelEnabled = ch.IsEnabled;
+        channelDigestEnabled = ch.DigestEnabled;
+        channelDigestSchedule = ch.DigestSchedule ?? "daily:08:00";
+
+        // Parse config JSON based on type
+        try
+        {
+            if (ch.ChannelType == DeliveryChannelType.Email)
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<NetworkOptimizer.Alerts.Delivery.EmailChannelConfig>(ch.ConfigJson);
+                if (cfg != null)
+                {
+                    channelSmtpHost = cfg.SmtpHost;
+                    channelSmtpPort = cfg.SmtpPort;
+                    channelSmtpSsl = cfg.UseSsl;
+                    channelSmtpUser = cfg.Username;
+                    channelSmtpFrom = cfg.FromAddress;
+                    channelSmtpTo = cfg.ToAddresses;
+                    channelSmtpPass = ""; // Don't expose
+                }
+            }
+            else
+            {
+                var json = System.Text.Json.JsonDocument.Parse(ch.ConfigJson);
+                if (json.RootElement.TryGetProperty("WebhookUrl", out var url) ||
+                    json.RootElement.TryGetProperty("webhookUrl", out url))
+                    channelWebhookUrl = url.GetString() ?? "";
+            }
+        }
+        catch { /* Ignore parse errors */ }
+
+        showChannelForm = true;
+        alertChannelMessage = "";
+    }
+
+    private void CancelChannelForm()
+    {
+        showChannelForm = false;
+        editingChannelId = null;
+        alertChannelMessage = "";
+    }
+
+    private async Task SaveAlertChannel()
+    {
+        savingAlertChannel = true;
+        alertChannelMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(channelFormName))
+            {
+                alertChannelMessage = "Channel name is required.";
+                alertChannelMessageClass = "warning";
+                return;
+            }
+
+            var channelType = Enum.Parse<DeliveryChannelType>(channelFormType);
+            var severity = Enum.Parse<NetworkOptimizer.Core.Enums.AlertSeverity>(channelMinSeverity);
+            var configJson = BuildChannelConfigJson(channelType);
+
+            if (editingChannelId.HasValue)
+            {
+                var existing = await AlertRepository.GetChannelAsync(editingChannelId.Value);
+                if (existing != null)
+                {
+                    existing.Name = channelFormName;
+                    existing.ChannelType = channelType;
+                    existing.ConfigJson = configJson;
+                    existing.MinSeverity = severity;
+                    existing.IsEnabled = channelEnabled;
+                    existing.DigestEnabled = channelDigestEnabled;
+                    existing.DigestSchedule = channelDigestEnabled ? channelDigestSchedule : null;
+                    await AlertRepository.UpdateChannelAsync(existing);
+                }
+            }
+            else
+            {
+                var channel = new DeliveryChannel
+                {
+                    Name = channelFormName,
+                    ChannelType = channelType,
+                    ConfigJson = configJson,
+                    MinSeverity = severity,
+                    IsEnabled = channelEnabled,
+                    DigestEnabled = channelDigestEnabled,
+                    DigestSchedule = channelDigestEnabled ? channelDigestSchedule : null
+                };
+                await AlertRepository.SaveChannelAsync(channel);
+            }
+
+            await LoadAlertChannels();
+            showChannelForm = false;
+            editingChannelId = null;
+            alertChannelMessage = "Channel saved successfully.";
+            alertChannelMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            alertChannelMessage = $"Error saving channel: {ex.Message}";
+            alertChannelMessageClass = "danger";
+        }
+        finally
+        {
+            savingAlertChannel = false;
+            StateHasChanged();
+        }
+    }
+
+    private string BuildChannelConfigJson(DeliveryChannelType type)
+    {
+        if (type == DeliveryChannelType.Email)
+        {
+            var cfg = new NetworkOptimizer.Alerts.Delivery.EmailChannelConfig
+            {
+                SmtpHost = channelSmtpHost,
+                SmtpPort = channelSmtpPort,
+                UseSsl = channelSmtpSsl,
+                Username = channelSmtpUser,
+                Password = !string.IsNullOrEmpty(channelSmtpPass) ? SecretDecryptor.Encrypt(channelSmtpPass) : "",
+                FromAddress = channelSmtpFrom,
+                ToAddresses = channelSmtpTo
+            };
+            return System.Text.Json.JsonSerializer.Serialize(cfg);
+        }
+
+        if (type == DeliveryChannelType.Webhook)
+        {
+            var cfg = new NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig
+            {
+                Url = channelWebhookUrl,
+                Secret = !string.IsNullOrEmpty(channelWebhookSecret) ? SecretDecryptor.Encrypt(channelWebhookSecret) : null
+            };
+            return System.Text.Json.JsonSerializer.Serialize(cfg);
+        }
+
+        // Slack, Discord, Teams all use webhook URL
+        return System.Text.Json.JsonSerializer.Serialize(new { WebhookUrl = channelWebhookUrl });
+    }
+
+    private async Task TestAlertChannel(int channelId)
+    {
+        testingAlertChannel = true;
+        testingAlertChannelId = channelId;
+        alertChannelMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var channel = await AlertRepository.GetChannelAsync(channelId);
+            if (channel == null)
+            {
+                alertChannelMessage = "Channel not found.";
+                alertChannelMessageClass = "danger";
+                return;
+            }
+
+            var handler = DeliveryChannels.FirstOrDefault(d => d.ChannelType == channel.ChannelType);
+            if (handler == null)
+            {
+                alertChannelMessage = $"No handler for {channel.ChannelType}.";
+                alertChannelMessageClass = "danger";
+                return;
+            }
+
+            var (success, error) = await handler.TestAsync(channel);
+            alertChannelMessage = success ? "Test message sent successfully!" : $"Test failed: {error}";
+            alertChannelMessageClass = success ? "success" : "danger";
+        }
+        catch (Exception ex)
+        {
+            alertChannelMessage = $"Test error: {ex.Message}";
+            alertChannelMessageClass = "danger";
+        }
+        finally
+        {
+            testingAlertChannel = false;
+            testingAlertChannelId = 0;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteAlertChannel(int channelId)
+    {
+        try
+        {
+            await AlertRepository.DeleteChannelAsync(channelId);
+            await LoadAlertChannels();
+            alertChannelMessage = "Channel deleted.";
+            alertChannelMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            alertChannelMessage = $"Error deleting: {ex.Message}";
+            alertChannelMessageClass = "danger";
+        }
+        StateHasChanged();
     }
 }

@@ -1,0 +1,933 @@
+@page "/alerts"
+@using NetworkOptimizer.Alerts.Interfaces
+@using NetworkOptimizer.Alerts.Models
+@using NetworkOptimizer.Core.Enums
+@inject IAlertRepository AlertRepository
+@inject ILogger<Alerts> Logger
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Alerts - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Alerts</h1>
+    <p class="page-description">Monitor and manage alert notifications</p>
+</div>
+
+<div class="alerts-page">
+    <div class="dashboard-controls">
+        <div class="tab-bar">
+            <button class="tab-btn @(_activeTab == "active" ? "active" : "")"
+                    @onclick='() => SetActiveTab("active")'>Active Alerts</button>
+            <button class="tab-btn @(_activeTab == "history" ? "active" : "")"
+                    @onclick='() => SetActiveTab("history")'>History</button>
+            <button class="tab-btn @(_activeTab == "rules" ? "active" : "")"
+                    @onclick='() => SetActiveTab("rules")'>Rules</button>
+            <button class="tab-btn @(_activeTab == "incidents" ? "active" : "")"
+                    @onclick='() => SetActiveTab("incidents")'>Incidents</button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading-container">
+            <span class="spinner"></span>
+        </div>
+    }
+    else
+    {
+        @* ========== Active Alerts Tab ========== *@
+        @if (_activeTab == "active")
+        {
+            @if (_activeAlerts.Count == 0)
+            {
+                <div class="empty-state">
+                    <div class="no-alerts-icon">&#10003;</div>
+                    <h3>All Clear</h3>
+                    <p>No active alerts at this time.</p>
+                </div>
+            }
+            else
+            {
+                <div class="alert-list">
+                    @foreach (var alert in _activeAlerts)
+                    {
+                        <div class="alert-item @GetSeverityClass(alert.Severity)">
+                            <div class="alert-icon">@GetSeverityIcon(alert.Severity)</div>
+                            <div class="alert-content">
+                                <div class="alert-header">
+                                    <h3 class="alert-title">@alert.Title</h3>
+                                    <span class="alert-time">@FormatTime(alert.TriggeredAt)</span>
+                                </div>
+                                <p class="alert-message">@alert.Message</p>
+                                @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
+                                {
+                                    <span class="alert-source">
+                                        @alert.Source
+                                        @if (!string.IsNullOrEmpty(alert.DeviceName))
+                                        {
+                                            <text> &middot; @alert.DeviceName</text>
+                                        }
+                                        @if (!string.IsNullOrEmpty(alert.DeviceIp))
+                                        {
+                                            <text> &middot; @alert.DeviceIp</text>
+                                        }
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="alert-source">@alert.Source</span>
+                                }
+                            </div>
+                            <div class="alert-actions">
+                                @if (alert.Status == AlertStatus.Active)
+                                {
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeAlert(alert)">
+                                        Acknowledge
+                                    </button>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
+                                        Resolve
+                                    </button>
+                                }
+                                else if (alert.Status == AlertStatus.Acknowledged)
+                                {
+                                    <span class="status-badge status-active">Acknowledged</span>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
+                                        Resolve
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+
+        @* ========== History Tab ========== *@
+        @if (_activeTab == "history")
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="history-filters">
+                        <div class="filter-group">
+                            <label class="filter-label">Source:</label>
+                            <select class="filter-select" @bind="_historySourceFilter" @bind:after="LoadHistory">
+                                <option value="">All Sources</option>
+                                <option value="audit">Audit</option>
+                                <option value="device">Device</option>
+                                <option value="speedtest">Speed Test</option>
+                                <option value="wan">WAN</option>
+                                <option value="wifi">WiFi</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Min Severity:</label>
+                            <select class="filter-select" @bind="_historySeverityFilter" @bind:after="LoadHistory">
+                                <option value="">All</option>
+                                <option value="Info">Info</option>
+                                <option value="Warning">Warning</option>
+                                <option value="Error">Error</option>
+                                <option value="Critical">Critical</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
+                    </div>
+                </div>
+            </div>
+
+            @if (_historyAlerts.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>No Alert History</h3>
+                    <p>Alert history will appear here as alerts are triggered.</p>
+                </div>
+            }
+            else
+            {
+                <div class="card" style="margin-top: 1rem;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Severity</th>
+                                    <th>Title</th>
+                                    <th>Source</th>
+                                    <th class="hide-mobile">Device</th>
+                                    <th>Status</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var alert in _historyAlerts)
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="severity-badge @GetSeverityBadgeClass(alert.Severity)">
+                                                @alert.Severity
+                                            </span>
+                                        </td>
+                                        <td>@alert.Title</td>
+                                        <td>@alert.Source</td>
+                                        <td class="hide-mobile">@(alert.DeviceName ?? alert.DeviceIp ?? "-")</td>
+                                        <td>
+                                            <span class="status-badge @GetStatusBadgeClass(alert.Status)">
+                                                @alert.Status
+                                            </span>
+                                        </td>
+                                        <td>@FormatTime(alert.TriggeredAt)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+        }
+
+        @* ========== Rules Tab ========== *@
+        @if (_activeTab == "rules")
+        {
+            <div class="card">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 class="card-title">Alert Rules</h2>
+                    <button class="btn btn-sm btn-primary" @onclick="StartAddRule">Add Rule</button>
+                </div>
+                <div class="card-body">
+                    @if (_rules.Count == 0)
+                    {
+                        <div class="empty-state">
+                            <h3>No Alert Rules</h3>
+                            <p>Create rules to define which events trigger alerts.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Enabled</th>
+                                        <th>Name</th>
+                                        <th>Event Pattern</th>
+                                        <th class="hide-mobile">Source</th>
+                                        <th class="hide-mobile">Min Severity</th>
+                                        <th class="hide-mobile">Cooldown</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var rule in _rules)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" checked="@rule.IsEnabled" @onchange="() => ToggleRule(rule)" />
+                                                    <span class="toggle-slider"></span>
+                                                </label>
+                                            </td>
+                                            <td>@rule.Name</td>
+                                            <td><code>@rule.EventTypePattern</code></td>
+                                            <td class="hide-mobile">@(rule.Source ?? "All")</td>
+                                            <td class="hide-mobile">
+                                                <span class="severity-badge @GetSeverityBadgeClass(rule.MinSeverity)">
+                                                    @rule.MinSeverity
+                                                </span>
+                                            </td>
+                                            <td class="hide-mobile">@FormatCooldown(rule.CooldownSeconds)</td>
+                                            <td>
+                                                <div class="action-buttons">
+                                                    <button class="btn btn-sm btn-secondary" @onclick="() => StartEditRule(rule)">Edit</button>
+                                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteRule(rule)">Delete</button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Rule Add/Edit Form *@
+            @if (_showRuleForm)
+            {
+                <div class="card" style="margin-top: 1rem;">
+                    <div class="card-header">
+                        <h2 class="card-title">@(_editingRuleId > 0 ? "Edit Rule" : "Add Rule")</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" class="form-control" @bind="_ruleName" placeholder="e.g., Device Offline Alert" />
+                        </div>
+                        <div class="form-group">
+                            <label>Event Type Pattern</label>
+                            <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., device.offline, audit.*" />
+                            <small class="form-text">Use * for wildcard. Examples: device.offline, audit.*, speedtest.regression</small>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Source</label>
+                                <select class="form-control" @bind="_ruleSource">
+                                    <option value="">All Sources</option>
+                                    <option value="audit">Audit</option>
+                                    <option value="device">Device</option>
+                                    <option value="speedtest">Speed Test</option>
+                                    <option value="wan">WAN</option>
+                                    <option value="wifi">WiFi</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Min Severity</label>
+                                <select class="form-control" @bind="_ruleMinSeverity">
+                                    <option value="Info">Info</option>
+                                    <option value="Warning">Warning</option>
+                                    <option value="Error">Error</option>
+                                    <option value="Critical">Critical</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Cooldown (seconds)</label>
+                                <input type="number" class="form-control" @bind="_ruleCooldown" min="0" />
+                                <small class="form-text">Minimum seconds between alerts for the same rule+device</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Escalation (minutes)</label>
+                                <input type="number" class="form-control" @bind="_ruleEscalationMinutes" min="0" />
+                                <small class="form-text">0 = no escalation. If set, unacknowledged alerts escalate after this time.</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_ruleDigestOnly" />
+                                <span>Digest only (no immediate alerts, included in digest summaries)</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Target Devices (optional)</label>
+                            <input type="text" class="form-control" @bind="_ruleTargetDevices" placeholder="Comma-separated IPs or MACs, empty = all" />
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" @onclick="SaveRule" disabled="@_savingRule">
+                                @if (_savingRule)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                }
+                                Save Rule
+                            </button>
+                            <button class="btn btn-secondary" @onclick="CancelRuleForm">Cancel</button>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_ruleError))
+                        {
+                            <div class="alert alert-danger" style="margin-top: 0.75rem;">@_ruleError</div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+
+        @* ========== Incidents Tab ========== *@
+        @if (_activeTab == "incidents")
+        {
+            @if (_incidents.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>No Incidents</h3>
+                    <p>Correlated alerts will be grouped into incidents automatically.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var incident in _incidents)
+                {
+                    <div class="card" style="margin-bottom: 1rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span class="severity-badge @GetSeverityBadgeClass(incident.Severity)">
+                                    @incident.Severity
+                                </span>
+                                <h2 class="card-title" style="margin: 0;">@incident.Title</h2>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span class="badge">@incident.AlertCount alert@(incident.AlertCount != 1 ? "s" : "")</span>
+                                <span class="status-badge @GetStatusBadgeClass(incident.Status)">@incident.Status</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div style="display: flex; gap: 2rem; flex-wrap: wrap; font-size: 0.8125rem; color: var(--text-secondary);">
+                                <div>
+                                    <span class="detail-label">Correlation Key</span>
+                                    <span class="detail-value"><code>@incident.CorrelationKey</code></span>
+                                </div>
+                                <div>
+                                    <span class="detail-label">First Triggered</span>
+                                    <span class="detail-value">@FormatTime(incident.FirstTriggeredAt)</span>
+                                </div>
+                                <div>
+                                    <span class="detail-label">Last Updated</span>
+                                    <span class="detail-value">@FormatTime(incident.LastTriggeredAt)</span>
+                                </div>
+                                @if (incident.ResolvedAt.HasValue)
+                                {
+                                    <div>
+                                        <span class="detail-label">Resolved</span>
+                                        <span class="detail-value">@FormatTime(incident.ResolvedAt.Value)</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        }
+    }
+</div>
+
+<style>
+    .alerts-page {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .dashboard-controls {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 0;
+        flex-wrap: wrap;
+    }
+    .tab-bar {
+        display: flex;
+        gap: 0.25rem;
+        background: var(--bg-primary);
+        border-radius: 6px;
+        padding: 0.25rem;
+    }
+    .tab-btn {
+        padding: 0.625rem 1.25rem;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 500;
+        min-height: 44px;
+        transition: all 0.15s ease;
+    }
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+    .tab-btn.active {
+        background: var(--primary-color);
+        color: white;
+    }
+    .alert-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .severity-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--border-radius-lg);
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .severity-critical {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--danger-color);
+    }
+    .severity-error {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+    }
+    .severity-warning {
+        background: rgba(245, 158, 11, 0.2);
+        color: var(--warning-color);
+    }
+    .severity-info {
+        background: rgba(71, 151, 255, 0.2);
+        color: var(--info-color);
+    }
+    .history-filters {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .filter-label {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+    .filter-select {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        color: var(--text-primary);
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8125rem;
+    }
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+    .form-text {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+    .form-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.625rem;
+        border-radius: var(--border-radius-lg);
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+    .action-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+    }
+    .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: var(--bg-tertiary);
+        border-radius: 20px;
+        transition: 0.2s;
+    }
+    .toggle-slider::before {
+        content: "";
+        position: absolute;
+        height: 14px;
+        width: 14px;
+        left: 3px;
+        bottom: 3px;
+        background: white;
+        border-radius: 50%;
+        transition: 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+        background: var(--primary-color);
+    }
+    .toggle-switch input:checked + .toggle-slider::before {
+        transform: translateX(16px);
+    }
+
+    @@media (max-width: 768px) {
+        .tab-bar {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .tab-btn {
+            padding: 0.5rem 0.875rem;
+            font-size: 0.8125rem;
+            white-space: nowrap;
+        }
+        .form-row {
+            grid-template-columns: 1fr;
+        }
+        .alert-item {
+            flex-direction: column;
+        }
+        .alert-actions {
+            flex-direction: row;
+            align-items: center;
+        }
+    }
+</style>
+
+@code {
+    private string _activeTab = "active";
+    private bool _loading = true;
+
+    // Active alerts
+    private List<AlertHistoryEntry> _activeAlerts = [];
+
+    // History
+    private List<AlertHistoryEntry> _historyAlerts = [];
+    private string _historySourceFilter = "";
+    private string _historySeverityFilter = "";
+
+    // Rules
+    private List<AlertRule> _rules = [];
+    private bool _showRuleForm;
+    private int _editingRuleId;
+    private string _ruleName = "";
+    private string _ruleEventPattern = "";
+    private string _ruleSource = "";
+    private string _ruleMinSeverity = "Warning";
+    private int _ruleCooldown = 300;
+    private int _ruleEscalationMinutes;
+    private bool _ruleDigestOnly;
+    private string _ruleTargetDevices = "";
+    private bool _savingRule;
+    private string? _ruleError;
+
+    // Incidents
+    private List<AlertIncident> _incidents = [];
+
+    // Auto-refresh
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadActiveAlerts();
+        _loading = false;
+
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_activeTab == "active")
+                        await LoadActiveAlerts();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            switch (tab)
+            {
+                case "active":
+                    await LoadActiveAlerts();
+                    break;
+                case "history":
+                    await LoadHistory();
+                    break;
+                case "rules":
+                    await LoadRules();
+                    break;
+                case "incidents":
+                    await LoadIncidents();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading {Tab} tab", tab);
+        }
+
+        _loading = false;
+    }
+
+    // ========== Data Loading ==========
+
+    private async Task LoadActiveAlerts()
+    {
+        try
+        {
+            _activeAlerts = await AlertRepository.GetActiveAlertsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading active alerts");
+            _activeAlerts = [];
+        }
+    }
+
+    private async Task LoadHistory()
+    {
+        try
+        {
+            AlertSeverity? severity = null;
+            if (!string.IsNullOrEmpty(_historySeverityFilter) && Enum.TryParse<AlertSeverity>(_historySeverityFilter, out var s))
+                severity = s;
+
+            var source = string.IsNullOrEmpty(_historySourceFilter) ? null : _historySourceFilter;
+            _historyAlerts = await AlertRepository.GetAlertHistoryAsync(200, source, severity);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading alert history");
+            _historyAlerts = [];
+        }
+    }
+
+    private async Task LoadRules()
+    {
+        try
+        {
+            _rules = await AlertRepository.GetRulesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading alert rules");
+            _rules = [];
+        }
+    }
+
+    private async Task LoadIncidents()
+    {
+        try
+        {
+            _incidents = await AlertRepository.GetIncidentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading incidents");
+            _incidents = [];
+        }
+    }
+
+    // ========== Active Alert Actions ==========
+
+    private async Task AcknowledgeAlert(AlertHistoryEntry alert)
+    {
+        try
+        {
+            alert.Status = AlertStatus.Acknowledged;
+            alert.AcknowledgedAt = DateTime.UtcNow;
+            await AlertRepository.UpdateAlertAsync(alert);
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error acknowledging alert {Id}", alert.Id);
+        }
+    }
+
+    private async Task ResolveAlert(AlertHistoryEntry alert)
+    {
+        try
+        {
+            alert.Status = AlertStatus.Resolved;
+            alert.ResolvedAt = DateTime.UtcNow;
+            await AlertRepository.UpdateAlertAsync(alert);
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resolving alert {Id}", alert.Id);
+        }
+    }
+
+    // ========== Rule CRUD ==========
+
+    private void StartAddRule()
+    {
+        _editingRuleId = 0;
+        _ruleName = "";
+        _ruleEventPattern = "";
+        _ruleSource = "";
+        _ruleMinSeverity = "Warning";
+        _ruleCooldown = 300;
+        _ruleEscalationMinutes = 0;
+        _ruleDigestOnly = false;
+        _ruleTargetDevices = "";
+        _ruleError = null;
+        _showRuleForm = true;
+    }
+
+    private void StartEditRule(AlertRule rule)
+    {
+        _editingRuleId = rule.Id;
+        _ruleName = rule.Name;
+        _ruleEventPattern = rule.EventTypePattern;
+        _ruleSource = rule.Source ?? "";
+        _ruleMinSeverity = rule.MinSeverity.ToString();
+        _ruleCooldown = rule.CooldownSeconds;
+        _ruleEscalationMinutes = rule.EscalationMinutes;
+        _ruleDigestOnly = rule.DigestOnly;
+        _ruleTargetDevices = rule.TargetDevices ?? "";
+        _ruleError = null;
+        _showRuleForm = true;
+    }
+
+    private void CancelRuleForm()
+    {
+        _showRuleForm = false;
+        _ruleError = null;
+    }
+
+    private async Task SaveRule()
+    {
+        if (string.IsNullOrWhiteSpace(_ruleName) || string.IsNullOrWhiteSpace(_ruleEventPattern))
+        {
+            _ruleError = "Name and event type pattern are required.";
+            return;
+        }
+
+        _savingRule = true;
+        _ruleError = null;
+
+        try
+        {
+            if (!Enum.TryParse<AlertSeverity>(_ruleMinSeverity, out var severity))
+                severity = AlertSeverity.Warning;
+
+            if (_editingRuleId > 0)
+            {
+                var rule = await AlertRepository.GetRuleAsync(_editingRuleId);
+                if (rule != null)
+                {
+                    rule.Name = _ruleName.Trim();
+                    rule.EventTypePattern = _ruleEventPattern.Trim();
+                    rule.Source = string.IsNullOrEmpty(_ruleSource) ? null : _ruleSource;
+                    rule.MinSeverity = severity;
+                    rule.CooldownSeconds = _ruleCooldown;
+                    rule.EscalationMinutes = _ruleEscalationMinutes;
+                    rule.DigestOnly = _ruleDigestOnly;
+                    rule.TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim();
+                    rule.UpdatedAt = DateTime.UtcNow;
+                    await AlertRepository.UpdateRuleAsync(rule);
+                }
+            }
+            else
+            {
+                var rule = new AlertRule
+                {
+                    Name = _ruleName.Trim(),
+                    EventTypePattern = _ruleEventPattern.Trim(),
+                    Source = string.IsNullOrEmpty(_ruleSource) ? null : _ruleSource,
+                    MinSeverity = severity,
+                    CooldownSeconds = _ruleCooldown,
+                    EscalationMinutes = _ruleEscalationMinutes,
+                    DigestOnly = _ruleDigestOnly,
+                    TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim()
+                };
+                await AlertRepository.SaveRuleAsync(rule);
+            }
+
+            _showRuleForm = false;
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving rule");
+            _ruleError = "Failed to save rule. Check logs for details.";
+        }
+        finally
+        {
+            _savingRule = false;
+        }
+    }
+
+    private async Task ToggleRule(AlertRule rule)
+    {
+        try
+        {
+            rule.IsEnabled = !rule.IsEnabled;
+            rule.UpdatedAt = DateTime.UtcNow;
+            await AlertRepository.UpdateRuleAsync(rule);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling rule {Id}", rule.Id);
+            rule.IsEnabled = !rule.IsEnabled; // Revert on failure
+        }
+    }
+
+    private async Task DeleteRule(AlertRule rule)
+    {
+        try
+        {
+            await AlertRepository.DeleteRuleAsync(rule.Id);
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting rule {Id}", rule.Id);
+        }
+    }
+
+    // ========== Formatters ==========
+
+    private static string GetSeverityClass(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Critical => "alert-critical",
+        AlertSeverity.Error => "alert-critical",
+        AlertSeverity.Warning => "alert-warning",
+        _ => "alert-info"
+    };
+
+    private static string GetSeverityIcon(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Critical => "!!",
+        AlertSeverity.Error => "!",
+        AlertSeverity.Warning => "!",
+        _ => "i"
+    };
+
+    private static string GetSeverityBadgeClass(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Critical => "severity-critical",
+        AlertSeverity.Error => "severity-error",
+        AlertSeverity.Warning => "severity-warning",
+        _ => "severity-info"
+    };
+
+    private static string GetStatusBadgeClass(AlertStatus status) => status switch
+    {
+        AlertStatus.Active => "status-active",
+        AlertStatus.Acknowledged => "status-connected",
+        AlertStatus.Resolved => "status-inactive",
+        AlertStatus.Suppressed => "status-disconnected",
+        _ => "status-inactive"
+    };
+
+    private static string FormatTime(DateTime utcTime)
+    {
+        var elapsed = DateTime.UtcNow - utcTime;
+        if (elapsed.TotalMinutes < 1) return "Just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
+        return utcTime.ToString("MMM d, yyyy");
+    }
+
+    private static string FormatCooldown(int seconds)
+    {
+        if (seconds <= 0) return "None";
+        if (seconds < 60) return $"{seconds}s";
+        if (seconds < 3600) return $"{seconds / 60}m";
+        return $"{seconds / 3600}h";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

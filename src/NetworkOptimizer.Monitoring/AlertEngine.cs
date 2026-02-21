@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Models;
 
 namespace NetworkOptimizer.Monitoring;

@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -17,6 +19,7 @@ public class ClientSpeedTestService
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly ITopologySnapshotService _snapshotService;
     private readonly IConfiguration _configuration;
+    private readonly IAlertEventBus? _alertEventBus;
 
     public ClientSpeedTestService(
         ILogger<ClientSpeedTestService> logger,
@@ -24,7 +27,8 @@ public class ClientSpeedTestService
         UniFiConnectionService connectionService,
         INetworkPathAnalyzer pathAnalyzer,
         ITopologySnapshotService snapshotService,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IAlertEventBus? alertEventBus = null)
     {
         _logger = logger;
         _dbFactory = dbFactory;
@@ -32,6 +36,7 @@ public class ClientSpeedTestService
         _pathAnalyzer = pathAnalyzer;
         _snapshotService = snapshotService;
         _configuration = configuration;
+        _alertEventBus = alertEventBus;
     }
 
     /// <summary>
@@ -88,6 +93,9 @@ public class ClientSpeedTestService
         _logger.LogInformation(
             "Recorded OpenSpeedTest result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps",
             result.DeviceHost, result.DownloadMbps, result.UploadMbps);
+
+        // Publish speed test alert event
+        await PublishSpeedTestAlertAsync(result);
 
         // Enrich and analyze in background (after WiFi rates stabilize)
         _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
@@ -463,6 +471,35 @@ public class ClientSpeedTestService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to enrich result {Id} in background", resultId);
+        }
+    }
+
+    private async Task PublishSpeedTestAlertAsync(Iperf3Result result)
+    {
+        if (_alertEventBus == null) return;
+
+        try
+        {
+            await _alertEventBus.PublishAsync(new AlertEvent
+            {
+                EventType = "speedtest.completed",
+                Severity = AlertSeverity.Info,
+                Source = "speedtest",
+                Title = $"Speed test: {result.DownloadMbps:F0}/{result.UploadMbps:F0} Mbps",
+                Message = $"Client {result.DeviceHost}: Download {result.DownloadMbps:F1} Mbps, Upload {result.UploadMbps:F1} Mbps",
+                DeviceIp = result.DeviceHost,
+                DeviceName = result.DeviceName,
+                MetricValue = result.DownloadMbps,
+                Context = new Dictionary<string, string>
+                {
+                    ["downloadMbps"] = result.DownloadMbps.ToString("F1"),
+                    ["uploadMbps"] = result.UploadMbps.ToString("F1")
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish speed test alert event");
         }
     }
 }

@@ -11,6 +11,7 @@ using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
+using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Ssh;
 using Serilog;
@@ -162,6 +163,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();
@@ -206,6 +208,41 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Iperf3ServerServic
 
 // Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
 builder.Services.AddHostedService<NginxHostedService>();
+
+// Register Alert Engine services (Vigilance)
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Events.IAlertEventBus, NetworkOptimizer.Alerts.Events.AlertEventBus>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertCooldownTracker>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertRuleEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertCorrelationService>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertProcessingService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.AlertProcessingService>());
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.DigestService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.DigestService>());
+// ISecretDecryptor adapter: bridges Alerts project's interface to existing credential protection
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.ISecretDecryptor>(sp =>
+{
+    var credService = sp.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialProtectionService>();
+    return new SecretDecryptorAdapter(credService);
+});
+// Delivery channels (singleton - stateless, use HttpClient)
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel, NetworkOptimizer.Alerts.Delivery.EmailDeliveryChannel>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.WebhookDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.WebhookDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient(),
+        sp.GetRequiredService<NetworkOptimizer.Alerts.Delivery.ISecretDecryptor>()));
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.SlackDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.SlackDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.DiscordDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.DiscordDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.TeamsDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.TeamsDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
@@ -431,6 +468,15 @@ using (var scope = app.Services.CreateScope())
 
     // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
     db.Database.Migrate();
+
+    // Seed default alert rules if none exist
+    if (!db.AlertRules.Any())
+    {
+        var defaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults();
+        db.AlertRules.AddRange(defaults);
+        db.SaveChanges();
+        app.Logger.LogInformation("Seeded {Count} default alert rules", defaults.Count);
+    }
 }
 
 // Pre-generate the credential encryption key (resolves singleton, triggering key creation)
@@ -584,6 +630,9 @@ app.UseCors(); // Required for OpenSpeedTest to POST results
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Alert Engine API endpoints
+app.MapAlertEndpoints();
 
 // API endpoints for agent metrics ingestion
 app.MapPost("/api/metrics", async (HttpContext context) =>
@@ -1516,3 +1565,10 @@ record FloorUpdateRequest(double? SwLatitude = null, double? SwLongitude = null,
 record FloorImageUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
     double? NeLongitude = null, double? Opacity = null, double? RotationDeg = null, string? CropJson = null,
     string? Label = null);
+
+// Adapter to bridge ISecretDecryptor (Alerts project) to ICredentialProtectionService (Storage project)
+class SecretDecryptorAdapter(NetworkOptimizer.Storage.Services.ICredentialProtectionService inner) : NetworkOptimizer.Alerts.Delivery.ISecretDecryptor
+{
+    public string Decrypt(string encrypted) => inner.Decrypt(encrypted);
+    public string Encrypt(string plaintext) => inner.Encrypt(plaintext);
+}
