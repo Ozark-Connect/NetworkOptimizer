@@ -1076,10 +1076,10 @@ window.fpEditor = {
             var mountLabels = { ceiling: 'Ceiling', wall: 'Wall / Pole', desktop: 'Desktop' };
             var model = (ap.model || '').toUpperCase();
             var mountTypes;
-            if (/^UDR\b/.test(model)) {
-                mountTypes = ['desktop']; // UDR: desktop only
-            } else if (/^UX\b/.test(model)) {
-                mountTypes = ['wall', 'desktop']; // UX: wall or desktop
+            if (/^UDR/.test(model)) {
+                mountTypes = ['desktop']; // UDR*: desktop only
+            } else if (/^UX/.test(model)) {
+                mountTypes = ['wall', 'desktop']; // UX*: wall or desktop
             } else {
                 mountTypes = allMounts;
             }
