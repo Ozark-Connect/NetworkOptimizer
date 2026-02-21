@@ -158,9 +158,10 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
 
-        // Ceiling/desktop mount: patterns measured from below (logo side) but floor plan
-        // views from above. Mirror the bearing to correct the left-right reversal.
-        if (effectiveMount == "ceiling" || effectiveMount == "desktop")
+        // Ceiling mount only: pattern measured from below (logo down) but floor plan views
+        // from above. This flips CW↔CCW, so mirror the bearing. Desktop doesn't need this
+        // because logo faces up — the physical 3-o'clock edge swaps sides when flipped.
+        if (effectiveMount == "ceiling")
             azimuthDeg = (360 - azimuthDeg) % 360;
 
         // Omni-like patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
