@@ -166,12 +166,12 @@ public class PropagationService
         if (effectiveMount == "desktop")
             azimuthDeg = (360 - azimuthDeg) % 360;
 
-        // Omni-like patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
+        // Ceiling-native patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
         // OrientationDeg represents U-tips direction, so add 90° to align.
-        // Applies to ceiling APs, desktop APs, and omni antenna mode (e.g., outdoor omni).
+        // Keyed off pattern origin (not current mount) so ceiling APs in wall mode still get it.
         var isOmniMode = !string.IsNullOrEmpty(ap.AntennaMode) &&
                          ap.AntennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
-        if (effectiveMount == "ceiling" || effectiveMount == "desktop" || isOmniMode)
+        if (patternNativeMount == "ceiling" || effectiveMount == "desktop" || isOmniMode)
             azimuthDeg = (azimuthDeg + 90) % 360;
 
         // Elevation angle in pattern coordinates (ceiling mount native):
