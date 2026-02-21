@@ -149,15 +149,30 @@ public class PropagationService
         // Indoor path loss (ITU-R P.1238): uses higher exponent than free-space for realistic indoor falloff
         var fspl = 10 * IndoorPathLossExponent * Math.Log10(distance3d) + 20 * Math.Log10(freqMhz) - 27.55;
 
-        // Azimuth angle from AP to point, adjusted for AP orientation
-        var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
-        var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
-
-        // Elevation angle in pattern coordinates (ceiling mount native):
-        // 0 = straight down, 90 = horizon, 180 = straight up
         // IW and Wall APs on a "desktop" stand sit upright (same as wall-mounted)
         var effectiveMount = ap.MountType == "desktop" && IsStandMountModel(ap.Model) ? "wall" : ap.MountType;
         var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
+
+        // Azimuth angle from AP to point, adjusted for AP orientation.
+        // Start with CW bearing relative to orientation (correct for directional wall APs).
+        var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
+        var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
+
+        // Ceiling/desktop mount: patterns measured from below (logo side) but floor plan
+        // views from above. Mirror the bearing to correct the left-right reversal.
+        if (effectiveMount == "ceiling" || effectiveMount == "desktop")
+            azimuthDeg = (360 - azimuthDeg) % 360;
+
+        // Omni-like patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
+        // OrientationDeg represents U-tips direction, so add 90° to align.
+        // Applies to ceiling APs, desktop APs, and omni antenna mode (e.g., outdoor omni).
+        var isOmniMode = !string.IsNullOrEmpty(ap.AntennaMode) &&
+                         ap.AntennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
+        if (effectiveMount == "ceiling" || effectiveMount == "desktop" || isOmniMode)
+            azimuthDeg = (azimuthDeg + 90) % 360;
+
+        // Elevation angle in pattern coordinates (ceiling mount native):
+        // 0 = straight down, 90 = horizon, 180 = straight up
         int elevationDeg;
         if (floorSeparation == 0)
         {
