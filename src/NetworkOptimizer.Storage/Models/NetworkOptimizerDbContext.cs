@@ -263,8 +263,10 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => new { e.DestPort, e.Timestamp });
             entity.HasIndex(e => e.KillChainStage);
             entity.HasIndex(e => e.InnerAlertId).IsUnique();
+            entity.HasIndex(e => e.EventSource);
             entity.Property(e => e.Action).HasConversion<int>();
             entity.Property(e => e.KillChainStage).HasConversion<int>();
+            entity.Property(e => e.EventSource).HasConversion<int>();
             entity.HasOne(e => e.Pattern)
                 .WithMany(p => p.Events)
                 .HasForeignKey(e => e.PatternId)

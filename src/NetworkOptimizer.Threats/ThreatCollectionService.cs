@@ -123,75 +123,39 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        // Collect events - try v2 first, fall back to v1
-        var events = new List<ThreatEvent>();
+        var allEvents = new List<ThreatEvent>();
 
-        try
-        {
-            var v2Response = await apiClient.GetThreatLogEventsAsync(start, end, cancellationToken: cancellationToken);
-            if (v2Response.ValueKind != JsonValueKind.Undefined)
-            {
-                // Log raw structure for diagnostics
-                if (v2Response.TryGetProperty("totalCount", out var totalCount))
-                    _logger.LogDebug("v2 API returned totalCount={TotalCount}", totalCount);
-                if (v2Response.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array && dataArr.GetArrayLength() > 0)
-                {
-                    var first = dataArr[0];
-                    var props = string.Join(", ", first.EnumerateObject().Select(p => p.Name));
-                    _logger.LogDebug("v2 first event properties: {Props}", props);
-                }
+        // 1. Collect traffic flows (PRIMARY source)
+        var flowEvents = await CollectTrafficFlowsAsync(apiClient, start, end, cancellationToken);
+        allEvents.AddRange(flowEvents);
 
-                events = _normalizer.NormalizeV2Events(v2Response);
-                _logger.LogDebug("Collected {Count} events via v2 API", events.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "v2 threat log API failed, falling back to v1");
-        }
+        // 2. Collect IPS events (SECONDARY source)
+        var ipsEvents = await CollectIpsEventsAsync(apiClient, start, end, cancellationToken);
+        allEvents.AddRange(ipsEvents);
 
-        if (events.Count == 0)
-        {
-            try
-            {
-                var v1Response = await apiClient.GetIpsEventsAsync(start, end, cancellationToken: cancellationToken);
-                if (v1Response.Count > 0)
-                {
-                    var json = JsonSerializer.Serialize(v1Response);
-                    using var doc = JsonDocument.Parse(json);
-                    events = _normalizer.NormalizeV1Events(doc.RootElement);
-                    _logger.LogDebug("Collected {Count} events via v1 API", events.Count);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "v1 IPS events API also failed");
-            }
-        }
-
-        if (events.Count == 0)
+        if (allEvents.Count == 0)
         {
             _logger.LogDebug("No new threat events found");
             await settings.SaveSettingAsync("threats.last_sync_timestamp", end.ToString("O"));
             return;
         }
 
-        // Enrich with geo data
-        _geoService.EnrichEvents(events);
+        // 3. Enrich with geo data (flow events with internal source -> enrich on dest IP)
+        _geoService.EnrichEvents(allEvents);
 
-        // Classify kill chain stages
-        foreach (var evt in events)
+        // 4. Classify kill chain stages
+        foreach (var evt in allEvents)
         {
             evt.KillChainStage = _classifier.Classify(evt);
         }
 
-        // Save to database
-        await repository.SaveEventsAsync(events, cancellationToken);
+        // 5. Save to database
+        await repository.SaveEventsAsync(allEvents, cancellationToken);
 
         // Update sync cursor
         await settings.SaveSettingAsync("threats.last_sync_timestamp", end.ToString("O"));
 
-        // Run pattern analysis
+        // 6. Run pattern analysis
         try
         {
             var analysisWindow = DateTime.UtcNow.AddHours(-1);
@@ -207,18 +171,23 @@ public class ThreatCollectionService : BackgroundService
             _logger.LogWarning(ex, "Pattern analysis failed");
         }
 
-        // Publish high-severity events to alert bus
-        var criticalEvents = events.Where(e => e.Severity >= 4).ToList();
+        // 7. Publish high-severity events to alert bus
+        var criticalEvents = allEvents.Where(e => e.Severity >= 4).ToList();
         foreach (var evt in criticalEvents)
         {
             try
             {
+                var eventType = evt.EventSource == Models.EventSource.TrafficFlow
+                    ? "threats.traffic_flow"
+                    : "threats.ips_event";
+                var titlePrefix = evt.EventSource == Models.EventSource.TrafficFlow ? "Flow" : "IPS";
+
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
-                    EventType = "threats.ips_event",
+                    EventType = eventType,
                     Source = "threats",
                     Severity = evt.Severity >= 5 ? AlertSeverity.Critical : AlertSeverity.Error,
-                    Title = $"IPS: {evt.SignatureName}",
+                    Title = $"{titlePrefix}: {evt.SignatureName}",
                     Message = $"{evt.Action} {evt.Protocol} from {evt.SourceIp}:{evt.SourcePort} to {evt.DestIp}:{evt.DestPort} - {evt.Category}",
                     DeviceIp = evt.SourceIp,
                     Context = new Dictionary<string, string>
@@ -236,8 +205,8 @@ public class ThreatCollectionService : BackgroundService
             }
         }
 
-        _logger.LogInformation("Processed {Total} threat events ({Critical} critical)",
-            events.Count, criticalEvents.Count);
+        _logger.LogInformation("Processed {Total} threat events ({Flows} flows, {Ips} IPS, {Critical} critical)",
+            allEvents.Count, flowEvents.Count, ipsEvents.Count, criticalEvents.Count);
 
         // Periodic cleanup (3 AM UTC)
         if (DateTime.UtcNow.Hour == 3 && DateTime.UtcNow.Minute < _pollIntervalMinutes)
@@ -246,6 +215,112 @@ public class ThreatCollectionService : BackgroundService
             await repository.PurgeOldEventsAsync(cutoff, cancellationToken);
             await repository.PurgeCrowdSecCacheAsync(cancellationToken);
         }
+    }
+
+    private async Task<List<ThreatEvent>> CollectTrafficFlowsAsync(
+        UniFi.UniFiApiClient apiClient,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        CancellationToken cancellationToken)
+    {
+        var events = new List<ThreatEvent>();
+
+        try
+        {
+            const int maxPages = 50;
+            var page = 0;
+
+            while (page < maxPages)
+            {
+                var response = await apiClient.GetTrafficFlowsAsync(start, end, page, cancellationToken: cancellationToken);
+                if (response.ValueKind == JsonValueKind.Undefined)
+                    break;
+
+                if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0)
+                    break;
+
+                // Filter interesting flows before normalization
+                var interestingFlows = new List<JsonElement>();
+                foreach (var flow in data.EnumerateArray())
+                {
+                    if (Analysis.FlowInterestFilter.IsInteresting(flow))
+                        interestingFlows.Add(flow);
+                }
+
+                if (interestingFlows.Count > 0)
+                {
+                    // Build a filtered response for the normalizer
+                    var filteredJson = JsonSerializer.Serialize(new { data = interestingFlows });
+                    using var doc = JsonDocument.Parse(filteredJson);
+                    var normalized = _normalizer.NormalizeFlowEvents(doc.RootElement);
+                    events.AddRange(normalized);
+                }
+
+                // Check pagination
+                var hasNext = response.TryGetProperty("has_next", out var hn) && hn.GetBoolean();
+                if (!hasNext) break;
+                page++;
+            }
+
+            if (events.Count > 0)
+                _logger.LogDebug("Collected {Count} interesting flow events across {Pages} pages", events.Count, page + 1);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Traffic flows collection failed");
+        }
+
+        return events;
+    }
+
+    private async Task<List<ThreatEvent>> CollectIpsEventsAsync(
+        UniFi.UniFiApiClient apiClient,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        CancellationToken cancellationToken)
+    {
+        var events = new List<ThreatEvent>();
+
+        // Try v2 system-log first
+        try
+        {
+            var v2Response = await apiClient.GetThreatLogEventsAsync(start, end, cancellationToken: cancellationToken);
+            if (v2Response.ValueKind != JsonValueKind.Undefined)
+            {
+                if (v2Response.TryGetProperty("totalCount", out var totalCount))
+                    _logger.LogDebug("v2 IPS API returned totalCount={TotalCount}", totalCount);
+
+                events = _normalizer.NormalizeV2Events(v2Response);
+                if (events.Count > 0)
+                {
+                    _logger.LogDebug("Collected {Count} IPS events via v2 API", events.Count);
+                    return events;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "v2 threat log API failed, falling back to v1");
+        }
+
+        // Fall back to v1
+        try
+        {
+            var v1Response = await apiClient.GetIpsEventsAsync(start, end, cancellationToken: cancellationToken);
+            if (v1Response.Count > 0)
+            {
+                var json = JsonSerializer.Serialize(v1Response);
+                using var doc = JsonDocument.Parse(json);
+                events = _normalizer.NormalizeV1Events(doc.RootElement);
+                _logger.LogDebug("Collected {Count} IPS events via v1 API", events.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "v1 IPS events API also failed");
+        }
+
+        return events;
     }
 
     private async Task LoadConfigAsync(IThreatSettingsAccessor settings, CancellationToken ct)

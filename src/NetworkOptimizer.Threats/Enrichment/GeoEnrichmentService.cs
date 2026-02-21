@@ -146,6 +146,8 @@ public class GeoEnrichmentService : IDisposable
 
     /// <summary>
     /// Batch-enrich threat events with geo/ASN data.
+    /// For flow events where the source IP is internal (RFC1918), enriches on the destination IP
+    /// instead, since the external endpoint is what needs geo data.
     /// </summary>
     public void EnrichEvents(List<ThreatEvent> events)
     {
@@ -157,10 +159,21 @@ public class GeoEnrichmentService : IDisposable
 
         foreach (var evt in events)
         {
-            if (!cache.TryGetValue(evt.SourceIp, out var geo))
+            // For flow events with internal source, enrich on the destination IP
+            var enrichIp = evt.SourceIp;
+            if (evt.EventSource == EventSource.TrafficFlow &&
+                !string.IsNullOrEmpty(evt.SourceIp) &&
+                IPAddress.TryParse(evt.SourceIp, out var srcIp) &&
+                IsPrivateOrReserved(srcIp) &&
+                !string.IsNullOrEmpty(evt.DestIp))
             {
-                geo = Enrich(evt.SourceIp);
-                cache[evt.SourceIp] = geo;
+                enrichIp = evt.DestIp;
+            }
+
+            if (!cache.TryGetValue(enrichIp, out var geo))
+            {
+                geo = Enrich(enrichIp);
+                cache[enrichIp] = geo;
             }
 
             evt.CountryCode = geo.CountryCode;

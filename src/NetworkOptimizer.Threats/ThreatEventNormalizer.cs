@@ -111,6 +111,129 @@ public class ThreatEventNormalizer
     }
 
     /// <summary>
+    /// Normalize traffic flow entries into ThreatEvent entities.
+    /// Expects the full response from the traffic-flows endpoint.
+    /// </summary>
+    public List<ThreatEvent> NormalizeFlowEvents(JsonElement response)
+    {
+        var results = new List<ThreatEvent>();
+
+        if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            return results;
+
+        foreach (var flow in data.EnumerateArray())
+        {
+            try
+            {
+                var id = flow.GetPropertyOrDefault("id", "");
+                if (string.IsNullOrEmpty(id)) continue;
+
+                var timestamp = flow.GetPropertyOrDefault("time", 0L);
+
+                var sourceIp = "";
+                var sourcePort = 0;
+                if (flow.TryGetProperty("source", out var src))
+                {
+                    sourceIp = src.GetPropertyOrDefault("ip", "");
+                    sourcePort = src.GetPropertyOrDefault("port", 0);
+                }
+
+                var destIp = "";
+                var destPort = 0;
+                string? domain = null;
+                if (flow.TryGetProperty("destination", out var dst))
+                {
+                    destIp = dst.GetPropertyOrDefault("ip", "");
+                    destPort = dst.GetPropertyOrDefault("port", 0);
+
+                    if (dst.TryGetProperty("domains", out var domains) &&
+                        domains.ValueKind == JsonValueKind.Array &&
+                        domains.GetArrayLength() > 0)
+                    {
+                        domain = domains[0].GetString();
+                    }
+                }
+
+                var protocol = flow.GetPropertyOrDefault("protocol", "");
+                var action = flow.GetPropertyOrDefault("action", "");
+                var risk = flow.GetPropertyOrDefault("risk", "low");
+                var direction = flow.GetPropertyOrDefault("direction", "");
+                var service = flow.GetPropertyOrDefault("service", "");
+
+                long? bytesTotal = null;
+                if (flow.TryGetProperty("traffic_data", out var trafficData))
+                {
+                    var bt = trafficData.GetPropertyOrDefault("bytes_total", 0L);
+                    if (bt > 0) bytesTotal = bt;
+                }
+
+                var durationMs = flow.GetPropertyOrDefault("duration_milliseconds", 0L);
+
+                string? networkName = null;
+                if (flow.TryGetProperty("source", out var srcForNetwork))
+                {
+                    var nn = srcForNetwork.GetPropertyOrDefault("network_name", "");
+                    if (!string.IsNullOrEmpty(nn)) networkName = nn;
+                }
+
+                var severity = MapFlowSeverity(risk, action);
+                var threatAction = action.Equals("blocked", StringComparison.OrdinalIgnoreCase)
+                    ? ThreatAction.Blocked
+                    : ThreatAction.Detected;
+
+                var threatEvent = new ThreatEvent
+                {
+                    InnerAlertId = $"flow-{id}",
+                    Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp).UtcDateTime,
+                    SourceIp = sourceIp,
+                    SourcePort = sourcePort,
+                    DestIp = destIp,
+                    DestPort = destPort,
+                    Protocol = protocol,
+                    SignatureId = 0,
+                    SignatureName = $"Flow: {service} {direction} {action}",
+                    Category = $"{risk} risk {direction} {service}",
+                    Severity = severity,
+                    Action = threatAction,
+                    EventSource = EventSource.TrafficFlow,
+                    Domain = domain,
+                    Direction = direction,
+                    Service = service,
+                    BytesTotal = bytesTotal,
+                    FlowDurationMs = durationMs > 0 ? durationMs : null,
+                    NetworkName = networkName,
+                    RiskLevel = risk
+                };
+
+                results.Add(threatEvent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to normalize traffic flow entry");
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Map flow risk + action to our 1-5 severity scale.
+    /// </summary>
+    internal static int MapFlowSeverity(string risk, string action)
+    {
+        var isBlocked = action.Equals("blocked", StringComparison.OrdinalIgnoreCase);
+        return risk.ToLowerInvariant() switch
+        {
+            "high" when isBlocked => 5,
+            "high" => 4,
+            "medium" when isBlocked => 4,
+            "medium" => 3,
+            "low" when isBlocked => 2,
+            _ => 1
+        };
+    }
+
+    /// <summary>
     /// Normalize Suricata severity (1=high, 2=medium, 3=low) to our 1-5 scale.
     /// Suricata uses inverted severity: 1 is most severe, 4 is least.
     /// </summary>

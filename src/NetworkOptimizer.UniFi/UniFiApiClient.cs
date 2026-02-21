@@ -2215,7 +2215,7 @@ public class UniFiApiClient : IDisposable
             ["searchText"] = "",
             ["severities"] = new[] { "LOW", "MEDIUM", "HIGH", "VERY_HIGH" },
             ["categories"] = new[] { "SECURITY" },
-            ["events"] = new[] { "THREAT_BLOCKED", "THREAT_DETECTED" },
+            ["events"] = Array.Empty<string>(),
             ["subcategories"] = new[] { "SECURITY_INTRUSION_PREVENTION" },
             ["type"] = "GENERAL",
             ["timestampFrom"] = start.ToUnixTimeMilliseconds(),
@@ -2245,6 +2245,89 @@ public class UniFiApiClient : IDisposable
             {
                 var error = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogWarning("Threat log events request failed: {StatusCode} - {Error}",
+                    response.StatusCode, error);
+            }
+
+            return default;
+        });
+    }
+
+    /// <summary>
+    /// POST v2/api/site/{site}/traffic-flows - Get traffic flow data for threat analysis.
+    /// Returns rich flow data including risk assessment, direction, and service labels.
+    /// </summary>
+    public async Task<JsonElement> GetTrafficFlowsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int pageNumber = 0,
+        int pageSize = 100,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return default;
+        }
+
+        var url = BuildV2ApiPath($"site/{_site}/traffic-flows");
+
+        var body = new Dictionary<string, object>
+        {
+            ["risk"] = Array.Empty<string>(),
+            ["action"] = Array.Empty<string>(),
+            ["direction"] = Array.Empty<string>(),
+            ["protocol"] = Array.Empty<string>(),
+            ["policy"] = Array.Empty<string>(),
+            ["policy_type"] = Array.Empty<string>(),
+            ["service"] = Array.Empty<string>(),
+            ["source_host"] = Array.Empty<string>(),
+            ["source_mac"] = Array.Empty<string>(),
+            ["source_ip"] = Array.Empty<string>(),
+            ["source_port"] = Array.Empty<string>(),
+            ["source_network_id"] = Array.Empty<string>(),
+            ["source_domain"] = Array.Empty<string>(),
+            ["source_zone_id"] = Array.Empty<string>(),
+            ["source_region"] = Array.Empty<string>(),
+            ["destination_host"] = Array.Empty<string>(),
+            ["destination_mac"] = Array.Empty<string>(),
+            ["destination_ip"] = Array.Empty<string>(),
+            ["destination_port"] = Array.Empty<string>(),
+            ["destination_network_id"] = Array.Empty<string>(),
+            ["destination_domain"] = Array.Empty<string>(),
+            ["destination_zone_id"] = Array.Empty<string>(),
+            ["destination_region"] = Array.Empty<string>(),
+            ["in_network_id"] = Array.Empty<string>(),
+            ["out_network_id"] = Array.Empty<string>(),
+            ["next_ai_query"] = Array.Empty<string>(),
+            ["except_for"] = Array.Empty<string>(),
+            ["timestampFrom"] = start.ToUnixTimeMilliseconds(),
+            ["timestampTo"] = end.ToUnixTimeMilliseconds(),
+            ["pageNumber"] = pageNumber,
+            ["search_text"] = "",
+            ["pageSize"] = pageSize,
+            ["skip_count"] = false
+        };
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var content = new StringContent(
+                JsonSerializer.Serialize(body),
+                Encoding.UTF8,
+                "application/json");
+
+            var response = await _httpClient!.PostAsync(url, content, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(json);
+                return doc.RootElement.Clone();
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Traffic flows request failed: {StatusCode} - {Error}",
                     response.StatusCode, error);
             }
 

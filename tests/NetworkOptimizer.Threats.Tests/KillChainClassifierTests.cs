@@ -183,4 +183,90 @@ public class KillChainClassifierTests
         var result = _classifier.Classify(evt);
         Assert.Equal(KillChainStage.AttemptedExploitation, result);
     }
+
+    // --- Flow classification ---
+
+    private static ThreatEvent CreateFlowEvent(
+        string direction = "incoming",
+        string riskLevel = "low",
+        ThreatAction action = ThreatAction.Detected,
+        int destPort = 80,
+        int severity = 3)
+    {
+        return new ThreatEvent
+        {
+            InnerAlertId = $"flow-{Guid.NewGuid()}",
+            Timestamp = DateTime.UtcNow,
+            SourceIp = "192.0.2.10",
+            DestIp = "198.51.100.1",
+            DestPort = destPort,
+            Protocol = "TCP",
+            Category = $"{riskLevel} risk {direction} HTTPS",
+            SignatureName = $"Flow: HTTPS {direction} allowed",
+            Action = action,
+            Severity = severity,
+            EventSource = EventSource.TrafficFlow,
+            Direction = direction,
+            RiskLevel = riskLevel,
+            Service = "HTTPS"
+        };
+    }
+
+    [Fact]
+    public void Classify_FlowOutgoingHighRisk_ReturnsPostExploitation()
+    {
+        var evt = CreateFlowEvent(direction: "outgoing", riskLevel: "high");
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.PostExploitation, result);
+    }
+
+    [Fact]
+    public void Classify_FlowIncomingAllowedSensitivePort_ReturnsActiveExploitation()
+    {
+        var evt = CreateFlowEvent(direction: "incoming", action: ThreatAction.Detected, destPort: 22);
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.ActiveExploitation, result);
+    }
+
+    [Fact]
+    public void Classify_FlowIncomingBlockedSensitivePort_ReturnsAttemptedExploitation()
+    {
+        var evt = CreateFlowEvent(direction: "incoming", action: ThreatAction.Blocked, destPort: 3389);
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.AttemptedExploitation, result);
+    }
+
+    [Fact]
+    public void Classify_FlowIncomingBlockedNormalPort_ReturnsReconnaissance()
+    {
+        var evt = CreateFlowEvent(direction: "incoming", action: ThreatAction.Blocked, destPort: 80);
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.Reconnaissance, result);
+    }
+
+    [Fact]
+    public void Classify_FlowHighSeverityAllowed_ReturnsActiveExploitation()
+    {
+        var evt = CreateFlowEvent(direction: "outgoing", riskLevel: "low", severity: 4, action: ThreatAction.Detected, destPort: 443);
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.ActiveExploitation, result);
+    }
+
+    [Fact]
+    public void Classify_FlowLowRiskOutgoing_ReturnsReconnaissance()
+    {
+        var evt = CreateFlowEvent(direction: "outgoing", riskLevel: "low", severity: 1, destPort: 443);
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.Reconnaissance, result);
+    }
+
+    [Fact]
+    public void Classify_IpsEventStillUsesKeywords()
+    {
+        // Ensure IPS events still use keyword-based classification
+        var evt = CreateEvent(category: "SCAN Activity");
+        evt.EventSource = EventSource.Ips;
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.Reconnaissance, result);
+    }
 }

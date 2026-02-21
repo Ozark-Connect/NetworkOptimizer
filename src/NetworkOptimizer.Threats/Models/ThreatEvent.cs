@@ -62,6 +62,48 @@ public class ThreatEvent
     /// </summary>
     public KillChainStage KillChainStage { get; set; }
 
+    // --- Traffic flow fields (nullable - only populated for EventSource.TrafficFlow) ---
+
+    /// <summary>
+    /// Which API produced this event.
+    /// </summary>
+    public EventSource EventSource { get; set; }
+
+    /// <summary>
+    /// Destination domain from traffic flows (e.g., "api.cloudflare.com").
+    /// </summary>
+    public string? Domain { get; set; }
+
+    /// <summary>
+    /// Flow direction ("incoming" / "outgoing").
+    /// </summary>
+    public string? Direction { get; set; }
+
+    /// <summary>
+    /// Service label from traffic flows (e.g., "HTTPS", "DNS", "SSH").
+    /// </summary>
+    public string? Service { get; set; }
+
+    /// <summary>
+    /// Total traffic bytes for the flow.
+    /// </summary>
+    public long? BytesTotal { get; set; }
+
+    /// <summary>
+    /// Duration of the flow in milliseconds.
+    /// </summary>
+    public long? FlowDurationMs { get; set; }
+
+    /// <summary>
+    /// Source network name from UniFi.
+    /// </summary>
+    public string? NetworkName { get; set; }
+
+    /// <summary>
+    /// Raw risk level from UniFi ("low", "medium", "high").
+    /// </summary>
+    public string? RiskLevel { get; set; }
+
     /// <summary>
     /// FK to a detected ThreatPattern if this event is part of one.
     /// </summary>

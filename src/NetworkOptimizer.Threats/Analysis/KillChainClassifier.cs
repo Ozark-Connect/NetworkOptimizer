@@ -8,15 +8,28 @@ namespace NetworkOptimizer.Threats.Analysis;
 /// </summary>
 public class KillChainClassifier
 {
-    // Category keywords for classification
+    // Category keywords for classification (IPS events)
     private static readonly string[] ReconKeywords = ["SCAN", "POLICY", "INFO", "ICMP", "RECON", "DISCOVERY"];
     private static readonly string[] ExploitKeywords = ["EXPLOIT", "CVE", "RCE", "OVERFLOW", "INJECTION", "SQLI", "XSS", "SHELLCODE", "ATTACK"];
     private static readonly string[] PostExploitKeywords = ["TROJAN", "MALWARE", "CNC", "C2", "COMMAND AND CONTROL", "BACKDOOR", "RAT", "EXFILTRATION", "BOTNET"];
+
+    // Sensitive ports for flow classification
+    private static readonly HashSet<int> SensitivePorts = new()
+    {
+        22, 23, 25, 445, 1433, 1521, 3306, 3389, 5432, 5900, 5985, 5986, 6379, 8080, 8443, 27017
+    };
 
     /// <summary>
     /// Classify a threat event into a kill chain stage.
     /// </summary>
     public KillChainStage Classify(ThreatEvent evt)
+    {
+        return evt.EventSource == EventSource.TrafficFlow
+            ? ClassifyFlow(evt)
+            : ClassifyIps(evt);
+    }
+
+    private KillChainStage ClassifyIps(ThreatEvent evt)
     {
         var category = evt.Category.ToUpperInvariant();
         var signature = evt.SignatureName.ToUpperInvariant();
@@ -40,6 +53,40 @@ public class KillChainClassifier
 
         // Default: classify based on severity and action
         if (evt.Severity >= 4 && evt.Action == ThreatAction.Detected)
+            return KillChainStage.ActiveExploitation;
+
+        if (evt.Severity >= 4)
+            return KillChainStage.AttemptedExploitation;
+
+        return KillChainStage.Reconnaissance;
+    }
+
+    private KillChainStage ClassifyFlow(ThreatEvent evt)
+    {
+        var isIncoming = "incoming".Equals(evt.Direction, StringComparison.OrdinalIgnoreCase);
+        var isOutgoing = "outgoing".Equals(evt.Direction, StringComparison.OrdinalIgnoreCase);
+        var isBlocked = evt.Action == ThreatAction.Blocked;
+        var isSensitivePort = SensitivePorts.Contains(evt.DestPort);
+        var isHighRisk = "high".Equals(evt.RiskLevel, StringComparison.OrdinalIgnoreCase);
+
+        // Outgoing + high risk -> likely data exfiltration or C2
+        if (isOutgoing && isHighRisk)
+            return KillChainStage.PostExploitation;
+
+        // Incoming + allowed + sensitive port -> active exploitation
+        if (isIncoming && !isBlocked && isSensitivePort)
+            return KillChainStage.ActiveExploitation;
+
+        // Incoming + blocked + sensitive port -> attempted exploitation
+        if (isIncoming && isBlocked && isSensitivePort)
+            return KillChainStage.AttemptedExploitation;
+
+        // Incoming + blocked -> reconnaissance
+        if (isIncoming && isBlocked)
+            return KillChainStage.Reconnaissance;
+
+        // Default: classify by severity
+        if (evt.Severity >= 4 && !isBlocked)
             return KillChainStage.ActiveExploitation;
 
         if (evt.Severity >= 4)

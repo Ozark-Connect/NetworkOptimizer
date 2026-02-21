@@ -331,4 +331,176 @@ public class ThreatEventNormalizerTests
         Assert.Equal(DateTimeKind.Utc, results[0].Timestamp.Kind);
         Assert.Equal(new DateTime(2023, 11, 14, 22, 13, 20, DateTimeKind.Utc), results[0].Timestamp);
     }
+
+    // --- NormalizeFlowEvents ---
+
+    [Fact]
+    public void NormalizeFlowEvents_ValidFlow_ReturnsNormalizedEvent()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            data = new object[]
+            {
+                new
+                {
+                    id = "flow001",
+                    time = 1700000000000L,
+                    source = new { ip = "10.0.0.5", port = 54321, network_name = "LAN" },
+                    destination = new { ip = "203.0.113.50", port = 443, domains = new[] { "api.example.com" } },
+                    protocol = "TCP",
+                    action = "allowed",
+                    risk = "medium",
+                    direction = "outgoing",
+                    service = "HTTPS",
+                    traffic_data = new { bytes_total = 150000L },
+                    duration_milliseconds = 5000L
+                }
+            }
+        });
+
+        var element = JsonDocument.Parse(json).RootElement;
+        var results = _normalizer.NormalizeFlowEvents(element);
+
+        Assert.Single(results);
+        var evt = results[0];
+        Assert.Equal("flow-flow001", evt.InnerAlertId);
+        Assert.Equal("10.0.0.5", evt.SourceIp);
+        Assert.Equal(54321, evt.SourcePort);
+        Assert.Equal("203.0.113.50", evt.DestIp);
+        Assert.Equal(443, evt.DestPort);
+        Assert.Equal("TCP", evt.Protocol);
+        Assert.Equal("api.example.com", evt.Domain);
+        Assert.Equal("outgoing", evt.Direction);
+        Assert.Equal("HTTPS", evt.Service);
+        Assert.Equal(150000L, evt.BytesTotal);
+        Assert.Equal(5000L, evt.FlowDurationMs);
+        Assert.Equal("LAN", evt.NetworkName);
+        Assert.Equal("medium", evt.RiskLevel);
+        Assert.Equal(EventSource.TrafficFlow, evt.EventSource);
+        Assert.Equal(ThreatAction.Detected, evt.Action);
+        Assert.Equal(3, evt.Severity); // medium + allowed = 3
+    }
+
+    [Fact]
+    public void NormalizeFlowEvents_BlockedFlow_SetsBlockedAction()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            data = new object[]
+            {
+                new
+                {
+                    id = "flow002",
+                    time = 1700000000000L,
+                    source = new { ip = "203.0.113.10", port = 12345 },
+                    destination = new { ip = "10.0.0.1", port = 22 },
+                    protocol = "TCP",
+                    action = "blocked",
+                    risk = "high",
+                    direction = "incoming",
+                    service = "SSH",
+                    duration_milliseconds = 100L
+                }
+            }
+        });
+
+        var element = JsonDocument.Parse(json).RootElement;
+        var results = _normalizer.NormalizeFlowEvents(element);
+
+        Assert.Single(results);
+        var evt = results[0];
+        Assert.Equal(ThreatAction.Blocked, evt.Action);
+        Assert.Equal(5, evt.Severity); // high + blocked = 5 (critical)
+        Assert.Equal("SSH", evt.Service);
+    }
+
+    [Fact]
+    public void NormalizeFlowEvents_NoData_ReturnsEmpty()
+    {
+        var json = """{"total_page_count": 0}""";
+        var element = JsonDocument.Parse(json).RootElement;
+        var results = _normalizer.NormalizeFlowEvents(element);
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void NormalizeFlowEvents_EmptyData_ReturnsEmpty()
+    {
+        var json = """{"data": []}""";
+        var element = JsonDocument.Parse(json).RootElement;
+        var results = _normalizer.NormalizeFlowEvents(element);
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void NormalizeFlowEvents_MissingId_SkipsEvent()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            data = new object[]
+            {
+                new
+                {
+                    id = "",
+                    time = 1700000000000L,
+                    source = new { ip = "10.0.0.5", port = 0 },
+                    destination = new { ip = "203.0.113.50", port = 80 },
+                    protocol = "TCP",
+                    action = "allowed",
+                    risk = "low",
+                    direction = "outgoing",
+                    service = "HTTP"
+                }
+            }
+        });
+
+        var element = JsonDocument.Parse(json).RootElement;
+        var results = _normalizer.NormalizeFlowEvents(element);
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void NormalizeFlowEvents_NoDomain_DomainIsNull()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            data = new object[]
+            {
+                new
+                {
+                    id = "flow003",
+                    time = 1700000000000L,
+                    source = new { ip = "10.0.0.5", port = 0 },
+                    destination = new { ip = "203.0.113.50", port = 53 },
+                    protocol = "UDP",
+                    action = "allowed",
+                    risk = "low",
+                    direction = "outgoing",
+                    service = "DNS"
+                }
+            }
+        });
+
+        var element = JsonDocument.Parse(json).RootElement;
+        var results = _normalizer.NormalizeFlowEvents(element);
+        Assert.Single(results);
+        Assert.Null(results[0].Domain);
+    }
+
+    // --- MapFlowSeverity ---
+
+    [Theory]
+    [InlineData("high", "blocked", 5)]
+    [InlineData("high", "allowed", 4)]
+    [InlineData("medium", "blocked", 4)]
+    [InlineData("medium", "allowed", 3)]
+    [InlineData("low", "blocked", 2)]
+    [InlineData("low", "allowed", 1)]
+    [InlineData("", "allowed", 1)]
+    [InlineData("unknown", "allowed", 1)]
+    public void MapFlowSeverity_MapsCorrectly(string risk, string action, int expected)
+    {
+        var result = ThreatEventNormalizer.MapFlowSeverity(risk, action);
+        Assert.Equal(expected, result);
+    }
 }
