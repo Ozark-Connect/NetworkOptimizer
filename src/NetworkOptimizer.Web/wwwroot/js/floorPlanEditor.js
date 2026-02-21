@@ -3102,6 +3102,10 @@ window.fpEditor = {
         var self = this;
         var requestId = ++this._heatmapRequestId;
 
+        // Abort any in-flight heatmap fetch
+        if (this._heatmapAbort) this._heatmapAbort.abort();
+        this._heatmapAbort = new AbortController();
+
         // Store params so JS-initiated recomputes (sim toggles, sliders) work without arguments
         if (baseUrl) this._heatmapBaseUrl = baseUrl;
         if (activeFloor != null) this._heatmapFloor = activeFloor;
@@ -3158,7 +3162,8 @@ window.fpEditor = {
         fetch(baseUrl + '/api/floor-plan/heatmap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: self._heatmapAbort.signal
         })
         .then(function (r) { if (!r.ok) throw new Error('Heatmap request failed: ' + r.status); return r.json(); })
         .then(function (data) {
@@ -3290,11 +3295,12 @@ window.fpEditor = {
             });
         })
         .then(function () { console.log('[Heatmap] total: ' + Math.round(performance.now() - t0) + 'ms'); }) // TODO: remove timing
-        .catch(function (err) { console.error('Heatmap error:', err); });
+        .catch(function (err) { if (err.name !== 'AbortError') console.error('Heatmap error:', err); });
     },
 
     clearHeatmap: function () {
         this._heatmapBaseUrl = null; // stop moveend from recomputing
+        if (this._heatmapAbort) this._heatmapAbort.abort(); // cancel in-flight fetch
         this._heatmapRequestId++; // invalidate any in-flight compute
         if (this._heatmapOverlay && this._map) {
             this._map.removeLayer(this._heatmapOverlay);
