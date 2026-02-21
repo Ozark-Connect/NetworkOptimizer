@@ -517,6 +517,21 @@ window.fpEditor = {
         }
     },
 
+    // Recalculate container size and adjust zoom proportionally to the viewport
+    // width change so the same geographic area stays visible.
+    invalidateSizeProportional: function () {
+        if (!this._map) return;
+        var oldSize = this._map.getSize();
+        var center = this._map.getCenter();
+        var oldZoom = this._map.getZoom();
+        this._map.invalidateSize();
+        var newSize = this._map.getSize();
+        if (oldSize.x > 0 && newSize.x > 0) {
+            var zoomDelta = Math.log2(newSize.x / oldSize.x);
+            this._map.setView(center, oldZoom + zoomDelta, { animate: false });
+        }
+    },
+
     // ── Floor Overlay ────────────────────────────────────────────────
 
     updateFloorOverlay: function (imageUrl, swLat, swLng, neLat, neLng, opacity) {
