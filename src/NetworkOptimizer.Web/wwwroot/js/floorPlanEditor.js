@@ -398,12 +398,13 @@ window.fpEditor = {
             updateApScale();
 
             // Re-evaluate heatmap on zoom/pan (debounce to prevent flash during scroll-wheel zoom)
+            // Calls JS computeHeatmap directly (reuses stored params) to avoid Blazor SignalR round-trip
             var heatmapTimer = null;
             m.on('moveend', function () {
                 if (heatmapTimer) clearTimeout(heatmapTimer);
                 heatmapTimer = setTimeout(function () {
-                    if (self._dotNetRef) {
-                        self._dotNetRef.invokeMethodAsync('OnMapMoveEndForHeatmap');
+                    if (self._heatmapBaseUrl) {
+                        self.computeHeatmap();
                     }
                 }, 300);
             });
@@ -3293,6 +3294,7 @@ window.fpEditor = {
     },
 
     clearHeatmap: function () {
+        this._heatmapBaseUrl = null; // stop moveend from recomputing
         this._heatmapRequestId++; // invalidate any in-flight compute
         if (this._heatmapOverlay && this._map) {
             this._map.removeLayer(this._heatmapOverlay);
