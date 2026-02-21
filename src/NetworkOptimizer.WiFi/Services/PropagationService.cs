@@ -136,7 +136,7 @@ public class PropagationService
         // Floor separation (US residential: no floor 0 means B1 is directly below 1st)
         var floorSeparation = Math.Abs(ap.Floor - activeFloor);
         var spansZero = Math.Min(ap.Floor, activeFloor) < 0 && Math.Max(ap.Floor, activeFloor) > 0;
-        if (spansZero && !(buildings?.Any(b => b.FloorMaterials.ContainsKey(0)) ?? false))
+        if (spansZero && !HasFloorZero(buildings, pointLat, pointLng, ap))
             floorSeparation--;
         var floorLoss = 0.0;
         if (floorSeparation > 0)
@@ -169,9 +169,7 @@ public class PropagationService
         // Ceiling-native patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
         // OrientationDeg represents U-tips direction, so add 90° to align.
         // Keyed off pattern origin (not current mount) so ceiling APs in wall mode still get it.
-        var isOmniMode = !string.IsNullOrEmpty(ap.AntennaMode) &&
-                         ap.AntennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
-        if (patternNativeMount == "ceiling" || effectiveMount == "desktop" || isOmniMode)
+        if (patternNativeMount == "ceiling" || effectiveMount == "desktop" || IsOmniAntennaMode(ap.AntennaMode))
             azimuthDeg = (azimuthDeg + 90) % 360;
 
         // Elevation angle in pattern coordinates (ceiling mount native):
@@ -404,12 +402,13 @@ public class PropagationService
     /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
     /// so we must also fall back to ceiling.
     /// </summary>
+    private static bool IsOmniAntennaMode(string? antennaMode) =>
+        !string.IsNullOrEmpty(antennaMode) &&
+        antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
+
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
-        var isOmni = !string.IsNullOrEmpty(antennaMode) &&
-                     antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
-
-        if (isOmni && _antennaLoader.HasOmniVariant(model))
+        if (IsOmniAntennaMode(antennaMode) && _antennaLoader.HasOmniVariant(model))
         {
             // Check if the omni variant actually has this band. If not, the pattern
             // loader fell back to the base directional pattern, so use ceiling mount.
@@ -454,6 +453,18 @@ public class PropagationService
             }
         }
         return best;
+    }
+
+    /// <summary>
+    /// Check if floor 0 exists in the relevant building for the given point/AP.
+    /// Uses the same building lookup as ComputeFloorLoss for consistency.
+    /// </summary>
+    private static bool HasFloorZero(List<BuildingFloorInfo>? buildings, double pointLat, double pointLng, PropagationAp ap)
+    {
+        if (buildings == null || buildings.Count == 0) return false;
+        var building = FindSmallestContainingBuilding(buildings, pointLat, pointLng)
+                       ?? FindSmallestContainingBuilding(buildings, ap.Latitude, ap.Longitude);
+        return building?.FloorMaterials.ContainsKey(0) ?? false;
     }
 
     private struct WallSegment
