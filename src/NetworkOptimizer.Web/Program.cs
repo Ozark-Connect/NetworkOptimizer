@@ -1227,7 +1227,8 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         request.Band, placedAps, wallsByFloor, activeFloor, request.GridResolutionMeters, buildingFloorInfos);
 
     var tCompute = sw.ElapsedMilliseconds;
-    logger.LogDebug("Heatmap: deserialize={Deserialize}ms data-load={DataLoad}ms compute={Compute}ms total={Total}ms grid-res={Res}m aps={ApCount} grid={W}x{H}",
+    // TODO: Remove before PR - temporary perf debugging
+    logger.LogInformation("Heatmap: deserialize={Deserialize}ms data-load={DataLoad}ms compute={Compute}ms total={Total}ms grid-res={Res}m aps={ApCount} grid={W}x{H}",
         tDeserialize, tDataLoad - tDeserialize, tCompute - tDataLoad, tCompute,
         request.GridResolutionMeters, placedAps.Count, result.Width, result.Height);
 
