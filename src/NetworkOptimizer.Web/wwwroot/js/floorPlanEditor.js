@@ -405,7 +405,7 @@ window.fpEditor = {
                     if (self._dotNetRef) {
                         self._dotNetRef.invokeMethodAsync('OnMapMoveEndForHeatmap');
                     }
-                }, 500);
+                }, 150);
             });
 
             // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
