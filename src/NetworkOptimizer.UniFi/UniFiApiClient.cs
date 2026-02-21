@@ -2148,6 +2148,112 @@ public class UniFiApiClient : IDisposable
 
     #endregion
 
+    #region Threat Management APIs
+
+    /// <summary>
+    /// GET /api/s/{site}/stat/ips/event - Get IPS/IDS events (v1 API).
+    /// Returns Suricata alerts from the gateway's IPS engine.
+    /// </summary>
+    public async Task<List<UniFiIpsEvent>> GetIpsEventsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int limit = 3000,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching IPS events from {Start} to {End}", start, end);
+
+        var body = new
+        {
+            start = start.ToUnixTimeSeconds(),
+            end = end.ToUnixTimeSeconds(),
+            _limit = limit
+        };
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiIpsEvent>>(
+            () =>
+            {
+                var content = new StringContent(
+                    JsonSerializer.Serialize(body),
+                    Encoding.UTF8,
+                    "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("stat/ips/event"), content, cancellationToken);
+            },
+            cancellationToken);
+
+        if (response?.Data != null)
+        {
+            _logger.LogDebug("Found {Count} IPS events", response.Data.Count);
+            return response.Data;
+        }
+
+        _logger.LogDebug("No IPS events returned (v1 API may not be available)");
+        return [];
+    }
+
+    /// <summary>
+    /// POST v2/api/site/{site}/system-log/all - Get threat management events from system log (v2 API).
+    /// Uses the same pattern as GetApChannelChangeEventsAsync.
+    /// </summary>
+    public async Task<JsonElement> GetThreatLogEventsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int pageNumber = 0,
+        int pageSize = 500,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching threat log events from {Start} to {End}, page {Page}", start, end, pageNumber);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return default;
+        }
+
+        var url = BuildV2ApiPath($"site/{_site}/system-log/all");
+
+        var body = new Dictionary<string, object>
+        {
+            ["searchText"] = "",
+            ["severities"] = new[] { "LOW", "MEDIUM", "HIGH", "VERY_HIGH" },
+            ["categories"] = new[] { "THREAT_MANAGEMENT" },
+            ["events"] = Array.Empty<string>(),
+            ["subcategories"] = Array.Empty<string>(),
+            ["type"] = "GENERAL",
+            ["timestampFrom"] = start.ToUnixTimeMilliseconds(),
+            ["timestampTo"] = end.ToUnixTimeMilliseconds(),
+            ["pageNumber"] = pageNumber,
+            ["pageSize"] = pageSize,
+            ["adminIds"] = Array.Empty<string>(),
+            ["clientDeviceMacs"] = Array.Empty<string>()
+        };
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var content = new StringContent(
+                JsonSerializer.Serialize(body),
+                Encoding.UTF8,
+                "application/json");
+
+            var response = await _httpClient!.PostAsync(url, content, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(json);
+                return doc.RootElement.Clone();
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Threat log events request failed: {StatusCode} - {Error}",
+                    response.StatusCode, error);
+            }
+
+            return default;
+        });
+    }
+
+    #endregion
+
     public void Dispose()
     {
         _authLock?.Dispose();

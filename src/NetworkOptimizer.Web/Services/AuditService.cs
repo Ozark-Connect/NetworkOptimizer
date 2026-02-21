@@ -10,6 +10,7 @@ using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Threats.Interfaces;
 using AuditModels = NetworkOptimizer.Audit.Models;
 using StorageAuditResult = NetworkOptimizer.Storage.Models.AuditResult;
 
@@ -34,6 +35,7 @@ public class AuditService
     private readonly IMemoryCache _cache;
     private readonly Audit.Analyzers.FirewallRuleParser _firewallParser;
     private readonly IAlertEventBus? _alertEventBus;
+    private readonly IThreatRepository? _threatRepository;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -45,7 +47,8 @@ public class AuditService
         PdfStorageService pdfStorageService,
         IMemoryCache cache,
         Audit.Analyzers.FirewallRuleParser firewallParser,
-        IAlertEventBus? alertEventBus = null)
+        IAlertEventBus? alertEventBus = null,
+        IThreatRepository? threatRepository = null)
     {
         _logger = logger;
         _connectionService = connectionService;
@@ -57,6 +60,7 @@ public class AuditService
         _cache = cache;
         _firewallParser = firewallParser;
         _alertEventBus = alertEventBus;
+        _threatRepository = threatRepository;
     }
 
     // Cache accessors using IMemoryCache
@@ -549,7 +553,8 @@ public class AuditService
             // Generate and save PDF for direct download (avoids JS interop issues on mobile)
             try
             {
-                var pdfReportData = BuildReportData(result);
+                var threatSummary = await BuildThreatSummaryAsync();
+                var pdfReportData = BuildReportData(result, threatSummary: threatSummary);
                 await _pdfStorageService.SavePdfAsync(auditId, pdfReportData);
             }
             catch (Exception pdfEx)
@@ -617,7 +622,45 @@ public class AuditService
     /// Builds a ReportData object from an AuditResult for PDF generation.
     /// Derives client name from gateway device name if not explicitly provided.
     /// </summary>
-    public Reports.ReportData BuildReportData(AuditResult result, string? clientName = null)
+    public async Task<Reports.ThreatSummaryData?> BuildThreatSummaryAsync()
+    {
+        if (_threatRepository == null) return null;
+
+        try
+        {
+            var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
+            var now = DateTime.UtcNow;
+            var summary = await _threatRepository.GetThreatSummaryAsync(thirtyDaysAgo, now);
+            if (summary.TotalEvents == 0) return null;
+
+            var topSources = await _threatRepository.GetTopSourcesAsync(thirtyDaysAgo, now, 5);
+            var killChain = await _threatRepository.GetKillChainDistributionAsync(thirtyDaysAgo, now);
+
+            return new Reports.ThreatSummaryData
+            {
+                TotalEvents = summary.TotalEvents,
+                TotalBlocked = summary.BlockedCount,
+                TotalDetected = summary.DetectedCount,
+                UniqueSourceIps = summary.UniqueSourceIps,
+                TimeRange = "Last 30 days",
+                ByKillChain = killChain.ToDictionary(k => k.Key.ToString(), k => k.Value),
+                TopSources = topSources.Select(s => new Reports.ThreatSourceEntry
+                {
+                    Ip = s.SourceIp,
+                    CountryCode = s.CountryCode,
+                    AsnOrg = s.AsnOrg,
+                    EventCount = s.EventCount
+                }).ToList()
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to build threat summary for report");
+            return null;
+        }
+    }
+
+    public Reports.ReportData BuildReportData(AuditResult result, string? clientName = null, Reports.ThreatSummaryData? threatSummary = null)
     {
         // Derive client name from gateway device if not provided
         if (string.IsNullOrEmpty(clientName))
@@ -630,6 +673,7 @@ public class AuditService
 
         return new Reports.ReportData
         {
+            ThreatSummary = threatSummary,
             ClientName = clientName,
             GeneratedAt = result.CompletedAt,
 
@@ -965,7 +1009,8 @@ public class AuditService
             }
 
             // Build ReportData and generate PDF
-            var reportData = BuildReportData(result);
+            var threatSummaryForPdf = await BuildThreatSummaryAsync();
+            var reportData = BuildReportData(result, threatSummary: threatSummaryForPdf);
             var generator = new Reports.PdfReportGenerator();
             var pdfBytes = generator.GenerateReportBytes(reportData);
 
@@ -1276,6 +1321,33 @@ public class AuditService
             // Configure unused port detection thresholds
             UnusedPortRule.SetThresholds(options.UnusedPortInactivityDays, options.NamedPortInactivityDays);
 
+            // Populate threat context for threat-informed scoring (if threat data available)
+            ConfigAuditEngine.ThreatContext? threatContext = null;
+            if (_threatRepository != null)
+            {
+                try
+                {
+                    var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
+                    var threatCounts = await _threatRepository.GetThreatCountsByPortAsync(thirtyDaysAgo, DateTime.UtcNow);
+                    var summary = await _threatRepository.GetThreatSummaryAsync(thirtyDaysAgo, DateTime.UtcNow);
+                    var topSources = await _threatRepository.GetTopSourcesAsync(thirtyDaysAgo, DateTime.UtcNow, 100);
+
+                    if (summary.TotalEvents > 0)
+                    {
+                        threatContext = new ConfigAuditEngine.ThreatContext
+                        {
+                            ThreatCountByDestPort = threatCounts,
+                            ActivelyTargetedIps = new HashSet<string>(topSources.Select(s => s.SourceIp)),
+                            TotalThreatsLast30Days = summary.TotalEvents
+                        };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to load threat context for audit scoring");
+                }
+            }
+
             // Run the audit engine with all available data for comprehensive analysis
             var auditResult = await _auditEngine.RunAuditAsync(new Audit.Models.AuditRequest
             {
@@ -1297,7 +1369,8 @@ public class AuditService
                 PortForwardRules = portForwardRules,
                 NetworkConfigs = networkConfigs,
                 FirewallZones = firewallZones,
-                NetworkPurposeOverrides = options.NetworkPurposeOverrides
+                NetworkPurposeOverrides = options.NetworkPurposeOverrides,
+                ThreatContext = threatContext
             });
 
             // Convert audit result to web models
@@ -1755,6 +1828,9 @@ public class AuditService
             Audit.IssueTypes.UpnpPortsExposed => "UPnP: Ports Exposed",
             Audit.IssueTypes.StaticPortForward => "Port Forwards: Static Rules",
             Audit.IssueTypes.StaticPrivilegedPort => "Port Forwards: Privileged Ports",
+
+            // Threat Intelligence
+            Audit.IssueTypes.ThreatExposedPortForward => "Threat: Actively Targeted Port Forward",
 
             _ => message.Split('.').FirstOrDefault() ?? type
         };

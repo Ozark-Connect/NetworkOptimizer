@@ -20,6 +20,7 @@ public class ReportData
     public List<string> HardeningNotes { get; set; } = new();
     public List<string> TopologyNotes { get; set; } = new();
     public DnsSecuritySummary? DnsSecurity { get; set; }
+    public ThreatSummaryData? ThreatSummary { get; set; }
 }
 
 /// <summary>
@@ -535,4 +536,36 @@ public class PortSecuritySummary
     public double ProtectionPercentage => TotalPorts > 0
         ? (double)(DisabledPorts + MacRestrictedPorts) / TotalPorts * 100
         : 0;
+}
+
+/// <summary>
+/// Threat intelligence summary for PDF/Markdown reports
+/// </summary>
+public class ThreatSummaryData
+{
+    public int TotalEvents { get; set; }
+    public int TotalBlocked { get; set; }
+    public int TotalDetected { get; set; }
+    public int UniqueSourceIps { get; set; }
+    public string TimeRange { get; set; } = "Last 30 days";
+    public Dictionary<string, int> ByKillChain { get; set; } = new();
+    public List<ThreatSourceEntry> TopSources { get; set; } = new();
+    public List<ExposedServiceEntry> ExposedServices { get; set; } = new();
+}
+
+public class ThreatSourceEntry
+{
+    public string Ip { get; set; } = string.Empty;
+    public string? CountryCode { get; set; }
+    public string? AsnOrg { get; set; }
+    public int EventCount { get; set; }
+}
+
+public class ExposedServiceEntry
+{
+    public int Port { get; set; }
+    public string ServiceName { get; set; } = string.Empty;
+    public string ForwardTarget { get; set; } = string.Empty;
+    public int ThreatCount { get; set; }
+    public int UniqueSourceIps { get; set; }
 }

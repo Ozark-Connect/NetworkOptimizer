@@ -23,6 +23,9 @@
 @inject NetworkOptimizer.Alerts.Interfaces.IAlertRepository AlertRepository
 @inject IEnumerable<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel> DeliveryChannels
 @inject NetworkOptimizer.Alerts.Delivery.ISecretDecryptor SecretDecryptor
+@inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService GeoService
+@inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
+@inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -1333,6 +1336,148 @@
         </div>
     </div>
 
+    <!-- Threat Intelligence Configuration -->
+    <div class="card" id="threat-intelligence">
+        <div class="card-header">
+            <h2 class="card-title">Threat Intelligence</h2>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Configure IPS/IDS event collection from your UniFi gateway. Events are collected via the UniFi API and analyzed for attack patterns.
+            </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="threatCollectionEnabled" />
+                    <span>Enable threat event collection</span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Polling Interval</label>
+                <select class="form-control" @bind="threatPollInterval">
+                    <option value="5">Every 5 minutes</option>
+                    <option value="10">Every 10 minutes</option>
+                    <option value="15">Every 15 minutes</option>
+                    <option value="30">Every 30 minutes</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Data Retention</label>
+                <select class="form-control" @bind="threatRetentionDays">
+                    <option value="30">30 days</option>
+                    <option value="60">60 days</option>
+                    <option value="90">90 days</option>
+                    <option value="180">180 days</option>
+                    <option value="365">1 year</option>
+                </select>
+            </div>
+
+            <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
+                <span class="info-label">GeoLite2 Database:</span>
+                <span class="info-value" style="color: var(--text-secondary);">@threatGeoStatus</span>
+            </div>
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-primary" @onclick="SaveThreatSettings" disabled="@savingThreatSettings">
+                    @if (savingThreatSettings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(threatSettingsMessage))
+            {
+                <div class="alert alert-@threatSettingsMessageClass" style="margin-top: 1rem;">
+                    @threatSettingsMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- CrowdSec CTI Configuration -->
+    <div class="card" id="crowdsec">
+        <div class="card-header">
+            <h2 class="card-title">CrowdSec CTI</h2>
+            @if (crowdsecEnabled)
+            {
+                <span class="status-badge status-active">Enabled</span>
+            }
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Enrich threat data with CrowdSec community threat intelligence. When enabled, source IPs from detected threats are checked against the CrowdSec reputation database.
+            </p>
+
+            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                <strong>Privacy notice:</strong> When enabled, source IPs from detected IPS/IDS events will be sent to the CrowdSec API for reputation lookup. No other data is shared.
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="crowdsecEnabled" />
+                    <span>Enable CrowdSec CTI enrichment</span>
+                </label>
+            </div>
+
+            @if (crowdsecEnabled)
+            {
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-control" @bind="crowdsecApiKey" autocomplete="new-password" placeholder="@(hasCrowdsecApiKey ? "Saved - enter new to update" : "Enter CrowdSec API key")" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <small class="form-help">Get a free API key at <a href="https://app.crowdsec.net" target="_blank" style="color: var(--primary-color);">app.crowdsec.net</a> (50 lookups/day free tier)</small>
+                </div>
+
+                <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
+                    <span class="info-label">Usage Today:</span>
+                    <span class="info-value" style="color: var(--text-secondary);">@crowdsecUsageDisplay</span>
+                </div>
+            }
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-primary" @onclick="SaveCrowdSecSettings" disabled="@savingCrowdsecSettings">
+                    @if (savingCrowdsecSettings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+                @if (crowdsecEnabled && hasCrowdsecApiKey)
+                {
+                    <button class="btn btn-secondary" @onclick="TestCrowdSec" disabled="@testingCrowdsec">
+                        @if (testingCrowdsec)
+                        {
+                            <span class="spinner"></span>
+                            <span>Testing...</span>
+                        }
+                        else
+                        {
+                            <span>Test API Key</span>
+                        }
+                    </button>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(crowdsecMessage))
+            {
+                <div class="alert alert-@crowdsecMessageClass" style="margin-top: 1rem;">
+                    @crowdsecMessage
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- 12. Data Management -->
     <div class="card">
         <div class="card-header">
@@ -1637,6 +1782,25 @@
     private string alertChannelMessage = "";
     private string alertChannelMessageClass = "";
 
+    // Threat Intelligence Settings
+    private bool threatCollectionEnabled = true;
+    private int threatPollInterval = 5;
+    private int threatRetentionDays = 90;
+    private string threatGeoStatus = "Checking...";
+    private bool savingThreatSettings = false;
+    private string threatSettingsMessage = "";
+    private string threatSettingsMessageClass = "";
+
+    // CrowdSec Settings
+    private bool crowdsecEnabled = false;
+    private string crowdsecApiKey = "";
+    private bool hasCrowdsecApiKey = false;
+    private string crowdsecUsageDisplay = "0/50";
+    private bool savingCrowdsecSettings = false;
+    private bool testingCrowdsec = false;
+    private string crowdsecMessage = "";
+    private string crowdsecMessageClass = "";
+
     protected override async Task OnInitializedAsync()
     {
         // Load saved configuration if available
@@ -1663,6 +1827,7 @@
         await LoadAdminPasswordSettings();
         await LoadAuditSettings();
         await LoadAlertChannels();
+        await LoadThreatSettings();
     }
 
     private async Task LoadIperf3Settings()
@@ -3230,5 +3395,140 @@
             alertChannelMessageClass = "danger";
         }
         StateHasChanged();
+    }
+
+    private async Task LoadThreatSettings()
+    {
+        try
+        {
+            var enabled = await SystemSettings.GetAsync("threats.enabled");
+            threatCollectionEnabled = enabled != "false";
+
+            var interval = await SystemSettings.GetAsync("threats.poll_interval_minutes");
+            if (int.TryParse(interval, out var i)) threatPollInterval = i;
+
+            var retention = await SystemSettings.GetAsync("threats.retention_days");
+            if (int.TryParse(retention, out var r)) threatRetentionDays = r;
+
+            // Build geo database status from service properties
+            if (GeoService.IsCityAvailable && GeoService.IsAsnAvailable)
+                threatGeoStatus = "City and ASN databases loaded";
+            else if (GeoService.IsCityAvailable)
+                threatGeoStatus = "City database loaded (ASN database missing)";
+            else if (GeoService.IsAsnAvailable)
+                threatGeoStatus = "ASN database loaded (City database missing)";
+            else
+                threatGeoStatus = "Not found - place GeoLite2-City.mmdb and GeoLite2-ASN.mmdb in data directory";
+
+            var csEnabled = await SystemSettings.GetAsync("crowdsec.enabled");
+            crowdsecEnabled = csEnabled == "true";
+            var csKey = await SystemSettings.GetAsync("crowdsec.api_key");
+            hasCrowdsecApiKey = !string.IsNullOrEmpty(csKey);
+
+            var rateLimitState = CrowdSecClient.GetRateLimitState();
+            crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/50";
+        }
+        catch (Exception ex)
+        {
+            threatSettingsMessage = $"Error loading threat settings: {ex.Message}";
+            threatSettingsMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveThreatSettings()
+    {
+        savingThreatSettings = true;
+        threatSettingsMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await SystemSettings.SetAsync("threats.enabled", threatCollectionEnabled ? "true" : "false");
+            await SystemSettings.SetAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
+            await SystemSettings.SetAsync("threats.retention_days", threatRetentionDays.ToString());
+
+            threatSettingsMessage = "Threat intelligence settings saved.";
+            threatSettingsMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            threatSettingsMessage = $"Error saving settings: {ex.Message}";
+            threatSettingsMessageClass = "danger";
+        }
+        finally
+        {
+            savingThreatSettings = false;
+        }
+    }
+
+    private async Task SaveCrowdSecSettings()
+    {
+        savingCrowdsecSettings = true;
+        crowdsecMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await SystemSettings.SetAsync("crowdsec.enabled", crowdsecEnabled ? "true" : "false");
+
+            if (!string.IsNullOrEmpty(crowdsecApiKey))
+            {
+                var encrypted = CredentialService.Encrypt(crowdsecApiKey);
+                await SystemSettings.SetAsync("crowdsec.api_key", encrypted);
+                hasCrowdsecApiKey = true;
+                crowdsecApiKey = "";
+            }
+
+            crowdsecMessage = "CrowdSec settings saved.";
+            crowdsecMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            crowdsecMessage = $"Error saving settings: {ex.Message}";
+            crowdsecMessageClass = "danger";
+        }
+        finally
+        {
+            savingCrowdsecSettings = false;
+        }
+    }
+
+    private async Task TestCrowdSec()
+    {
+        testingCrowdsec = true;
+        crowdsecMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var apiKey = await SystemSettings.GetAsync("crowdsec.api_key");
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                crowdsecMessage = "No API key configured.";
+                crowdsecMessageClass = "warning";
+                return;
+            }
+
+            var result = await CrowdSecClient.TestApiKeyAsync(apiKey);
+            if (result.Success)
+            {
+                crowdsecMessage = result.Message;
+                crowdsecMessageClass = "success";
+            }
+            else
+            {
+                crowdsecMessage = result.Message;
+                crowdsecMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            crowdsecMessage = $"Test failed: {ex.Message}";
+            crowdsecMessageClass = "danger";
+        }
+        finally
+        {
+            testingCrowdsec = false;
+        }
     }
 }

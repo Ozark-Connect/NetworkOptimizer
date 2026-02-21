@@ -1,0 +1,909 @@
+@page "/threats"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Threats.Models
+@using NetworkOptimizer.Threats.Interfaces
+@inject ThreatDashboardService DashboardService
+@inject IThreatSettingsAccessor SettingsAccessor
+@inject ILogger<ThreatDashboard> Logger
+
+<PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Threat Intelligence</h1>
+    <p class="page-description">IPS/IDS event analysis, attack patterns, and exposure mapping</p>
+</div>
+
+@* CrowdSec opt-in banner *@
+@if (!_crowdSecEnabled && !_crowdSecBannerDismissed)
+{
+    <div class="alert-info" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
+        <span>CrowdSec CTI enrichment adds reputation data and MITRE ATT&CK context to threat sources. Enable in <a href="/settings">Settings</a> to unlock this data.</span>
+        <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecBannerDismissed = true">Dismiss</button>
+    </div>
+}
+
+@* Tab bar and time range *@
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
+    <div class="tab-bar">
+        <button class="tab-btn @(_activeTab == "overview" ? "active" : "")"
+                @onclick='() => SetActiveTab("overview")'>Overview</button>
+        <button class="tab-btn @(_activeTab == "exposure" ? "active" : "")"
+                @onclick='() => SetActiveTab("exposure")'>Exposure</button>
+        <button class="tab-btn @(_activeTab == "geographic" ? "active" : "")"
+                @onclick='() => SetActiveTab("geographic")'>Geographic</button>
+    </div>
+    <div class="time-range-selector">
+        <button class="time-btn @(_timeRange == "24h" ? "active" : "")"
+                @onclick='() => SetTimeRange("24h")'>24h</button>
+        <button class="time-btn @(_timeRange == "7d" ? "active" : "")"
+                @onclick='() => SetTimeRange("7d")'>7d</button>
+        <button class="time-btn @(_timeRange == "30d" ? "active" : "")"
+                @onclick='() => SetTimeRange("30d")'>30d</button>
+        <button class="time-btn @(_timeRange == "90d" ? "active" : "")"
+                @onclick='() => SetTimeRange("90d")'>90d</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-container">
+        <span class="spinner"></span>
+    </div>
+}
+else
+{
+    @* ========== Overview Tab ========== *@
+    @if (_activeTab == "overview")
+    {
+        @* Summary stat cards *@
+        <div class="threat-summary-grid">
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_dashboardData.Summary.TotalEvents)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Total Events</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_dashboardData.Summary.BlockedCount)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Blocked</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@FormatNumber(_dashboardData.Summary.DetectedCount)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Detected</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_dashboardData.Summary.UniqueSourceIps)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Unique Sources</div>
+                </div>
+            </div>
+        </div>
+
+        @* Threat Timeline *@
+        <div class="chart-card" style="margin-bottom:1.5rem;">
+            <div class="chart-header">
+                <h3 class="chart-title">Threat Timeline</h3>
+            </div>
+            <div class="card-body">
+                @if (_timeline.Count > 0)
+                {
+                    <ApexChart @ref="_timelineChart" TItem="TimelineBucket"
+                               Options="_timelineChartOptions"
+                               Height="@("280px")">
+
+                        <ApexPointSeries TItem="TimelineBucket"
+                                         Items="_timeline"
+                                         Name="Critical"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                         YValue="e => (decimal)e.Severity5"
+                                         OrderBy="e => e.X" />
+                        <ApexPointSeries TItem="TimelineBucket"
+                                         Items="_timeline"
+                                         Name="High"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                         YValue="e => (decimal)e.Severity4"
+                                         OrderBy="e => e.X" />
+                        <ApexPointSeries TItem="TimelineBucket"
+                                         Items="_timeline"
+                                         Name="Medium"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                         YValue="e => (decimal)e.Severity3"
+                                         OrderBy="e => e.X" />
+                        <ApexPointSeries TItem="TimelineBucket"
+                                         Items="_timeline"
+                                         Name="Low"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                         YValue="e => (decimal)e.Severity2"
+                                         OrderBy="e => e.X" />
+                        <ApexPointSeries TItem="TimelineBucket"
+                                         Items="_timeline"
+                                         Name="Info"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                         YValue="e => (decimal)e.Severity1"
+                                         OrderBy="e => e.X" />
+                    </ApexChart>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>No timeline data for this period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Kill Chain + Blocked vs Detected row *@
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+            @* Kill Chain Distribution *@
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">Kill Chain Distribution</h3>
+                </div>
+                <div class="card-body">
+                    @if (_dashboardData.KillChainDistribution.Count > 0)
+                    {
+                        <ApexChart TItem="KillChainItem"
+                                   Options="_killChainChartOptions"
+                                   Height="@("220px")">
+                            <ApexPointSeries TItem="KillChainItem"
+                                             Items="_killChainItems"
+                                             Name="Events"
+                                             SeriesType="SeriesType.Bar"
+                                             XValue="e => GetKillChainLabel(e.Stage)"
+                                             YValue="e => (decimal)e.Count"
+                                             OrderBy="e => e.X" />
+                        </ApexChart>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <p>No kill chain data available.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Blocked vs Detected *@
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">Blocked vs Detected</h3>
+                </div>
+                <div class="card-body">
+                    @if (_dashboardData.Summary.TotalEvents > 0)
+                    {
+                        <ApexChart TItem="ActionBreakdownItem"
+                                   Options="_actionChartOptions"
+                                   Height="@("220px")">
+                            <ApexPointSeries TItem="ActionBreakdownItem"
+                                             Items="_actionBreakdownItems"
+                                             Name="Count"
+                                             SeriesType="SeriesType.Donut"
+                                             XValue="e => e.Label"
+                                             YAggregate="e => (decimal)e.Sum(x => x.Count)"
+                                             OrderBy="e => e.X" />
+                        </ApexChart>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <p>No action data available.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* Top Sources *@
+        <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card-header">
+                <h3 class="card-title">Top Sources</h3>
+            </div>
+            <div class="card-body">
+                @if (_dashboardData.TopSources.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>IP</th>
+                                    <th>Country</th>
+                                    <th class="hide-mobile">ASN</th>
+                                    <th>Events</th>
+                                    <th>Max Severity</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var source in _dashboardData.TopSources)
+                                {
+                                    <tr>
+                                        <td><code>@source.SourceIp</code></td>
+                                        <td>@(source.CountryCode ?? "-")</td>
+                                        <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
+                                        <td>@FormatNumber(source.EventCount)</td>
+                                        <td>
+                                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:@GetSeverityColor(source.MaxSeverity); margin-right:0.4rem;"></span>
+                                            @GetSeverityLabel(source.MaxSeverity)
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>No source data for this period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Top Targeted Ports *@
+        <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card-header">
+                <h3 class="card-title">Top Targeted Ports</h3>
+            </div>
+            <div class="card-body">
+                @if (_dashboardData.TopTargetedPorts.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Port</th>
+                                    <th>Service</th>
+                                    <th>Events</th>
+                                    <th class="hide-mobile">Unique IPs</th>
+                                    <th class="hide-mobile">Top Signature</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var port in _dashboardData.TopTargetedPorts)
+                                {
+                                    <tr>
+                                        <td><code>@port.Port</code></td>
+                                        <td>@GetPortServiceName(port.Port)</td>
+                                        <td>@FormatNumber(port.EventCount)</td>
+                                        <td class="hide-mobile">@FormatNumber(port.UniqueSourceIps)</td>
+                                        <td class="hide-mobile" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(string.IsNullOrEmpty(port.TopSignature) ? "-" : port.TopSignature)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>No targeted port data for this period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Attack Patterns *@
+        <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card-header">
+                <h3 class="card-title">Attack Patterns</h3>
+            </div>
+            <div class="card-body">
+                @if (_dashboardData.RecentPatterns.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                    <th class="hide-mobile">Confidence</th>
+                                    <th>Events</th>
+                                    <th class="hide-mobile">Detected</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pattern in _dashboardData.RecentPatterns)
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="status-badge" style="background:var(--bg-hover); color:var(--text-secondary); font-size:0.8rem;">
+                                                @GetPatternTypeLabel(pattern.PatternType)
+                                            </span>
+                                        </td>
+                                        <td>@pattern.Description</td>
+                                        <td class="hide-mobile">@($"{pattern.Confidence:P0}")</td>
+                                        <td>@FormatNumber(pattern.EventCount)</td>
+                                        <td class="hide-mobile">@pattern.DetectedAt.ToString("MMM dd HH:mm")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>No attack patterns detected for this period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @* ========== Exposure Tab ========== *@
+    @if (_activeTab == "exposure")
+    {
+        @if (_exposureReport == null)
+        {
+            <div class="loading-container">
+                <span class="spinner"></span>
+            </div>
+        }
+        else
+        {
+            @* Geo-block recommendation banner *@
+            @if (_exposureReport.GeoBlockRecommendation != null)
+            {
+                <div class="alert-info" style="margin-bottom:1rem;">
+                    <strong>Geo-Block Recommendation:</strong> @_exposureReport.GeoBlockRecommendation.Description
+                    Blocking @string.Join(", ", _exposureReport.GeoBlockRecommendation.Countries) could prevent
+                    @($"{_exposureReport.GeoBlockRecommendation.PreventionPercentage:F0}")% of threat events targeting exposed services.
+                </div>
+            }
+
+            @* Summary row *@
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; margin-bottom:1.5rem;">
+                <div class="card">
+                    <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                        <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@_exposureReport.TotalExposedPorts</div>
+                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Exposed Ports</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                        <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_exposureReport.TotalThreatsTargetingExposed)</div>
+                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Threats Targeting Exposed</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                        <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@_exposureReport.ExposedServices.Count</div>
+                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Port Forward Rules</div>
+                    </div>
+                </div>
+            </div>
+
+            @* Port forward table with threat overlay *@
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Exposed Services</h3>
+                </div>
+                <div class="card-body">
+                    @if (_exposureReport.ExposedServices.Count > 0)
+                    {
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Port</th>
+                                        <th>Service</th>
+                                        <th class="hide-mobile">Target</th>
+                                        <th>Threats</th>
+                                        <th class="hide-mobile">Unique IPs</th>
+                                        <th class="hide-mobile">Top Signatures</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var svc in _exposureReport.ExposedServices)
+                                    {
+                                        <tr>
+                                            <td><code>@svc.Port/@svc.Protocol</code></td>
+                                            <td>@(string.IsNullOrEmpty(svc.ServiceName) ? GetPortServiceName(svc.Port) : svc.ServiceName)</td>
+                                            <td class="hide-mobile">@svc.ForwardTarget</td>
+                                            <td>
+                                                @if (svc.ThreatCount > 0)
+                                                {
+                                                    <span style="color:#ef4444; font-weight:600;">@FormatNumber(svc.ThreatCount)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span style="color:var(--text-muted);">0</span>
+                                                }
+                                            </td>
+                                            <td class="hide-mobile">@FormatNumber(svc.UniqueSourceIps)</td>
+                                            <td class="hide-mobile" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                                @(svc.TopSignatures.Count > 0 ? string.Join(", ", svc.TopSignatures.Take(2)) : "-")
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <div class="empty-icon">&#10003;</div>
+                            <h3>No Exposed Services</h3>
+                            <p>No port forward rules detected, or no threats are targeting forwarded ports.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+
+    @* ========== Geographic Tab ========== *@
+    @if (_activeTab == "geographic")
+    {
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Country Breakdown</h3>
+            </div>
+            <div class="card-body">
+                @if (_geoDistribution.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Country</th>
+                                    <th>Events</th>
+                                    <th>Percentage</th>
+                                    <th class="hide-mobile">Bar</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{ var geoTotal = _geoDistribution.Values.Sum(); }
+                                @foreach (var entry in _geoDistribution.OrderByDescending(kv => kv.Value))
+                                {
+                                    var pct = geoTotal > 0 ? (double)entry.Value / geoTotal * 100 : 0;
+                                    <tr>
+                                        <td><strong>@entry.Key</strong></td>
+                                        <td>@FormatNumber(entry.Value)</td>
+                                        <td>@($"{pct:F1}")%</td>
+                                        <td class="hide-mobile" style="width:40%;">
+                                            <div style="background:var(--bg-hover); border-radius:4px; height:16px; overflow:hidden;">
+                                                <div style="background:#3b82f6; height:100%; width:@($"{pct:F1}")%; border-radius:4px; min-width:2px;"></div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>No geographic data available for this period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+<style>
+    .threat-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    @@media (max-width: 768px) {
+        .threat-summary-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+</style>
+
+@code {
+    private string _activeTab = "overview";
+    private string _timeRange = "24h";
+    private bool _loading = true;
+    private ThreatDashboardData _dashboardData = new();
+    private List<TimelineBucket> _timeline = [];
+    private Dictionary<string, int> _geoDistribution = new();
+    private ExposureReport? _exposureReport;
+    private bool _crowdSecEnabled;
+    private bool _crowdSecBannerDismissed;
+
+    // Chart refs and options - each chart needs its own options instance
+    private ApexChart<TimelineBucket>? _timelineChart;
+    private ApexChartOptions<TimelineBucket> _timelineChartOptions = CreateTimelineChartOptions();
+    private ApexChartOptions<KillChainItem> _killChainChartOptions = CreateKillChainChartOptions();
+    private ApexChartOptions<ActionBreakdownItem> _actionChartOptions = CreateActionChartOptions();
+
+    // Derived data for charts
+    private List<KillChainItem> _killChainItems = [];
+    private List<ActionBreakdownItem> _actionBreakdownItems = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckCrowdSecStatus();
+        await LoadDataAsync();
+    }
+
+    private async Task CheckCrowdSecStatus()
+    {
+        try
+        {
+            var apiKey = await SettingsAccessor.GetSettingAsync("threats.crowdsec_api_key");
+            _crowdSecEnabled = !string.IsNullOrWhiteSpace(apiKey);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to check CrowdSec status");
+            _crowdSecEnabled = false;
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var (from, to) = GetTimeRange();
+
+            if (_activeTab == "overview")
+            {
+                _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
+                _timeline = await DashboardService.GetTimelineDataAsync(from, to);
+                BuildDerivedChartData();
+            }
+            else if (_activeTab == "exposure")
+            {
+                // Exposure report uses a 30-day window internally
+                _exposureReport = await DashboardService.GetExposureReportAsync(null);
+            }
+            else if (_activeTab == "geographic")
+            {
+                _geoDistribution = await DashboardService.GetGeoDistributionAsync(from, to);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load threat dashboard data");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void BuildDerivedChartData()
+    {
+        // Kill chain items
+        _killChainItems = Enum.GetValues<KillChainStage>()
+            .Select(stage => new KillChainItem
+            {
+                Stage = stage,
+                Count = _dashboardData.KillChainDistribution.GetValueOrDefault(stage, 0)
+            })
+            .ToList();
+
+        // Action breakdown items
+        _actionBreakdownItems = new List<ActionBreakdownItem>
+        {
+            new() { Label = "Blocked", Count = _dashboardData.Summary.BlockedCount },
+            new() { Label = "Detected", Count = _dashboardData.Summary.DetectedCount }
+        };
+    }
+
+    private async Task SetActiveTab(string tab)
+    {
+        if (_activeTab == tab) return;
+        _activeTab = tab;
+        await LoadDataAsync();
+    }
+
+    private async Task SetTimeRange(string range)
+    {
+        if (_timeRange == range) return;
+        _timeRange = range;
+        await LoadDataAsync();
+    }
+
+    private (DateTime from, DateTime to) GetTimeRange()
+    {
+        var to = DateTime.UtcNow;
+        var from = _timeRange switch
+        {
+            "7d" => to.AddDays(-7),
+            "30d" => to.AddDays(-30),
+            "90d" => to.AddDays(-90),
+            _ => to.AddDays(-1) // 24h default
+        };
+        return (from, to);
+    }
+
+    // --- Chart Options Factories (each chart must have its own instance) ---
+
+    private static ApexChartOptions<TimelineBucket> CreateTimelineChartOptions()
+    {
+        return new ApexChartOptions<TimelineBucket>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Stacked = true,
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false },
+                Animations = new Animations
+                {
+                    Enabled = true,
+                    Speed = 300,
+                    AnimateGradually = new AnimateGradually { Enabled = false }
+                }
+            },
+            Colors = new List<string> { "#ef4444", "#f97316", "#eab308", "#3b82f6", "#10b981" },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                },
+                AxisBorder = new AxisBorder { Show = false },
+                AxisTicks = new AxisTicks { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = 0,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                        Formatter = @"function(val) { return val != null ? val.toFixed(0) : ''; }"
+                    }
+                }
+            },
+            Grid = new Grid
+            {
+                BorderColor = "#374151",
+                StrokeDashArray = 3
+            },
+            Stroke = new Stroke
+            {
+                Curve = Curve.Smooth,
+                Width = 2
+            },
+            Legend = new Legend
+            {
+                Show = true,
+                Position = LegendPosition.Top,
+                Labels = new LegendLabels { Colors = "#9ca3af" }
+            },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Intersect = false,
+                Shared = true,
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
+            },
+            Fill = new Fill
+            {
+                Type = new List<FillType> { FillType.Gradient },
+                Gradient = new FillGradient
+                {
+                    ShadeIntensity = 0.3,
+                    OpacityFrom = 0.5,
+                    OpacityTo = 0.05
+                }
+            }
+        };
+    }
+
+    private static ApexChartOptions<KillChainItem> CreateKillChainChartOptions()
+    {
+        return new ApexChartOptions<KillChainItem>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Animations = new Animations { Enabled = true, Speed = 300 }
+            },
+            Colors = new List<string> { "#3b82f6", "#f59e0b", "#ef4444", "#a78bfa" },
+            PlotOptions = new PlotOptions
+            {
+                Bar = new PlotOptionsBar
+                {
+                    Horizontal = true,
+                    BorderRadius = 4,
+                    BarHeight = "60%"
+                }
+            },
+            Xaxis = new XAxis
+            {
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
+                },
+                AxisBorder = new AxisBorder { Show = false },
+                AxisTicks = new AxisTicks { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#9ca3af" }
+                    }
+                }
+            },
+            Grid = new Grid
+            {
+                BorderColor = "#374151",
+                StrokeDashArray = 3
+            },
+            Legend = new Legend { Show = false },
+            Tooltip = new Tooltip { Theme = Mode.Dark },
+            DataLabels = new DataLabels { Enabled = false }
+        };
+    }
+
+    private static ApexChartOptions<ActionBreakdownItem> CreateActionChartOptions()
+    {
+        return new ApexChartOptions<ActionBreakdownItem>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Animations = new Animations { Enabled = true, Speed = 300 }
+            },
+            Colors = new List<string> { "#ef4444", "#f59e0b" },
+            Legend = new Legend
+            {
+                Show = true,
+                Position = LegendPosition.Bottom,
+                Labels = new LegendLabels { Colors = "#9ca3af" }
+            },
+            Tooltip = new Tooltip { Theme = Mode.Dark },
+            PlotOptions = new PlotOptions
+            {
+                Pie = new PlotOptionsPie
+                {
+                    Donut = new PlotOptionsDonut
+                    {
+                        Size = "65%"
+                    }
+                }
+            },
+            DataLabels = new DataLabels
+            {
+                Enabled = true,
+                Formatter = @"function(val) { return val.toFixed(1) + '%'; }"
+            }
+        };
+    }
+
+    // --- Helper Methods ---
+
+    private static string GetSeverityColor(int severity)
+    {
+        return severity switch
+        {
+            5 => "#ef4444",
+            4 => "#f97316",
+            3 => "#eab308",
+            2 => "#3b82f6",
+            1 => "#10b981",
+            _ => "#64748b"
+        };
+    }
+
+    private static string GetSeverityLabel(int severity)
+    {
+        return severity switch
+        {
+            5 => "Critical",
+            4 => "High",
+            3 => "Medium",
+            2 => "Low",
+            1 => "Info",
+            _ => "Unknown"
+        };
+    }
+
+    private static string GetKillChainLabel(KillChainStage stage)
+    {
+        return stage switch
+        {
+            KillChainStage.Reconnaissance => "Reconnaissance",
+            KillChainStage.AttemptedExploitation => "Attempted Exploit",
+            KillChainStage.ActiveExploitation => "Active Exploit",
+            KillChainStage.PostExploitation => "Post-Exploitation",
+            _ => stage.ToString()
+        };
+    }
+
+    private static string GetPatternTypeLabel(PatternType patternType)
+    {
+        return patternType switch
+        {
+            PatternType.ScanSweep => "Scan/Sweep",
+            PatternType.BruteForce => "Brute Force",
+            PatternType.ExploitCampaign => "Exploit Campaign",
+            PatternType.DDoS => "DDoS",
+            _ => patternType.ToString()
+        };
+    }
+
+    private static string GetPortServiceName(int port)
+    {
+        return port switch
+        {
+            21 => "FTP",
+            22 => "SSH",
+            23 => "Telnet",
+            25 => "SMTP",
+            53 => "DNS",
+            80 => "HTTP",
+            110 => "POP3",
+            143 => "IMAP",
+            443 => "HTTPS",
+            445 => "SMB",
+            993 => "IMAPS",
+            995 => "POP3S",
+            1433 => "MSSQL",
+            1883 => "MQTT",
+            3306 => "MySQL",
+            3389 => "RDP",
+            5432 => "PostgreSQL",
+            5900 => "VNC",
+            6379 => "Redis",
+            8080 => "HTTP-Alt",
+            8443 => "HTTPS-Alt",
+            8883 => "MQTT-TLS",
+            27017 => "MongoDB",
+            _ => port.ToString()
+        };
+    }
+
+    private static string FormatNumber(int value)
+    {
+        return value switch
+        {
+            >= 1_000_000 => $"{value / 1_000_000.0:F1}M",
+            >= 10_000 => $"{value / 1_000.0:F1}K",
+            >= 1_000 => $"{value:N0}",
+            _ => value.ToString()
+        };
+    }
+
+    // --- Chart data models ---
+
+    private class KillChainItem
+    {
+        public KillChainStage Stage { get; set; }
+        public int Count { get; set; }
+    }
+
+    private class ActionBreakdownItem
+    {
+        public string Label { get; set; } = string.Empty;
+        public int Count { get; set; }
+    }
+}

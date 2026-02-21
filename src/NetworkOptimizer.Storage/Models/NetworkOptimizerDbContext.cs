@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Models;
+using NetworkOptimizer.Threats.Models;
 
 namespace NetworkOptimizer.Storage.Models;
 
@@ -38,6 +39,9 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<DeliveryChannel> DeliveryChannels { get; set; }
     public DbSet<AlertHistoryEntry> AlertHistory { get; set; }
     public DbSet<AlertIncident> AlertIncidents { get; set; }
+    public DbSet<ThreatEvent> ThreatEvents { get; set; }
+    public DbSet<ThreatPattern> ThreatPatterns { get; set; }
+    public DbSet<CrowdSecReputation> CrowdSecReputations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -248,6 +252,39 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.Status);
             entity.Property(e => e.Severity).HasConversion<int>();
             entity.Property(e => e.Status).HasConversion<int>();
+        });
+
+        // ThreatEvent configuration
+        modelBuilder.Entity<ThreatEvent>(entity =>
+        {
+            entity.ToTable("ThreatEvents");
+            entity.HasIndex(e => e.Timestamp);
+            entity.HasIndex(e => new { e.SourceIp, e.Timestamp });
+            entity.HasIndex(e => new { e.DestPort, e.Timestamp });
+            entity.HasIndex(e => e.KillChainStage);
+            entity.HasIndex(e => e.InnerAlertId).IsUnique();
+            entity.Property(e => e.Action).HasConversion<int>();
+            entity.Property(e => e.KillChainStage).HasConversion<int>();
+            entity.HasOne(e => e.Pattern)
+                .WithMany(p => p.Events)
+                .HasForeignKey(e => e.PatternId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ThreatPattern configuration
+        modelBuilder.Entity<ThreatPattern>(entity =>
+        {
+            entity.ToTable("ThreatPatterns");
+            entity.HasIndex(e => new { e.PatternType, e.DetectedAt });
+            entity.Property(e => e.PatternType).HasConversion<int>();
+        });
+
+        // CrowdSecReputation configuration
+        modelBuilder.Entity<CrowdSecReputation>(entity =>
+        {
+            entity.ToTable("CrowdSecReputations");
+            entity.HasKey(e => e.Ip);
+            entity.HasIndex(e => e.ExpiresAt);
         });
     }
 }

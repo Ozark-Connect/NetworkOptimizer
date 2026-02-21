@@ -244,6 +244,24 @@ builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryCha
         sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.TeamsDeliveryChannel>>(),
         sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
 
+// Register Threat Intelligence services
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.CrowdSec.CrowdSecClient>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.CrowdSec.CrowdSecEnrichmentService>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatEventNormalizer>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.KillChainClassifier>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ScanSweepDetector>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.BruteForceDetector>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ExploitCampaignDetector>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.DDoSDetector>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ThreatPatternAnalyzer>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ExposureValidator>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
+builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>();
+builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor, NetworkOptimizer.Web.Services.ThreatSettingsAccessor>();
+
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredService<SystemSettingsService>());
@@ -481,6 +499,10 @@ using (var scope = app.Services.CreateScope())
 
 // Pre-generate the credential encryption key (resolves singleton, triggering key creation)
 app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialProtectionService>().EnsureKeyExists();
+
+// Initialize GeoLite2 enrichment (looks for .mmdb files in data directory)
+var geoDataPath = Path.GetDirectoryName(dbPath)!;
+app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
 
 // Clean up any leftover config transfer temp files from previous sessions
 app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();

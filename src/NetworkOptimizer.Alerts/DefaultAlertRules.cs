@@ -64,6 +64,15 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 3600, // 1 hour
             DigestOnly = true // High frequency, low urgency
+        },
+        new AlertRule
+        {
+            Name = "Critical Threat Detected",
+            IsEnabled = true,
+            EventTypePattern = "threats.ips_event",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Critical,
+            CooldownSeconds = 60 // 1 minute
         }
     ];
 }
