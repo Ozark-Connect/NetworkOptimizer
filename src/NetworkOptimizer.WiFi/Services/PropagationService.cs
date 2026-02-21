@@ -88,7 +88,7 @@ public class PropagationService
             segmentsByFloor[floor] = PrecomputeWallSegments(floorWalls);
         }
 
-        for (int y = 0; y < gridHeight; y++)
+        Parallel.For(0, gridHeight, y =>
         {
             var pointLat = swLat + (y + 0.5) * latStep;
             for (int x = 0; x < gridWidth; x++)
@@ -107,7 +107,7 @@ public class PropagationService
 
                 data[y * gridWidth + x] = aps.Count > 0 ? bestSignal : -100f;
             }
-        }
+        });
 
         return new HeatmapResponse
         {
