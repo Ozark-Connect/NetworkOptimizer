@@ -1246,8 +1246,8 @@ window.fpEditor = {
                     'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
                     '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
-                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" ' +
-                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value||0))" />' +
+                    'data-save-method="OnPlannedApOrientationChangedFromJs" data-save-id="' + ap.plannedId + '" data-save-type="planned" ' +
+                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
                     '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
@@ -1273,8 +1273,8 @@ window.fpEditor = {
                     'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
                     '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
-                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" ' +
-                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value||0))" />' +
+                    'data-save-method="OnApOrientationChangedFromJs" data-save-id="\'' + safeMac + '\'" data-save-type="real" ' +
+                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
                     '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
@@ -1377,7 +1377,8 @@ window.fpEditor = {
         this._rotateApArrow(mac, slider.value);
     },
 
-    // Sync slider and arrow from number input
+    // Sync slider and arrow from number input, debounce save
+    _facingDebounceTimer: null,
     _syncFacingFromInput: function (input, mac) {
         var v = parseInt(input.value);
         if (isNaN(v)) return;
@@ -1387,6 +1388,21 @@ window.fpEditor = {
         var slider = row && row.querySelector('input[type="range"]');
         if (slider) slider.value = v;
         this._rotateApArrow(mac, v);
+
+        // Debounce save - fires 500ms after last keystroke, no blur needed
+        var self = this;
+        var method = input.dataset.saveMethod;
+        var id = input.dataset.saveId;
+        var isPlanned = input.dataset.saveType === 'planned';
+        if (this._facingDebounceTimer) clearTimeout(this._facingDebounceTimer);
+        this._facingDebounceTimer = setTimeout(function () {
+            self._facingDebounceTimer = null;
+            if (isPlanned) {
+                self._dotNetRef.invokeMethodAsync(method, parseInt(id), v);
+            } else {
+                self._dotNetRef.invokeMethodAsync(method, id.replace(/'/g, ''), v);
+            }
+        }, 500);
     },
 
     // Rotate AP direction arrow in realtime (called from facing slider oninput)
