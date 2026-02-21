@@ -1247,7 +1247,7 @@ window.fpEditor = {
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
                     '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
                     'data-save-method="OnPlannedApOrientationChangedFromJs" data-save-id="' + ap.plannedId + '" data-save-type="planned" ' +
-                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
+                    'onfocus="this.select()" oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
                     '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
@@ -1274,7 +1274,7 @@ window.fpEditor = {
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
                     '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
                     'data-save-method="OnApOrientationChangedFromJs" data-save-id="\'' + safeMac + '\'" data-save-type="real" ' +
-                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
+                    'onfocus="this.select()" oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
                     '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
