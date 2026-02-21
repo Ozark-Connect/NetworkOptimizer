@@ -1071,9 +1071,18 @@ window.fpEditor = {
                     ' Floor</option>';
             }
 
-            // Mount type dropdown options
-            var mountTypes = ['ceiling', 'wall', 'desktop'];
+            // Mount type dropdown options - constrain by model
+            var allMounts = ['ceiling', 'wall', 'desktop'];
             var mountLabels = { ceiling: 'Ceiling', wall: 'Wall / Pole', desktop: 'Desktop' };
+            var model = (ap.model || '').toUpperCase();
+            var mountTypes;
+            if (/^UDR\b/.test(model)) {
+                mountTypes = ['desktop']; // UDR: desktop only
+            } else if (/^UX\b/.test(model)) {
+                mountTypes = ['wall', 'desktop']; // UX: wall or desktop
+            } else {
+                mountTypes = allMounts;
+            }
             var mountOpts = '';
             mountTypes.forEach(function (mt) {
                 mountOpts += '<option value="' + mt + '"' + (mt === (ap.mountType || 'ceiling') ? ' selected' : '') + '>' + mountLabels[mt] + '</option>';
@@ -1103,7 +1112,7 @@ window.fpEditor = {
                         (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
                         'oninput="fpEditor._updateTxPowerLabel(this)" ' +
                         'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApTxPowerChangedFromJs\',' + ap.plannedId + ',\'' + bandStr + '\',parseInt(this.value))" />' +
-                        '</div>' +
+                        '<span class="fp-ap-popup-deg-wrap"></span></div>' +
                         '<div class="fp-ap-popup-tx-info">' + currentPower + ' dBm TX' + eirpText + '</div>';
                 }
             } else {
@@ -1142,7 +1151,7 @@ window.fpEditor = {
                         (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
                         'oninput="fpEditor._updateTxPowerLabel(this)" ' +
                         'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap();fpEditor._dotNetRef.invokeMethodAsync(\'OnSimulationChanged\')" />' +
-                        '</div>' +
+                        '<span class="fp-ap-popup-deg-wrap"></span></div>' +
                         '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
                 }
             }
@@ -1236,10 +1245,10 @@ window.fpEditor = {
                     '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
                     'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
-                    '<input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
+                    '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
                     'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value||0))" />' +
-                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></div>' +
+                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
                     deleteBtn +
@@ -1263,10 +1272,10 @@ window.fpEditor = {
                     '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
                     'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
-                    '<input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
+                    '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
                     'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value||0))" />' +
-                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></div>' +
+                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
                     disableApHtml +
