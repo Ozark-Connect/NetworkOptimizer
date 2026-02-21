@@ -1234,9 +1234,12 @@ window.fpEditor = {
                     mountOpts + '</select></div>' +
                     '<div class="fp-ap-popup-row"><label>Facing</label>' +
                     '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
-                    'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
+                    'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
-                    '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                    '<input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
+                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" ' +
+                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value||0))" />' +
+                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
                     deleteBtn +
@@ -1258,9 +1261,12 @@ window.fpEditor = {
                     mountOpts + '</select></div>' +
                     '<div class="fp-ap-popup-row"><label>Facing</label>' +
                     '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
-                    'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
+                    'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
-                    '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                    '<input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
+                    'oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" ' +
+                    'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value||0))" />' +
+                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
                     disableApHtml +
@@ -1352,6 +1358,25 @@ window.fpEditor = {
         var eirpText = gain != null ? ' / ' + (tx + parseInt(gain)) + ' dBm EIRP' : '';
         info.textContent = tx + ' dBm TX' + eirpText;
         info.classList.add('overridden');
+    },
+
+    // Sync number input and arrow from slider drag
+    _syncFacingFromSlider: function (slider, mac) {
+        var row = slider.closest('.fp-ap-popup-row');
+        var numInput = row && row.querySelector('.fp-ap-popup-deg-input');
+        if (numInput) numInput.value = slider.value;
+        this._rotateApArrow(mac, slider.value);
+    },
+
+    // Sync slider and arrow from number input
+    _syncFacingFromInput: function (input, mac) {
+        var v = parseInt(input.value);
+        if (isNaN(v)) return;
+        v = Math.max(0, Math.min(359, v));
+        var row = input.closest('.fp-ap-popup-row');
+        var slider = row && row.querySelector('input[type="range"]');
+        if (slider) slider.value = v;
+        this._rotateApArrow(mac, v);
     },
 
     // Rotate AP direction arrow in realtime (called from facing slider oninput)
