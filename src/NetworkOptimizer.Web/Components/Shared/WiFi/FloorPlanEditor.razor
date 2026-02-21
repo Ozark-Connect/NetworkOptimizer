@@ -2681,6 +2681,7 @@
     public async Task OnPlannedApDragEndFromJs(int plannedId, double lat, double lng)
     {
         await PlannedApSvc.UpdateLocationAsync(plannedId, lat, lng);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
@@ -2732,6 +2733,7 @@
     public async Task OnPlannedApTxPowerChangedFromJs(int plannedId, string band, int txPower)
     {
         await PlannedApSvc.UpdateTxPowerAsync(plannedId, band, txPower);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2745,6 +2747,7 @@
     public async Task OnPlannedApAntennaModeChangedFromJs(int plannedId, string? mode)
     {
         await PlannedApSvc.UpdateAntennaModeAsync(plannedId, mode);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2766,6 +2769,7 @@
     public async Task OnPlannedApDeleteFromJs(int plannedId)
     {
         await PlannedApSvc.DeleteAsync(plannedId);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         if (_plannedAps.Count == 0) _showPlannedAps = false;
         await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
@@ -2851,6 +2855,7 @@
                 AntennaMode = defaultAntennaMode
             };
             await PlannedApSvc.CreateAsync(ap);
+            HeatmapCache.Invalidate();
             await LoadPlannedAps();
             _showPlannedAps = true;
             await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", false);
@@ -3029,6 +3034,7 @@
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+        HeatmapCache.Invalidate();
 
         // Auto-update floor bounds and building center from wall extents
         await RecalcBoundsFromWalls(_selectedFloor, wallsJson);
@@ -3105,6 +3111,7 @@
         _selectedBuilding.CenterLatitude = newLat;
         _selectedBuilding.CenterLongitude = newLng;
         await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, newLat, newLng);
+        HeatmapCache.Invalidate();
 
         // Refresh visuals
         if (_selectedFloor != null) await UpdateFloorOverlay();
