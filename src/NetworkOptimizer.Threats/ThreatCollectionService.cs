@@ -25,6 +25,7 @@ public class ThreatCollectionService : BackgroundService
     private readonly ThreatPatternAnalyzer _patternAnalyzer;
     private readonly IAlertEventBus _alertEventBus;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IUniFiClientAccessor _uniFiClientAccessor;
 
     // Configurable via SystemSettings (defaults)
     private int _pollIntervalMinutes = 5;
@@ -38,7 +39,8 @@ public class ThreatCollectionService : BackgroundService
         KillChainClassifier classifier,
         ThreatPatternAnalyzer patternAnalyzer,
         IAlertEventBus alertEventBus,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IUniFiClientAccessor uniFiClientAccessor)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -48,6 +50,7 @@ public class ThreatCollectionService : BackgroundService
         _patternAnalyzer = patternAnalyzer;
         _alertEventBus = alertEventBus;
         _httpClientFactory = httpClientFactory;
+        _uniFiClientAccessor = uniFiClientAccessor;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -112,8 +115,8 @@ public class ThreatCollectionService : BackgroundService
             : DateTimeOffset.UtcNow.AddHours(-24);
         var end = DateTimeOffset.UtcNow;
 
-        // Try to get the UniFi API client
-        var apiClient = scope.ServiceProvider.GetService<UniFi.UniFiApiClient>();
+        // Get the UniFi API client via the accessor (singleton, connected via UniFiConnectionService)
+        var apiClient = _uniFiClientAccessor.Client;
         if (apiClient == null)
         {
             _logger.LogDebug("UniFi API client not available, skipping threat collection");

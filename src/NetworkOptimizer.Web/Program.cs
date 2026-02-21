@@ -261,6 +261,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.T
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>();
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor, NetworkOptimizer.Web.Services.ThreatSettingsAccessor>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
