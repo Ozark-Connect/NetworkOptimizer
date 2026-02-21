@@ -1373,6 +1373,7 @@ window.fpEditor = {
         var v = parseInt(input.value);
         if (isNaN(v)) return;
         v = Math.max(0, Math.min(359, v));
+        input.value = v;
         var row = input.closest('.fp-ap-popup-row');
         var slider = row && row.querySelector('input[type="range"]');
         if (slider) slider.value = v;
