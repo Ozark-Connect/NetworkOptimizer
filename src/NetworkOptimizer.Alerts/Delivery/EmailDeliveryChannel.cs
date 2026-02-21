@@ -111,6 +111,12 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
 
     private async Task<bool> SendEmailAsync(EmailChannelConfig config, string subject, string htmlBody, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(config.FromAddress) || string.IsNullOrWhiteSpace(config.ToAddresses))
+        {
+            _logger.LogWarning("Email channel missing from/to address configuration");
+            return false;
+        }
+
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(config.FromName, config.FromAddress));
 

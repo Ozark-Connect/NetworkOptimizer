@@ -29,6 +29,8 @@ public class AlertProcessingService : BackgroundService
     private List<AlertRule> _cachedRules = [];
     private DateTime _rulesCachedAt = DateTime.MinValue;
     private static readonly TimeSpan RuleCacheDuration = TimeSpan.FromSeconds(60);
+    private DateTime _lastCooldownCleanup = DateTime.UtcNow;
+    private static readonly TimeSpan CooldownCleanupInterval = TimeSpan.FromMinutes(30);
 
     public AlertProcessingService(
         ILogger<AlertProcessingService> logger,
@@ -82,6 +84,13 @@ public class AlertProcessingService : BackgroundService
         // Refresh rule cache if stale
         await RefreshRuleCacheAsync(repository, cancellationToken);
 
+        // Periodic cooldown cleanup to prevent unbounded growth
+        if ((DateTime.UtcNow - _lastCooldownCleanup) > CooldownCleanupInterval)
+        {
+            CleanupCooldowns();
+            _lastCooldownCleanup = DateTime.UtcNow;
+        }
+
         // Evaluate event against rules
         var matchingRules = _ruleEvaluator.Evaluate(alertEvent, _cachedRules);
         if (matchingRules.Count == 0)
@@ -133,6 +142,12 @@ public class AlertProcessingService : BackgroundService
         // Correlate into incidents
         await _correlationService.CorrelateAsync(alertEvent, historyEntry, repository, cancellationToken);
 
+        // Persist incident correlation even for digest-only rules
+        if (historyEntry.IncidentId.HasValue)
+        {
+            await repository.UpdateAlertAsync(historyEntry, cancellationToken);
+        }
+
         // Skip delivery for digest-only rules
         if (rule.DigestOnly)
         {
@@ -160,12 +175,8 @@ public class AlertProcessingService : BackgroundService
             if (alertEvent.Severity < channel.MinSeverity)
                 continue;
 
-            // Skip digest-only channels for immediate delivery
-            if (channel.DigestEnabled && !channels.Any(c => c.Id == channel.Id && !c.DigestEnabled))
-            {
-                // Channel has digest enabled - it still sends immediate alerts too
-                // Only skip if the channel is ONLY for digests (no matching delivery implementation)
-            }
+            // Channels with digest enabled still get immediate alerts too
+            // (digest is an additional summary, not a replacement for immediate delivery)
 
             var handler = _deliveryChannels.FirstOrDefault(d => d.ChannelType == channel.ChannelType);
             if (handler == null)
@@ -224,11 +235,7 @@ public class AlertProcessingService : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Periodic cleanup of cooldown tracker to prevent unbounded growth.
-    /// Called from a timer or during idle periods.
-    /// </summary>
-    public void CleanupCooldowns()
+    private void CleanupCooldowns()
     {
         _cooldownTracker.Cleanup(TimeSpan.FromHours(2));
     }

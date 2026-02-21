@@ -121,7 +121,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
                 request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
                 // Add custom headers
-                foreach (var header in config.Headers)
+                foreach (var header in config.Headers ?? [])
                 {
                     request.Headers.TryAddWithoutValidation(header.Key, header.Value);
                 }

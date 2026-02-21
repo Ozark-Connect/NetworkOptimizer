@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -44,8 +45,9 @@ public partial class CloudflareSpeedTestService : WanSpeedTestServiceBase
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
         IConfiguration configuration,
-        Iperf3ServerService iperf3ServerService)
-        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService)
+        Iperf3ServerService iperf3ServerService,
+        IAlertEventBus? alertEventBus = null)
+        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus)
     {
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;

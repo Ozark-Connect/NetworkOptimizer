@@ -93,7 +93,7 @@ public class AlertCorrelationService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to correlate alert");
+            _logger.LogWarning(ex, "Failed to correlate alert");
             return null;
         }
     }
