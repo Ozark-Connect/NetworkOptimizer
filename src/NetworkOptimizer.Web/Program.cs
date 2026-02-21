@@ -1081,8 +1081,10 @@ app.MapDelete("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorP
 app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     FloorPlanService floorSvc, ApMapService apMapSvc,
     PlannedApService plannedApSvc,
-    NetworkOptimizer.WiFi.Services.PropagationService propagationSvc) =>
+    NetworkOptimizer.WiFi.Services.PropagationService propagationSvc,
+    ILogger<Program> logger) =>
 {
+    var sw = System.Diagnostics.Stopwatch.StartNew();
     var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
 
@@ -1090,6 +1092,8 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         return Results.BadRequest(new { error = "Viewport bounds are required" });
 
     var activeFloor = request.ActiveFloor;
+
+    var tDeserialize = sw.ElapsedMilliseconds;
 
     // Load walls from ALL floors across ALL buildings, grouped by floor number.
     // Cross-floor APs need walls from their own floor for shadow casting.
@@ -1216,9 +1220,16 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         };
     }).OfType<NetworkOptimizer.WiFi.Models.BuildingFloorInfo>().ToList();
 
+    var tDataLoad = sw.ElapsedMilliseconds;
+
     var result = propagationSvc.ComputeHeatmap(
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
         request.Band, placedAps, wallsByFloor, activeFloor, request.GridResolutionMeters, buildingFloorInfos);
+
+    var tCompute = sw.ElapsedMilliseconds;
+    logger.LogDebug("Heatmap: deserialize={Deserialize}ms data-load={DataLoad}ms compute={Compute}ms total={Total}ms grid-res={Res}m aps={ApCount} grid={W}x{H}",
+        tDeserialize, tDataLoad - tDeserialize, tCompute - tDataLoad, tCompute,
+        request.GridResolutionMeters, placedAps.Count, result.Width, result.Height);
 
     return Results.Ok(result);
 });
