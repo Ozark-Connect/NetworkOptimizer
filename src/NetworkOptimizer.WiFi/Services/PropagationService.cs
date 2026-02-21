@@ -169,8 +169,8 @@ public class PropagationService
 
         // Ceiling-native and desktop patterns use 0° = 3-o'clock of U logo (90° CW
         // from U-tips). OrientationDeg represents U-tips direction, so add 90° to align.
-        if (isCeilingNative || effectiveMount == "desktop" || IsOmniAntennaMode(ap.AntennaMode))
-            azimuthDeg = (azimuthDeg + 90) % 360;
+        // This offset is applied after the az/el swap so it always rotates the correct axis.
+        var azRotOffset = (isCeilingNative || effectiveMount == "desktop" || IsOmniAntennaMode(ap.AntennaMode)) ? 90 : 0;
 
         // Elevation angle in pattern coordinates (ceiling mount native):
         // 0 = straight down, 90 = horizon, 180 = straight up
@@ -208,12 +208,14 @@ public class PropagationService
         float azGain, elGain;
         if (needSwap)
         {
+            // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
+            // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
             azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
-            elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+            elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
         {
-            azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azimuthDeg + azRotOffset) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
         var antennaGain = azGain + elGain;
