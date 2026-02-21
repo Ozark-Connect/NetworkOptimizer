@@ -47,7 +47,7 @@ public class PropagationService
             foreach (var b in buildings)
             {
                 var mats = string.Join(", ", b.FloorMaterials.Select(kv => $"F{kv.Key}={kv.Value}"));
-                _logger.LogInformation("Heatmap building: bounds=({SwLat},{SwLng})-({NeLat},{NeLng}) floors=[{Mats}]",
+                _logger.LogDebug("Heatmap building: bounds=({SwLat},{SwLng})-({NeLat},{NeLng}) floors=[{Mats}]",
                     b.SwLat, b.SwLng, b.NeLat, b.NeLng, mats);
             }
         }
@@ -59,7 +59,7 @@ public class PropagationService
             foreach (var ap in aps)
             {
                 var pattern = _antennaLoader.GetPattern(ap.Model, band, ap.AntennaMode);
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "Heatmap AP: {Model} band={Band} txPower={TxPower}dBm antennaGain={AntennaGain}dBi antennaMode={Mode} pattern={HasPattern}",
                     ap.Model, band, ap.TxPowerDbm, ap.AntennaGainDbi, ap.AntennaMode ?? "default", pattern != null);
             }
