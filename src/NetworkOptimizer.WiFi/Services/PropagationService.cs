@@ -157,14 +157,13 @@ public class PropagationService
         var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
 
         // Azimuth angle from AP to point, adjusted for AP orientation.
-        // Start with CW bearing relative to orientation (correct for directional wall APs).
+        // Pattern data is indexed CCW (Ubiquiti convention) for all mount types.
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
-        var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
+        var azimuthDeg = (int)((ap.OrientationDeg - azimuth + 360) % 360);
 
-        // Ceiling mount only: pattern measured from below (logo down) but floor plan views
-        // from above. This flips CW↔CCW, so mirror the bearing. Desktop doesn't need this
-        // because logo faces up — the physical 3-o'clock edge swaps sides when flipped.
-        if (effectiveMount == "ceiling")
+        // Desktop mount: physical AP flip (logo up instead of down) reverses the
+        // apparent rotation direction, so mirror CCW back to CW.
+        if (effectiveMount == "desktop")
             azimuthDeg = (360 - azimuthDeg) % 360;
 
         // Omni-like patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
