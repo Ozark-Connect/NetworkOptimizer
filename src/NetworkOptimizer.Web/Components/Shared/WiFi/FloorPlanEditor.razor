@@ -422,11 +422,15 @@
             <h3>Add Floor</h3>
             <div class="fp-form-group">
                 <label>Floor Number</label>
-                <input type="number" @bind="_newFloorNumber" class="fp-input" />
+                <div class="fp-stepper">
+                    <button class="fp-stepper-btn" @onclick="DecrementFloor" type="button">-</button>
+                    <input type="number" @bind="_newFloorNumber" @bind:after="OnFloorNumberChanged" class="fp-stepper-input" />
+                    <button class="fp-stepper-btn" @onclick="IncrementFloor" type="button">+</button>
+                </div>
             </div>
             <div class="fp-form-group">
                 <label>Label</label>
-                <input type="text" @bind="_newFloorLabel" class="fp-input" placeholder="e.g. Ground Floor" />
+                <input type="text" @bind="_newFloorLabel" @oninput="() => _labelManuallyEdited = true" class="fp-input" placeholder="e.g. Ground Floor" />
             </div>
             <div class="fp-form-group">
                 <label>Floor Construction</label>
@@ -762,6 +766,50 @@
         padding: 6px 10px;
         font-size: 14px;
         box-sizing: border-box;
+    }
+
+    .fp-stepper {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .fp-stepper-btn {
+        width: 32px;
+        height: 32px;
+        background: var(--bg-tertiary, #334155);
+        color: var(--text-primary, #f1f5f9);
+        border: 1px solid var(--border-color, #232326);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .fp-stepper-btn:hover {
+        background: var(--bg-hover, #475569);
+    }
+
+    .fp-stepper-input {
+        width: 60px;
+        text-align: center;
+        background: var(--bg-primary, #0f0f11);
+        color: var(--text-primary, #ededef);
+        border: 1px solid var(--border-color, #232326);
+        border-radius: 4px;
+        padding: 6px;
+        font-size: 14px;
+        -moz-appearance: textfield;
+    }
+
+    .fp-stepper-input::-webkit-outer-spin-button,
+    .fp-stepper-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
     }
 
     .fp-dialog-actions {
@@ -1522,6 +1570,7 @@
     private int _newFloorNumber;
     private string _newFloorLabel = "";
     private string _newFloorMaterial = "floor_wood";
+    private bool _labelManuallyEdited;
     private bool _showDeleteBuilding;
     private bool _showDeleteFloor;
     private bool _showDeleteUnderlay;
@@ -2826,7 +2875,7 @@
 
                 // Include: same floor number, or adjacent floors (n-1, n+1) in any building
                 var sameFloor = f.FloorNumber == _globalActiveFloor;
-                var adjacentFloor = Math.Abs(f.FloorNumber - _globalActiveFloor) == 1;
+                var adjacentFloor = IsAdjacentFloor(f.FloorNumber, _globalActiveFloor);
                 if (!sameFloor && !adjacentFloor) continue;
 
                 try
@@ -3373,6 +3422,7 @@
         var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : 0;
         _newFloorNumber = maxFloor + 1;
         _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+        _labelManuallyEdited = false;
 
         // Infer floor material from existing exterior walls
         var hasCommercialExterior = _floors.Any(f =>
@@ -3382,6 +3432,25 @@
 
         _showAddFloor = true;
     }
+
+    private void IncrementFloor()
+    {
+        _newFloorNumber = (_newFloorNumber == -1 && !BuildingHasFloorZero()) ? 1 : _newFloorNumber + 1;
+        if (!_labelManuallyEdited) _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+    }
+
+    private void DecrementFloor()
+    {
+        _newFloorNumber = (_newFloorNumber == 1 && !BuildingHasFloorZero()) ? -1 : _newFloorNumber - 1;
+        if (!_labelManuallyEdited) _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+    }
+
+    private void OnFloorNumberChanged()
+    {
+        if (!_labelManuallyEdited) _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+    }
+
+    private bool BuildingHasFloorZero() => _floors.Any(f => f.FloorNumber == 0);
 
     private static string GetDefaultFloorLabel(int n)
     {
@@ -3533,6 +3602,16 @@
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private bool IsAdjacentFloor(int a, int b)
+    {
+        var gap = Math.Abs(a - b);
+        if (gap == 1) return true;
+        // US residential: B1(-1) is adjacent to 1st(1) when no floor 0 exists
+        if (gap == 2 && Math.Min(a, b) < 0 && Math.Max(a, b) > 0)
+            return !_buildings.Any(bld => bld.Floors.Any(f => f.FloorNumber == 0));
+        return false;
+    }
 
     private static string GetFloorLabel(int floorNumber)
     {

@@ -133,8 +133,11 @@ public class PropagationService
         var distance2d = HaversineDistance(ap.Latitude, ap.Longitude, pointLat, pointLng);
         if (distance2d < 0.1) distance2d = 0.1; // avoid log(0)
 
-        // Floor separation
+        // Floor separation (US residential: no floor 0 means B1 is directly below 1st)
         var floorSeparation = Math.Abs(ap.Floor - activeFloor);
+        var spansZero = Math.Min(ap.Floor, activeFloor) < 0 && Math.Max(ap.Floor, activeFloor) > 0;
+        if (spansZero && !(buildings?.Any(b => b.FloorMaterials.ContainsKey(0)) ?? false))
+            floorSeparation--;
         var floorLoss = 0.0;
         if (floorSeparation > 0)
         {
@@ -252,7 +255,11 @@ public class PropagationService
     {
         if (buildings == null || buildings.Count == 0)
         {
-            return Math.Abs(ap.Floor - activeFloor) * MaterialAttenuation.GetAttenuation("floor_wood", band);
+            var sep = Math.Abs(ap.Floor - activeFloor);
+            // US residential: no floor 0 means B1(-1) is directly below 1st(1)
+            if (Math.Min(ap.Floor, activeFloor) < 0 && Math.Max(ap.Floor, activeFloor) > 0)
+                sep--;
+            return sep * MaterialAttenuation.GetAttenuation("floor_wood", band);
         }
 
         // Find building containing the observation point (primary) or the AP (fallback).
@@ -278,6 +285,10 @@ public class PropagationService
 
         for (var f = minFloor + 1; f <= maxFloor; f++)
         {
+            // Skip floor 0 if it doesn't exist (US residential: B1 is directly below 1st)
+            if (f == 0 && !building.FloorMaterials.ContainsKey(0))
+                continue;
+
             var material = building.FloorMaterials.GetValueOrDefault(f, "floor_wood");
             totalLoss += MaterialAttenuation.GetAttenuation(material, band);
         }
