@@ -10,6 +10,7 @@
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
 @inject PlannedApService PlannedApSvc
+@inject HeatmapDataCache HeatmapCache
 @inject AntennaPatternLoader PatternLoader
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -2522,6 +2523,7 @@
     public async Task OnApDragEndFromJs(string mac, double lat, double lng)
     {
         await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
@@ -2609,6 +2611,7 @@
 
             await ApMapSvc.SaveApLocationAsync(ap.Mac, apLat + dLat, apLng + dLng);
         }
+        HeatmapCache.Invalidate();
 
         // Reload everything
         await LoadBuildings();
@@ -2628,6 +2631,7 @@
     public async Task OnApFloorChangedFromJs(string mac, int floor)
     {
         await ApMapSvc.SaveApFloorAsync(mac, floor);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -2641,6 +2645,7 @@
     public async Task OnApOrientationChangedFromJs(string mac, int orientationDeg)
     {
         await ApMapSvc.SaveApOrientationAsync(mac, orientationDeg);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -2654,6 +2659,7 @@
     public async Task OnApMountTypeChangedFromJs(string mac, string mountType)
     {
         await ApMapSvc.SaveApMountTypeAsync(mac, mountType);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -2684,6 +2690,7 @@
     public async Task OnPlannedApFloorChangedFromJs(int plannedId, int floor)
     {
         await PlannedApSvc.UpdateFloorAsync(plannedId, floor);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2697,6 +2704,7 @@
     public async Task OnPlannedApOrientationChangedFromJs(int plannedId, int deg)
     {
         await PlannedApSvc.UpdateOrientationAsync(plannedId, deg);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2710,6 +2718,7 @@
     public async Task OnPlannedApMountTypeChangedFromJs(int plannedId, string mountType)
     {
         await PlannedApSvc.UpdateMountTypeAsync(plannedId, mountType);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2861,6 +2870,7 @@
         _selectedApForPlacement = null;
 
         await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
