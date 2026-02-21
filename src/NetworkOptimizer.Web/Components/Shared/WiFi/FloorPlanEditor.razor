@@ -2918,7 +2918,7 @@
             {
                 if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
                 if (string.IsNullOrEmpty(f.WallsJson)) continue;
-                if (Math.Abs(f.FloorNumber - _globalActiveFloor) > 1) continue;
+                if (!IsAdjacentFloor(f.FloorNumber, _globalActiveFloor) && f.FloorNumber != _globalActiveFloor) continue;
                 try
                 {
                     var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(f.WallsJson);
