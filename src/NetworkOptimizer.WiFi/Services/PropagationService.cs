@@ -161,10 +161,10 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((ap.OrientationDeg - azimuth + 360) % 360);
 
-        // Ceiling-native AP placed on desk: physical flip (logo down→up) reverses
-        // the apparent rotation. Desktop-native APs (UDM, UDR) aren't flipped.
+        // Ceiling-native AP not on ceiling: physical reorientation (wall or desk)
+        // reverses the apparent rotation. Desktop-native APs (UDM, UDR) aren't flipped.
         var isCeilingNative = MountTypeHelper.GetDefaultMountType(ap.Model) == "ceiling";
-        if (effectiveMount == "desktop" && isCeilingNative)
+        if (isCeilingNative && effectiveMount != "ceiling")
             azimuthDeg = (360 - azimuthDeg) % 360;
 
         // Ceiling-native and desktop patterns use 0° = 3-o'clock of U logo (90° CW
