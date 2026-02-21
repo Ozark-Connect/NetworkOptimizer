@@ -1091,10 +1091,8 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     FloorPlanService floorSvc, ApMapService apMapSvc,
     PlannedApService plannedApSvc,
     NetworkOptimizer.WiFi.Services.PropagationService propagationSvc,
-    HeatmapDataCache heatmapCache,
-    ILogger<Program> logger) =>
+    HeatmapDataCache heatmapCache) =>
 {
-    var sw = System.Diagnostics.Stopwatch.StartNew();
     var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
 
@@ -1102,8 +1100,6 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         return Results.BadRequest(new { error = "Viewport bounds are required" });
 
     var activeFloor = request.ActiveFloor;
-
-    var tDeserialize = sw.ElapsedMilliseconds;
 
     // Load from cache (only hits DB when data has been invalidated)
     var cached = await heatmapCache.GetOrLoadAsync(floorSvc, apMapSvc, plannedApSvc);
@@ -1193,17 +1189,9 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         placedAps.RemoveAll(ap => disabled.Contains(ap.Mac));
     }
 
-    var tDataLoad = sw.ElapsedMilliseconds;
-
     var result = propagationSvc.ComputeHeatmap(
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
         request.Band, placedAps, cached.WallsByFloor, activeFloor, request.GridResolutionMeters, cached.BuildingFloorInfos);
-
-    var tCompute = sw.ElapsedMilliseconds;
-    // TODO: Remove before PR - temporary perf debugging
-    logger.LogInformation("Heatmap: deserialize={Deserialize}ms data-load={DataLoad}ms compute={Compute}ms total={Total}ms grid-res={Res}m aps={ApCount} grid={W}x{H}",
-        tDeserialize, tDataLoad - tDeserialize, tCompute - tDataLoad, tCompute,
-        request.GridResolutionMeters, placedAps.Count, result.Width, result.Height);
 
     return Results.Ok(result);
 });
