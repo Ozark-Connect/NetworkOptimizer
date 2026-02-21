@@ -1389,7 +1389,8 @@ window.fpEditor = {
         if (slider) slider.value = v;
         this._rotateApArrow(mac, v);
 
-        // Debounce save - fires 500ms after last keystroke, no blur needed
+        // Debounce save - fires 1.5s after last keystroke, no blur needed
+        // Generous delay for mobile users tapping on numpad
         var self = this;
         var method = input.dataset.saveMethod;
         var id = input.dataset.saveId;
@@ -1402,7 +1403,7 @@ window.fpEditor = {
             } else {
                 self._dotNetRef.invokeMethodAsync(method, id.replace(/'/g, ''), v);
             }
-        }, 500);
+        }, 1500);
     },
 
     // Rotate AP direction arrow in realtime (called from facing slider oninput)
