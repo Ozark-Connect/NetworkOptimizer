@@ -24,6 +24,7 @@ public class ThreatCollectionService : BackgroundService
     private readonly KillChainClassifier _classifier;
     private readonly ThreatPatternAnalyzer _patternAnalyzer;
     private readonly IAlertEventBus _alertEventBus;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     // Configurable via SystemSettings (defaults)
     private int _pollIntervalMinutes = 5;
@@ -36,7 +37,8 @@ public class ThreatCollectionService : BackgroundService
         GeoEnrichmentService geoService,
         KillChainClassifier classifier,
         ThreatPatternAnalyzer patternAnalyzer,
-        IAlertEventBus alertEventBus)
+        IAlertEventBus alertEventBus,
+        IHttpClientFactory httpClientFactory)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -45,6 +47,7 @@ public class ThreatCollectionService : BackgroundService
         _classifier = classifier;
         _patternAnalyzer = patternAnalyzer;
         _alertEventBus = alertEventBus;
+        _httpClientFactory = httpClientFactory;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -53,6 +56,9 @@ public class ThreatCollectionService : BackgroundService
 
         // Wait for app startup
         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+        // Attempt auto-download of MaxMind databases if configured and missing/stale
+        await TryAutoDownloadGeoDatabasesAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -238,5 +244,67 @@ public class ThreatCollectionService : BackgroundService
         var retention = await settings.GetSettingAsync("threats.retention_days", ct);
         if (retention != null && int.TryParse(retention, out var days) && days >= 1)
             _retentionDays = days;
+    }
+
+    private async Task TryAutoDownloadGeoDatabasesAsync(CancellationToken cancellationToken)
+    {
+        if (_geoService.IsCityAvailable && _geoService.IsAsnAvailable)
+        {
+            // Check staleness - re-download if >30 days old
+            var dataPath = GetDataPath();
+            var dbInfo = _geoService.GetDatabaseInfo(dataPath);
+            var staleThreshold = DateTime.UtcNow.AddDays(-30);
+
+            if (dbInfo.CityDate > staleThreshold && dbInfo.AsnDate > staleThreshold)
+                return; // Both fresh, nothing to do
+
+            _logger.LogInformation("GeoLite2 databases are >30 days old, checking for auto-update");
+        }
+        else
+        {
+            _logger.LogInformation("GeoLite2 databases missing, checking for auto-download");
+        }
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var settings = scope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
+
+            var licenseKey = await settings.GetDecryptedSettingAsync("maxmind.license_key", cancellationToken);
+            if (string.IsNullOrEmpty(licenseKey))
+            {
+                _logger.LogDebug("No MaxMind license key configured, skipping auto-download");
+                return;
+            }
+
+            var dataPath = GetDataPath();
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(5);
+
+            var (success, message) = await _geoService.DownloadDatabasesAsync(licenseKey, dataPath, httpClient, cancellationToken);
+
+            if (success)
+            {
+                _logger.LogInformation("Auto-downloaded GeoLite2 databases: {Message}", message);
+                await settings.SaveSettingAsync("maxmind.last_download", DateTime.UtcNow.ToString("O"));
+            }
+            else
+            {
+                _logger.LogWarning("Failed to auto-download GeoLite2 databases: {Message}", message);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "GeoLite2 auto-download failed (non-fatal)");
+        }
+    }
+
+    private static string GetDataPath()
+    {
+        if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
+            return "/app/data";
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(AppContext.BaseDirectory, "data");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkOptimizer");
     }
 }

@@ -26,6 +26,7 @@
 @inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService GeoService
 @inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
+@inject IHttpClientFactory HttpClientFactory
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -1374,9 +1375,41 @@
                 </select>
             </div>
 
-            <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
-                <span class="info-label">GeoLite2 Database:</span>
-                <span class="info-value" style="color: var(--text-secondary);">@threatGeoStatus</span>
+            <div style="margin-top: 1.25rem; padding: 1rem; background: var(--bg-primary); border-radius: 8px;">
+                <div class="info-row">
+                    <span class="info-label">GeoLite2 Database:</span>
+                    <span class="info-value" style="color: var(--text-secondary);">@threatGeoStatus</span>
+                </div>
+
+                <div class="form-group" style="margin-top: 0.75rem;">
+                    <label class="form-label">MaxMind License Key</label>
+                    <input type="password" class="form-control" @bind="maxmindLicenseKey" autocomplete="new-password"
+                           placeholder="@(hasMaxmindLicenseKey ? "Saved - enter new to update" : "Enter MaxMind license key")"
+                           data-1p-ignore data-lpignore="true" data-bwignore />
+                    <small class="form-help">Get a free license key at <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" style="color: var(--primary-color);">maxmind.com</a> - enables automatic GeoLite2 database downloads</small>
+                </div>
+
+                @if (hasMaxmindLicenseKey || !string.IsNullOrEmpty(maxmindLicenseKey))
+                {
+                    <button class="btn btn-secondary btn-sm" @onclick="DownloadMaxMindDatabases" disabled="@downloadingMaxmind" style="margin-top: 0.5rem;">
+                        @if (downloadingMaxmind)
+                        {
+                            <span class="spinner-sm"></span>
+                            <span>Downloading...</span>
+                        }
+                        else
+                        {
+                            <span>Download Now</span>
+                        }
+                    </button>
+                }
+
+                @if (!string.IsNullOrEmpty(maxmindMessage))
+                {
+                    <div class="alert alert-@maxmindMessageClass" style="margin-top: 0.5rem;">
+                        @maxmindMessage
+                    </div>
+                }
             </div>
 
             <div class="action-buttons" style="margin-top: 1rem;">
@@ -1790,6 +1823,13 @@
     private bool savingThreatSettings = false;
     private string threatSettingsMessage = "";
     private string threatSettingsMessageClass = "";
+
+    // MaxMind GeoLite2 Settings
+    private string maxmindLicenseKey = "";
+    private bool hasMaxmindLicenseKey = false;
+    private bool downloadingMaxmind = false;
+    private string maxmindMessage = "";
+    private string maxmindMessageClass = "";
 
     // CrowdSec Settings
     private bool crowdsecEnabled = false;
@@ -3418,7 +3458,10 @@
             else if (GeoService.IsAsnAvailable)
                 threatGeoStatus = "ASN database loaded (City database missing)";
             else
-                threatGeoStatus = "Not found - place GeoLite2-City.mmdb and GeoLite2-ASN.mmdb in data directory";
+                threatGeoStatus = "Not found - add a MaxMind license key below to auto-download";
+
+            var mmKey = await SystemSettings.GetAsync("maxmind.license_key");
+            hasMaxmindLicenseKey = !string.IsNullOrEmpty(mmKey);
 
             var csEnabled = await SystemSettings.GetAsync("crowdsec.enabled");
             crowdsecEnabled = csEnabled == "true";
@@ -3447,6 +3490,14 @@
             await SystemSettings.SetAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
             await SystemSettings.SetAsync("threats.retention_days", threatRetentionDays.ToString());
 
+            if (!string.IsNullOrEmpty(maxmindLicenseKey))
+            {
+                var encrypted = CredentialService.Encrypt(maxmindLicenseKey);
+                await SystemSettings.SetAsync("maxmind.license_key", encrypted);
+                hasMaxmindLicenseKey = true;
+                maxmindLicenseKey = "";
+            }
+
             threatSettingsMessage = "Threat intelligence settings saved.";
             threatSettingsMessageClass = "success";
         }
@@ -3459,6 +3510,73 @@
         {
             savingThreatSettings = false;
         }
+    }
+
+    private async Task DownloadMaxMindDatabases()
+    {
+        downloadingMaxmind = true;
+        maxmindMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            // Use entered key or load saved key
+            var licenseKey = maxmindLicenseKey;
+            if (string.IsNullOrEmpty(licenseKey))
+            {
+                var encrypted = await SystemSettings.GetAsync("maxmind.license_key");
+                if (!string.IsNullOrEmpty(encrypted))
+                    licenseKey = CredentialService.IsEncrypted(encrypted) ? CredentialService.Decrypt(encrypted) : encrypted;
+            }
+
+            if (string.IsNullOrEmpty(licenseKey))
+            {
+                maxmindMessage = "Please enter a MaxMind license key first.";
+                maxmindMessageClass = "warning";
+                return;
+            }
+
+            // Save the key if it was just entered
+            if (!string.IsNullOrEmpty(maxmindLicenseKey))
+            {
+                var encKey = CredentialService.Encrypt(maxmindLicenseKey);
+                await SystemSettings.SetAsync("maxmind.license_key", encKey);
+                hasMaxmindLicenseKey = true;
+                maxmindLicenseKey = "";
+            }
+
+            var dataPath = GetGeoDataPath();
+            using var httpClient = HttpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(5);
+
+            var (success, message) = await GeoService.DownloadDatabasesAsync(licenseKey, dataPath, httpClient);
+            maxmindMessage = message;
+            maxmindMessageClass = success ? "success" : "danger";
+
+            if (success)
+            {
+                await SystemSettings.SetAsync("maxmind.last_download", DateTime.UtcNow.ToString("O"));
+                await LoadThreatSettings(); // Refresh geo status display
+            }
+        }
+        catch (Exception ex)
+        {
+            maxmindMessage = $"Download failed: {ex.Message}";
+            maxmindMessageClass = "danger";
+        }
+        finally
+        {
+            downloadingMaxmind = false;
+        }
+    }
+
+    private static string GetGeoDataPath()
+    {
+        if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
+            return "/app/data";
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(AppContext.BaseDirectory, "data");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkOptimizer");
     }
 
     private async Task SaveCrowdSecSettings()

@@ -120,6 +120,46 @@ public class ThreatDashboardService
     {
         return await _crowdSecService.GetReputationAsync(ip, apiKey, _repository, cacheTtlHours, cancellationToken);
     }
+
+    /// <summary>
+    /// Lightweight hourly totals for sparkline display on the main dashboard.
+    /// </summary>
+    public async Task<(int TotalCount, List<ThreatTrendPoint> Points)> GetThreatTrendAsync(
+        int hours = 24, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var from = DateTime.UtcNow.AddHours(-hours);
+            var to = DateTime.UtcNow;
+            var timeline = await _repository.GetTimelineAsync(from, to, cancellationToken);
+            var total = timeline.Sum(b => b.Total);
+            var points = timeline.Select(b => new ThreatTrendPoint
+            {
+                Hour = DateTime.SpecifyKind(b.Hour, DateTimeKind.Utc),
+                Count = b.Total
+            }).ToList();
+            return (total, points);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get threat trend");
+            return (0, []);
+        }
+    }
+
+    public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _repository.GetAttackSequencesAsync(from, to, 50, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get attack sequences");
+            return [];
+        }
+    }
 }
 
 /// <summary>
@@ -132,4 +172,13 @@ public class ThreatDashboardData
     public List<SourceIpSummary> TopSources { get; set; } = [];
     public List<TargetPortSummary> TopTargetedPorts { get; set; } = [];
     public List<ThreatPattern> RecentPatterns { get; set; } = [];
+}
+
+/// <summary>
+/// Single data point for the threat trend sparkline.
+/// </summary>
+public record ThreatTrendPoint
+{
+    public DateTime Hour { get; init; }
+    public int Count { get; init; }
 }

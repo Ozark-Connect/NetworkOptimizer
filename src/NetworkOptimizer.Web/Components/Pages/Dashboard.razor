@@ -5,6 +5,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject Iperf3SpeedTestService SpeedTestService
 @inject IAdminAuthService AdminAuthService
+@inject ThreatDashboardService ThreatService
 @inject NavigationManager NavigationManager
 @implements IDisposable
 @rendermode InteractiveServer
@@ -140,6 +141,30 @@
                 <div class="stat-label">Active Alerts</div>
             </div>
         </a>
+
+        <a href="/threats" class="stat-card stat-card-link">
+            <div class="stat-icon" style="color: #ef4444;">
+                <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">
+                    @if (_threatLoading)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        @FormatNumber(_threatCount24h)
+                    }
+                </div>
+                <div class="stat-label">
+                    <span class="desktop-label">Threat Events (24h)</span>
+                    <span class="mobile-label">Threats 24h</span>
+                </div>
+            </div>
+        </a>
     </div>
 
     <!-- Main Content Grid -->
@@ -264,6 +289,43 @@
             </div>
         </div>
 
+        <!-- Threat Trends -->
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/threats"))">
+            <div class="card-header">
+                <a href="/threats" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Threat Trends</h2></a>
+                <a href="/threats" class="card-action" @onclick:stopPropagation>View All →</a>
+            </div>
+            <div class="card-body">
+                @if (_threatLoading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Loading...</span>
+                    </div>
+                }
+                else if (_threatTrend.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No threat data yet</p>
+                    </div>
+                }
+                else
+                {
+                    <ApexChart TItem="ThreatTrendPoint"
+                               Options="_threatSparklineOptions"
+                               Height="@("120px")">
+                        <ApexPointSeries TItem="ThreatTrendPoint"
+                                         Items="_threatTrend"
+                                         Name="Events"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => e.Hour"
+                                         YValue="e => (decimal)e.Count"
+                                         OrderBy="e => e.X" />
+                    </ApexChart>
+                }
+            </div>
+        </div>
+
         <!-- Recent Alerts -->
         <div class="card card-span-2" id="recent-alerts">
             <div class="card-header">
@@ -312,6 +374,7 @@
 @code {
     private bool _loading = true;
     private bool _speedTestLoading = true;
+    private bool _threatLoading = true;
     private int deviceCount = 0;
     private int securityScore = 0;
     private string sqmStatus = "Not Configured";
@@ -319,11 +382,14 @@
     private int criticalIssues = 0;
     private int warningIssues = 0;
     private string lastAuditTime = "Never";
+    private int _threatCount24h;
+    private List<ThreatTrendPoint> _threatTrend = [];
     private List<Services.DeviceInfo> devices = new();
     private List<Iperf3Result> _recentSpeedTests = new();
     private int _sqmPanelKey = 0;
     private int _alertsListKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
+    private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
 
     protected override void OnInitialized()
     {
@@ -341,7 +407,8 @@
         _alertsListKey++; // Force AlertsList to recreate
         await Task.WhenAll(
             LoadDashboardData(),
-            LoadSpeedTestData()
+            LoadSpeedTestData(),
+            LoadThreatData()
         );
         await InvokeAsync(StateHasChanged);
     }
@@ -364,7 +431,8 @@
         // Load in parallel
         await Task.WhenAll(
             LoadDashboardData(),
-            LoadSpeedTestData()
+            LoadSpeedTestData(),
+            LoadThreatData()
         );
 
         await InvokeAsync(StateHasChanged);
@@ -379,7 +447,8 @@
             _alertsListKey++; // Force AlertsList to recreate
             await Task.WhenAll(
                 LoadDashboardData(),
-                LoadSpeedTestData()
+                LoadSpeedTestData(),
+                LoadThreatData()
             );
             await InvokeAsync(StateHasChanged);
         }
@@ -435,5 +504,71 @@
         // Refresh dashboard data when an alert is dismissed
         await LoadDashboardData();
         StateHasChanged();
+    }
+
+    private async Task LoadThreatData()
+    {
+        _threatLoading = true;
+        try
+        {
+            var (total, points) = await ThreatService.GetThreatTrendAsync(24);
+            _threatCount24h = total;
+            _threatTrend = points;
+        }
+        catch
+        {
+            // Ignore - show 0 and empty sparkline
+        }
+        finally
+        {
+            _threatLoading = false;
+        }
+    }
+
+    private static string FormatNumber(int value)
+    {
+        return value switch
+        {
+            >= 1_000_000 => $"{value / 1_000_000.0:F1}M",
+            >= 10_000 => $"{value / 1_000.0:F1}K",
+            >= 1_000 => $"{value:N0}",
+            _ => value.ToString()
+        };
+    }
+
+    private static ApexChartOptions<ThreatTrendPoint> CreateThreatSparklineOptions()
+    {
+        return new ApexChartOptions<ThreatTrendPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Sparkline = new ChartSparkline { Enabled = true },
+                Animations = new Animations { Enabled = true, Speed = 300 }
+            },
+            Colors = new List<string> { "#2ba89a" },
+            Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+            Fill = new Fill
+            {
+                Type = new List<FillType> { FillType.Gradient },
+                Gradient = new FillGradient
+                {
+                    ShadeIntensity = 0.3,
+                    OpacityFrom = 0.4,
+                    OpacityTo = 0.05
+                }
+            },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "HH:mm" }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels { DatetimeUTC = false }
+            },
+            Yaxis = new List<YAxis> { new YAxis { Min = 0 } }
+        };
     }
 }

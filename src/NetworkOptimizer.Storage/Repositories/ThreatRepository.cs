@@ -318,6 +318,65 @@ public class ThreatRepository : IThreatRepository
 
     #endregion
 
+    #region Attack Sequences
+
+    public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
+        int limit = 50, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Load events grouped by source IP, then filter to IPs with 2+ distinct kill chain stages
+            var events = await _context.ThreatEvents
+                .AsNoTracking()
+                .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+                .Select(e => new
+                {
+                    e.SourceIp,
+                    e.KillChainStage,
+                    e.Timestamp,
+                    e.SignatureName,
+                    e.CountryCode,
+                    e.AsnOrg
+                })
+                .ToListAsync(cancellationToken);
+
+            return events
+                .GroupBy(e => e.SourceIp)
+                .Where(g => g.Select(e => e.KillChainStage).Distinct().Count() >= 2)
+                .OrderByDescending(g => g.Min(e => e.Timestamp))
+                .Take(limit)
+                .Select(g => new AttackSequence
+                {
+                    SourceIp = g.Key,
+                    CountryCode = g.First().CountryCode,
+                    AsnOrg = g.First().AsnOrg,
+                    Stages = g
+                        .GroupBy(e => e.KillChainStage)
+                        .OrderBy(sg => (int)sg.Key)
+                        .Select(sg => new SequenceStage
+                        {
+                            Stage = sg.Key,
+                            FirstSeen = sg.Min(e => e.Timestamp),
+                            LastSeen = sg.Max(e => e.Timestamp),
+                            EventCount = sg.Count(),
+                            TopSignature = sg.GroupBy(e => e.SignatureName)
+                                .OrderByDescending(ng => ng.Count())
+                                .Select(ng => ng.Key)
+                                .FirstOrDefault() ?? ""
+                        })
+                        .ToList()
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get attack sequences");
+            throw;
+        }
+    }
+
+    #endregion
+
     #region Threat Patterns
 
     public async Task SavePatternAsync(ThreatPattern pattern, CancellationToken cancellationToken = default)

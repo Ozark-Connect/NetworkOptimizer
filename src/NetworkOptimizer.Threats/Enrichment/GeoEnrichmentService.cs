@@ -2,6 +2,11 @@ using System.Net;
 using MaxMind.GeoIP2;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Threats.Models;
+using SharpCompress.Archives;
+using SharpCompress.Archives.Tar;
+using SharpCompress.Common;
+using SharpCompress.Compressors;
+using SharpCompress.Compressors.Deflate;
 
 namespace NetworkOptimizer.Threats.Enrichment;
 
@@ -211,6 +216,108 @@ public class GeoEnrichmentService : IDisposable
             File.Exists(asnPath),
             File.Exists(asnPath) ? File.GetLastWriteTimeUtc(asnPath) : null
         );
+    }
+
+    /// <summary>
+    /// Download GeoLite2 databases from MaxMind using a license key.
+    /// </summary>
+    public async Task<(bool Success, string Message)> DownloadDatabasesAsync(
+        string licenseKey, string dataPath, HttpClient httpClient, CancellationToken cancellationToken = default)
+    {
+        var editions = new[] { "GeoLite2-City", "GeoLite2-ASN" };
+        var errors = new List<string>();
+
+        foreach (var edition in editions)
+        {
+            try
+            {
+                var url = $"https://download.maxmind.com/app/geoip_download?edition_id={edition}&license_key={licenseKey}&suffix=tar.gz";
+                _logger.LogInformation("Downloading {Edition} database...", edition);
+
+                using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    errors.Add($"{edition}: HTTP {(int)response.StatusCode} - {body}");
+                    continue;
+                }
+
+                // Download to temp file, then extract
+                var tempPath = Path.Combine(dataPath, $"{edition}.tar.gz");
+                try
+                {
+                    await using (var fs = File.Create(tempPath))
+                    {
+                        await response.Content.CopyToAsync(fs, cancellationToken);
+                    }
+
+                    // Extract .mmdb from tar.gz
+                    var targetFile = Path.Combine(dataPath, $"{edition}.mmdb");
+                    var extracted = false;
+
+                    await using var fileStream = File.OpenRead(tempPath);
+                    await using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
+                    using var archive = TarArchive.Open(gzipStream);
+
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (entry.Key != null && entry.Key.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase) && !entry.IsDirectory)
+                        {
+                            entry.WriteToFile(targetFile, new ExtractionOptions { Overwrite = true });
+                            extracted = true;
+                            _logger.LogInformation("Extracted {Edition}.mmdb ({Size:F1} MB)", edition, new FileInfo(targetFile).Length / 1_048_576.0);
+                            break;
+                        }
+                    }
+
+                    if (!extracted)
+                    {
+                        errors.Add($"{edition}: No .mmdb file found in archive");
+                    }
+                }
+                finally
+                {
+                    // Clean up temp tar.gz
+                    try { File.Delete(tempPath); } catch { /* ignore */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download {Edition}", edition);
+                errors.Add($"{edition}: {ex.Message}");
+            }
+        }
+
+        if (errors.Count == 0)
+        {
+            Reload(dataPath);
+            return (true, "Both databases downloaded and loaded successfully.");
+        }
+        else if (errors.Count < editions.Length)
+        {
+            Reload(dataPath);
+            return (true, $"Partial success. Errors: {string.Join("; ", errors)}");
+        }
+
+        return (false, $"Download failed: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>
+    /// Reload databases from disk (e.g., after download). Disposes existing readers and re-initializes.
+    /// </summary>
+    public void Reload(string dataPath)
+    {
+        lock (_initLock)
+        {
+            _cityReader?.Dispose();
+            _asnReader?.Dispose();
+            _cityReader = null;
+            _asnReader = null;
+            _initialized = false;
+        }
+
+        Initialize(dataPath);
     }
 
     public void Dispose()

@@ -34,6 +34,8 @@
                 @onclick='() => SetActiveTab("exposure")'>Exposure</button>
         <button class="tab-btn @(_activeTab == "geographic" ? "active" : "")"
                 @onclick='() => SetActiveTab("geographic")'>Geographic</button>
+        <button class="tab-btn @(_activeTab == "sequences" ? "active" : "")"
+                @onclick='() => SetActiveTab("sequences")'>Attack Sequences</button>
     </div>
     <div class="time-range-selector">
         <button class="time-btn @(_timeRange == "24h" ? "active" : "")"
@@ -494,6 +496,67 @@ else
             </div>
         </div>
     }
+
+    @* ========== Attack Sequences Tab ========== *@
+    @if (_activeTab == "sequences")
+    {
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Multi-Stage Attack Sequences</h3>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Source IPs that exhibited activity across 2+ kill chain stages, indicating potential coordinated attacks.">?</span>
+            </div>
+            <div class="card-body">
+                @if (_attackSequences.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Source IP</th>
+                                    <th class="hide-mobile">Country</th>
+                                    <th class="hide-mobile">ASN</th>
+                                    <th>Stages</th>
+                                    <th class="hide-mobile">Events</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var seq in _attackSequences)
+                                {
+                                    <tr>
+                                        <td><code>@seq.SourceIp</code></td>
+                                        <td class="hide-mobile">@(seq.CountryCode ?? "-")</td>
+                                        <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
+                                        <td>
+                                            <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+                                                @foreach (var stage in seq.Stages)
+                                                {
+                                                    <span data-tooltip="@GetKillChainLabel(stage.Stage): @stage.EventCount events, @stage.TopSignature"
+                                                          style="display:inline-block; height:22px; min-width:@(Math.Max(24, stage.EventCount * 2))px; max-width:120px;
+                                                                 background:@GetStageColor(stage.Stage); border-radius:3px; font-size:0.7rem; color:white;
+                                                                 line-height:22px; text-align:center; padding:0 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                                        @GetStageAbbrev(stage.Stage)
+                                                    </span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td class="hide-mobile">@FormatNumber(seq.Stages.Sum(s => s.EventCount))</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon">&#10003;</div>
+                        <h3>No Multi-Stage Sequences</h3>
+                        <p>No source IPs exhibited activity across multiple kill chain stages in this period.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 }
 
 <style>
@@ -519,6 +582,7 @@ else
     private List<TimelineBucket> _timeline = [];
     private Dictionary<string, int> _geoDistribution = new();
     private ExposureReport? _exposureReport;
+    private List<AttackSequence> _attackSequences = [];
     private bool _crowdSecEnabled;
     private bool _crowdSecBannerDismissed;
 
@@ -575,6 +639,10 @@ else
             else if (_activeTab == "geographic")
             {
                 _geoDistribution = await DashboardService.GetGeoDistributionAsync(from, to);
+            }
+            else if (_activeTab == "sequences")
+            {
+                _attackSequences = await DashboardService.GetAttackSequencesAsync(from, to);
             }
         }
         catch (Exception ex)
@@ -890,6 +958,30 @@ else
             >= 10_000 => $"{value / 1_000.0:F1}K",
             >= 1_000 => $"{value:N0}",
             _ => value.ToString()
+        };
+    }
+
+    private static string GetStageColor(KillChainStage stage)
+    {
+        return stage switch
+        {
+            KillChainStage.Reconnaissance => "#3b82f6",
+            KillChainStage.AttemptedExploitation => "#f59e0b",
+            KillChainStage.ActiveExploitation => "#ef4444",
+            KillChainStage.PostExploitation => "#a78bfa",
+            _ => "#64748b"
+        };
+    }
+
+    private static string GetStageAbbrev(KillChainStage stage)
+    {
+        return stage switch
+        {
+            KillChainStage.Reconnaissance => "Recon",
+            KillChainStage.AttemptedExploitation => "Attempt",
+            KillChainStage.ActiveExploitation => "Active",
+            KillChainStage.PostExploitation => "Post",
+            _ => "?"
         };
     }
 

@@ -25,6 +25,9 @@ public interface IThreatRepository
     Task SavePatternAsync(ThreatPattern pattern, CancellationToken cancellationToken = default);
     Task<List<ThreatPattern>> GetPatternsAsync(DateTime from, DateTime to, PatternType? type = null, int limit = 50, CancellationToken cancellationToken = default);
 
+    // --- Attack Sequences ---
+    Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);
+
     // --- CrowdSec Cache ---
     Task<CrowdSecReputation?> GetCrowdSecCacheAsync(string ip, CancellationToken cancellationToken = default);
     Task SaveCrowdSecCacheAsync(CrowdSecReputation reputation, CancellationToken cancellationToken = default);
@@ -80,4 +83,27 @@ public record TimelineBucket
     public int Severity4 { get; init; }
     public int Severity5 { get; init; }
     public int Total { get; init; }
+}
+
+/// <summary>
+/// Multi-stage attack sequence detected for a single source IP.
+/// </summary>
+public record AttackSequence
+{
+    public string SourceIp { get; init; } = string.Empty;
+    public string? CountryCode { get; init; }
+    public string? AsnOrg { get; init; }
+    public List<SequenceStage> Stages { get; init; } = [];
+}
+
+/// <summary>
+/// A single stage within an attack sequence.
+/// </summary>
+public record SequenceStage
+{
+    public KillChainStage Stage { get; init; }
+    public DateTime FirstSeen { get; init; }
+    public DateTime LastSeen { get; init; }
+    public int EventCount { get; init; }
+    public string TopSignature { get; init; } = string.Empty;
 }

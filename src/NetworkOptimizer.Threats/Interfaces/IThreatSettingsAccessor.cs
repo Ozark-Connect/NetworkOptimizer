@@ -7,5 +7,6 @@ namespace NetworkOptimizer.Threats.Interfaces;
 public interface IThreatSettingsAccessor
 {
     Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default);
+    Task<string?> GetDecryptedSettingAsync(string key, CancellationToken cancellationToken = default);
     Task SaveSettingAsync(string key, string value, CancellationToken cancellationToken = default);
 }
