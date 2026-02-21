@@ -161,16 +161,14 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((ap.OrientationDeg - azimuth + 360) % 360);
 
-        // Desktop mount: physical AP flip (logo up instead of down) reverses the
-        // apparent rotation direction, so mirror CCW back to CW.
-        if (effectiveMount == "desktop")
+        // Ceiling-native AP placed on desk: physical flip (logo down→up) reverses
+        // the apparent rotation. Desktop-native APs (UDM, UDR) aren't flipped.
+        var isCeilingNative = MountTypeHelper.GetDefaultMountType(ap.Model) == "ceiling";
+        if (effectiveMount == "desktop" && isCeilingNative)
             azimuthDeg = (360 - azimuthDeg) % 360;
 
-        // Ceiling-native patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
-        // OrientationDeg represents U-tips direction, so add 90° to align.
-        // Applies when the AP model is ceiling-native (regardless of current mount),
-        // desktop mount (same viewing geometry), or omni antenna mode.
-        var isCeilingNative = MountTypeHelper.GetDefaultMountType(ap.Model) == "ceiling";
+        // Ceiling-native and desktop patterns use 0° = 3-o'clock of U logo (90° CW
+        // from U-tips). OrientationDeg represents U-tips direction, so add 90° to align.
         if (isCeilingNative || effectiveMount == "desktop" || IsOmniAntennaMode(ap.AntennaMode))
             azimuthDeg = (azimuthDeg + 90) % 360;
 
