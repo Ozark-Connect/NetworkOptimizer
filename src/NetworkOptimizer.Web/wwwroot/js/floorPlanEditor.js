@@ -405,7 +405,7 @@ window.fpEditor = {
                     if (self._dotNetRef) {
                         self._dotNetRef.invokeMethodAsync('OnMapMoveEndForHeatmap');
                     }
-                }, 250);
+                }, 300);
             });
 
             // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
@@ -3153,6 +3153,7 @@ window.fpEditor = {
             body.excludePlannedAps = true;
         }
 
+        var t0 = performance.now(); // TODO: remove timing
         fetch(baseUrl + '/api/floor-plan/heatmap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3160,6 +3161,8 @@ window.fpEditor = {
         })
         .then(function (r) { if (!r.ok) throw new Error('Heatmap request failed: ' + r.status); return r.json(); })
         .then(function (data) {
+            var t1 = performance.now(); // TODO: remove timing
+            console.log('[Heatmap] fetch: ' + Math.round(t1 - t0) + 'ms');
             if (!data || !data.data) return;
             if (requestId !== self._heatmapRequestId) return; // stale request, discard
 
@@ -3285,6 +3288,7 @@ window.fpEditor = {
                 }
             });
         })
+        .then(function () { console.log('[Heatmap] total: ' + Math.round(performance.now() - t0) + 'ms'); }) // TODO: remove timing
         .catch(function (err) { console.error('Heatmap error:', err); });
     },
 

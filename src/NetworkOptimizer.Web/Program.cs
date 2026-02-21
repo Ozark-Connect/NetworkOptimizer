@@ -1101,8 +1101,10 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
 
     var activeFloor = request.ActiveFloor;
 
+    var sw = System.Diagnostics.Stopwatch.StartNew(); // TODO: remove timing
     // Load from cache (only hits DB when data has been invalidated)
     var cached = await heatmapCache.GetOrLoadAsync(floorSvc, apMapSvc, plannedApSvc);
+    var dataLoadMs = sw.ElapsedMilliseconds;
 
     // Build placed APs list from cached markers
     var bandFilter = request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5";
@@ -1189,9 +1191,15 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         placedAps.RemoveAll(ap => disabled.Contains(ap.Mac));
     }
 
+    var computeStart = sw.ElapsedMilliseconds;
     var result = propagationSvc.ComputeHeatmap(
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
         request.Band, placedAps, cached.WallsByFloor, activeFloor, request.GridResolutionMeters, cached.BuildingFloorInfos);
+    var computeMs = sw.ElapsedMilliseconds - computeStart;
+
+    // TODO: remove timing
+    app.Logger.LogInformation("Heatmap: data-load={DataLoadMs}ms compute={ComputeMs}ms total={TotalMs}ms grid={W}x{H} aps={ApCount}",
+        dataLoadMs, computeMs, sw.ElapsedMilliseconds, result.Width, result.Height, placedAps.Count);
 
     return Results.Ok(result);
 });
