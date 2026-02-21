@@ -112,7 +112,7 @@ public class ThreatCollectionService : BackgroundService
         var lastSync = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
         var start = lastSync != null
             ? DateTimeOffset.Parse(lastSync)
-            : DateTimeOffset.UtcNow.AddHours(-24);
+            : DateTimeOffset.UtcNow.AddDays(-7);
         var end = DateTimeOffset.UtcNow;
 
         // Get the UniFi API client via the accessor (singleton, connected via UniFiConnectionService)
@@ -131,6 +131,16 @@ public class ThreatCollectionService : BackgroundService
             var v2Response = await apiClient.GetThreatLogEventsAsync(start, end, cancellationToken: cancellationToken);
             if (v2Response.ValueKind != JsonValueKind.Undefined)
             {
+                // Log raw structure for diagnostics
+                if (v2Response.TryGetProperty("totalCount", out var totalCount))
+                    _logger.LogDebug("v2 API returned totalCount={TotalCount}", totalCount);
+                if (v2Response.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array && dataArr.GetArrayLength() > 0)
+                {
+                    var first = dataArr[0];
+                    var props = string.Join(", ", first.EnumerateObject().Select(p => p.Name));
+                    _logger.LogDebug("v2 first event properties: {Props}", props);
+                }
+
                 events = _normalizer.NormalizeV2Events(v2Response);
                 _logger.LogDebug("Collected {Count} events via v2 API", events.Count);
             }

@@ -2214,7 +2214,7 @@ public class UniFiApiClient : IDisposable
         {
             ["searchText"] = "",
             ["severities"] = new[] { "LOW", "MEDIUM", "HIGH", "VERY_HIGH" },
-            ["categories"] = new[] { "THREAT_MANAGEMENT" },
+            ["categories"] = new[] { "SECURITY" },
             ["events"] = Array.Empty<string>(),
             ["subcategories"] = Array.Empty<string>(),
             ["type"] = "GENERAL",
