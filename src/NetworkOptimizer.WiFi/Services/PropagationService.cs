@@ -169,10 +169,10 @@ public class PropagationService
         if (effectiveMount == "desktop" && defaultMount != "desktop")
             azimuthDeg = (360 - azimuthDeg) % 360;
 
-        // Ceiling-native and desktop-native patterns use 0° = 3-o'clock of U logo (90° CW
-        // from U-tips). Wall-native patterns use 0° = U-tips direction.
-        // Key off the pattern's origin (model default), not current mount position.
-        var azRotOffset = (isCeilingNative || defaultMount == "desktop" || IsOmniAntennaMode(ap.AntennaMode)) ? 90 : 0;
+        // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
+        // OrientationDeg represents U-tips direction, so always add 90° to align.
+        // Applied after az/el swap so it rotates the correct axis.
+        const int azRotOffset = 90;
 
         // Elevation angle in pattern coordinates (ceiling mount native):
         // 0 = straight down, 90 = horizon, 180 = straight up
