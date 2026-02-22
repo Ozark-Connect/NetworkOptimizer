@@ -397,15 +397,18 @@ window.fpEditor = {
             m.on('zoomend', updateApScale);
             updateApScale();
 
-            // Re-evaluate heatmap on zoom/pan (debounced)
-            var heatmapTimer = null;
+            // Immediately invalidate + abort on zoom/pan START so stale responses
+            // can't render with wrong-viewport bounds
+            m.on('zoomstart movestart', function () {
+                self._heatmapRequestId = (self._heatmapRequestId || 0) + 1;
+                if (self._heatmapAbort) self._heatmapAbort.abort();
+            });
+
+            // Recompute heatmap when zoom/pan settles
             m.on('moveend', function () {
-                if (heatmapTimer) clearTimeout(heatmapTimer);
-                heatmapTimer = setTimeout(function () {
-                    if (self._dotNetRef) {
-                        self._dotNetRef.invokeMethodAsync('OnMapMoveEndForHeatmap');
-                    }
-                }, 500);
+                if (self._heatmapBaseUrl) {
+                    self.computeHeatmap();
+                }
             });
 
             // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
@@ -514,6 +517,21 @@ window.fpEditor = {
     invalidateSize: function () {
         if (this._map) {
             this._map.invalidateSize();
+        }
+    },
+
+    // Recalculate container size and adjust zoom proportionally to the viewport
+    // width change so the same geographic area stays visible.
+    invalidateSizeProportional: function () {
+        if (!this._map) return;
+        var oldSize = this._map.getSize();
+        var center = this._map.getCenter();
+        var oldZoom = this._map.getZoom();
+        this._map.invalidateSize();
+        var newSize = this._map.getSize();
+        if (oldSize.x > 0 && newSize.x > 0) {
+            var zoomDelta = Math.log2(newSize.x / oldSize.x);
+            this._map.setView(center, oldZoom + zoomDelta, { animate: false });
         }
     },
 
@@ -1056,9 +1074,18 @@ window.fpEditor = {
                     ' Floor</option>';
             }
 
-            // Mount type dropdown options
-            var mountTypes = ['ceiling', 'wall', 'desktop'];
+            // Mount type dropdown options - constrain by model
+            var allMounts = ['ceiling', 'wall', 'desktop'];
             var mountLabels = { ceiling: 'Ceiling', wall: 'Wall / Pole', desktop: 'Desktop' };
+            var model = (ap.model || '').toUpperCase();
+            var mountTypes;
+            if (/^UDR/.test(model)) {
+                mountTypes = ['desktop']; // UDR*: desktop only
+            } else if (/^UX/.test(model)) {
+                mountTypes = ['wall', 'desktop']; // UX*: wall or desktop
+            } else {
+                mountTypes = allMounts;
+            }
             var mountOpts = '';
             mountTypes.forEach(function (mt) {
                 mountOpts += '<option value="' + mt + '"' + (mt === (ap.mountType || 'ceiling') ? ' selected' : '') + '>' + mountLabels[mt] + '</option>';
@@ -1088,7 +1115,7 @@ window.fpEditor = {
                         (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
                         'oninput="fpEditor._updateTxPowerLabel(this)" ' +
                         'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApTxPowerChangedFromJs\',' + ap.plannedId + ',\'' + bandStr + '\',parseInt(this.value))" />' +
-                        '</div>' +
+                        '<span class="fp-ap-popup-deg-wrap"></span></div>' +
                         '<div class="fp-ap-popup-tx-info">' + currentPower + ' dBm TX' + eirpText + '</div>';
                 }
             } else {
@@ -1127,7 +1154,7 @@ window.fpEditor = {
                         (antennaGain != null ? 'data-antenna-gain="' + antennaGain + '" ' : '') +
                         'oninput="fpEditor._updateTxPowerLabel(this)" ' +
                         'onchange="fpEditor._txPowerOverrides[\'' + safeKey + '\']=parseInt(this.value);fpEditor._updateTxPowerLabel(this);fpEditor._updateResetSimBtn();fpEditor.computeHeatmap();fpEditor._dotNetRef.invokeMethodAsync(\'OnSimulationChanged\')" />' +
-                        '</div>' +
+                        '<span class="fp-ap-popup-deg-wrap"></span></div>' +
                         '<div class="fp-ap-popup-tx-info' + (isOverridden ? ' overridden' : '') + '">' + currentPower + ' dBm TX' + eirpText + '</div>';
                 }
             }
@@ -1219,9 +1246,12 @@ window.fpEditor = {
                     mountOpts + '</select></div>' +
                     '<div class="fp-ap-popup-row"><label>Facing</label>' +
                     '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
-                    'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
+                    'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApOrientationChangedFromJs\',' + ap.plannedId + ',parseInt(this.value))" />' +
-                    '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                    '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
+                    'data-save-method="OnPlannedApOrientationChangedFromJs" data-save-id="' + ap.plannedId + '" data-save-type="planned" ' +
+                    'onfocus="this.select()" oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
+                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
                     deleteBtn +
@@ -1243,9 +1273,12 @@ window.fpEditor = {
                     mountOpts + '</select></div>' +
                     '<div class="fp-ap-popup-row"><label>Facing</label>' +
                     '<input type="range" min="0" max="359" value="' + ap.orientation + '" ' +
-                    'oninput="this.nextElementSibling.textContent=this.value+\'\u00B0\';fpEditor._rotateApArrow(\'' + safeMac + '\',this.value)" ' +
+                    'oninput="fpEditor._syncFacingFromSlider(this,\'' + safeMac + '\')" ' +
                     'onchange="fpEditor._dotNetRef.invokeMethodAsync(\'OnApOrientationChangedFromJs\',\'' + safeMac + '\',parseInt(this.value))" />' +
-                    '<span class="fp-ap-popup-deg">' + ap.orientation + '\u00B0</span></div>' +
+                    '<span class="fp-ap-popup-deg-wrap"><input type="number" class="fp-ap-popup-deg-input" min="0" max="359" value="' + ap.orientation + '" ' +
+                    'data-save-method="OnApOrientationChangedFromJs" data-save-id="\'' + safeMac + '\'" data-save-type="real" ' +
+                    'onfocus="this.select()" oninput="fpEditor._syncFacingFromInput(this,\'' + safeMac + '\')" />' +
+                    '<span class="fp-ap-popup-deg-suffix">\u00B0</span></span></div>' +
                     txPowerHtml +
                     antennaModeHtml +
                     disableApHtml +
@@ -1337,6 +1370,42 @@ window.fpEditor = {
         var eirpText = gain != null ? ' / ' + (tx + parseInt(gain)) + ' dBm EIRP' : '';
         info.textContent = tx + ' dBm TX' + eirpText;
         info.classList.add('overridden');
+    },
+
+    // Sync number input and arrow from slider drag
+    _syncFacingFromSlider: function (slider, mac) {
+        var row = slider.closest('.fp-ap-popup-row');
+        var numInput = row && row.querySelector('.fp-ap-popup-deg-input');
+        if (numInput) numInput.value = slider.value;
+        this._rotateApArrow(mac, slider.value);
+    },
+
+    // Sync slider and arrow from number input, debounce save
+    _facingDebounceTimer: null,
+    _syncFacingFromInput: function (input, mac) {
+        var v = parseInt(input.value);
+        if (isNaN(v)) return;
+        v = Math.max(0, Math.min(359, v));
+        input.value = v;
+        var row = input.closest('.fp-ap-popup-row');
+        var slider = row && row.querySelector('input[type="range"]');
+        if (slider) slider.value = v;
+        this._rotateApArrow(mac, v);
+
+        // Debounce save - fires 1100ms after last keystroke, no blur needed
+        var self = this;
+        var method = input.dataset.saveMethod;
+        var id = input.dataset.saveId;
+        var isPlanned = input.dataset.saveType === 'planned';
+        if (this._facingDebounceTimer) clearTimeout(this._facingDebounceTimer);
+        this._facingDebounceTimer = setTimeout(function () {
+            self._facingDebounceTimer = null;
+            if (isPlanned) {
+                self._dotNetRef.invokeMethodAsync(method, parseInt(id), v);
+            } else {
+                self._dotNetRef.invokeMethodAsync(method, id.replace(/'/g, ''), v);
+            }
+        }, 1100);
     },
 
     // Rotate AP direction arrow in realtime (called from facing slider oninput)
@@ -3035,6 +3104,10 @@ window.fpEditor = {
         var self = this;
         var requestId = ++this._heatmapRequestId;
 
+        // Abort any in-flight heatmap fetch
+        if (this._heatmapAbort) this._heatmapAbort.abort();
+        this._heatmapAbort = new AbortController();
+
         // Store params so JS-initiated recomputes (sim toggles, sliders) work without arguments
         if (baseUrl) this._heatmapBaseUrl = baseUrl;
         if (activeFloor != null) this._heatmapFloor = activeFloor;
@@ -3090,14 +3163,13 @@ window.fpEditor = {
         fetch(baseUrl + '/api/floor-plan/heatmap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: self._heatmapAbort.signal
         })
         .then(function (r) { if (!r.ok) throw new Error('Heatmap request failed: ' + r.status); return r.json(); })
         .then(function (data) {
             if (!data || !data.data) return;
             if (requestId !== self._heatmapRequestId) return; // stale request, discard
-
-            if (self._heatmapOverlay) m.removeLayer(self._heatmapOverlay);
 
             var canvas = document.createElement('canvas');
             canvas.width = data.width;
@@ -3144,6 +3216,8 @@ window.fpEditor = {
             ctx.putImageData(imgData, 0, 0);
             var dataUrl = canvas.toDataURL();
             var bounds = [[data.swLat, data.swLng], [data.neLat, data.neLng]];
+            // Add new overlay first, then remove old - avoids a blank frame between swap
+            if (self._heatmapOverlay) m.removeLayer(self._heatmapOverlay);
             self._heatmapOverlay = L.imageOverlay(dataUrl, bounds, {
                 opacity: 0.6, pane: 'heatmapPane', interactive: false
             }).addTo(m);
@@ -3153,10 +3227,15 @@ window.fpEditor = {
             self._contourLayer = L.layerGroup().addTo(m);
 
             var thresholds = [
+                { db: -45, color: '#22c55e', label: '-45' },
                 { db: -50, color: '#22c55e', label: '-50' },
+                { db: -55, color: '#16a34a', label: '-55' },
                 { db: -60, color: '#eab308', label: '-60' },
+                { db: -65, color: '#ca8a04', label: '-65' },
                 { db: -70, color: '#f97316', label: '-70' },
-                { db: -80, color: '#ef4444', label: '-80' }
+                { db: -75, color: '#fb923c', label: '-75' },
+                { db: -80, color: '#ef4444', label: '-80' },
+                { db: -85, color: '#ef4444', label: '-85' }
             ];
             var latStep = (data.neLat - data.swLat) / data.height;
             var lngStep = (data.neLng - data.swLng) / data.width;
@@ -3202,7 +3281,7 @@ window.fpEditor = {
                 }
 
                 segs.forEach(function (s) {
-                    L.polyline(s, { color: th.color, weight: 1.5, opacity: 0.7, interactive: false, pane: 'wallPane' })
+                    L.polyline(s, { color: th.color, weight: 1, opacity: 0.4, interactive: false, pane: 'wallPane' })
                         .addTo(self._contourLayer);
                 });
 
@@ -3219,10 +3298,12 @@ window.fpEditor = {
                 }
             });
         })
-        .catch(function (err) { console.error('Heatmap error:', err); });
+        .catch(function (err) { if (err.name !== 'AbortError') console.error('Heatmap error:', err); });
     },
 
     clearHeatmap: function () {
+        this._heatmapBaseUrl = null; // stop moveend from recomputing
+        if (this._heatmapAbort) this._heatmapAbort.abort(); // cancel in-flight fetch
         this._heatmapRequestId++; // invalidate any in-flight compute
         if (this._heatmapOverlay && this._map) {
             this._map.removeLayer(this._heatmapOverlay);

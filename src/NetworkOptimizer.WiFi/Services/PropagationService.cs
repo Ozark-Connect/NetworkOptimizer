@@ -47,7 +47,7 @@ public class PropagationService
             foreach (var b in buildings)
             {
                 var mats = string.Join(", ", b.FloorMaterials.Select(kv => $"F{kv.Key}={kv.Value}"));
-                _logger.LogInformation("Heatmap building: bounds=({SwLat},{SwLng})-({NeLat},{NeLng}) floors=[{Mats}]",
+                _logger.LogDebug("Heatmap building: bounds=({SwLat},{SwLng})-({NeLat},{NeLng}) floors=[{Mats}]",
                     b.SwLat, b.SwLng, b.NeLat, b.NeLng, mats);
             }
         }
@@ -59,7 +59,7 @@ public class PropagationService
             foreach (var ap in aps)
             {
                 var pattern = _antennaLoader.GetPattern(ap.Model, band, ap.AntennaMode);
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "Heatmap AP: {Model} band={Band} txPower={TxPower}dBm antennaGain={AntennaGain}dBi antennaMode={Mode} pattern={HasPattern}",
                     ap.Model, band, ap.TxPowerDbm, ap.AntennaGainDbi, ap.AntennaMode ?? "default", pattern != null);
             }
@@ -88,7 +88,7 @@ public class PropagationService
             segmentsByFloor[floor] = PrecomputeWallSegments(floorWalls);
         }
 
-        for (int y = 0; y < gridHeight; y++)
+        Parallel.For(0, gridHeight, y =>
         {
             var pointLat = swLat + (y + 0.5) * latStep;
             for (int x = 0; x < gridWidth; x++)
@@ -107,7 +107,7 @@ public class PropagationService
 
                 data[y * gridWidth + x] = aps.Count > 0 ? bestSignal : -100f;
             }
-        }
+        });
 
         return new HeatmapResponse
         {
@@ -133,8 +133,11 @@ public class PropagationService
         var distance2d = HaversineDistance(ap.Latitude, ap.Longitude, pointLat, pointLng);
         if (distance2d < 0.1) distance2d = 0.1; // avoid log(0)
 
-        // Floor separation
+        // Floor separation (US residential: no floor 0 means B1 is directly below 1st)
         var floorSeparation = Math.Abs(ap.Floor - activeFloor);
+        var spansZero = Math.Min(ap.Floor, activeFloor) < 0 && Math.Max(ap.Floor, activeFloor) > 0;
+        if (spansZero && !HasFloorZero(buildings, pointLat, pointLng, ap))
+            floorSeparation--;
         var floorLoss = 0.0;
         if (floorSeparation > 0)
         {
@@ -149,15 +152,30 @@ public class PropagationService
         // Indoor path loss (ITU-R P.1238): uses higher exponent than free-space for realistic indoor falloff
         var fspl = 10 * IndoorPathLossExponent * Math.Log10(distance3d) + 20 * Math.Log10(freqMhz) - 27.55;
 
-        // Azimuth angle from AP to point, adjusted for AP orientation
-        var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
-        var azimuthDeg = (int)((azimuth - ap.OrientationDeg + 360) % 360);
-
-        // Elevation angle in pattern coordinates (ceiling mount native):
-        // 0 = straight down, 90 = horizon, 180 = straight up
         // IW and Wall APs on a "desktop" stand sit upright (same as wall-mounted)
         var effectiveMount = ap.MountType == "desktop" && IsStandMountModel(ap.Model) ? "wall" : ap.MountType;
         var patternNativeMount = GetPatternNativeMount(ap.Model, band, ap.AntennaMode);
+
+        // Azimuth angle from AP to point, adjusted for AP orientation.
+        // Pattern data is indexed CCW (Ubiquiti convention) for all mount types.
+        var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
+        var azimuthDeg = (int)((ap.OrientationDeg - azimuth + 360) % 360);
+
+        // Desktop mount flips the AP (logo/face up), reversing apparent rotation.
+        // Applies to ceiling-native and wall-native APs. Desktop-native APs (UDM, UDR)
+        // sit natively on desk so no flip occurs.
+        var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
+        var isCeilingNative = defaultMount == "ceiling";
+        if (effectiveMount == "desktop" && defaultMount != "desktop")
+            azimuthDeg = (360 - azimuthDeg) % 360;
+
+        // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
+        // OrientationDeg represents U-tips direction, so always add 90° to align.
+        // Applied after az/el swap so it rotates the correct axis.
+        const int azRotOffset = 90;
+
+        // Elevation angle in pattern coordinates (ceiling mount native):
+        // 0 = straight down, 90 = horizon, 180 = straight up
         int elevationDeg;
         if (floorSeparation == 0)
         {
@@ -192,12 +210,18 @@ public class PropagationService
         float azGain, elGain;
         if (needSwap)
         {
+            // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
+            // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
             azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
-            elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+            elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
         {
-            azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            // Wall APs using azimuth pattern directly (e.g., outdoor omni): rotate
+            // 180° for top-down floor plan view. The pattern was measured face-on
+            // but the floor plan looks from above, reversing front/back.
+            var azIdx = effectiveMount == "wall" ? (azimuthDeg + 180) % 360 : azimuthDeg;
+            azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
         var antennaGain = azGain + elGain;
@@ -236,7 +260,11 @@ public class PropagationService
     {
         if (buildings == null || buildings.Count == 0)
         {
-            return Math.Abs(ap.Floor - activeFloor) * MaterialAttenuation.GetAttenuation("floor_wood", band);
+            var sep = Math.Abs(ap.Floor - activeFloor);
+            // US residential: no floor 0 means B1(-1) is directly below 1st(1)
+            if (Math.Min(ap.Floor, activeFloor) < 0 && Math.Max(ap.Floor, activeFloor) > 0)
+                sep--;
+            return sep * MaterialAttenuation.GetAttenuation("floor_wood", band);
         }
 
         // Find building containing the observation point (primary) or the AP (fallback).
@@ -262,6 +290,10 @@ public class PropagationService
 
         for (var f = minFloor + 1; f <= maxFloor; f++)
         {
+            // Skip floor 0 if it doesn't exist (US residential: B1 is directly below 1st)
+            if (f == 0 && !building.FloorMaterials.ContainsKey(0))
+                continue;
+
             var material = building.FloorMaterials.GetValueOrDefault(f, "floor_wood");
             totalLoss += MaterialAttenuation.GetAttenuation(material, band);
         }
@@ -378,12 +410,13 @@ public class PropagationService
     /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
     /// so we must also fall back to ceiling.
     /// </summary>
+    private static bool IsOmniAntennaMode(string? antennaMode) =>
+        !string.IsNullOrEmpty(antennaMode) &&
+        antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
+
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
-        var isOmni = !string.IsNullOrEmpty(antennaMode) &&
-                     antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
-
-        if (isOmni && _antennaLoader.HasOmniVariant(model))
+        if (IsOmniAntennaMode(antennaMode) && _antennaLoader.HasOmniVariant(model))
         {
             // Check if the omni variant actually has this band. If not, the pattern
             // loader fell back to the base directional pattern, so use ceiling mount.
@@ -428,6 +461,18 @@ public class PropagationService
             }
         }
         return best;
+    }
+
+    /// <summary>
+    /// Check if floor 0 exists in the relevant building for the given point/AP.
+    /// Uses the same building lookup as ComputeFloorLoss for consistency.
+    /// </summary>
+    private static bool HasFloorZero(List<BuildingFloorInfo>? buildings, double pointLat, double pointLng, PropagationAp ap)
+    {
+        if (buildings == null || buildings.Count == 0) return false;
+        var building = FindSmallestContainingBuilding(buildings, pointLat, pointLng)
+                       ?? FindSmallestContainingBuilding(buildings, ap.Latitude, ap.Longitude);
+        return building?.FloorMaterials.ContainsKey(0) ?? false;
     }
 
     private struct WallSegment

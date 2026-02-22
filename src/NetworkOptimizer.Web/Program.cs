@@ -296,6 +296,7 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>()
 builder.Services.AddScoped<WiFiOptimizerService>();
 builder.Services.AddScoped<ApMapService>();
 builder.Services.AddSingleton<FloorPlanService>();
+builder.Services.AddSingleton<HeatmapDataCache>();
 builder.Services.AddSingleton<PlannedApService>();
 builder.Services.AddSingleton<ConfigTransferService>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
@@ -934,25 +935,29 @@ app.MapGet("/api/floor-plan/buildings", async (FloorPlanService svc) =>
     }));
 });
 
-app.MapPost("/api/floor-plan/buildings", async (HttpContext context, FloorPlanService svc) =>
+app.MapPost("/api/floor-plan/buildings", async (HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
 {
     var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var building = await svc.CreateBuildingAsync(request.Name, request.CenterLatitude, request.CenterLongitude);
+    var building = await svc.CreateBuildingAsync(request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
+    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
     return Results.Ok(new { building.Id, building.Name, building.CenterLatitude, building.CenterLongitude });
 });
 
-app.MapPut("/api/floor-plan/buildings/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
+app.MapPut("/api/floor-plan/buildings/{id:int}", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
 {
     var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var building = await svc.UpdateBuildingAsync(id, request.Name, request.CenterLatitude, request.CenterLongitude);
+    var building = await svc.UpdateBuildingAsync(id, request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
+    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
     return building != null ? Results.Ok(new { success = true }) : Results.NotFound();
 });
 
-app.MapDelete("/api/floor-plan/buildings/{id:int}", async (int id, FloorPlanService svc) =>
+app.MapDelete("/api/floor-plan/buildings/{id:int}", async (int id, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
 {
-    return await svc.DeleteBuildingAsync(id) ? Results.NoContent() : Results.NotFound();
+    await svc.DeleteBuildingAsync(id);
+    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
+    return Results.NoContent();
 });
 
 app.MapGet("/api/floor-plan/buildings/{id:int}/floors", async (int id, FloorPlanService svc) =>
@@ -966,28 +971,32 @@ app.MapGet("/api/floor-plan/buildings/{id:int}/floors", async (int id, FloorPlan
     }));
 });
 
-app.MapPost("/api/floor-plan/buildings/{id:int}/floors", async (int id, HttpContext context, FloorPlanService svc) =>
+app.MapPost("/api/floor-plan/buildings/{id:int}/floors", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
 {
     var request = await context.Request.ReadFromJsonAsync<FloorRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
     var floor = await svc.CreateFloorAsync(id, request.FloorNumber, request.Label,
         request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude);
+    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
     return Results.Ok(new { floor.Id, floor.BuildingId, floor.FloorNumber, floor.Label });
 });
 
-app.MapPut("/api/floor-plan/floors/{id:int}", async (int id, HttpContext context, FloorPlanService svc) =>
+app.MapPut("/api/floor-plan/floors/{id:int}", async (int id, HttpContext context, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
 {
     var request = await context.Request.ReadFromJsonAsync<FloorUpdateRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
     var floor = await svc.UpdateFloorAsync(id,
         request.SwLatitude, request.SwLongitude, request.NeLatitude, request.NeLongitude,
         request.Opacity, request.WallsJson, request.Label, floorMaterial: request.FloorMaterial);
+    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
     return floor != null ? Results.Ok(new { success = true }) : Results.NotFound();
 });
 
-app.MapDelete("/api/floor-plan/floors/{id:int}", async (int id, FloorPlanService svc) =>
+app.MapDelete("/api/floor-plan/floors/{id:int}", async (int id, FloorPlanService svc, ApMapService apMapSvc, PlannedApService plannedApSvc, HeatmapDataCache heatmapCache) =>
 {
-    return await svc.DeleteFloorAsync(id) ? Results.NoContent() : Results.NotFound();
+    await svc.DeleteFloorAsync(id);
+    await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
+    return Results.NoContent();
 });
 
 app.MapGet("/api/floor-plan/floors/{id:int}/image", async (int id, FloorPlanService svc) =>
@@ -1081,7 +1090,8 @@ app.MapDelete("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorP
 app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     FloorPlanService floorSvc, ApMapService apMapSvc,
     PlannedApService plannedApSvc,
-    NetworkOptimizer.WiFi.Services.PropagationService propagationSvc) =>
+    NetworkOptimizer.WiFi.Services.PropagationService propagationSvc,
+    HeatmapDataCache heatmapCache) =>
 {
     var request = await context.Request.ReadFromJsonAsync<NetworkOptimizer.WiFi.Models.HeatmapRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
@@ -1091,35 +1101,12 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
 
     var activeFloor = request.ActiveFloor;
 
-    // Load walls from ALL floors across ALL buildings, grouped by floor number.
-    // Cross-floor APs need walls from their own floor for shadow casting.
-    var wallsByFloor = new Dictionary<int, List<NetworkOptimizer.WiFi.Models.PropagationWall>>();
-    var allBuildings = await floorSvc.GetBuildingsAsync();
-    foreach (var building in allBuildings)
-    {
-        foreach (var f in building.Floors)
-        {
-            if (string.IsNullOrEmpty(f.WallsJson)) continue;
-            try
-            {
-                var floorWalls = System.Text.Json.JsonSerializer.Deserialize<List<NetworkOptimizer.WiFi.Models.PropagationWall>>(
-                    f.WallsJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (floorWalls != null)
-                {
-                    if (!wallsByFloor.ContainsKey(f.FloorNumber))
-                        wallsByFloor[f.FloorNumber] = new List<NetworkOptimizer.WiFi.Models.PropagationWall>();
-                    wallsByFloor[f.FloorNumber].AddRange(floorWalls);
-                }
-            }
-            catch { /* ignore bad JSON */ }
-        }
-    }
+    // Load from cache (only hits DB when data has been invalidated)
+    var cached = await heatmapCache.GetOrLoadAsync(floorSvc, apMapSvc, plannedApSvc);
 
-    // Get ALL placed APs that have a radio for the selected band
+    // Build placed APs list from cached markers
     var bandFilter = request.Band == "2.4" ? "2.4" : request.Band == "6" ? "6" : "5";
-    var apMarkers = await apMapSvc.GetApMapMarkersAsync();
-    var placedAps = apMarkers
+    var placedAps = cached.ApMarkers
         .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
         .Where(a => a.Radios.Any(r => r.Band.Contains(bandFilter)))
         .Select(a =>
@@ -1142,30 +1129,31 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
 
     // Add planned APs to the propagation computation (unless excluded by toggle)
     if (!request.ExcludePlannedAps)
-    foreach (var pa in await plannedApSvc.GetAllAsync())
     {
-        var bandDefaults = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(pa.Model, bandFilter);
-        var (modeGain, modeMaxTx, modeDefaultTx) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bandDefaults, pa.AntennaMode);
-        var txPowerStored = bandFilter switch { "2.4" => pa.TxPower24Dbm, "6" => pa.TxPower6Dbm, _ => pa.TxPower5Dbm };
-        var txPower = txPowerStored ?? modeDefaultTx;
-        // Only include planned APs that have the selected band
         var patternLoader = context.RequestServices.GetRequiredService<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
-        var supportedBands = patternLoader.GetSupportedBands(pa.Model);
-        if (!supportedBands.Contains(bandFilter)) continue;
-
-        placedAps.Add(new NetworkOptimizer.WiFi.Models.PropagationAp
+        foreach (var pa in cached.PlannedAps)
         {
-            Mac = $"planned-{pa.Id}",
-            Model = pa.Model,
-            Latitude = pa.Latitude,
-            Longitude = pa.Longitude,
-            Floor = pa.Floor,
-            OrientationDeg = pa.OrientationDeg,
-            MountType = pa.MountType,
-            AntennaMode = pa.AntennaMode,
-            TxPowerDbm = txPower,
-            AntennaGainDbi = modeGain
-        });
+            var bandDefaults = NetworkOptimizer.WiFi.Data.ApModelCatalog.GetBandDefaults(pa.Model, bandFilter);
+            var (modeGain, modeMaxTx, modeDefaultTx) = NetworkOptimizer.WiFi.Data.ApModelCatalog.ResolveForMode(bandDefaults, pa.AntennaMode);
+            var txPowerStored = bandFilter switch { "2.4" => pa.TxPower24Dbm, "6" => pa.TxPower6Dbm, _ => pa.TxPower5Dbm };
+            var txPower = txPowerStored ?? modeDefaultTx;
+            var supportedBands = patternLoader.GetSupportedBands(pa.Model);
+            if (!supportedBands.Contains(bandFilter)) continue;
+
+            placedAps.Add(new NetworkOptimizer.WiFi.Models.PropagationAp
+            {
+                Mac = $"planned-{pa.Id}",
+                Model = pa.Model,
+                Latitude = pa.Latitude,
+                Longitude = pa.Longitude,
+                Floor = pa.Floor,
+                OrientationDeg = pa.OrientationDeg,
+                MountType = pa.MountType,
+                AntennaMode = pa.AntennaMode,
+                TxPowerDbm = txPower,
+                AntennaGainDbi = modeGain
+            });
+        }
     }
 
     // Apply TX power overrides from simulation slider
@@ -1201,24 +1189,9 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         placedAps.RemoveAll(ap => disabled.Contains(ap.Mac));
     }
 
-    // Build per-building floor info for smart floor attenuation
-    var buildingFloorInfos = allBuildings.Select(building =>
-    {
-        var floors = building.Floors;
-        if (floors.Count == 0) return null;
-        return new NetworkOptimizer.WiFi.Models.BuildingFloorInfo
-        {
-            SwLat = floors.Min(f => f.SwLatitude),
-            SwLng = floors.Min(f => f.SwLongitude),
-            NeLat = floors.Max(f => f.NeLatitude),
-            NeLng = floors.Max(f => f.NeLongitude),
-            FloorMaterials = floors.ToDictionary(f => f.FloorNumber, f => f.FloorMaterial)
-        };
-    }).OfType<NetworkOptimizer.WiFi.Models.BuildingFloorInfo>().ToList();
-
     var result = propagationSvc.ComputeHeatmap(
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
-        request.Band, placedAps, wallsByFloor, activeFloor, request.GridResolutionMeters, buildingFloorInfos);
+        request.Band, placedAps, cached.WallsByFloor, activeFloor, request.GridResolutionMeters, cached.BuildingFloorInfos);
 
     return Results.Ok(result);
 });
@@ -1231,15 +1204,16 @@ app.MapGet("/api/floor-plan/planned-aps", async (PlannedApService svc) =>
     return Results.Ok(aps);
 });
 
-app.MapPost("/api/floor-plan/planned-aps", async (HttpContext context, PlannedApService svc) =>
+app.MapPost("/api/floor-plan/planned-aps", async (HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
 {
     var ap = await context.Request.ReadFromJsonAsync<NetworkOptimizer.Storage.Models.PlannedAp>();
     if (ap == null) return Results.BadRequest(new { error = "Request body is required" });
     var created = await svc.CreateAsync(ap);
+    await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
     return Results.Ok(created);
 });
 
-app.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext context, PlannedApService svc) =>
+app.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext context, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
 {
     var body = await context.Request.ReadFromJsonAsync<Dictionary<string, System.Text.Json.JsonElement>>();
     if (body == null) return Results.BadRequest(new { error = "Request body is required" });
@@ -1257,14 +1231,16 @@ app.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext co
     if (body.TryGetValue("antennaMode", out var am))
         await svc.UpdateAntennaModeAsync(id, am.ValueKind == System.Text.Json.JsonValueKind.Null ? null : am.GetString());
     if (body.TryGetValue("name", out var name))
-        await svc.UpdateNameAsync(id, name.GetString() ?? "");
+        await svc.UpdateNameAsync(id, (name.GetString() ?? "").Trim());
 
+    await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
     return Results.Ok(new { success = true });
 });
 
-app.MapDelete("/api/floor-plan/planned-aps/{id:int}", async (int id, PlannedApService svc) =>
+app.MapDelete("/api/floor-plan/planned-aps/{id:int}", async (int id, FloorPlanService floorSvc, ApMapService apMapSvc, PlannedApService svc, HeatmapDataCache heatmapCache) =>
 {
     var deleted = await svc.DeleteAsync(id);
+    await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
     return deleted ? Results.Ok(new { success = true }) : Results.NotFound();
 });
 

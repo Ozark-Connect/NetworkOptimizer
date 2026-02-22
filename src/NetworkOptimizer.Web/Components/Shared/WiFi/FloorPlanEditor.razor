@@ -10,6 +10,7 @@
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
 @inject PlannedApService PlannedApSvc
+@inject HeatmapDataCache HeatmapCache
 @inject AntennaPatternLoader PatternLoader
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -422,11 +423,15 @@
             <h3>Add Floor</h3>
             <div class="fp-form-group">
                 <label>Floor Number</label>
-                <input type="number" @bind="_newFloorNumber" class="fp-input" />
+                <div class="fp-stepper">
+                    <button class="fp-stepper-btn" @onclick="DecrementFloor" type="button">-</button>
+                    <input type="number" @bind="_newFloorNumber" @bind:after="OnFloorNumberChanged" class="fp-stepper-input" />
+                    <button class="fp-stepper-btn" @onclick="IncrementFloor" type="button">+</button>
+                </div>
             </div>
             <div class="fp-form-group">
                 <label>Label</label>
-                <input type="text" @bind="_newFloorLabel" class="fp-input" placeholder="e.g. Ground Floor" />
+                <input type="text" @bind="_newFloorLabel" @oninput="() => _labelManuallyEdited = true" class="fp-input" placeholder="e.g. Ground Floor" />
             </div>
             <div class="fp-form-group">
                 <label>Floor Construction</label>
@@ -764,6 +769,50 @@
         box-sizing: border-box;
     }
 
+    .fp-stepper {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .fp-stepper-btn {
+        width: 32px;
+        height: 32px;
+        background: var(--bg-tertiary, #334155);
+        color: var(--text-primary, #f1f5f9);
+        border: 1px solid var(--border-color, #232326);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .fp-stepper-btn:hover {
+        background: var(--bg-hover, #475569);
+    }
+
+    .fp-stepper-input {
+        width: 60px;
+        text-align: center;
+        background: var(--bg-primary, #0f0f11);
+        color: var(--text-primary, #ededef);
+        border: 1px solid var(--border-color, #232326);
+        border-radius: 4px;
+        padding: 6px;
+        font-size: 14px;
+        -moz-appearance: textfield;
+    }
+
+    .fp-stepper-input::-webkit-outer-spin-button,
+    .fp-stepper-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
     .fp-dialog-actions {
         display: flex;
         justify-content: flex-end;
@@ -978,12 +1027,14 @@
         padding: 1px 6px;
         border-radius: 3px;
         white-space: nowrap;
+        margin-right: 0.6rem;
     }
 
     .fp-ap-popup-header {
         display: flex;
         align-items: center;
         gap: 6px;
+        margin-bottom: 0.3rem;
     }
 
     .fp-ap-popup-name-input {
@@ -1239,7 +1290,7 @@
     .fp-ap-popup-name {
         font-weight: 600;
         font-size: 14px;
-        margin-bottom: 2px;
+        margin-bottom: 0.3rem;
     }
 
     .fp-ap-popup-model {
@@ -1277,14 +1328,37 @@
     }
 
     .fp-ap-popup-row input[type="range"] {
-        width: 100px;
+        flex: 1;
         vertical-align: middle;
     }
 
-    .fp-ap-popup-deg {
-        font-size: 12px;
+    .fp-ap-popup-deg-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        flex-shrink: 0;
+        min-width: 2.6rem;
+    }
+    .fp-ap-popup-deg-input {
+        width: 2rem;
+        padding: 2px 4px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 4px;
         color: #e0e0e0;
-        min-width: 30px;
+        font-size: 13px;
+        text-align: right;
+        -moz-appearance: textfield;
+    }
+    .fp-ap-popup-deg-input::-webkit-inner-spin-button,
+    .fp-ap-popup-deg-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    .fp-ap-popup-deg-suffix {
+        font-size: 14px;
+        color: #94a3b8;
+        margin-left: 2px;
     }
 
     .fp-ap-popup-divider {
@@ -1504,6 +1578,7 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
+    private bool _heatmapWasOn;
     private bool _showPlannedAps;
     private bool _showSignalData;
     private int _globalActiveFloor = 1;
@@ -1522,6 +1597,7 @@
     private int _newFloorNumber;
     private string _newFloorLabel = "";
     private string _newFloorMaterial = "floor_wood";
+    private bool _labelManuallyEdited;
     private bool _showDeleteBuilding;
     private bool _showDeleteFloor;
     private bool _showDeleteUnderlay;
@@ -2448,6 +2524,7 @@
     public async Task OnApDragEndFromJs(string mac, double lat, double lng)
     {
         await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
@@ -2535,6 +2612,7 @@
 
             await ApMapSvc.SaveApLocationAsync(ap.Mac, apLat + dLat, apLng + dLng);
         }
+        HeatmapCache.Invalidate();
 
         // Reload everything
         await LoadBuildings();
@@ -2554,6 +2632,7 @@
     public async Task OnApFloorChangedFromJs(string mac, int floor)
     {
         await ApMapSvc.SaveApFloorAsync(mac, floor);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -2567,6 +2646,7 @@
     public async Task OnApOrientationChangedFromJs(string mac, int orientationDeg)
     {
         await ApMapSvc.SaveApOrientationAsync(mac, orientationDeg);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -2580,6 +2660,7 @@
     public async Task OnApMountTypeChangedFromJs(string mac, string mountType)
     {
         await ApMapSvc.SaveApMountTypeAsync(mac, mountType);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -2601,6 +2682,7 @@
     public async Task OnPlannedApDragEndFromJs(int plannedId, double lat, double lng)
     {
         await PlannedApSvc.UpdateLocationAsync(plannedId, lat, lng);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await UpdateApMarkers();
         if (_showHeatmap) await ComputeHeatmap();
@@ -2610,6 +2692,7 @@
     public async Task OnPlannedApFloorChangedFromJs(int plannedId, int floor)
     {
         await PlannedApSvc.UpdateFloorAsync(plannedId, floor);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2623,6 +2706,7 @@
     public async Task OnPlannedApOrientationChangedFromJs(int plannedId, int deg)
     {
         await PlannedApSvc.UpdateOrientationAsync(plannedId, deg);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2636,6 +2720,7 @@
     public async Task OnPlannedApMountTypeChangedFromJs(int plannedId, string mountType)
     {
         await PlannedApSvc.UpdateMountTypeAsync(plannedId, mountType);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2649,6 +2734,7 @@
     public async Task OnPlannedApTxPowerChangedFromJs(int plannedId, string band, int txPower)
     {
         await PlannedApSvc.UpdateTxPowerAsync(plannedId, band, txPower);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2662,6 +2748,7 @@
     public async Task OnPlannedApAntennaModeChangedFromJs(int plannedId, string? mode)
     {
         await PlannedApSvc.UpdateAntennaModeAsync(plannedId, mode);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         await InvokeAsync(async () =>
         {
@@ -2674,7 +2761,7 @@
     [JSInvokable]
     public async Task OnPlannedApNameChangedFromJs(int plannedId, string name)
     {
-        await PlannedApSvc.UpdateNameAsync(plannedId, name);
+        await PlannedApSvc.UpdateNameAsync(plannedId, name.Trim());
         await LoadPlannedAps();
         await UpdateApMarkers();
     }
@@ -2683,6 +2770,7 @@
     public async Task OnPlannedApDeleteFromJs(int plannedId)
     {
         await PlannedApSvc.DeleteAsync(plannedId);
+        HeatmapCache.Invalidate();
         await LoadPlannedAps();
         if (_plannedAps.Count == 0) _showPlannedAps = false;
         await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", !_showPlannedAps);
@@ -2768,6 +2856,7 @@
                 AntennaMode = defaultAntennaMode
             };
             await PlannedApSvc.CreateAsync(ap);
+            HeatmapCache.Invalidate();
             await LoadPlannedAps();
             _showPlannedAps = true;
             await JS.InvokeVoidAsync("fpEditor.setExcludePlannedAps", false);
@@ -2787,6 +2876,7 @@
         _selectedApForPlacement = null;
 
         await ApMapSvc.SaveApLocationAsync(mac, lat, lng);
+        HeatmapCache.Invalidate();
         await LoadApMarkers();
         await InvokeAsync(async () =>
         {
@@ -2826,7 +2916,7 @@
 
                 // Include: same floor number, or adjacent floors (n-1, n+1) in any building
                 var sameFloor = f.FloorNumber == _globalActiveFloor;
-                var adjacentFloor = Math.Abs(f.FloorNumber - _globalActiveFloor) == 1;
+                var adjacentFloor = IsAdjacentFloor(f.FloorNumber, _globalActiveFloor);
                 if (!sameFloor && !adjacentFloor) continue;
 
                 try
@@ -2869,7 +2959,7 @@
             {
                 if (_selectedFloor != null && f.Id == _selectedFloor.Id) continue;
                 if (string.IsNullOrEmpty(f.WallsJson)) continue;
-                if (Math.Abs(f.FloorNumber - _globalActiveFloor) > 1) continue;
+                if (!IsAdjacentFloor(f.FloorNumber, _globalActiveFloor) && f.FloorNumber != _globalActiveFloor) continue;
                 try
                 {
                     var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(f.WallsJson);
@@ -2895,15 +2985,18 @@
             _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
                 ? "exterior_residential"
                 : "drywall";
-            if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+            _heatmapWasOn = _showHeatmap;
+            if (_showHeatmap)
+            {
+                _showHeatmap = false;
+                await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+            }
             await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", false);
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
         }
         else
         {
-            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
-            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
-            if (_selectedFloor != null) await UpdateWalls();
+            await ExitDrawMode();
             if (_showHeatmap) await ComputeHeatmap();
         }
         await UpdateApMarkers();
@@ -2945,6 +3038,7 @@
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
+        HeatmapCache.Invalidate();
 
         // Auto-update floor bounds and building center from wall extents
         await RecalcBoundsFromWalls(_selectedFloor, wallsJson);
@@ -3021,6 +3115,7 @@
         _selectedBuilding.CenterLatitude = newLat;
         _selectedBuilding.CenterLongitude = newLng;
         await FloorPlanSvc.UpdateBuildingAsync(_selectedBuilding.Id, _selectedBuilding.Name, newLat, newLng);
+        HeatmapCache.Invalidate();
 
         // Refresh visuals
         if (_selectedFloor != null) await UpdateFloorOverlay();
@@ -3267,6 +3362,7 @@
         var material = e.Value?.ToString() ?? "floor_wood";
         _selectedFloor.FloorMaterial = material;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, floorMaterial: material);
+        HeatmapCache.Invalidate();
         if (_showHeatmap) await ComputeHeatmap();
     }
 
@@ -3319,13 +3415,22 @@
 
     private async Task DeselectBuilding()
     {
-        // If currently drawing walls, exit draw mode first (commits in-progress shapes)
         if (_mode == "walls")
         {
-            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            await ExitDrawMode();
             _mode = "view";
         }
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+        if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task ExitDrawMode()
+    {
+        await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+        await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
+        if (_selectedFloor != null) await UpdateWalls();
+        if (_heatmapWasOn)
+            _showHeatmap = true;
     }
 
     private void ShowAddBuildingDialog()
@@ -3336,6 +3441,7 @@
 
     private async Task CreateBuilding()
     {
+        _newBuildingName = _newBuildingName.Trim();
         if (string.IsNullOrWhiteSpace(_newBuildingName)) return;
         var lat = 38.0;
         var lng = -92.0;
@@ -3343,6 +3449,7 @@
         if (firstAp != null) { lat = firstAp.Latitude!.Value; lng = firstAp.Longitude!.Value; }
 
         var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
+        HeatmapCache.Invalidate();
         _showAddBuilding = false;
         await LoadBuildings();
         if (_mapInitialized)
@@ -3373,6 +3480,7 @@
         var maxFloor = _floors.Count > 0 ? _floors.Max(f => f.FloorNumber) : 0;
         _newFloorNumber = maxFloor + 1;
         _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+        _labelManuallyEdited = false;
 
         // Infer floor material from existing exterior walls
         var hasCommercialExterior = _floors.Any(f =>
@@ -3382,6 +3490,25 @@
 
         _showAddFloor = true;
     }
+
+    private void IncrementFloor()
+    {
+        _newFloorNumber = (_newFloorNumber == -1 && !BuildingHasFloorZero()) ? 1 : _newFloorNumber + 1;
+        if (!_labelManuallyEdited) _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+    }
+
+    private void DecrementFloor()
+    {
+        _newFloorNumber = (_newFloorNumber == 1 && !BuildingHasFloorZero()) ? -1 : _newFloorNumber - 1;
+        if (!_labelManuallyEdited) _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+    }
+
+    private void OnFloorNumberChanged()
+    {
+        if (!_labelManuallyEdited) _newFloorLabel = GetDefaultFloorLabel(_newFloorNumber);
+    }
+
+    private bool BuildingHasFloorZero() => _floors.Any(f => f.FloorNumber == 0);
 
     private static string GetDefaultFloorLabel(int n)
     {
@@ -3410,8 +3537,10 @@
         var latOffset = 25.0 / 111320.0;
         var lngOffset = 25.0 / (111320.0 * cosLat);
 
+        _newFloorLabel = _newFloorLabel.Trim();
         await FloorPlanSvc.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
             lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset, _newFloorMaterial);
+        HeatmapCache.Invalidate();
 
         _showAddFloor = false;
         await LoadBuildings();
@@ -3453,6 +3582,7 @@
             _selectedCatalogModel = null;
         }
         await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
+        HeatmapCache.Invalidate();
         await LoadBuildings();
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
@@ -3500,6 +3630,7 @@
             _selectedCatalogModel = null;
         }
         await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
+        HeatmapCache.Invalidate();
         await LoadBuildings();
         EnsureGlobalFloorExists();
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
@@ -3533,6 +3664,16 @@
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private bool IsAdjacentFloor(int a, int b)
+    {
+        var gap = Math.Abs(a - b);
+        if (gap == 1) return true;
+        // US residential: B1(-1) is adjacent to 1st(1) when no floor 0 exists
+        if (gap == 2 && Math.Min(a, b) < 0 && Math.Max(a, b) > 0)
+            return !_buildings.Any(bld => bld.Floors.Any(f => f.FloorNumber == 0));
+        return false;
+    }
 
     private static string GetFloorLabel(int floorNumber)
     {
@@ -3610,9 +3751,8 @@
         StateHasChanged();
         // Leaflet needs to recalculate its container size after layout change
         await Task.Delay(50);
-        await JS.InvokeVoidAsync("fpEditor.invalidateSize");
+        await JS.InvokeVoidAsync("fpEditor.invalidateSizeProportional");
         await JS.InvokeVoidAsync("fpEditor.setScaleSteps", _isFullscreen ? 5 : 3);
-        await FitMapToContent();
     }
 
     private async Task FitMapToContent()
