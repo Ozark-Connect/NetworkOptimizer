@@ -142,6 +142,10 @@
                            style="width:200px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
                 </div>
                 <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
+                @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription))
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="ClearFilterForm">Clear</button>
+                }
             </div>
 
             @* Existing filters *@
@@ -207,7 +211,7 @@
         <p style="color:var(--text-secondary);">Collecting threat data from UniFi for the first time...</p>
     </div>
 }
-else if (_loading)
+else if (_loading && !_hasLoadedOnce)
 {
     <div class="loading-container">
         <span class="spinner"></span>
@@ -314,7 +318,7 @@ else
                 <div class="card-body">
                     @if (_dashboardData.KillChainDistribution.Count > 0)
                     {
-                        <ApexChart TItem="KillChainItem"
+                        <ApexChart @ref="_killChainChart" TItem="KillChainItem"
                                    Options="_killChainChartOptions"
                                    Height="@("220px")">
                             <ApexPointSeries TItem="KillChainItem"
@@ -343,7 +347,7 @@ else
                 <div class="card-body">
                     @if (_dashboardData.Summary.TotalEvents > 0)
                     {
-                        <ApexChart TItem="ActionBreakdownItem"
+                        <ApexChart @ref="_actionChart" TItem="ActionBreakdownItem"
                                    Options="_actionChartOptions"
                                    Height="@("220px")">
                             <ApexPointSeries TItem="ActionBreakdownItem"
@@ -692,7 +696,7 @@ else
                                 {
                                     var pct = geoTotal > 0 ? (double)entry.Value / geoTotal * 100 : 0;
                                     <tr>
-                                        <td><span style="cursor:default">@CountryFlag(entry.Key)</span> <strong>@(CountryNames.TryGetValue(entry.Key, out var countryName) ? countryName : entry.Key)</strong></td>
+                                        <td><span style="cursor:default">@CountryFlag(entry.Key)</span><span style="margin-left:0.4rem;"><strong>@(CountryNames.TryGetValue(entry.Key, out var countryName) ? countryName : entry.Key)</strong></span></td>
                                         <td>@FormatNumber(entry.Value)</td>
                                         <td>@($"{pct:F1}")%</td>
                                         <td class="hide-mobile" style="width:40%;">
@@ -1106,6 +1110,7 @@ else
     private string _activeTab = "overview";
     private string _timeRange = "24h";
     private bool _loading = true;
+    private bool _hasLoadedOnce; // Once true, reloads don't destroy charts
     private ThreatDashboardData _dashboardData = new();
     private List<TimelineBucket> _timeline = [];
     private Dictionary<string, int> _geoDistribution = new();
@@ -1140,7 +1145,10 @@ else
     private record CtiLookupResult(string? Badge, int? ThreatScore, string? Behaviors);
 
     // Chart refs and options - each chart needs its own options instance
+    // ALL charts need @ref + UpdateSeriesAsync; StateHasChanged alone does NOT update ApexCharts
     private ApexChart<TimelineBucket>? _timelineChart;
+    private ApexChart<KillChainItem>? _killChainChart;
+    private ApexChart<ActionBreakdownItem>? _actionChart;
     private bool _chartNeedsUpdate;
     private ApexChartOptions<TimelineBucket> _timelineChartOptions = CreateTimelineChartOptions();
     private ApexChartOptions<KillChainItem> _killChainChartOptions = CreateKillChainChartOptions();
@@ -1161,11 +1169,9 @@ else
         if (_chartNeedsUpdate)
         {
             _chartNeedsUpdate = false;
-            if (_timelineChart != null)
-            {
-                try { await _timelineChart.UpdateSeriesAsync(true); }
-                catch { /* chart may not be rendered yet */ }
-            }
+            try { if (_timelineChart != null) await _timelineChart.UpdateSeriesAsync(true); } catch { }
+            try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
+            try { if (_actionChart != null) await _actionChart.UpdateSeriesAsync(true); } catch { }
         }
     }
 
@@ -1361,6 +1367,7 @@ else
         finally
         {
             _loading = false;
+            _hasLoadedOnce = true;
             StateHasChanged();
         }
     }
@@ -1435,6 +1442,7 @@ else
             _previousTab = _activeTab;
         _drilldownIp = ip;
         _activeTab = "drilldown";
+        _showFilterPanel = false;
         _loading = true;
         StateHasChanged();
 
@@ -1865,6 +1873,14 @@ else
         _newFilterDescription = "";
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
+    }
+
+    private void ClearFilterForm()
+    {
+        _newFilterSourceIp = "";
+        _newFilterDestIp = "";
+        _newFilterDestPort = "";
+        _newFilterDescription = "";
     }
 
     private string BuildFilterDescription()
