@@ -33,6 +33,7 @@ public class ThreatCollectionService : BackgroundService
 
     // On-demand trigger: released by TriggerCollectionAsync(), waited on during poll sleep
     private readonly SemaphoreSlim _triggerSignal = new(0, 1);
+    private readonly object _backfillLock = new();
     private bool _hasCollectedOnce;
     private DateTimeOffset? _backfillOverride;
 
@@ -76,7 +77,7 @@ public class ThreatCollectionService : BackgroundService
     /// </summary>
     public void RequestBackfill(DateTimeOffset from)
     {
-        _backfillOverride = from;
+        lock (_backfillLock) { _backfillOverride = from; }
         TriggerCollection();
     }
 
@@ -143,7 +144,8 @@ public class ThreatCollectionService : BackgroundService
         }
 
         // Determine sync window
-        var backfill = Interlocked.Exchange(ref _backfillOverride, null);
+        DateTimeOffset? backfill;
+        lock (_backfillLock) { backfill = _backfillOverride; _backfillOverride = null; }
         var lastSync = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
         DateTimeOffset start;
 

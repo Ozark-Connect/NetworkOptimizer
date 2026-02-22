@@ -241,7 +241,7 @@ else
                                 @foreach (var source in _dashboardData.TopSources)
                                 {
                                     <tr>
-                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<code>@source.SourceIp</code>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">(@srcName)</span> }</td>
+                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<code>@source.SourceIp</code>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
                                         <td>@(source.CountryCode ?? "-")</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
@@ -534,17 +534,16 @@ else
                                 @foreach (var seq in _attackSequences)
                                 {
                                     <tr>
-                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<code>@seq.SourceIp</code>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">(@seqName)</span> }</td>
+                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<code>@seq.SourceIp</code>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
                                         <td class="hide-mobile">@(seq.CountryCode ?? "-")</td>
                                         <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
                                         <td>
                                             <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
                                                 @foreach (var stage in seq.Stages)
                                                 {
-                                                    <span data-tooltip="@GetKillChainLabel(stage.Stage): @stage.EventCount events, @stage.TopSignature"
-                                                          style="display:inline-block; height:22px; min-width:@(Math.Max(24, stage.EventCount * 2))px; max-width:120px;
-                                                                 background:@GetStageColor(stage.Stage); border-radius:3px; font-size:0.7rem; color:white;
-                                                                 line-height:22px; text-align:center; padding:0 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                                    <span class="stage-bar"
+                                                          data-tooltip="@GetKillChainLabel(stage.Stage): @stage.EventCount events, @stage.TopSignature"
+                                                          style="min-width:@(Math.Max(24, stage.EventCount * 2))px; background:@GetStageColor(stage.Stage);">
                                                         @GetStageAbbrev(stage.Stage)
                                                     </span>
                                                 }
@@ -596,7 +595,7 @@ else
     .threat-bar-track {
         background: var(--bg-hover);
         border-radius: 0 var(--border-radius) var(--border-radius) 0;
-        height: 20px;
+        height: 18px;
         overflow: hidden;
     }
 
@@ -606,6 +605,23 @@ else
         border-radius: 0 var(--border-radius) var(--border-radius) 0;
         min-width: 4px;
         transition: width 0.3s ease;
+    }
+
+    /* Kill chain stage bars in attack sequences table */
+    .stage-bar {
+        display: inline-block;
+        height: 22px;
+        max-width: 120px;
+        border-radius: 0 var(--border-radius) var(--border-radius) 0;
+        font-size: 0.7rem;
+        color: white;
+        line-height: 22px;
+        text-align: center;
+        padding: 0 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        transition: min-width 0.3s ease;
     }
 
     @@media (max-width: 768px) {
@@ -769,6 +785,13 @@ else
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
+
+                // ApexCharts requires explicit update after data changes
+                if (_timelineChart != null)
+                {
+                    try { await _timelineChart.UpdateSeriesAsync(true); }
+                    catch { /* chart may not be rendered yet */ }
+                }
             }
             else if (_activeTab == "exposure")
             {
