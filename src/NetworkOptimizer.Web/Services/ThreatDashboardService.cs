@@ -14,17 +14,20 @@ public class ThreatDashboardService
     private readonly IThreatRepository _repository;
     private readonly ExposureValidator _exposureValidator;
     private readonly CrowdSecEnrichmentService _crowdSecService;
+    private readonly IUniFiClientAccessor _uniFiClientAccessor;
     private readonly ILogger<ThreatDashboardService> _logger;
 
     public ThreatDashboardService(
         IThreatRepository repository,
         ExposureValidator exposureValidator,
         CrowdSecEnrichmentService crowdSecService,
+        IUniFiClientAccessor uniFiClientAccessor,
         ILogger<ThreatDashboardService> logger)
     {
         _repository = repository;
         _exposureValidator = exposureValidator;
         _crowdSecService = crowdSecService;
+        _uniFiClientAccessor = uniFiClientAccessor;
         _logger = logger;
     }
 
@@ -84,11 +87,25 @@ public class ThreatDashboardService
     }
 
     public async Task<ExposureReport> GetExposureReportAsync(
-        List<UniFiPortForwardRule>? portForwardRules,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            // Auto-fetch port forward rules from UniFi API
+            List<UniFiPortForwardRule>? portForwardRules = null;
+            var apiClient = _uniFiClientAccessor.Client;
+            if (apiClient != null)
+            {
+                try
+                {
+                    portForwardRules = await apiClient.GetPortForwardRulesAsync(cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to fetch port forward rules for exposure report");
+                }
+            }
+
             var from = DateTime.UtcNow.AddDays(-30);
             var to = DateTime.UtcNow;
             return await _exposureValidator.ValidateAsync(portForwardRules, _repository, from, to, cancellationToken);

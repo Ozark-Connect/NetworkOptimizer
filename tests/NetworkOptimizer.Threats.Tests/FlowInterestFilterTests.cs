@@ -84,4 +84,25 @@ public class FlowInterestFilterTests
         var flow = Parse("""{"action": "allowed", "risk": "low", "direction": "incoming", "destination": {"port": 1433}}""");
         Assert.True(FlowInterestFilter.IsInteresting(flow));
     }
+
+    [Fact]
+    public void IsInteresting_OutgoingSuspiciousPort4444_ReturnsTrue()
+    {
+        var flow = Parse("""{"action": "allowed", "risk": "low", "direction": "outgoing", "destination": {"port": 4444}}""");
+        Assert.True(FlowInterestFilter.IsInteresting(flow));
+    }
+
+    [Fact]
+    public void IsInteresting_OutgoingSuspiciousPortIRC6667_ReturnsTrue()
+    {
+        var flow = Parse("""{"action": "allowed", "risk": "low", "direction": "outgoing", "destination": {"port": 6667}}""");
+        Assert.True(FlowInterestFilter.IsInteresting(flow));
+    }
+
+    [Fact]
+    public void IsInteresting_OutgoingNormalPort443_LowRisk_ReturnsFalse()
+    {
+        var flow = Parse("""{"action": "allowed", "risk": "low", "direction": "outgoing", "destination": {"port": 443}}""");
+        Assert.False(FlowInterestFilter.IsInteresting(flow));
+    }
 }

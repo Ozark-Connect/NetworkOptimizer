@@ -10,7 +10,6 @@ public interface IThreatRepository
     // --- Threat Events ---
     Task SaveEventsAsync(List<ThreatEvent> events, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsAsync(DateTime from, DateTime to, string? sourceIp = null, int? destPort = null, KillChainStage? stage = null, int limit = 1000, CancellationToken cancellationToken = default);
-    Task<DateTime?> GetLatestTimestampAsync(CancellationToken cancellationToken = default);
     Task<ThreatSummary> GetThreatSummaryAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
     Task<List<SourceIpSummary>> GetTopSourcesAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);
     Task<List<TargetPortSummary>> GetTopTargetedPortsAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);

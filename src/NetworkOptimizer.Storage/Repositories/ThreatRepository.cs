@@ -83,20 +83,6 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
-    public async Task<DateTime?> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            return await _context.ThreatEvents
-                .MaxAsync(e => (DateTime?)e.Timestamp, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to get latest threat timestamp");
-            throw;
-        }
-    }
-
     public async Task<ThreatSummary> GetThreatSummaryAsync(DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
@@ -211,28 +197,34 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            // SQLite doesn't have DateTrunc, so we truncate in memory
-            var events = await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to)
-                .Select(e => new { e.Timestamp, e.Severity })
+            // Use raw SQL with strftime for server-side hour truncation (avoids loading all events into memory)
+            var buckets = await _context.Database
+                .SqlQueryRaw<TimelineBucketRaw>(
+                    """
+                    SELECT strftime('%Y-%m-%d %H:00:00', Timestamp) AS HourStr,
+                           SUM(CASE WHEN Severity = 1 THEN 1 ELSE 0 END) AS Severity1,
+                           SUM(CASE WHEN Severity = 2 THEN 1 ELSE 0 END) AS Severity2,
+                           SUM(CASE WHEN Severity = 3 THEN 1 ELSE 0 END) AS Severity3,
+                           SUM(CASE WHEN Severity = 4 THEN 1 ELSE 0 END) AS Severity4,
+                           SUM(CASE WHEN Severity = 5 THEN 1 ELSE 0 END) AS Severity5,
+                           COUNT(*) AS Total
+                    FROM ThreatEvents
+                    WHERE Timestamp >= {0} AND Timestamp <= {1}
+                    GROUP BY strftime('%Y-%m-%d %H:00:00', Timestamp)
+                    ORDER BY HourStr
+                    """, from, to)
                 .ToListAsync(cancellationToken);
 
-            return events
-                .GroupBy(e => new DateTime(e.Timestamp.Year, e.Timestamp.Month, e.Timestamp.Day,
-                    e.Timestamp.Hour, 0, 0, DateTimeKind.Utc))
-                .Select(g => new TimelineBucket
-                {
-                    Hour = g.Key,
-                    Severity1 = g.Count(e => e.Severity == 1),
-                    Severity2 = g.Count(e => e.Severity == 2),
-                    Severity3 = g.Count(e => e.Severity == 3),
-                    Severity4 = g.Count(e => e.Severity == 4),
-                    Severity5 = g.Count(e => e.Severity == 5),
-                    Total = g.Count()
-                })
-                .OrderBy(b => b.Hour)
-                .ToList();
+            return buckets.Select(b => new TimelineBucket
+            {
+                Hour = DateTime.TryParse(b.HourStr, out var h) ? DateTime.SpecifyKind(h, DateTimeKind.Utc) : DateTime.MinValue,
+                Severity1 = b.Severity1,
+                Severity2 = b.Severity2,
+                Severity3 = b.Severity3,
+                Severity4 = b.Severity4,
+                Severity5 = b.Severity5,
+                Total = b.Total
+            }).ToList();
         }
         catch (Exception ex)
         {
@@ -325,10 +317,23 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            // Load events grouped by source IP, then filter to IPs with 2+ distinct kill chain stages
-            var events = await _context.ThreatEvents
+            // Step 1: Find source IPs with 2+ distinct kill chain stages (SQL-side filtering)
+            var candidateIps = await _context.ThreatEvents
                 .AsNoTracking()
                 .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+                .GroupBy(e => e.SourceIp)
+                .Where(g => g.Select(e => e.KillChainStage).Distinct().Count() >= 2)
+                .OrderByDescending(g => g.Max(e => e.Timestamp))
+                .Take(limit)
+                .Select(g => g.Key)
+                .ToListAsync(cancellationToken);
+
+            if (candidateIps.Count == 0) return [];
+
+            // Step 2: Load only events for those IPs (bounded set)
+            var events = await _context.ThreatEvents
+                .AsNoTracking()
+                .Where(e => e.Timestamp >= from && e.Timestamp <= to && candidateIps.Contains(e.SourceIp))
                 .Select(e => new
                 {
                     e.SourceIp,
@@ -342,9 +347,7 @@ public class ThreatRepository : IThreatRepository
 
             return events
                 .GroupBy(e => e.SourceIp)
-                .Where(g => g.Select(e => e.KillChainStage).Distinct().Count() >= 2)
-                .OrderByDescending(g => g.Min(e => e.Timestamp))
-                .Take(limit)
+                .OrderByDescending(g => g.Max(e => e.Timestamp))
                 .Select(g => new AttackSequence
                 {
                     SourceIp = g.Key,
@@ -383,10 +386,30 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            _context.ThreatPatterns.Add(pattern);
+            // Dedup: if a pattern with the same type + source IPs was detected in the last hour, update it
+            var cutoff = DateTime.UtcNow.AddHours(-1);
+            var existing = await _context.ThreatPatterns
+                .FirstOrDefaultAsync(p =>
+                    p.PatternType == pattern.PatternType &&
+                    p.SourceIpsJson == pattern.SourceIpsJson &&
+                    p.DetectedAt >= cutoff, cancellationToken);
+
+            if (existing != null)
+            {
+                existing.EventCount = pattern.EventCount;
+                existing.DetectedAt = pattern.DetectedAt;
+                existing.Description = pattern.Description;
+                existing.LastSeen = pattern.LastSeen;
+                _logger.LogDebug("Updated existing pattern {Id}: {Type}", existing.Id, existing.PatternType);
+            }
+            else
+            {
+                _context.ThreatPatterns.Add(pattern);
+                _logger.LogInformation("Saved new threat pattern: {Type} with {Count} events",
+                    pattern.PatternType, pattern.EventCount);
+            }
+
             await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Saved threat pattern {Id}: {Type} with {Count} events",
-                pattern.Id, pattern.PatternType, pattern.EventCount);
         }
         catch (Exception ex)
         {
@@ -485,4 +508,18 @@ public class ThreatRepository : IThreatRepository
     }
 
     #endregion
+}
+
+/// <summary>
+/// Internal DTO for mapping raw SQL timeline query results.
+/// </summary>
+internal class TimelineBucketRaw
+{
+    public string HourStr { get; set; } = string.Empty;
+    public int Severity1 { get; set; }
+    public int Severity2 { get; set; }
+    public int Severity3 { get; set; }
+    public int Severity4 { get; set; }
+    public int Severity5 { get; set; }
+    public int Total { get; set; }
 }

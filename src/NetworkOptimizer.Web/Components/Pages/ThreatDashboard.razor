@@ -683,8 +683,8 @@ else
             }
             else if (_activeTab == "exposure")
             {
-                // Exposure report uses a 30-day window internally
-                _exposureReport = await DashboardService.GetExposureReportAsync(null);
+                // Exposure report auto-fetches port forward rules from UniFi API
+                _exposureReport = await DashboardService.GetExposureReportAsync();
             }
             else if (_activeTab == "geographic")
             {

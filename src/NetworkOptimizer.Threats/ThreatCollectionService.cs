@@ -122,9 +122,9 @@ public class ThreatCollectionService : BackgroundService
         // Load config
         await LoadConfigAsync(settings, cancellationToken);
 
-        // Check if collection is enabled
+        // Check if collection is enabled (null = not set = enabled by default)
         var enabled = await settings.GetSettingAsync("threats.enabled", cancellationToken);
-        if (enabled != null && enabled != "true")
+        if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogDebug("Threat collection disabled");
             return;
@@ -132,9 +132,29 @@ public class ThreatCollectionService : BackgroundService
 
         // Determine sync window
         var lastSync = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
-        var start = lastSync != null
-            ? DateTimeOffset.Parse(lastSync)
-            : DateTimeOffset.UtcNow.AddDays(-7);
+        DateTimeOffset start;
+        if (lastSync != null)
+        {
+            start = DateTimeOffset.Parse(lastSync);
+
+            // If the stored cursor would create a window of less than 1 hour AND we haven't
+            // successfully collected events yet, this is likely a stale cursor from a prior
+            // deploy. Reset to 7 days so the first collection backfills historical data.
+            if (!_hasCollectedOnce && DateTimeOffset.UtcNow - start < TimeSpan.FromHours(1))
+            {
+                var eventCount = await repository.GetThreatSummaryAsync(
+                    DateTime.UtcNow.AddDays(-7), DateTime.UtcNow, cancellationToken);
+                if (eventCount.TotalEvents == 0)
+                {
+                    _logger.LogInformation("Stale sync cursor detected with empty DB, resetting to 7-day backfill");
+                    start = DateTimeOffset.UtcNow.AddDays(-7);
+                }
+            }
+        }
+        else
+        {
+            start = DateTimeOffset.UtcNow.AddDays(-7);
+        }
         var end = DateTimeOffset.UtcNow;
 
         // Get the UniFi API client via the accessor (singleton, connected via UniFiConnectionService)
