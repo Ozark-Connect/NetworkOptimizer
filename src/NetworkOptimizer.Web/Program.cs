@@ -939,7 +939,7 @@ app.MapPost("/api/floor-plan/buildings", async (HttpContext context, FloorPlanSe
 {
     var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var building = await svc.CreateBuildingAsync(request.Name, request.CenterLatitude, request.CenterLongitude);
+    var building = await svc.CreateBuildingAsync(request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
     await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
     return Results.Ok(new { building.Id, building.Name, building.CenterLatitude, building.CenterLongitude });
 });
@@ -948,7 +948,7 @@ app.MapPut("/api/floor-plan/buildings/{id:int}", async (int id, HttpContext cont
 {
     var request = await context.Request.ReadFromJsonAsync<BuildingRequest>();
     if (request == null) return Results.BadRequest(new { error = "Request body is required" });
-    var building = await svc.UpdateBuildingAsync(id, request.Name, request.CenterLatitude, request.CenterLongitude);
+    var building = await svc.UpdateBuildingAsync(id, request.Name?.Trim() ?? "", request.CenterLatitude, request.CenterLongitude);
     await heatmapCache.InvalidateAndReloadAsync(svc, apMapSvc, plannedApSvc);
     return building != null ? Results.Ok(new { success = true }) : Results.NotFound();
 });
@@ -1231,7 +1231,7 @@ app.MapPut("/api/floor-plan/planned-aps/{id:int}", async (int id, HttpContext co
     if (body.TryGetValue("antennaMode", out var am))
         await svc.UpdateAntennaModeAsync(id, am.ValueKind == System.Text.Json.JsonValueKind.Null ? null : am.GetString());
     if (body.TryGetValue("name", out var name))
-        await svc.UpdateNameAsync(id, name.GetString() ?? "");
+        await svc.UpdateNameAsync(id, (name.GetString() ?? "").Trim());
 
     await heatmapCache.InvalidateAndReloadAsync(floorSvc, apMapSvc, svc);
     return Results.Ok(new { success = true });

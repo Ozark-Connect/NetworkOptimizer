@@ -2761,7 +2761,7 @@
     [JSInvokable]
     public async Task OnPlannedApNameChangedFromJs(int plannedId, string name)
     {
-        await PlannedApSvc.UpdateNameAsync(plannedId, name);
+        await PlannedApSvc.UpdateNameAsync(plannedId, name.Trim());
         await LoadPlannedAps();
         await UpdateApMarkers();
     }
@@ -3425,7 +3425,11 @@
         if (_mode == "walls")
         {
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
+            if (_selectedFloor != null) await UpdateWalls();
             _mode = "view";
+            if (_heatmapWasOn)
+                _showHeatmap = true;
         }
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
     }
@@ -3438,6 +3442,7 @@
 
     private async Task CreateBuilding()
     {
+        _newBuildingName = _newBuildingName.Trim();
         if (string.IsNullOrWhiteSpace(_newBuildingName)) return;
         var lat = 38.0;
         var lng = -92.0;
@@ -3533,6 +3538,7 @@
         var latOffset = 25.0 / 111320.0;
         var lngOffset = 25.0 / (111320.0 * cosLat);
 
+        _newFloorLabel = _newFloorLabel.Trim();
         await FloorPlanSvc.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
             lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset, _newFloorMaterial);
         HeatmapCache.Invalidate();
