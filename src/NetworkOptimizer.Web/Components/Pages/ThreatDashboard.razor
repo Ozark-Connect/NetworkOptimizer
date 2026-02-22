@@ -1185,6 +1185,8 @@ else
         await CheckMaxMindStatus();
         await LoadClientNamesAsync();
         await LoadNoiseFiltersAsync();
+        var filtersSetting = await SettingsAccessor.GetSettingAsync("threats.filters_active");
+        if (filtersSetting != null) _filtersActive = filtersSetting != "false";
         await LoadDataAsync();
 
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
@@ -1849,6 +1851,7 @@ else
     private async Task ToggleFiltersActive()
     {
         _filtersActive = !_filtersActive;
+        _ = SettingsAccessor.SaveSettingAsync("threats.filters_active", _filtersActive ? "true" : "false");
         await LoadDataAsync();
     }
 
