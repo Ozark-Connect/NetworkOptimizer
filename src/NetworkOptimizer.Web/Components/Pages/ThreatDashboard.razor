@@ -900,7 +900,7 @@ else
                                         <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@destName</span> }</td>
                                         <td class="hide-mobile">@(dest.Domain ?? "-")</td>
                                         <td><code style="font-size:0.8rem;">@dest.PortRanges</code></td>
-                                        <td class="hide-mobile">@(dest.Services ?? "-")</td>
+                                        <td class="hide-mobile">@FormatServices(dest.Services)</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
                                         <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
                                         <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair">Filter</button></td>
@@ -941,7 +941,7 @@ else
                                         <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a>@if (srcPeerName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcPeerName</span> }</td>
                                         <td class="hide-mobile">@(src.Domain ?? "-")</td>
                                         <td><code style="font-size:0.8rem;">@src.PortRanges</code></td>
-                                        <td class="hide-mobile">@(src.Services ?? "-")</td>
+                                        <td class="hide-mobile">@FormatServices(src.Services)</td>
                                         <td>@FormatNumber(src.EventCount)</td>
                                         <td>@(src.BlockedCount > 0 ? FormatNumber(src.BlockedCount) : "-")</td>
                                         <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair">Filter</button></td>
@@ -1948,6 +1948,31 @@ else
     private static readonly string[] SeverityPrefixes =
         ["high risk", "low risk", "medium risk", "not suspicious", "potentially bad", "misc"];
     private static readonly string[] DirectionTokens = ["incoming", "outgoing", "inbound", "outbound"];
+    private static readonly HashSet<string> ProtocolTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "TCP", "UDP", "ICMP", "HTTP", "HTTPS", "SSH", "DNS", "FTP", "SMTP", "SNMP",
+        "RDP", "SIP", "IMAP", "IMAPS", "POP3", "POP3S", "NTP", "LDAP", "SMB", "TLS", "SSL",
+        "MQTT", "QUIC", "RPC", "TFTP", "DHCP", "ARP", "IP", "P2P", "IRC", "VPN", "IPP"
+    };
+
+    private static string FormatServices(string? services)
+    {
+        if (string.IsNullOrEmpty(services)) return "-";
+        return string.Join(", ", services.Split(',', StringSplitOptions.TrimEntries)
+            .Select(TitleCaseWithProtocols));
+    }
+
+    private static string TitleCaseWithProtocols(string text)
+    {
+        var titleCased = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(text);
+        var words = titleCased.Split(' ');
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (ProtocolTokens.Contains(words[i]))
+                words[i] = words[i].ToUpperInvariant();
+        }
+        return string.Join(' ', words);
+    }
 
     private static List<CategoryPart> SplitCategory(string category)
     {
@@ -1978,17 +2003,15 @@ else
             break;
         }
 
-        // Remainder is the protocol/type
+        // Remainder is the protocol/type - apply protocol uppercasing
         if (remainder.Length > 0)
         {
-            var label = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(remainder);
-            parts.Add(new CategoryPart(label, "type"));
+            parts.Add(new CategoryPart(TitleCaseWithProtocols(remainder), "type"));
         }
 
         // Fallback: if no parts matched, return the whole thing
         if (parts.Count == 0)
-            parts.Add(new CategoryPart(
-                System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(lower), "neutral"));
+            parts.Add(new CategoryPart(TitleCaseWithProtocols(lower), "neutral"));
 
         return parts;
     }
