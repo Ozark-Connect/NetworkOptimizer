@@ -3368,6 +3368,7 @@
         var material = e.Value?.ToString() ?? "floor_wood";
         _selectedFloor.FloorMaterial = material;
         await FloorPlanSvc.UpdateFloorAsync(_selectedFloor.Id, floorMaterial: material);
+        HeatmapCache.Invalidate();
         if (_showHeatmap) await ComputeHeatmap();
     }
 
@@ -3444,6 +3445,7 @@
         if (firstAp != null) { lat = firstAp.Latitude!.Value; lng = firstAp.Longitude!.Value; }
 
         var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
+        HeatmapCache.Invalidate();
         _showAddBuilding = false;
         await LoadBuildings();
         if (_mapInitialized)
@@ -3533,6 +3535,7 @@
 
         await FloorPlanSvc.CreateFloorAsync(_selectedBuilding.Id, _newFloorNumber, _newFloorLabel,
             lat - latOffset, lng - lngOffset, lat + latOffset, lng + lngOffset, _newFloorMaterial);
+        HeatmapCache.Invalidate();
 
         _showAddFloor = false;
         await LoadBuildings();
@@ -3574,6 +3577,7 @@
             _selectedCatalogModel = null;
         }
         await FloorPlanSvc.DeleteFloorAsync(_selectedFloor.Id);
+        HeatmapCache.Invalidate();
         await LoadBuildings();
         _selectedBuilding = _buildings.FirstOrDefault(b => b.Id == _selectedBuildingId);
         _floors = _selectedBuilding?.Floors ?? new();
@@ -3621,6 +3625,7 @@
             _selectedCatalogModel = null;
         }
         await FloorPlanSvc.DeleteBuildingAsync(_selectedBuilding.Id);
+        HeatmapCache.Invalidate();
         await LoadBuildings();
         EnsureGlobalFloorExists();
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
