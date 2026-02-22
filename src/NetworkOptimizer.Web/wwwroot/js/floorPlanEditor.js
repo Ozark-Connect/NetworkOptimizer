@@ -407,23 +407,17 @@ window.fpEditor = {
             });
 
             // Immediately invalidate + abort on zoom/pan START so stale responses
-            // can't sneak in between zoomend and moveend
+            // can't render with wrong-viewport bounds
             m.on('zoomstart movestart', function () {
                 self._heatmapRequestId = (self._heatmapRequestId || 0) + 1;
                 if (self._heatmapAbort) self._heatmapAbort.abort();
-                if (heatmapTimer) clearTimeout(heatmapTimer);
             });
 
-            // Re-evaluate heatmap on zoom/pan END (debounce to coalesce rapid scroll-wheel zooms)
-            // Calls JS computeHeatmap directly (reuses stored params) to avoid Blazor SignalR round-trip
-            var heatmapTimer = null;
+            // Recompute heatmap when zoom/pan settles
             m.on('moveend', function () {
-                if (heatmapTimer) clearTimeout(heatmapTimer);
-                heatmapTimer = setTimeout(function () {
-                    if (self._heatmapBaseUrl) {
-                        self.computeHeatmap();
-                    }
-                }, 300);
+                if (self._heatmapBaseUrl) {
+                    self.computeHeatmap();
+                }
             });
 
             // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
