@@ -3432,6 +3432,7 @@
                 _showHeatmap = true;
         }
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+        if (_showHeatmap) await ComputeHeatmap();
     }
 
     private void ShowAddBuildingDialog()
