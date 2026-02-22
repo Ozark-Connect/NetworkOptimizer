@@ -42,6 +42,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ThreatEvent> ThreatEvents { get; set; }
     public DbSet<ThreatPattern> ThreatPatterns { get; set; }
     public DbSet<CrowdSecReputation> CrowdSecReputations { get; set; }
+    public DbSet<ThreatNoiseFilter> ThreatNoiseFilters { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -287,6 +288,12 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("CrowdSecReputations");
             entity.HasKey(e => e.Ip);
             entity.HasIndex(e => e.ExpiresAt);
+        });
+
+        // ThreatNoiseFilter configuration
+        modelBuilder.Entity<ThreatNoiseFilter>(entity =>
+        {
+            entity.ToTable("ThreatNoiseFilters");
         });
     }
 }

@@ -7,6 +7,13 @@ namespace NetworkOptimizer.Threats.Interfaces;
 /// </summary>
 public interface IThreatRepository
 {
+    // --- Noise Filtering ---
+    /// <summary>
+    /// Set active noise filters for this repository scope. All subsequent query methods
+    /// will automatically exclude events matching these filters.
+    /// </summary>
+    void SetNoiseFilters(List<ThreatNoiseFilter> filters);
+
     // --- Threat Events ---
     Task SaveEventsAsync(List<ThreatEvent> events, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsAsync(DateTime from, DateTime to, string? sourceIp = null, int? destPort = null, KillChainStage? stage = null, int limit = 1000, CancellationToken cancellationToken = default);
@@ -32,6 +39,12 @@ public interface IThreatRepository
     Task<CrowdSecReputation?> GetCrowdSecCacheAsync(string ip, CancellationToken cancellationToken = default);
     Task SaveCrowdSecCacheAsync(CrowdSecReputation reputation, CancellationToken cancellationToken = default);
     Task PurgeCrowdSecCacheAsync(CancellationToken cancellationToken = default);
+
+    // --- Noise Filters ---
+    Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default);
+    Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default);
+    Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default);
+    Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

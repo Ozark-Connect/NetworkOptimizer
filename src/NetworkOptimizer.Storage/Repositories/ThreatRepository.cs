@@ -13,11 +13,87 @@ public class ThreatRepository : IThreatRepository
 {
     private readonly NetworkOptimizerDbContext _context;
     private readonly ILogger<ThreatRepository> _logger;
+    private List<ThreatNoiseFilter> _noiseFilters = [];
 
     public ThreatRepository(NetworkOptimizerDbContext context, ILogger<ThreatRepository> logger)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public void SetNoiseFilters(List<ThreatNoiseFilter> filters)
+    {
+        _noiseFilters = filters;
+    }
+
+    /// <summary>
+    /// Build a base query for the time range with noise filters applied.
+    /// </summary>
+    private IQueryable<ThreatEvent> BaseQuery(DateTime from, DateTime to)
+    {
+        var query = _context.ThreatEvents
+            .AsNoTracking()
+            .Where(e => e.Timestamp >= from && e.Timestamp <= to);
+
+        return ApplyNoiseFilters(query);
+    }
+
+    /// <summary>
+    /// Apply noise filter exclusions to an IQueryable. Each filter adds a WHERE clause
+    /// that excludes events matching all non-null filter fields.
+    /// </summary>
+    private IQueryable<ThreatEvent> ApplyNoiseFilters(IQueryable<ThreatEvent> query)
+    {
+        foreach (var f in _noiseFilters)
+        {
+            // Capture for closure
+            var srcIp = f.SourceIp;
+            var dstIp = f.DestIp;
+            var dstPort = f.DestPort;
+
+            // Exclude events where ALL non-null fields match (De Morgan's: keep if ANY doesn't match)
+            if (srcIp != null && dstIp != null && dstPort != null)
+                query = query.Where(e => e.SourceIp != srcIp || e.DestIp != dstIp || e.DestPort != dstPort);
+            else if (srcIp != null && dstIp != null)
+                query = query.Where(e => e.SourceIp != srcIp || e.DestIp != dstIp);
+            else if (srcIp != null && dstPort != null)
+                query = query.Where(e => e.SourceIp != srcIp || e.DestPort != dstPort);
+            else if (dstIp != null && dstPort != null)
+                query = query.Where(e => e.DestIp != dstIp || e.DestPort != dstPort);
+            else if (srcIp != null)
+                query = query.Where(e => e.SourceIp != srcIp);
+            else if (dstIp != null)
+                query = query.Where(e => e.DestIp != dstIp);
+            else if (dstPort != null)
+                query = query.Where(e => e.DestPort != dstPort);
+            // If all null, skip (would match everything)
+        }
+
+        return query;
+    }
+
+    /// <summary>
+    /// Build a SQL noise filter WHERE clause for raw SQL queries.
+    /// Returns empty string if no filters active.
+    /// </summary>
+    private string BuildNoiseFilterSql(out List<object> parameters)
+    {
+        parameters = [];
+        if (_noiseFilters.Count == 0) return "";
+
+        var clauses = new List<string>();
+        foreach (var f in _noiseFilters)
+        {
+            var parts = new List<string>();
+            if (f.SourceIp != null) { parts.Add($"SourceIp != {{{parameters.Count}}}"); parameters.Add(f.SourceIp); }
+            if (f.DestIp != null) { parts.Add($"DestIp != {{{parameters.Count}}}"); parameters.Add(f.DestIp); }
+            if (f.DestPort != null) { parts.Add($"DestPort != {{{parameters.Count}}}"); parameters.Add(f.DestPort); }
+
+            if (parts.Count > 0)
+                clauses.Add($"({string.Join(" OR ", parts)})");
+        }
+
+        return clauses.Count > 0 ? " AND " + string.Join(" AND ", clauses) : "";
     }
 
     #region Threat Events
@@ -60,9 +136,7 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            var query = _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to);
+            var query = BaseQuery(from, to);
 
             if (!string.IsNullOrEmpty(sourceIp))
                 query = query.Where(e => e.SourceIp == sourceIp);
@@ -88,9 +162,7 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            var events = _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to);
+            var events = BaseQuery(from, to);
 
             var total = await events.CountAsync(cancellationToken);
             var blocked = await events.CountAsync(e => e.Action == ThreatAction.Blocked, cancellationToken);
@@ -118,9 +190,7 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            return await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+            return await BaseQuery(from, to)
                 .GroupBy(e => e.SourceIp)
                 .Select(g => new SourceIpSummary
                 {
@@ -148,9 +218,7 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            return await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+            return await BaseQuery(from, to)
                 .GroupBy(e => e.DestPort)
                 .Select(g => new TargetPortSummary
                 {
@@ -178,9 +246,8 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            return await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to && e.CountryCode != null)
+            return await BaseQuery(from, to)
+                .Where(e => e.CountryCode != null)
                 .GroupBy(e => e.CountryCode!)
                 .Select(g => new { Country = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(g => g.Country, g => g.Count, cancellationToken);
@@ -198,9 +265,21 @@ public class ThreatRepository : IThreatRepository
         try
         {
             // Use raw SQL with strftime for server-side hour truncation (avoids loading all events into memory)
+            var noiseFilterSql = BuildNoiseFilterSql(out var extraParams);
+            var allParams = new List<object> { from, to };
+            // Offset parameter indices in the noise filter SQL by 2 (for from/to)
+            var offsetFilterSql = noiseFilterSql;
+            for (var i = extraParams.Count - 1; i >= 0; i--)
+            {
+                offsetFilterSql = offsetFilterSql.Replace($"{{{i}}}", $"{{{i + 2}}}");
+                allParams.Add(extraParams[i]);
+            }
+
+            // All dynamic values use parameterized {N} placeholders - safe from injection
+#pragma warning disable EF1002
             var buckets = await _context.Database
                 .SqlQueryRaw<TimelineBucketRaw>(
-                    """
+                    $$"""
                     SELECT strftime('%Y-%m-%d %H:00:00', Timestamp) AS HourStr,
                            SUM(CASE WHEN Severity = 1 THEN 1 ELSE 0 END) AS Severity1,
                            SUM(CASE WHEN Severity = 2 THEN 1 ELSE 0 END) AS Severity2,
@@ -209,11 +288,12 @@ public class ThreatRepository : IThreatRepository
                            SUM(CASE WHEN Severity = 5 THEN 1 ELSE 0 END) AS Severity5,
                            COUNT(*) AS Total
                     FROM ThreatEvents
-                    WHERE Timestamp >= {0} AND Timestamp <= {1}
+                    WHERE Timestamp >= {0} AND Timestamp <= {1}{{offsetFilterSql}}
                     GROUP BY strftime('%Y-%m-%d %H:00:00', Timestamp)
                     ORDER BY HourStr
-                    """, from, to)
+                    """, allParams.ToArray())
                 .ToListAsync(cancellationToken);
+#pragma warning restore EF1002
 
             return buckets.Select(b => new TimelineBucket
             {
@@ -238,9 +318,7 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            var results = await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+            var results = await BaseQuery(from, to)
                 .GroupBy(e => e.KillChainStage)
                 .Select(g => new { Stage = g.Key, Count = g.Count() })
                 .ToListAsync(cancellationToken);
@@ -259,9 +337,10 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            return await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => (e.SourceIp == ip || e.DestIp == ip) && e.Timestamp >= from && e.Timestamp <= to)
+            return await ApplyNoiseFilters(
+                _context.ThreatEvents
+                    .AsNoTracking()
+                    .Where(e => (e.SourceIp == ip || e.DestIp == ip) && e.Timestamp >= from && e.Timestamp <= to))
                 .OrderByDescending(e => e.Timestamp)
                 .Take(limit)
                 .ToListAsync(cancellationToken);
@@ -293,9 +372,7 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            var results = await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+            var results = await BaseQuery(from, to)
                 .GroupBy(e => e.DestPort)
                 .Select(g => new { Port = g.Key, Count = g.Count() })
                 .ToListAsync(cancellationToken);
@@ -337,9 +414,7 @@ public class ThreatRepository : IThreatRepository
         try
         {
             // Step 1: Find source IPs with 2+ distinct kill chain stages (SQL-side filtering)
-            var candidateIps = await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to)
+            var candidateIps = await BaseQuery(from, to)
                 .GroupBy(e => e.SourceIp)
                 .Where(g => g.Select(e => e.KillChainStage).Distinct().Count() >= 2)
                 .OrderByDescending(g => g.Max(e => e.Timestamp))
@@ -350,9 +425,8 @@ public class ThreatRepository : IThreatRepository
             if (candidateIps.Count == 0) return [];
 
             // Step 2: Load only events for those IPs (bounded set)
-            var events = await _context.ThreatEvents
-                .AsNoTracking()
-                .Where(e => e.Timestamp >= from && e.Timestamp <= to && candidateIps.Contains(e.SourceIp))
+            var events = await BaseQuery(from, to)
+                .Where(e => candidateIps.Contains(e.SourceIp))
                 .Select(e => new
                 {
                     e.SourceIp,
@@ -524,6 +598,39 @@ public class ThreatRepository : IThreatRepository
             _logger.LogError(ex, "Failed to purge CrowdSec cache");
             throw;
         }
+    }
+
+    #endregion
+
+    #region Noise Filters
+
+    public async Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.ThreatNoiseFilters
+            .AsNoTracking()
+            .OrderByDescending(f => f.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default)
+    {
+        _context.ThreatNoiseFilters.Add(filter);
+        await _context.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Saved noise filter: {Description}", filter.Description);
+    }
+
+    public async Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default)
+    {
+        await _context.ThreatNoiseFilters
+            .Where(f => f.Id == filterId)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    public async Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default)
+    {
+        await _context.ThreatNoiseFilters
+            .Where(f => f.Id == filterId)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.Enabled, enabled), cancellationToken);
     }
 
     #endregion

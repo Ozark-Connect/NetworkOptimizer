@@ -21,6 +21,9 @@ public class ThreatDashboardService
     private readonly ICredentialProtectionService _credentialService;
     private readonly ILogger<ThreatDashboardService> _logger;
 
+    // Cached noise filters (loaded once per service scope, i.e., per request)
+    private List<ThreatNoiseFilter>? _activeFilters;
+
     public ThreatDashboardService(
         IThreatRepository repository,
         ExposureValidator exposureValidator,
@@ -44,6 +47,7 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             var summary = await _repository.GetThreatSummaryAsync(from, to, cancellationToken);
             var killChain = await _repository.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topSources = await _repository.GetTopSourcesAsync(from, to, 10, cancellationToken);
@@ -132,11 +136,10 @@ public class ThreatDashboardService
             {
                 var info = await _crowdSecService.GetReputationAsync(
                     source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
-                if (info == null) continue;
 
                 source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
                 source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
-                source.TopBehaviors = info.Behaviors.Count > 0
+                source.TopBehaviors = info?.Behaviors.Count > 0
                     ? string.Join(", ", info.Behaviors.Take(3).Select(b => b.Label))
                     : null;
             }
@@ -153,6 +156,7 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             return await _repository.GetTimelineAsync(from, to, cancellationToken);
         }
         catch (Exception ex)
@@ -167,6 +171,7 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             return await _repository.GetCountryDistributionAsync(from, to, cancellationToken);
         }
         catch (Exception ex)
@@ -212,6 +217,7 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             return await _repository.GetEventsAsync(DateTime.UtcNow.AddDays(-7), DateTime.UtcNow,
                 limit: limit, cancellationToken: cancellationToken);
         }
@@ -259,6 +265,7 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             return await _repository.GetAttackSequencesAsync(from, to, 50, cancellationToken);
         }
         catch (Exception ex)
@@ -273,6 +280,7 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             var events = await _repository.GetEventsByIpAsync(ip, from, to, cancellationToken: cancellationToken);
 
             var asSource = events.Where(e => e.SourceIp == ip).ToList();
@@ -425,6 +433,61 @@ public class ThreatDashboardService
         }
         result.Add(current);
         return result.OrderByDescending(r => r.EventCount).ToList();
+    }
+
+    private async Task ApplyNoiseFiltersToRepository(CancellationToken cancellationToken)
+    {
+        var filters = await GetActiveFiltersAsync(cancellationToken);
+        _repository.SetNoiseFilters(filters);
+    }
+
+    // --- Noise Filter Management ---
+
+    public async Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default)
+    {
+        return await _repository.GetNoiseFiltersAsync(cancellationToken);
+    }
+
+    public async Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default)
+    {
+        await _repository.SaveNoiseFilterAsync(filter, cancellationToken);
+        _activeFilters = null; // Invalidate cache
+    }
+
+    public async Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default)
+    {
+        await _repository.DeleteNoiseFilterAsync(filterId, cancellationToken);
+        _activeFilters = null;
+    }
+
+    public async Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default)
+    {
+        await _repository.ToggleNoiseFilterAsync(filterId, enabled, cancellationToken);
+        _activeFilters = null;
+    }
+
+    private async Task<List<ThreatNoiseFilter>> GetActiveFiltersAsync(CancellationToken cancellationToken = default)
+    {
+        _activeFilters ??= (await _repository.GetNoiseFiltersAsync(cancellationToken))
+            .Where(f => f.Enabled).ToList();
+        return _activeFilters;
+    }
+
+    /// <summary>
+    /// Apply noise filters to a list of events, removing matches.
+    /// </summary>
+    private List<ThreatEvent> ApplyNoiseFilters(List<ThreatEvent> events, List<ThreatNoiseFilter> filters)
+    {
+        if (filters.Count == 0) return events;
+        return events.Where(e => !filters.Any(f => MatchesFilter(e, f))).ToList();
+    }
+
+    private static bool MatchesFilter(ThreatEvent evt, ThreatNoiseFilter filter)
+    {
+        if (filter.SourceIp != null && evt.SourceIp != filter.SourceIp) return false;
+        if (filter.DestIp != null && evt.DestIp != filter.DestIp) return false;
+        if (filter.DestPort != null && evt.DestPort != filter.DestPort) return false;
+        return true; // All non-null fields matched (null = wildcard)
     }
 
     private static string GetServiceName(int port)

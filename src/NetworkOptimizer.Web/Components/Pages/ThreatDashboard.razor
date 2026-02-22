@@ -52,17 +52,106 @@
             <span style="color:var(--text-secondary);">IP Drill-Down</span>
         </div>
     }
-    <div class="time-range-selector">
-        <button class="time-btn @(_timeRange == "24h" ? "active" : "")"
-                @onclick='() => SetTimeRange("24h")'>24h</button>
-        <button class="time-btn @(_timeRange == "7d" ? "active" : "")"
-                @onclick='() => SetTimeRange("7d")'>7d</button>
-        <button class="time-btn @(_timeRange == "30d" ? "active" : "")"
-                @onclick='() => SetTimeRange("30d")'>30d</button>
-        <button class="time-btn @(_timeRange == "90d" ? "active" : "")"
-                @onclick='() => SetTimeRange("90d")'>90d</button>
+    <div style="display:flex; align-items:center; gap:0.5rem;">
+        <button class="btn btn-sm @(_showFilterPanel ? "btn-primary" : "btn-secondary")"
+                @onclick="() => _showFilterPanel = !_showFilterPanel"
+                style="position:relative;"
+                data-tooltip="Noise filters - hide noisy traffic from the dashboard">
+            Filters@if (_noiseFilters.Count(f => f.Enabled) > 0) { <span class="noise-filter-badge">@_noiseFilters.Count(f => f.Enabled)</span> }
+        </button>
+        <div class="time-range-selector">
+            <button class="time-btn @(_timeRange == "24h" ? "active" : "")"
+                    @onclick='() => SetTimeRange("24h")'>24h</button>
+            <button class="time-btn @(_timeRange == "7d" ? "active" : "")"
+                    @onclick='() => SetTimeRange("7d")'>7d</button>
+            <button class="time-btn @(_timeRange == "30d" ? "active" : "")"
+                    @onclick='() => SetTimeRange("30d")'>30d</button>
+            <button class="time-btn @(_timeRange == "90d" ? "active" : "")"
+                    @onclick='() => SetTimeRange("90d")'>90d</button>
+        </div>
     </div>
 </div>
+
+@* Noise Filter Panel *@
+@if (_showFilterPanel)
+{
+    <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--accent-color);">
+        <div class="card-body" style="padding:1rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+                <h4 style="margin:0; font-size:0.95rem; font-weight:600;">Noise Filters</h4>
+                <span style="color:var(--text-muted); font-size:0.8rem;">Hide noisy traffic from all dashboard views</span>
+            </div>
+
+            @* Add new filter form *@
+            <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:0.75rem;">
+                <div>
+                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Source IP</label>
+                    <input type="text" @bind="_newFilterSourceIp" placeholder="any"
+                           style="width:140px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                </div>
+                <div>
+                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest IP</label>
+                    <input type="text" @bind="_newFilterDestIp" placeholder="any"
+                           style="width:140px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                </div>
+                <div>
+                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest Port</label>
+                    <input type="text" @bind="_newFilterDestPort" placeholder="any"
+                           style="width:80px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                </div>
+                <div>
+                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Description</label>
+                    <input type="text" @bind="_newFilterDescription" placeholder="optional"
+                           style="width:200px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                </div>
+                <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
+            </div>
+
+            @* Existing filters *@
+            @if (_noiseFilters.Count > 0)
+            {
+                <div class="table-responsive">
+                    <table class="data-table" style="font-size:0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Source IP</th>
+                                <th>Dest IP</th>
+                                <th>Dest Port</th>
+                                <th>Description</th>
+                                <th style="width:100px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var filter in _noiseFilters)
+                            {
+                                <tr style="@(filter.Enabled ? "" : "opacity:0.5;")">
+                                    <td><code>@(filter.SourceIp ?? "*")</code></td>
+                                    <td><code>@(filter.DestIp ?? "*")</code></td>
+                                    <td><code>@(filter.DestPort?.ToString() ?? "*")</code></td>
+                                    <td>@filter.Description</td>
+                                    <td>
+                                        <div style="display:flex; gap:0.25rem;">
+                                            <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
+                                                    data-tooltip="@(filter.Enabled ? "Disable" : "Enable")">
+                                                @(filter.Enabled ? "On" : "Off")
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
+                                                    data-tooltip="Delete filter">X</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div style="color:var(--text-muted); font-size:0.85rem;">No filters configured. Add one above to hide noisy traffic.</div>
+            }
+        </div>
+    </div>
+}
 
 @if (CollectionService.BackfillCursor != null)
 {
@@ -705,6 +794,7 @@ else
                                     <th class="hide-mobile">Services</th>
                                     <th>Events</th>
                                     <th>Blocked</th>
+                                    <th class="hide-mobile" style="width:50px;"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -717,6 +807,7 @@ else
                                         <td class="hide-mobile">@(dest.Services ?? "-")</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
                                         <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
+                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair">Filter</button></td>
                                     </tr>
                                 }
                             </tbody>
@@ -744,6 +835,7 @@ else
                                     <th class="hide-mobile">Services</th>
                                     <th>Events</th>
                                     <th>Blocked</th>
+                                    <th class="hide-mobile" style="width:50px;"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -756,6 +848,7 @@ else
                                         <td class="hide-mobile">@(src.Services ?? "-")</td>
                                         <td>@FormatNumber(src.EventCount)</td>
                                         <td>@(src.BlockedCount > 0 ? FormatNumber(src.BlockedCount) : "-")</td>
+                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair">Filter</button></td>
                                     </tr>
                                 }
                             </tbody>
@@ -825,7 +918,7 @@ else
                                 {
                                     <tr>
                                         <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@sig.Name</td>
-                                        <td class="hide-mobile">@(string.IsNullOrEmpty(sig.Category) ? "-" : sig.Category)</td>
+                                        <td class="hide-mobile">@(string.IsNullOrEmpty(sig.Category) ? "-" : PrettifyCategory(sig.Category))</td>
                                         <td>@FormatNumber(sig.EventCount)</td>
                                         <td>
                                             <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:@GetSeverityColor(sig.MaxSeverity); margin-right:0.4rem;"></span>
@@ -932,6 +1025,22 @@ else
         text-decoration: underline;
     }
 
+    /* Noise filter active count badge */
+    .noise-filter-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: var(--accent-color);
+        color: white;
+        font-size: 0.65rem;
+        font-weight: 700;
+        margin-left: 0.3rem;
+        padding: 0 4px;
+    }
+
     @@media (max-width: 768px) {
         .threat-summary-grid {
             grid-template-columns: repeat(2, 1fr);
@@ -960,6 +1069,14 @@ else
     private string _previousTab = "overview";
     private IpDrilldownData? _drilldownData;
 
+    // Noise filter state
+    private List<ThreatNoiseFilter> _noiseFilters = [];
+    private bool _showFilterPanel;
+    private string _newFilterSourceIp = "";
+    private string _newFilterDestIp = "";
+    private string _newFilterDestPort = "";
+    private string _newFilterDescription = "";
+
     // Persist manual CTI lookups across auto-refresh cycles (fresh DB objects lose in-memory enrichment)
     private readonly Dictionary<string, CtiLookupResult> _manualCtiCache = new();
 
@@ -985,6 +1102,7 @@ else
     {
         await CheckCrowdSecStatus();
         await LoadClientNamesAsync();
+        await LoadNoiseFiltersAsync();
         await LoadDataAsync();
 
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
@@ -1535,6 +1653,12 @@ else
         };
     }
 
+    private static string PrettifyCategory(string category)
+    {
+        if (string.IsNullOrEmpty(category)) return category;
+        return System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(category.ToLowerInvariant());
+    }
+
     private static string GetStageColor(KillChainStage stage)
     {
         return stage switch
@@ -1571,6 +1695,69 @@ else
     {
         public string Label { get; set; } = string.Empty;
         public int Count { get; set; }
+    }
+
+    // --- Noise Filter Methods ---
+
+    private async Task LoadNoiseFiltersAsync()
+    {
+        try { _noiseFilters = await DashboardService.GetNoiseFiltersAsync(); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Failed to load noise filters"); }
+    }
+
+    private async Task AddNoiseFilterAsync()
+    {
+        var filter = new ThreatNoiseFilter
+        {
+            SourceIp = string.IsNullOrWhiteSpace(_newFilterSourceIp) ? null : _newFilterSourceIp.Trim(),
+            DestIp = string.IsNullOrWhiteSpace(_newFilterDestIp) ? null : _newFilterDestIp.Trim(),
+            DestPort = int.TryParse(_newFilterDestPort, out var p) ? p : null,
+            Description = string.IsNullOrWhiteSpace(_newFilterDescription) ? BuildFilterDescription() : _newFilterDescription.Trim()
+        };
+
+        // Must have at least one field
+        if (filter.SourceIp == null && filter.DestIp == null && filter.DestPort == null) return;
+
+        await DashboardService.SaveNoiseFilterAsync(filter);
+        _newFilterSourceIp = "";
+        _newFilterDestIp = "";
+        _newFilterDestPort = "";
+        _newFilterDescription = "";
+        await LoadNoiseFiltersAsync();
+        await LoadDataAsync();
+    }
+
+    private string BuildFilterDescription()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_newFilterSourceIp)) parts.Add($"src={_newFilterSourceIp.Trim()}");
+        if (!string.IsNullOrWhiteSpace(_newFilterDestIp)) parts.Add($"dst={_newFilterDestIp.Trim()}");
+        if (!string.IsNullOrWhiteSpace(_newFilterDestPort)) parts.Add($"port={_newFilterDestPort.Trim()}");
+        return string.Join(", ", parts);
+    }
+
+    private async Task ToggleFilterAsync(ThreatNoiseFilter filter)
+    {
+        await DashboardService.ToggleNoiseFilterAsync(filter.Id, !filter.Enabled);
+        await LoadNoiseFiltersAsync();
+        await LoadDataAsync();
+    }
+
+    private async Task DeleteFilterAsync(ThreatNoiseFilter filter)
+    {
+        await DashboardService.DeleteNoiseFilterAsync(filter.Id);
+        await LoadNoiseFiltersAsync();
+        await LoadDataAsync();
+    }
+
+    private async Task QuickFilterFromDrilldown(string? sourceIp, string? destIp, int? destPort)
+    {
+        _newFilterSourceIp = sourceIp ?? "";
+        _newFilterDestIp = destIp ?? "";
+        _newFilterDestPort = destPort?.ToString() ?? "";
+        _newFilterDescription = "";
+        _showFilterPanel = true;
+        await Task.CompletedTask; // Let UI show the pre-filled form
     }
 
     public void Dispose()
