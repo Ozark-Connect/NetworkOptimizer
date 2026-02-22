@@ -145,18 +145,31 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        // === PHASE 1: Recent 24h sweep - uncapped pages for complete coverage ===
-        // The last 24 hours is where completeness matters most. No page limit so we
-        // never miss flows due to pagination. Dedup via InnerAlertId keeps this cheap
-        // on subsequent cycles (most events already saved).
+        // === PHASE 1: Recent 24h sweep - 1-hour chunks for complete coverage ===
+        // The UniFi traffic-flows API caps results per query (~1000), so a single 24h
+        // query misses events. We chunk into 1-hour windows to stay well under the cap.
+        // Dedup via InnerAlertId keeps subsequent cycles cheap.
         var now = DateTimeOffset.UtcNow;
         var recentStart = now.AddHours(-24);
-        var recentEvents = await CollectRangeAsync(apiClient, recentStart, now, maxPages: int.MaxValue, cancellationToken);
-        await ProcessAndSaveAsync(recentEvents, repository, cancellationToken);
+        var totalRecentEvents = 0;
+
+        var chunkCursor = recentStart;
+        while (chunkCursor < now)
+        {
+            var chunkEnd = chunkCursor.AddHours(1);
+            if (chunkEnd > now) chunkEnd = now;
+
+            var chunkEvents = await CollectRangeAsync(apiClient, chunkCursor, chunkEnd, maxPages: int.MaxValue, cancellationToken);
+            await ProcessAndSaveAsync(chunkEvents, repository, cancellationToken);
+            totalRecentEvents += chunkEvents.Count;
+
+            chunkCursor = chunkEnd;
+        }
+
         await settings.SaveSettingAsync("threats.last_sync_timestamp", now.ToString("O"));
 
-        if (recentEvents.Count > 0)
-            _logger.LogInformation("Recent 24h: {Count} events", recentEvents.Count);
+        if (totalRecentEvents > 0)
+            _logger.LogInformation("Recent 24h: {Count} events across 24 chunks", totalRecentEvents);
 
         // === PHASE 2: Gradual backfill (>24h ago) - page-limited to stay gentle ===
         var backfillCursorStr = await settings.GetSettingAsync("threats.backfill_cursor", cancellationToken);
