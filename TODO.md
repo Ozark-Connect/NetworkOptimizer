@@ -315,11 +315,13 @@ The following were implemented in the WiFi Optimizer feature:
 
 ### Shared IP-to-Client-Name Resolver
 - Threat Dashboard resolves local IPs to UniFi client names inline (fetches clients, builds IP→name dict)
+- Currently cached for 30 seconds (static across Blazor circuits) to avoid hammering the API
+- **Note:** Real-time features (e.g., live threat feed, active monitoring) will need to invalidate/refresh the cache before using it, since device IPs can change via DHCP
 - Other pages that display IPs could benefit from the same lookup:
   - Security Audit (firewall rules referencing IPs)
   - Config Optimizer (device references)
 - Refactor into a shared service (e.g., `IClientNameResolver` in `NetworkOptimizer.Web/Services/`)
-- Cache client list with short TTL to avoid repeated API calls across pages
+- Shared service should expose `InvalidateCache()` for real-time consumers
 
 ### Uniform Date/Time Formatting in UI
 - Audit all date/time displays across the UI for consistency

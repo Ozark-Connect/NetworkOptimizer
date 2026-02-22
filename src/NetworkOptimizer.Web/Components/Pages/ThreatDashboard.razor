@@ -488,8 +488,8 @@ else
                                         <td>@FormatNumber(entry.Value)</td>
                                         <td>@($"{pct:F1}")%</td>
                                         <td class="hide-mobile" style="width:40%;">
-                                            <div style="background:var(--bg-hover); border-radius:4px; height:16px; overflow:hidden;">
-                                                <div style="background:#3b82f6; height:100%; width:@($"{pct:F1}")%; border-radius:4px; min-width:2px;"></div>
+                                            <div class="threat-bar-track">
+                                                <div class="threat-bar-fill" style="width:@($"{pct:F1}")%;"></div>
                                             </div>
                                         </td>
                                     </tr>
@@ -587,6 +587,27 @@ else
         margin-bottom: 1.5rem;
     }
 
+    /* Align chart legend labels with chart area (left margin matches y-axis label space) */
+    .apexcharts-legend {
+        padding-left: 1rem;
+    }
+
+    /* Horizontal distribution bars (matches Wi-Fi Optimizer load-bar pattern) */
+    .threat-bar-track {
+        background: var(--bg-hover);
+        border-radius: 0 var(--border-radius) var(--border-radius) 0;
+        height: 20px;
+        overflow: hidden;
+    }
+
+    .threat-bar-fill {
+        height: 100%;
+        background: #3b82f6;
+        border-radius: 0 var(--border-radius) var(--border-radius) 0;
+        min-width: 4px;
+        transition: width 0.3s ease;
+    }
+
     @@media (max-width: 768px) {
         .threat-summary-grid {
             grid-template-columns: repeat(2, 1fr);
@@ -617,7 +638,10 @@ else
     private List<KillChainItem> _killChainItems = [];
     private List<ActionBreakdownItem> _actionBreakdownItems = [];
 
-    // IP to client name lookup for local devices
+    // IP to client name lookup for local devices (cached 30s)
+    private static Dictionary<string, string> _clientNamesCache = new();
+    private static DateTime _clientNamesCacheExpiry = DateTime.MinValue;
+    private static readonly object _clientNamesCacheLock = new();
     private Dictionary<string, string> _clientNames = new();
 
     protected override async Task OnInitializedAsync()
@@ -682,6 +706,16 @@ else
 
     private async Task LoadClientNamesAsync()
     {
+        // Check static cache first (shared across Blazor circuits, 30s TTL)
+        lock (_clientNamesCacheLock)
+        {
+            if (_clientNamesCacheExpiry > DateTime.UtcNow && _clientNamesCache.Count > 0)
+            {
+                _clientNames = _clientNamesCache;
+                return;
+            }
+        }
+
         try
         {
             var apiClient = UniFiClientAccessor.Client;
@@ -690,6 +724,7 @@ else
             var clients = await apiClient.GetClientsAsync();
             if (clients == null) return;
 
+            var names = new Dictionary<string, string>();
             foreach (var c in clients)
             {
                 var ip = c.Ip;
@@ -699,8 +734,15 @@ else
                     : !string.IsNullOrEmpty(c.Hostname) ? c.Hostname
                     : null;
                 if (name != null)
-                    _clientNames[ip] = name;
+                    names[ip] = name;
             }
+
+            lock (_clientNamesCacheLock)
+            {
+                _clientNamesCache = names;
+                _clientNamesCacheExpiry = DateTime.UtcNow.AddSeconds(30);
+            }
+            _clientNames = names;
         }
         catch (Exception ex)
         {
