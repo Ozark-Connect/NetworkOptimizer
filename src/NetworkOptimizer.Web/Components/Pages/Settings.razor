@@ -1463,9 +1463,9 @@
             @if (crowdsecEnabled)
             {
                 <div class="form-group">
-                    <label class="form-label">API Key</label>
-                    <input type="password" class="form-control" @bind="crowdsecApiKey" autocomplete="new-password" placeholder="@(hasCrowdsecApiKey ? "Saved - enter new to update" : "Enter CrowdSec API key")" data-1p-ignore data-lpignore="true" data-bwignore />
-                    <small class="form-help">Get a free API key at <a href="https://app.crowdsec.net" target="_blank" style="color: var(--primary-color);">app.crowdsec.net</a> (50 lookups/day free tier)</small>
+                    <label class="form-label">CTI API Key</label>
+                    <input type="password" class="form-control" @bind="crowdsecApiKey" autocomplete="new-password" placeholder="@(hasCrowdsecApiKey ? "Saved - enter new to update" : "Enter CrowdSec CTI API key")" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <small class="form-help">Generate a CTI API key at <a href="https://app.crowdsec.net" target="_blank" style="color: var(--primary-color);">app.crowdsec.net</a> under CTI API Keys (30 lookups/day free tier)</small>
                 </div>
 
                 <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
@@ -1496,7 +1496,7 @@
                         }
                         else
                         {
-                            <span>Test API Key</span>
+                            <span>Test CTI Key</span>
                         }
                     </button>
                 }
@@ -3469,7 +3469,7 @@
             hasCrowdsecApiKey = !string.IsNullOrEmpty(csKey);
 
             var rateLimitState = CrowdSecClient.GetRateLimitState();
-            crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/50";
+            crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/30";
         }
         catch (Exception ex)
         {
@@ -3619,14 +3619,15 @@
 
         try
         {
-            var apiKey = await SystemSettings.GetAsync("crowdsec.api_key");
-            if (string.IsNullOrEmpty(apiKey))
+            var stored = await SystemSettings.GetAsync("crowdsec.api_key");
+            if (string.IsNullOrEmpty(stored))
             {
-                crowdsecMessage = "No API key configured.";
+                crowdsecMessage = "No CTI API key configured.";
                 crowdsecMessageClass = "warning";
                 return;
             }
 
+            var apiKey = CredentialService.IsEncrypted(stored) ? CredentialService.Decrypt(stored) : stored;
             var result = await CrowdSecClient.TestApiKeyAsync(apiKey);
             if (result.Success)
             {

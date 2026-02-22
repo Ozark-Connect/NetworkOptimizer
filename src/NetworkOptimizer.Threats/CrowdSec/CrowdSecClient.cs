@@ -14,7 +14,7 @@ public class CrowdSecClient
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<CrowdSecClient> _logger;
     private const string BaseUrl = "https://cti.api.crowdsec.net/v2/smoke/";
-    private const int FreeTierDailyLimit = 50;
+    private const int FreeTierDailyLimit = 30;
     private const int SafetyMargin = 5;
 
     // In-memory rate limit tracking (also persisted via SystemSettings)
