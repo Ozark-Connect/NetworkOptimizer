@@ -31,6 +31,10 @@ public class ThreatCollectionService : BackgroundService
     private int _pollIntervalMinutes = 5;
     private int _retentionDays = 90;
 
+    // On-demand trigger: released by TriggerCollectionAsync(), waited on during poll sleep
+    private readonly SemaphoreSlim _triggerSignal = new(0, 1);
+    private bool _hasCollectedOnce;
+
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
         ILogger<ThreatCollectionService> logger,
@@ -53,6 +57,22 @@ public class ThreatCollectionService : BackgroundService
         _uniFiClientAccessor = uniFiClientAccessor;
     }
 
+    /// <summary>
+    /// Signal the background loop to run a collection cycle immediately.
+    /// Safe to call from anywhere (dashboard, API, etc.). No-op if already running.
+    /// </summary>
+    public void TriggerCollection()
+    {
+        // TryRelease: if semaphore is already at 1, this is a no-op (avoids SemaphoreFullException)
+        try { _triggerSignal.Release(); }
+        catch (SemaphoreFullException) { /* already signaled */ }
+    }
+
+    /// <summary>
+    /// Whether the service has completed at least one collection cycle.
+    /// </summary>
+    public bool HasCollectedOnce => _hasCollectedOnce;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Threat collection service starting");
@@ -68,6 +88,7 @@ public class ThreatCollectionService : BackgroundService
             try
             {
                 await CollectAndProcessAsync(stoppingToken);
+                _hasCollectedOnce = true;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -78,9 +99,10 @@ public class ThreatCollectionService : BackgroundService
                 _logger.LogError(ex, "Threat collection cycle failed");
             }
 
+            // Wait for poll interval OR an on-demand trigger, whichever comes first
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(_pollIntervalMinutes), stoppingToken);
+                await _triggerSignal.WaitAsync(TimeSpan.FromMinutes(_pollIntervalMinutes), stoppingToken);
             }
             catch (OperationCanceledException)
             {

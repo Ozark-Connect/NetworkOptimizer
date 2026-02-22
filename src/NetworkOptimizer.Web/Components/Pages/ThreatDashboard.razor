@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Threats.Interfaces
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
+@inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject ILogger<ThreatDashboard> Logger
 
 <PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
@@ -49,7 +50,14 @@
     </div>
 </div>
 
-@if (_loading)
+@if (_collectingFirstData)
+{
+    <div class="loading-container" style="flex-direction:column; gap:1rem;">
+        <span class="spinner"></span>
+        <p style="color:var(--text-secondary);">Collecting threat data from UniFi for the first time...</p>
+    </div>
+}
+else if (_loading)
 {
     <div class="loading-container">
         <span class="spinner"></span>
@@ -585,6 +593,7 @@ else
     private List<AttackSequence> _attackSequences = [];
     private bool _crowdSecEnabled;
     private bool _crowdSecBannerDismissed;
+    private bool _collectingFirstData;
 
     // Chart refs and options - each chart needs its own options instance
     private ApexChart<TimelineBucket>? _timelineChart;
@@ -600,6 +609,45 @@ else
     {
         await CheckCrowdSecStatus();
         await LoadDataAsync();
+
+        // If the DB is empty (service hasn't collected yet), trigger an immediate collection
+        // and reload once it completes
+        if (_dashboardData.Summary.TotalEvents == 0 && !CollectionService.HasCollectedOnce)
+        {
+            CollectionService.TriggerCollection();
+            _collectingFirstData = true;
+            StateHasChanged();
+            _ = WaitForFirstCollectionAsync();
+        }
+    }
+
+    private async Task WaitForFirstCollectionAsync()
+    {
+        try
+        {
+            // Poll until the collection service completes its first cycle (max ~60s)
+            for (var i = 0; i < 30; i++)
+            {
+                await Task.Delay(2000);
+                if (CollectionService.HasCollectedOnce)
+                    break;
+            }
+
+            await InvokeAsync(async () =>
+            {
+                _collectingFirstData = false;
+                await LoadDataAsync();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed waiting for first threat collection");
+            await InvokeAsync(() =>
+            {
+                _collectingFirstData = false;
+                StateHasChanged();
+            });
+        }
     }
 
     private async Task CheckCrowdSecStatus()
