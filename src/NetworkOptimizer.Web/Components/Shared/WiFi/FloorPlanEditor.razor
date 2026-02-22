@@ -1578,6 +1578,7 @@
 
     private string _mode = "view";
     private bool _showHeatmap = true;
+    private bool _heatmapWasOn;
     private bool _showPlannedAps;
     private bool _showSignalData;
     private int _globalActiveFloor = 1;
@@ -2984,7 +2985,12 @@
             _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
                 ? "exterior_residential"
                 : "drywall";
-            if (_showHeatmap) await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+            _heatmapWasOn = _showHeatmap;
+            if (_showHeatmap)
+            {
+                _showHeatmap = false;
+                await JS.InvokeVoidAsync("fpEditor.clearHeatmap");
+            }
             await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", false);
             await JS.InvokeVoidAsync("fpEditor.enterDrawMode", initWalls);
         }
@@ -2993,7 +2999,11 @@
             await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
             await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
             if (_selectedFloor != null) await UpdateWalls();
-            if (_showHeatmap) await ComputeHeatmap();
+            if (_heatmapWasOn)
+            {
+                _showHeatmap = true;
+                await ComputeHeatmap();
+            }
         }
         await UpdateApMarkers();
     }
