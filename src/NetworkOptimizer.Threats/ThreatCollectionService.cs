@@ -145,38 +145,25 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        // === ONE-TIME: Re-collect last 24h with both passes to catch all interesting flows ===
-        // TODO: Remove this block after confirming data looks good
-        var rebackfillDone = await settings.GetSettingAsync("threats.rebackfill_24h_v3", cancellationToken);
-        if (rebackfillDone == null)
-        {
-            _logger.LogInformation("One-time 24h re-backfill (v3 two-pass) starting");
-            var rbEnd = DateTimeOffset.UtcNow;
-            var rbStart = rbEnd.AddHours(-24);
-            var rbEvents = await CollectRangeAsync(apiClient, rbStart, rbEnd, maxPages: 100, cancellationToken);
-            await ProcessAndSaveAsync(rbEvents, repository, cancellationToken);
-            await settings.SaveSettingAsync("threats.rebackfill_24h_v3", "true");
-            _logger.LogInformation("One-time 24h re-backfill (v3): {Count} events collected", rbEvents.Count);
-        }
-
-        // === PHASE 1: Forward edge - collect new data since last sync ===
-        var lastSync = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
-        var forwardStart = lastSync != null ? DateTimeOffset.Parse(lastSync) : DateTimeOffset.UtcNow.AddMinutes(-5);
+        // === PHASE 1: Recent 24h sweep - uncapped pages for complete coverage ===
+        // The last 24 hours is where completeness matters most. No page limit so we
+        // never miss flows due to pagination. Dedup via InnerAlertId keeps this cheap
+        // on subsequent cycles (most events already saved).
         var now = DateTimeOffset.UtcNow;
-
-        var forwardEvents = await CollectRangeAsync(apiClient, forwardStart, now, maxPages: 50, cancellationToken);
-        await ProcessAndSaveAsync(forwardEvents, repository, cancellationToken);
+        var recentStart = now.AddHours(-24);
+        var recentEvents = await CollectRangeAsync(apiClient, recentStart, now, maxPages: int.MaxValue, cancellationToken);
+        await ProcessAndSaveAsync(recentEvents, repository, cancellationToken);
         await settings.SaveSettingAsync("threats.last_sync_timestamp", now.ToString("O"));
 
-        if (forwardEvents.Count > 0)
-            _logger.LogInformation("Forward: {Count} new events", forwardEvents.Count);
+        if (recentEvents.Count > 0)
+            _logger.LogInformation("Recent 24h: {Count} events", recentEvents.Count);
 
-        // === PHASE 2: Gradual backfill - nibble backwards through history ===
+        // === PHASE 2: Gradual backfill (>24h ago) - page-limited to stay gentle ===
         var backfillCursorStr = await settings.GetSettingAsync("threats.backfill_cursor", cancellationToken);
         var retentionLimit = DateTimeOffset.UtcNow.AddDays(-_retentionDays);
 
-        // Initialize cursor to "now" on first run (we'll work backwards from here)
-        var cursor = backfillCursorStr != null ? DateTimeOffset.Parse(backfillCursorStr) : now;
+        // Initialize cursor to 24h ago on first run (Phase 1 covers recent 24h)
+        var cursor = backfillCursorStr != null ? DateTimeOffset.Parse(backfillCursorStr) : recentStart;
 
         if (cursor > retentionLimit)
         {
