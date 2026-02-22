@@ -587,9 +587,9 @@ else
         margin-bottom: 1.5rem;
     }
 
-    /* Align chart legend labels with chart area (left margin matches y-axis label space) */
-    .apexcharts-legend {
-        padding-left: 1rem;
+    /* Override built-in ApexCharts legend text spacing (default: 15px pad / -15px margin = 0 net) */
+    .apexcharts-legend-text {
+        padding-left: 20px !important;
     }
 
     /* Horizontal distribution bars (matches Wi-Fi Optimizer load-bar pattern) */
