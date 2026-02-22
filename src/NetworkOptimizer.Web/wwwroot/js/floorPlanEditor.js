@@ -3227,10 +3227,15 @@ window.fpEditor = {
             self._contourLayer = L.layerGroup().addTo(m);
 
             var thresholds = [
+                { db: -45, color: '#22c55e', label: '-45' },
                 { db: -50, color: '#22c55e', label: '-50' },
+                { db: -55, color: '#86efac', label: '-55' },
                 { db: -60, color: '#eab308', label: '-60' },
+                { db: -65, color: '#fcd34d', label: '-65' },
                 { db: -70, color: '#f97316', label: '-70' },
-                { db: -80, color: '#ef4444', label: '-80' }
+                { db: -75, color: '#fb923c', label: '-75' },
+                { db: -80, color: '#ef4444', label: '-80' },
+                { db: -85, color: '#ef4444', label: '-85' }
             ];
             var latStep = (data.neLat - data.swLat) / data.height;
             var lngStep = (data.neLng - data.swLng) / data.width;
@@ -3276,7 +3281,7 @@ window.fpEditor = {
                 }
 
                 segs.forEach(function (s) {
-                    L.polyline(s, { color: th.color, weight: 1.5, opacity: 0.7, interactive: false, pane: 'wallPane' })
+                    L.polyline(s, { color: th.color, weight: 1, opacity: 0.4, interactive: false, pane: 'wallPane' })
                         .addTo(self._contourLayer);
                 });
 
