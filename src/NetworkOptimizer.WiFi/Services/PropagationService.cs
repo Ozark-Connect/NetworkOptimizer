@@ -211,9 +211,8 @@ public class PropagationService
         if (needSwap)
         {
             // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
-            // The +90° offset aligns OrientationDeg to pattern 0°. Apply to whichever
-            // pattern is used for horizontal coverage (elevation when swapped).
-            azGain = _antennaLoader.GetElevationGain(ap.Model, band, (azimuthDeg + azRotOffset) % 359, ap.AntennaMode);
+            // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
+            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
