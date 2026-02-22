@@ -393,7 +393,7 @@ else
                                 {
                                     <tr>
                                         <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)">@source.SourceIp</a>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
-                                        <td><span data-tooltip="@CountryTooltip(source.CountryCode)">@(string.IsNullOrEmpty(source.CountryCode) ? "-" : CountryFlag(source.CountryCode))</span></td>
+                                        <td>@if (string.IsNullOrEmpty(source.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(source.CountryCode)" style="cursor:default">@CountryFlag(source.CountryCode)</span> }</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
                                         <td>
@@ -680,7 +680,7 @@ else
                                 {
                                     var pct = geoTotal > 0 ? (double)entry.Value / geoTotal * 100 : 0;
                                     <tr>
-                                        <td><span data-tooltip="@CountryTooltip(entry.Key)">@CountryFlag(entry.Key)</span> <strong>@entry.Key</strong></td>
+                                        <td><span data-tooltip="@CountryTooltip(entry.Key)" style="cursor:default">@CountryFlag(entry.Key)</span> <strong>@entry.Key</strong></td>
                                         <td>@FormatNumber(entry.Value)</td>
                                         <td>@($"{pct:F1}")%</td>
                                         <td class="hide-mobile" style="width:40%;">
@@ -731,7 +731,7 @@ else
                                 {
                                     <tr>
                                         <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)">@seq.SourceIp</a>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
-                                        <td class="hide-mobile"><span data-tooltip="@CountryTooltip(seq.CountryCode)">@(string.IsNullOrEmpty(seq.CountryCode) ? "-" : CountryFlag(seq.CountryCode))</span></td>
+                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(seq.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(seq.CountryCode)" style="cursor:default">@CountryFlag(seq.CountryCode)</span> }</td>
                                         <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
                                         <td>
                                             <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
