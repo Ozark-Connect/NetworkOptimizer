@@ -403,6 +403,167 @@ public class ThreatDashboardService
         }
     }
 
+    public async Task<PortDrilldownData> GetPortDrilldownAsync(int port, DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
+            var events = await _repository.GetEventsByPortAsync(port, from, to, cancellationToken: cancellationToken);
+
+            // Top source IPs targeting this port
+            var topSources = events
+                .GroupBy(e => e.SourceIp)
+                .Select(g => new PortDrilldownSource
+                {
+                    Ip = g.Key,
+                    CountryCode = g.First().CountryCode,
+                    AsnOrg = g.First().AsnOrg,
+                    EventCount = g.Count(),
+                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
+                    FirstSeen = g.Min(e => e.Timestamp),
+                    LastSeen = g.Max(e => e.Timestamp)
+                })
+                .OrderByDescending(s => s.EventCount)
+                .Take(50)
+                .ToList();
+
+            // Top destination IPs (what's being targeted on this port)
+            var topDestinations = events
+                .GroupBy(e => e.DestIp)
+                .Select(g => new PortDrilldownDest
+                {
+                    Ip = g.Key,
+                    EventCount = g.Count(),
+                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
+                    UniqueSourceIps = g.Select(e => e.SourceIp).Distinct().Count()
+                })
+                .OrderByDescending(d => d.EventCount)
+                .Take(20)
+                .ToList();
+
+            // Top signatures
+            var signatures = events
+                .GroupBy(e => e.SignatureName)
+                .Where(g => !string.IsNullOrEmpty(g.Key))
+                .Select(g => new SignatureGroup
+                {
+                    Name = g.Key,
+                    Category = g.First().Category,
+                    EventCount = g.Count(),
+                    MaxSeverity = g.Max(e => e.Severity)
+                })
+                .OrderByDescending(s => s.EventCount)
+                .Take(20)
+                .ToList();
+
+            // Protocols used
+            var protocols = events
+                .GroupBy(e => e.Protocol)
+                .Where(g => !string.IsNullOrEmpty(g.Key))
+                .Select(g => new ProtocolCount { Protocol = g.Key, EventCount = g.Count() })
+                .OrderByDescending(p => p.EventCount)
+                .ToList();
+
+            return new PortDrilldownData
+            {
+                Port = port,
+                ServiceName = GetServiceName(port),
+                TotalEvents = events.Count,
+                BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked),
+                DetectedCount = events.Count(e => e.Action != ThreatAction.Blocked),
+                UniqueSourceIps = events.Select(e => e.SourceIp).Distinct().Count(),
+                FirstSeen = events.Count > 0 ? events.Min(e => e.Timestamp) : null,
+                LastSeen = events.Count > 0 ? events.Max(e => e.Timestamp) : null,
+                TopSources = topSources,
+                TopDestinations = topDestinations,
+                TopSignatures = signatures,
+                Protocols = protocols
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get port drilldown for port {Port}", port);
+            return new PortDrilldownData { Port = port };
+        }
+    }
+
+    public async Task<ProtocolDrilldownData> GetProtocolDrilldownAsync(string protocol, DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
+            var events = await _repository.GetEventsByProtocolAsync(protocol, from, to, cancellationToken: cancellationToken);
+
+            // Top source IPs
+            var topSources = events
+                .GroupBy(e => e.SourceIp)
+                .Select(g => new PortDrilldownSource
+                {
+                    Ip = g.Key,
+                    CountryCode = g.First().CountryCode,
+                    AsnOrg = g.First().AsnOrg,
+                    EventCount = g.Count(),
+                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
+                    FirstSeen = g.Min(e => e.Timestamp),
+                    LastSeen = g.Max(e => e.Timestamp)
+                })
+                .OrderByDescending(s => s.EventCount)
+                .Take(50)
+                .ToList();
+
+            // Top targeted ports
+            var topPorts = events
+                .GroupBy(e => e.DestPort)
+                .Select(g => new PortCount
+                {
+                    Port = g.Key,
+                    ServiceName = GetServiceName(g.Key),
+                    EventCount = g.Count(),
+                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked)
+                })
+                .OrderByDescending(p => p.EventCount)
+                .Take(20)
+                .ToList();
+
+            // Top signatures
+            var signatures = events
+                .GroupBy(e => e.SignatureName)
+                .Where(g => !string.IsNullOrEmpty(g.Key))
+                .Select(g => new SignatureGroup
+                {
+                    Name = g.Key,
+                    Category = g.First().Category,
+                    EventCount = g.Count(),
+                    MaxSeverity = g.Max(e => e.Severity)
+                })
+                .OrderByDescending(s => s.EventCount)
+                .Take(20)
+                .ToList();
+
+            return new ProtocolDrilldownData
+            {
+                Protocol = protocol,
+                TotalEvents = events.Count,
+                BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked),
+                DetectedCount = events.Count(e => e.Action != ThreatAction.Blocked),
+                UniqueSourceIps = events.Select(e => e.SourceIp).Distinct().Count(),
+                UniqueDestPorts = events.Select(e => e.DestPort).Distinct().Count(),
+                FirstSeen = events.Count > 0 ? events.Min(e => e.Timestamp) : null,
+                LastSeen = events.Count > 0 ? events.Max(e => e.Timestamp) : null,
+                TopSources = topSources,
+                TopPorts = topPorts,
+                TopSignatures = signatures
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get protocol drilldown for {Protocol}", protocol);
+            return new ProtocolDrilldownData { Protocol = protocol };
+        }
+    }
+
     private IpPeerGroup BuildPeerGroup(string peerIp, List<ThreatEvent> events)
     {
         var ports = events.Select(e => e.DestPort).Distinct().OrderBy(p => p).ToList();
@@ -633,4 +794,74 @@ public class SignatureGroup
     public string Category { get; set; } = string.Empty;
     public int EventCount { get; set; }
     public int MaxSeverity { get; set; }
+}
+
+/// <summary>
+/// All data for the port drill-down view.
+/// </summary>
+public class PortDrilldownData
+{
+    public int Port { get; set; }
+    public string ServiceName { get; set; } = string.Empty;
+    public int TotalEvents { get; set; }
+    public int BlockedCount { get; set; }
+    public int DetectedCount { get; set; }
+    public int UniqueSourceIps { get; set; }
+    public DateTime? FirstSeen { get; set; }
+    public DateTime? LastSeen { get; set; }
+    public List<PortDrilldownSource> TopSources { get; set; } = [];
+    public List<PortDrilldownDest> TopDestinations { get; set; } = [];
+    public List<SignatureGroup> TopSignatures { get; set; } = [];
+    public List<ProtocolCount> Protocols { get; set; } = [];
+}
+
+public class PortDrilldownSource
+{
+    public string Ip { get; set; } = string.Empty;
+    public string? CountryCode { get; set; }
+    public string? AsnOrg { get; set; }
+    public int EventCount { get; set; }
+    public int BlockedCount { get; set; }
+    public DateTime FirstSeen { get; set; }
+    public DateTime LastSeen { get; set; }
+}
+
+public class PortDrilldownDest
+{
+    public string Ip { get; set; } = string.Empty;
+    public int EventCount { get; set; }
+    public int BlockedCount { get; set; }
+    public int UniqueSourceIps { get; set; }
+}
+
+public class ProtocolCount
+{
+    public string Protocol { get; set; } = string.Empty;
+    public int EventCount { get; set; }
+}
+
+public class PortCount
+{
+    public int Port { get; set; }
+    public string ServiceName { get; set; } = string.Empty;
+    public int EventCount { get; set; }
+    public int BlockedCount { get; set; }
+}
+
+/// <summary>
+/// All data for the protocol drill-down view.
+/// </summary>
+public class ProtocolDrilldownData
+{
+    public string Protocol { get; set; } = string.Empty;
+    public int TotalEvents { get; set; }
+    public int BlockedCount { get; set; }
+    public int DetectedCount { get; set; }
+    public int UniqueSourceIps { get; set; }
+    public int UniqueDestPorts { get; set; }
+    public DateTime? FirstSeen { get; set; }
+    public DateTime? LastSeen { get; set; }
+    public List<PortDrilldownSource> TopSources { get; set; } = [];
+    public List<PortCount> TopPorts { get; set; } = [];
+    public List<SignatureGroup> TopSignatures { get; set; } = [];
 }

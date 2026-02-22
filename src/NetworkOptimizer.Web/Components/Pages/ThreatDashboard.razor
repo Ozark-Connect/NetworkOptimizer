@@ -491,7 +491,7 @@ else
                                 @foreach (var port in _dashboardData.TopTargetedPorts)
                                 {
                                     <tr>
-                                        <td><code>@port.Port</code></td>
+                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(port.Port)"><code>@port.Port</code></a></td>
                                         <td>@GetPortServiceName(port.Port)</td>
                                         <td>@FormatNumber(port.EventCount)</td>
                                         <td class="hide-mobile">@FormatNumber(port.UniqueSourceIps)</td>
@@ -638,7 +638,7 @@ else
                                     @foreach (var svc in _exposureReport.ExposedServices)
                                     {
                                         <tr>
-                                            <td><code>@svc.Port/@svc.Protocol</code></td>
+                                            <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(svc.Port)"><code>@svc.Port</code></a>/<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToProtocol(svc.Protocol)"><code>@svc.Protocol</code></a></td>
                                             <td>@(string.IsNullOrEmpty(svc.ServiceName) ? GetPortServiceName(svc.Port) : svc.ServiceName)</td>
                                             <td class="hide-mobile">@svc.ForwardTarget</td>
                                             <td>
@@ -977,7 +977,7 @@ else
                                 @foreach (var pr in _drilldownData.PortRanges)
                                 {
                                     <tr>
-                                        <td><code>@pr.RangeLabel</code></td>
+                                        <td>@if (pr.PortEnd == 0 || pr.PortEnd == pr.Port) { <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(pr.Port)"><code>@pr.RangeLabel</code></a> } else { <code>@pr.RangeLabel</code> }</td>
                                         <td>@(string.IsNullOrEmpty(pr.Service) ? "-" : pr.Service)</td>
                                         <td>@FormatNumber(pr.EventCount)</td>
                                         <td>@(pr.BlockedCount > 0 ? FormatNumber(pr.BlockedCount) : "-")</td>
@@ -1046,6 +1046,283 @@ else
             <div class="empty-state">
                 <p>No events found for this IP in the selected time range.</p>
             </div>
+        }
+    }
+
+    @* ========== Port Drill-Down ========== *@
+    @if (_activeTab == "drilldown" && _portDrilldownData != null)
+    {
+        <div style="margin-bottom:1rem;">
+            <a href="javascript:void(0)" class="back-link" @onclick="ExitDrilldown">&larr; Back</a>
+            <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.5rem;">
+                <code style="font-size:1.3rem;">Port @_portDrilldownData.Port</code>
+                @if (!string.IsNullOrEmpty(_portDrilldownData.ServiceName))
+                {
+                    <span style="color:var(--text-secondary); font-size:1rem;">@_portDrilldownData.ServiceName</span>
+                }
+            </div>
+            @if (_portDrilldownData.FirstSeen.HasValue)
+            {
+                <div style="color:var(--text-muted); font-size:0.85rem; margin-top:0.25rem;">
+                    @_portDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_portDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
+                </div>
+            }
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.75rem; margin-bottom:1.5rem;">
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_portDrilldownData.TotalEvents)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Total Events</div>
+            </div>
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_portDrilldownData.UniqueSourceIps)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Unique Sources</div>
+            </div>
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_portDrilldownData.BlockedCount)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Blocked</div>
+            </div>
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@FormatNumber(_portDrilldownData.DetectedCount)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Detected</div>
+            </div>
+        </div>
+
+        @if (_portDrilldownData.Protocols.Count > 0)
+        {
+            <div style="margin-bottom:0.5rem;">
+                <span style="color:var(--text-muted); font-size:0.85rem;">Protocols: </span>
+                @foreach (var proto in _portDrilldownData.Protocols)
+                {
+                    <a href="javascript:void(0)" class="ip-link" style="margin-right:0.5rem;" @onclick="() => DrillDownToProtocol(proto.Protocol)">
+                        <code>@FormatServiceToken(proto.Protocol)</code> <span style="color:var(--text-muted);">(@proto.EventCount)</span>
+                    </a>
+                }
+            </div>
+        }
+
+        @if (_portDrilldownData.TopSources.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-header"><span class="card-title">Top Source IPs</span></div>
+                <div class="card-body" style="padding:0;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Source IP</th>
+                                    <th class="hide-mobile">Country</th>
+                                    <th class="hide-mobile">ASN</th>
+                                    <th>Events</th>
+                                    <th>Blocked</th>
+                                    <th class="hide-mobile">Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var src in _portDrilldownData.TopSources)
+                                {
+                                    <tr>
+                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
+                                        <td class="hide-mobile">@(src.CountryCode ?? "-")</td>
+                                        <td class="hide-mobile"><span style="max-width:200px; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(src.AsnOrg ?? "-")</span></td>
+                                        <td>@src.EventCount</td>
+                                        <td>@src.BlockedCount</td>
+                                        <td class="hide-mobile">@src.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_portDrilldownData.TopDestinations.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-header"><span class="card-title">Top Destinations</span></div>
+                <div class="card-body" style="padding:0;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Destination IP</th>
+                                    <th>Events</th>
+                                    <th>Blocked</th>
+                                    <th>Unique Sources</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var dest in _portDrilldownData.TopDestinations)
+                                {
+                                    <tr>
+                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@destName</span> }</td>
+                                        <td>@dest.EventCount</td>
+                                        <td>@dest.BlockedCount</td>
+                                        <td>@dest.UniqueSourceIps</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_portDrilldownData.TopSignatures.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-header"><span class="card-title">Top Signatures</span></div>
+                <div class="card-body" style="padding:0;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Signature</th><th>Category</th><th>Events</th></tr></thead>
+                            <tbody>
+                                @foreach (var sig in _portDrilldownData.TopSignatures)
+                                {
+                                    <tr>
+                                        <td>@PrettifySignature(sig.Name)</td>
+                                        <td>@foreach (var part in SplitCategory(sig.Category)) { <span class="category-badge @part.CssClass">@part.Label</span> }</td>
+                                        <td>@sig.EventCount</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_portDrilldownData.TotalEvents == 0)
+        {
+            <div class="empty-state"><p>No events found for this port in the selected time range.</p></div>
+        }
+    }
+
+    @* ========== Protocol Drill-Down ========== *@
+    @if (_activeTab == "drilldown" && _protocolDrilldownData != null)
+    {
+        <div style="margin-bottom:1rem;">
+            <a href="javascript:void(0)" class="back-link" @onclick="ExitDrilldown">&larr; Back</a>
+            <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.5rem;">
+                <code style="font-size:1.3rem;">@FormatServiceToken(_protocolDrilldownData.Protocol)</code>
+                <span style="color:var(--text-secondary); font-size:1rem;">Protocol</span>
+            </div>
+            @if (_protocolDrilldownData.FirstSeen.HasValue)
+            {
+                <div style="color:var(--text-muted); font-size:0.85rem; margin-top:0.25rem;">
+                    @_protocolDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_protocolDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
+                </div>
+            }
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.75rem; margin-bottom:1.5rem;">
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_protocolDrilldownData.TotalEvents)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Total Events</div>
+            </div>
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_protocolDrilldownData.UniqueSourceIps)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Unique Sources</div>
+            </div>
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:#a78bfa;">@FormatNumber(_protocolDrilldownData.UniqueDestPorts)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Unique Ports</div>
+            </div>
+            <div class="card" style="padding:1rem; text-align:center;">
+                <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_protocolDrilldownData.BlockedCount)</div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">Blocked</div>
+            </div>
+        </div>
+
+        @if (_protocolDrilldownData.TopPorts.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-header"><span class="card-title">Top Targeted Ports</span></div>
+                <div class="card-body" style="padding:0;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Port</th><th>Service</th><th>Events</th><th>Blocked</th></tr></thead>
+                            <tbody>
+                                @foreach (var port in _protocolDrilldownData.TopPorts)
+                                {
+                                    <tr>
+                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(port.Port)"><code>@port.Port</code></a></td>
+                                        <td>@(string.IsNullOrEmpty(port.ServiceName) ? "-" : port.ServiceName)</td>
+                                        <td>@port.EventCount</td>
+                                        <td>@port.BlockedCount</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_protocolDrilldownData.TopSources.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-header"><span class="card-title">Top Source IPs</span></div>
+                <div class="card-body" style="padding:0;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Source IP</th>
+                                    <th class="hide-mobile">Country</th>
+                                    <th class="hide-mobile">ASN</th>
+                                    <th>Events</th>
+                                    <th>Blocked</th>
+                                    <th class="hide-mobile">Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var src in _protocolDrilldownData.TopSources)
+                                {
+                                    <tr>
+                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
+                                        <td class="hide-mobile">@(src.CountryCode ?? "-")</td>
+                                        <td class="hide-mobile"><span style="max-width:200px; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(src.AsnOrg ?? "-")</span></td>
+                                        <td>@src.EventCount</td>
+                                        <td>@src.BlockedCount</td>
+                                        <td class="hide-mobile">@src.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_protocolDrilldownData.TopSignatures.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-header"><span class="card-title">Top Signatures</span></div>
+                <div class="card-body" style="padding:0;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Signature</th><th>Category</th><th>Events</th></tr></thead>
+                            <tbody>
+                                @foreach (var sig in _protocolDrilldownData.TopSignatures)
+                                {
+                                    <tr>
+                                        <td>@PrettifySignature(sig.Name)</td>
+                                        <td>@foreach (var part in SplitCategory(sig.Category)) { <span class="category-badge @part.CssClass">@part.Label</span> }</td>
+                                        <td>@sig.EventCount</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_protocolDrilldownData.TotalEvents == 0)
+        {
+            <div class="empty-state"><p>No events found for this protocol in the selected time range.</p></div>
         }
     }
 }
@@ -1197,10 +1474,14 @@ else
     private string? _lookingUpIp;
     private System.Threading.Timer? _refreshTimer;
 
-    // IP drill-down state
+    // Drill-down state
     private string? _drilldownIp;
+    private int? _drilldownPort;
+    private string? _drilldownProtocol;
     private string _previousTab = "overview";
     private IpDrilldownData? _drilldownData;
+    private PortDrilldownData? _portDrilldownData;
+    private ProtocolDrilldownData? _protocolDrilldownData;
 
     // Noise filter state
     private List<ThreatNoiseFilter> _noiseFilters = [];
@@ -1430,9 +1711,14 @@ else
             {
                 _attackSequences = await DashboardService.GetAttackSequencesAsync(from, to);
             }
-            else if (_activeTab == "drilldown" && _drilldownIp != null)
+            else if (_activeTab == "drilldown")
             {
-                _drilldownData = await DashboardService.GetIpDrilldownAsync(_drilldownIp, from, to);
+                if (_drilldownIp != null)
+                    _drilldownData = await DashboardService.GetIpDrilldownAsync(_drilldownIp, from, to);
+                else if (_drilldownPort != null)
+                    _portDrilldownData = await DashboardService.GetPortDrilldownAsync(_drilldownPort.Value, from, to);
+                else if (_drilldownProtocol != null)
+                    _protocolDrilldownData = await DashboardService.GetProtocolDrilldownAsync(_drilldownProtocol, from, to);
             }
         }
         catch (Exception ex)
@@ -1547,6 +1833,8 @@ else
         if (_activeTab != "drilldown")
             _previousTab = _activeTab;
         _drilldownIp = ip;
+        _drilldownPort = null;
+        _drilldownProtocol = null;
         _activeTab = "drilldown";
         _showFilterPanel = false;
         _loading = true;
@@ -1582,10 +1870,74 @@ else
         }
     }
 
+    private async Task DrillDownToPort(int port)
+    {
+        if (_activeTab != "drilldown")
+            _previousTab = _activeTab;
+        _drilldownPort = port;
+        _drilldownIp = null;
+        _drilldownProtocol = null;
+        _activeTab = "drilldown";
+        _showFilterPanel = false;
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var (from, to) = GetTimeRange();
+            _portDrilldownData = await DashboardService.GetPortDrilldownAsync(port, from, to);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load drilldown for port {Port}", port);
+            _portDrilldownData = new PortDrilldownData { Port = port };
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+            await JS.InvokeVoidAsync("eval", "document.querySelector('.page-content')?.scrollTo(0, 0)");
+        }
+    }
+
+    private async Task DrillDownToProtocol(string protocol)
+    {
+        if (_activeTab != "drilldown")
+            _previousTab = _activeTab;
+        _drilldownProtocol = protocol;
+        _drilldownIp = null;
+        _drilldownPort = null;
+        _activeTab = "drilldown";
+        _showFilterPanel = false;
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var (from, to) = GetTimeRange();
+            _protocolDrilldownData = await DashboardService.GetProtocolDrilldownAsync(protocol, from, to);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load drilldown for protocol {Protocol}", protocol);
+            _protocolDrilldownData = new ProtocolDrilldownData { Protocol = protocol };
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+            await JS.InvokeVoidAsync("eval", "document.querySelector('.page-content')?.scrollTo(0, 0)");
+        }
+    }
+
     private async Task ExitDrilldown()
     {
         _drilldownIp = null;
+        _drilldownPort = null;
+        _drilldownProtocol = null;
         _drilldownData = null;
+        _portDrilldownData = null;
+        _protocolDrilldownData = null;
         _activeTab = _previousTab;
         _showFilterPanel = false;
         await LoadDataAsync();
@@ -1948,13 +2300,27 @@ else
     private static readonly string[] SeverityPrefixes =
         ["high risk", "low risk", "medium risk", "not suspicious", "potentially bad", "misc"];
     private static readonly string[] DirectionTokens = ["incoming", "outgoing", "inbound", "outbound", "local"];
+    // Protocols/services that should stay ALL-CAPS (acronyms/abbreviations)
     private static readonly HashSet<string> ProtocolTokens = new(StringComparer.OrdinalIgnoreCase)
     {
-        "TCP", "UDP", "ICMP", "HTTP", "HTTPS", "SSH", "DNS", "FTP", "SMTP", "SNMP",
-        "RDP", "SIP", "IMAP", "IMAPS", "POP3", "POP3S", "NTP", "LDAP", "SMB", "TLS", "SSL",
-        "MQTT", "QUIC", "RPC", "TFTP", "DHCP", "ARP", "IP", "P2P", "IRC", "VPN", "IPP"
+        // Transport & network
+        "IP", "TCP", "UDP", "ICMP", "IGMP", "GGP", "ST", "EGP", "IGP", "PUP", "HMP",
+        "RDP", "DCCP", "XTP", "DDP", "GRE", "ESP", "AH", "RSVP", "PIM", "SCTP", "FC",
+        // IPv6
+        "IPV6", "IDRP",
+        // Routing
+        "RIP", "EIGRP", "OSPF", "ISIS", "VRRP",
+        // Application
+        "HTTP", "HTTPS", "SSH", "DNS", "FTP", "SMTP", "SNMP", "SIP", "IMAP", "IMAPS",
+        "POP3", "POP3S", "NTP", "LDAP", "SMB", "TLS", "SSL", "MQTT", "QUIC", "RPC",
+        "TFTP", "DHCP", "ARP", "IRC", "VPN", "IPP", "MODBUS",
+        // Tunneling & encapsulation
+        "L2TP", "IPIP", "MPLS", "GTP",
+        // Other acronyms
+        "P2P", "HIP", "WESP", "ROHC"
     };
 
+    // Underscore-separated or special names that need aliasing/formatting
     private static readonly Dictionary<string, string> ServiceNameMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["MICROSOFT_DS"] = "SMB",
@@ -1962,6 +2328,23 @@ else
         ["FTP_DATA"] = "FTP Data",
         ["FTPS_CONTROL"] = "FTPS",
         ["DNC_RPC"] = "RPC",
+        ["XNS_IDP"] = "XNS-IDP",
+        ["ISO_TP4"] = "ISO-TP4",
+        ["IDPR_CMTP"] = "IDPR-CMTP",
+        ["IPV6_ROUTE"] = "IPv6 Route",
+        ["IPV6_FRAG"] = "IPv6 Frag",
+        ["IPV6_ICMP"] = "ICMPv6",
+        ["IPV6_NONXT"] = "IPv6 No Next",
+        ["IPV6_OPTS"] = "IPv6 Opts",
+        ["AX_25"] = "AX.25",
+        ["MPLS_IN_IP"] = "MPLS-in-IP",
+        ["MOBILITY_HEADER"] = "Mobility Header",
+        ["IPENCAP"] = "IP Encap",
+        ["ETHERIP"] = "EtherIP",
+        ["IPCOMP"] = "IPComp",
+        ["UDPLITE"] = "UDP-Lite",
+        ["MANET"] = "MANET",
+        ["SHIM6"] = "Shim6",
         ["OTHER"] = "Other",
     };
 

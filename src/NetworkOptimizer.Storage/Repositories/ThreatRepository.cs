@@ -428,6 +428,46 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
+    public async Task<List<ThreatEvent>> GetEventsByPortAsync(int port, DateTime from, DateTime to,
+        int limit = 5000, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await ApplyNoiseFilters(
+                _context.ThreatEvents
+                    .AsNoTracking()
+                    .Where(e => e.DestPort == port && e.Timestamp >= from && e.Timestamp <= to))
+                .OrderByDescending(e => e.Timestamp)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get events for port {Port}", port);
+            throw;
+        }
+    }
+
+    public async Task<List<ThreatEvent>> GetEventsByProtocolAsync(string protocol, DateTime from, DateTime to,
+        int limit = 5000, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await ApplyNoiseFilters(
+                _context.ThreatEvents
+                    .AsNoTracking()
+                    .Where(e => e.Protocol == protocol && e.Timestamp >= from && e.Timestamp <= to))
+                .OrderByDescending(e => e.Timestamp)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get events for protocol {Protocol}", protocol);
+            throw;
+        }
+    }
+
     public async Task<int> GetThreatCountByPortAsync(int port, DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
