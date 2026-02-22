@@ -3229,9 +3229,9 @@ window.fpEditor = {
             var thresholds = [
                 { db: -45, color: '#22c55e', label: '-45' },
                 { db: -50, color: '#22c55e', label: '-50' },
-                { db: -55, color: '#86efac', label: '-55' },
+                { db: -55, color: '#16a34a', label: '-55' },
                 { db: -60, color: '#eab308', label: '-60' },
-                { db: -65, color: '#fcd34d', label: '-65' },
+                { db: -65, color: '#ca8a04', label: '-65' },
                 { db: -70, color: '#f97316', label: '-70' },
                 { db: -75, color: '#fb923c', label: '-75' },
                 { db: -80, color: '#ef4444', label: '-80' },
