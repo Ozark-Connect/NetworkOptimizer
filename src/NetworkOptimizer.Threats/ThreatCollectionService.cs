@@ -28,7 +28,7 @@ public class ThreatCollectionService : BackgroundService
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
 
     // Configurable via SystemSettings (defaults)
-    private int _pollIntervalMinutes = 5;
+    private int _pollIntervalMinutes = 1;
     private int _retentionDays = 90;
 
     // On-demand trigger: released by TriggerCollectionAsync(), waited on during poll sleep
