@@ -258,7 +258,7 @@ else
             <div class="card-body">
                 @if (_timeline.Count > 0)
                 {
-                    <ApexChart @ref="_timelineChart" TItem="TimelineBucket"
+                    <ApexChart @key="_timelineKey" TItem="TimelineBucket"
                                Options="_timelineChartOptions"
                                Height="@("280px")">
 
@@ -1145,8 +1145,10 @@ else
     private record CtiLookupResult(string? Badge, int? ThreatScore, string? Behaviors);
 
     // Chart refs and options - each chart needs its own options instance
-    // ALL charts need @ref + UpdateSeriesAsync; StateHasChanged alone does NOT update ApexCharts
-    private ApexChart<TimelineBucket>? _timelineChart;
+    // StateHasChanged alone does NOT update ApexCharts - need UpdateSeriesAsync on @ref
+    // Exception: timeline (multi-series stacked area) doesn't respond to UpdateSeriesAsync,
+    // so we force recreation via @key instead
+    private int _timelineKey;
     private ApexChart<KillChainItem>? _killChainChart;
     private ApexChart<ActionBreakdownItem>? _actionChart;
     private bool _chartNeedsUpdate;
@@ -1169,7 +1171,8 @@ else
         if (_chartNeedsUpdate)
         {
             _chartNeedsUpdate = false;
-            try { if (_timelineChart != null) await _timelineChart.UpdateSeriesAsync(true); } catch { }
+            // Kill chain + action charts update in place via UpdateSeriesAsync
+            // Timeline uses @key recreation instead (multi-series area doesn't respond to UpdateSeriesAsync)
             try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
             try { if (_actionChart != null) await _actionChart.UpdateSeriesAsync(true); } catch { }
         }
@@ -1339,6 +1342,7 @@ else
             {
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
+                _timelineKey++; // Force timeline chart recreation with new data
                 BuildDerivedChartData();
                 _chartNeedsUpdate = true;
             }
@@ -1426,6 +1430,7 @@ else
     {
         if (_activeTab == tab) return;
         _activeTab = tab;
+        _showFilterPanel = false;
         await LoadDataAsync();
     }
 
