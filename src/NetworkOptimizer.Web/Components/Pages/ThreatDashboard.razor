@@ -915,9 +915,16 @@ else
         if (_timeRange == range) return;
         _timeRange = range;
 
-        // Request a backfill if switching to a wider range that may not have data
-        var (from, _) = GetTimeRange();
-        CollectionService.RequestBackfill(new DateTimeOffset(from, TimeSpan.Zero));
+        // If switching to a wider range, collect data for that range first
+        if (range != "24h")
+        {
+            var (from, _) = GetTimeRange();
+            _loading = true;
+            StateHasChanged();
+
+            await CollectionService.CollectForRangeAsync(
+                new DateTimeOffset(from, TimeSpan.Zero), DateTimeOffset.UtcNow);
+        }
 
         await LoadDataAsync();
     }

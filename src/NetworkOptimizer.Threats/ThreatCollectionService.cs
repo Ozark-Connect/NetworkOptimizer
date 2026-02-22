@@ -82,6 +82,50 @@ public class ThreatCollectionService : BackgroundService
     }
 
     /// <summary>
+    /// Synchronously collect threat data for a specific time range.
+    /// Awaitable - the caller blocks until collection completes.
+    /// Used by the dashboard when the user switches to a wider time range.
+    /// </summary>
+    public async Task CollectForRangeAsync(DateTimeOffset from, DateTimeOffset to,
+        CancellationToken cancellationToken = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
+        var settings = scope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
+
+        var apiClient = _uniFiClientAccessor.Client;
+        if (apiClient == null)
+        {
+            _logger.LogDebug("UniFi API client not available for on-demand collection");
+            return;
+        }
+
+        var allEvents = new List<ThreatEvent>();
+
+        var flowEvents = await CollectTrafficFlowsAsync(apiClient, from, to, cancellationToken);
+        allEvents.AddRange(flowEvents);
+
+        var ipsEvents = await CollectIpsEventsAsync(apiClient, from, to, cancellationToken);
+        allEvents.AddRange(ipsEvents);
+
+        if (allEvents.Count == 0)
+        {
+            _logger.LogDebug("On-demand collection for {From} to {To}: no events found", from, to);
+            return;
+        }
+
+        _geoService.EnrichEvents(allEvents);
+
+        foreach (var evt in allEvents)
+            evt.KillChainStage = _classifier.Classify(evt);
+
+        await repository.SaveEventsAsync(allEvents, cancellationToken);
+
+        _logger.LogInformation("On-demand collection: {Count} events ({Flows} flows, {Ips} IPS) for {From} to {To}",
+            allEvents.Count, flowEvents.Count, ipsEvents.Count, from, to);
+    }
+
+    /// <summary>
     /// Whether the service has completed at least one collection cycle.
     /// </summary>
     public bool HasCollectedOnce => _hasCollectedOnce;

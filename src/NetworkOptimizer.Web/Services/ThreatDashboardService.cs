@@ -1,4 +1,5 @@
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.CrowdSec;
 using NetworkOptimizer.Threats.Interfaces;
@@ -17,6 +18,7 @@ public class ThreatDashboardService
     private readonly CrowdSecEnrichmentService _crowdSecService;
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
     private readonly IThreatSettingsAccessor _settingsAccessor;
+    private readonly ICredentialProtectionService _credentialService;
     private readonly ILogger<ThreatDashboardService> _logger;
 
     public ThreatDashboardService(
@@ -25,6 +27,7 @@ public class ThreatDashboardService
         CrowdSecEnrichmentService crowdSecService,
         IUniFiClientAccessor uniFiClientAccessor,
         IThreatSettingsAccessor settingsAccessor,
+        ICredentialProtectionService credentialService,
         ILogger<ThreatDashboardService> logger)
     {
         _repository = repository;
@@ -32,6 +35,7 @@ public class ThreatDashboardService
         _crowdSecService = crowdSecService;
         _uniFiClientAccessor = uniFiClientAccessor;
         _settingsAccessor = settingsAccessor;
+        _credentialService = credentialService;
         _logger = logger;
     }
 
@@ -74,8 +78,8 @@ public class ThreatDashboardService
     {
         try
         {
-            var apiKey = await _settingsAccessor.GetSettingAsync("crowdsec.api_key", cancellationToken);
-            if (string.IsNullOrWhiteSpace(apiKey)) return;
+            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
+            if (apiKey == null) return;
 
             var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
             var quota = int.TryParse(quotaStr, out var q) ? q : 30; // free tier default
@@ -90,24 +94,31 @@ public class ThreatDashboardService
     }
 
     /// <summary>
-    /// Enrich a specific IP with CrowdSec CTI. Called by the dashboard for manual enrichment.
+    /// Look up CrowdSec CTI reputation for a single IP. Called by dashboard for manual lookups.
     /// </summary>
     public async Task<SourceIpSummary?> EnrichSingleSourceAsync(SourceIpSummary source,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var apiKey = await _settingsAccessor.GetSettingAsync("crowdsec.api_key", cancellationToken);
-            if (string.IsNullOrWhiteSpace(apiKey)) return null;
+            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
+            if (apiKey == null) return null;
 
             await EnrichSourcesAsync([source], apiKey, cancellationToken);
             return source;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to enrich {Ip}", source.SourceIp);
+            _logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
             return null;
         }
+    }
+
+    private async Task<string?> GetDecryptedApiKeyAsync(CancellationToken cancellationToken)
+    {
+        var stored = await _settingsAccessor.GetSettingAsync("crowdsec.api_key", cancellationToken);
+        if (string.IsNullOrWhiteSpace(stored)) return null;
+        return _credentialService.IsEncrypted(stored) ? _credentialService.Decrypt(stored) : stored;
     }
 
     private async Task EnrichSourcesAsync(List<SourceIpSummary> sources, string apiKey,
