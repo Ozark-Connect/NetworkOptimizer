@@ -144,7 +144,7 @@ foreach ($zip in $zipFiles) {
 
         # Filter to .ant files, skip macOS resource forks (._prefix)
         $antFiles = $archive.Entries | Where-Object {
-            $_.Name -match "\.ant$" -and $_.Name -notmatch "^\._"
+            $_.Name -match "\.(ant|amt)$" -and $_.Name -notmatch "^\._"
         }
 
         if ($antFiles.Count -eq 0) {
