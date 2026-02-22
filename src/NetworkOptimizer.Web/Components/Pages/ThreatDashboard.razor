@@ -839,7 +839,7 @@ else
             @if (ctiEntry?.Behaviors != null)
             {
                 <div style="margin-bottom:1rem; color:var(--text-secondary); font-size:0.85rem;">
-                    <span style="color:var(--text-muted);">Behaviors:</span> @ctiEntry.Behaviors
+                    <span style="color:var(--text-muted);">Known Behaviors:</span> @ctiEntry.Behaviors
                 </div>
             }
         }
@@ -1021,7 +1021,10 @@ else
                                             }
                                             else
                                             {
-                                                <span class="category-badge">@PrettifyCategory(sig.Category)</span>
+                                                foreach (var part in SplitCategory(sig.Category))
+                                                {
+                                                    <span class="category-badge category-@part.CssClass">@part.Label</span>
+                                                }
                                             }
                                         </td>
                                         <td>@FormatNumber(sig.EventCount)</td>
@@ -1136,10 +1139,17 @@ else
         padding: 0.15rem 0.5rem;
         border-radius: 4px;
         font-size: 0.78rem;
-        background: var(--bg-tertiary);
-        color: var(--text-secondary);
         white-space: nowrap;
+        margin-right: 0.25rem;
     }
+    .category-badge:last-child { margin-right: 0; }
+    .category-high { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .category-medium { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+    .category-low { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+    .category-safe { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    .category-direction { background: rgba(59, 130, 246, 0.1); color: var(--text-secondary); }
+    .category-type { background: var(--bg-tertiary); color: var(--text-secondary); }
+    .category-neutral { background: var(--bg-tertiary); color: var(--text-secondary); }
 
     /* Noise filter active count badge */
     .noise-filter-badge {
@@ -1540,6 +1550,18 @@ else
         _activeTab = "drilldown";
         _showFilterPanel = false;
         _loading = true;
+
+        // Seed CTI cache from overview's enriched top sources if not already cached
+        if (!_manualCtiCache.ContainsKey(ip) && _dashboardData?.TopSources != null)
+        {
+            var source = _dashboardData.TopSources.FirstOrDefault(s => s.SourceIp == ip);
+            if (source?.CrowdSecReputation != null)
+            {
+                _manualCtiCache[ip] = new CtiLookupResult(
+                    source.CrowdSecReputation, source.ThreatScore, source.TopBehaviors);
+            }
+        }
+
         StateHasChanged();
 
         try
@@ -1556,7 +1578,7 @@ else
         {
             _loading = false;
             StateHasChanged();
-            await JS.InvokeVoidAsync("window.scrollTo", 0, 0);
+            await JS.InvokeVoidAsync("eval", "document.querySelector('.page-content')?.scrollTo(0, 0)");
         }
     }
 
@@ -1921,25 +1943,54 @@ else
         return $"{code.ToUpperInvariant()} - {name}";
     }
 
-    private static readonly HashSet<string> ProtocolTokens = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "TCP", "UDP", "ICMP", "HTTP", "HTTPS", "SSH", "DNS", "FTP", "SMTP", "SNMP",
-        "RDP", "SIP", "IMAP", "POP3", "NTP", "LDAP", "SMB", "TLS", "SSL",
-        "MQTT", "QUIC", "RPC", "TFTP", "DHCP", "ARP", "IP", "P2P", "IRC", "VPN"
-    };
+    private record CategoryPart(string Label, string CssClass);
 
-    private static string PrettifyCategory(string category)
+    private static readonly string[] SeverityPrefixes =
+        ["high risk", "low risk", "medium risk", "not suspicious", "potentially bad", "misc"];
+    private static readonly string[] DirectionTokens = ["incoming", "outgoing", "inbound", "outbound"];
+
+    private static List<CategoryPart> SplitCategory(string category)
     {
-        if (string.IsNullOrEmpty(category)) return category;
-        var titleCased = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(category.ToLowerInvariant());
-        // Restore uppercase for known protocol tokens
-        var words = titleCased.Split(' ');
-        for (var i = 0; i < words.Length; i++)
+        var parts = new List<CategoryPart>();
+        var lower = category.ToLowerInvariant().Trim();
+        var remainder = lower;
+
+        // Extract severity prefix
+        foreach (var prefix in SeverityPrefixes)
         {
-            if (ProtocolTokens.Contains(words[i]))
-                words[i] = words[i].ToUpperInvariant();
+            if (!lower.StartsWith(prefix)) continue;
+            var label = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(prefix);
+            var cssClass = prefix.Contains("high") ? "high" :
+                prefix.Contains("not suspicious") ? "safe" :
+                prefix.Contains("low") ? "low" :
+                prefix.Contains("medium") || prefix.Contains("potentially") ? "medium" : "neutral";
+            parts.Add(new CategoryPart(label, cssClass));
+            remainder = lower[prefix.Length..].Trim();
+            break;
         }
-        return string.Join(' ', words);
+
+        // Extract direction
+        foreach (var dir in DirectionTokens)
+        {
+            if (!remainder.StartsWith(dir)) continue;
+            parts.Add(new CategoryPart(System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(dir), "direction"));
+            remainder = remainder[dir.Length..].Trim();
+            break;
+        }
+
+        // Remainder is the protocol/type
+        if (remainder.Length > 0)
+        {
+            var label = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(remainder);
+            parts.Add(new CategoryPart(label, "type"));
+        }
+
+        // Fallback: if no parts matched, return the whole thing
+        if (parts.Count == 0)
+            parts.Add(new CategoryPart(
+                System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(lower), "neutral"));
+
+        return parts;
     }
 
     private static string GetStageColor(KillChainStage stage)
