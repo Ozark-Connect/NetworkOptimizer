@@ -269,10 +269,17 @@ else
                                                 }
                                                 else if (!_crowdSecAutoEnrich)
                                                 {
-                                                    <button class="btn btn-sm btn-outline-primary"
-                                                            @onclick="() => LookUpReputationAsync(source)">
-                                                        Look up
-                                                    </button>
+                                                    @if (_lookingUpIp == source.SourceIp)
+                                                    {
+                                                        <span class="spinner-sm"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-sm btn-outline-primary"
+                                                                @onclick="() => LookUpReputationAsync(source)">
+                                                            Look up
+                                                        </button>
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -690,6 +697,7 @@ else
     private bool _crowdSecAutoEnrich; // true if quota >= 100, false = manual lookups
     private bool _crowdSecBannerDismissed;
     private bool _collectingFirstData;
+    private string? _lookingUpIp;
 
     // Chart refs and options - each chart needs its own options instance
     private ApexChart<TimelineBucket>? _timelineChart;
@@ -892,14 +900,20 @@ else
 
     private async Task LookUpReputationAsync(SourceIpSummary source)
     {
+        _lookingUpIp = source.SourceIp;
+        StateHasChanged();
         try
         {
             await DashboardService.EnrichSingleSourceAsync(source);
-            StateHasChanged();
         }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
+        }
+        finally
+        {
+            _lookingUpIp = null;
+            StateHasChanged();
         }
     }
 

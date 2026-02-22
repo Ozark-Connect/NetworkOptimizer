@@ -102,7 +102,8 @@ public class ThreatCollectionService : BackgroundService
 
         var allEvents = new List<ThreatEvent>();
 
-        var flowEvents = await CollectTrafficFlowsAsync(apiClient, from, to, cancellationToken);
+        // On-demand: no page cap - fetch all available data for the range
+        var flowEvents = await CollectTrafficFlowsAsync(apiClient, from, to, maxPages: int.MaxValue, cancellationToken);
         allEvents.AddRange(flowEvents);
 
         var ipsEvents = await CollectIpsEventsAsync(apiClient, from, to, cancellationToken);
@@ -236,8 +237,8 @@ public class ThreatCollectionService : BackgroundService
 
         var allEvents = new List<ThreatEvent>();
 
-        // 1. Collect traffic flows (PRIMARY source)
-        var flowEvents = await CollectTrafficFlowsAsync(apiClient, start, end, cancellationToken);
+        // 1. Collect traffic flows (PRIMARY source) - background uses 50-page cap
+        var flowEvents = await CollectTrafficFlowsAsync(apiClient, start, end, maxPages: 50, cancellationToken);
         allEvents.AddRange(flowEvents);
 
         // 2. Collect IPS events (SECONDARY source)
@@ -332,13 +333,13 @@ public class ThreatCollectionService : BackgroundService
         UniFi.UniFiApiClient apiClient,
         DateTimeOffset start,
         DateTimeOffset end,
+        int maxPages,
         CancellationToken cancellationToken)
     {
         var events = new List<ThreatEvent>();
 
         try
         {
-            const int maxPages = 50;
             var page = 0;
 
             while (page < maxPages)
@@ -370,11 +371,16 @@ public class ThreatCollectionService : BackgroundService
                 // Check pagination
                 var hasNext = response.TryGetProperty("has_next", out var hn) && hn.GetBoolean();
                 if (!hasNext) break;
+
+                // Log progress on first page so we know the scale
+                if (page == 0 && response.TryGetProperty("total_page_count", out var tpc))
+                    _logger.LogDebug("Traffic flows: {TotalPages} total pages available", tpc);
+
                 page++;
             }
 
-            if (events.Count > 0)
-                _logger.LogDebug("Collected {Count} interesting flow events across {Pages} pages", events.Count, page + 1);
+            _logger.LogDebug("Collected {Count} interesting flow events across {Pages} pages (cap: {Max})",
+                events.Count, page + 1, maxPages == int.MaxValue ? "none" : maxPages);
         }
         catch (Exception ex)
         {
