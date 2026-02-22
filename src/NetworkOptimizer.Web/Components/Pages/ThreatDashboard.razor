@@ -538,7 +538,7 @@ else
                                                 @GetPatternTypeLabel(pattern.PatternType)
                                             </span>
                                         </td>
-                                        <td>@pattern.Description</td>
+                                        <td>@RenderPatternDescription(pattern)</td>
                                         <td class="hide-mobile">@($"{pattern.Confidence:P0}")</td>
                                         <td>@FormatNumber(pattern.EventCount)</td>
                                         <td class="hide-mobile">@pattern.DetectedAt.ToString("MMM dd HH:mm")</td>
@@ -1708,6 +1708,34 @@ else
             _ => patternType.ToString()
         };
     }
+
+    private RenderFragment RenderPatternDescription(ThreatPattern pattern) => __builder =>
+    {
+        var desc = pattern.Description;
+        try
+        {
+            var ips = System.Text.Json.JsonSerializer.Deserialize<List<string>>(pattern.SourceIpsJson) ?? [];
+            foreach (var ip in ips)
+            {
+                var idx = desc.IndexOf(ip, StringComparison.Ordinal);
+                if (idx < 0) continue;
+                var before = desc[..idx];
+                var after = desc[(idx + ip.Length)..];
+                __builder.AddContent(0, before);
+                __builder.OpenElement(1, "a");
+                __builder.AddAttribute(2, "href", "javascript:void(0)");
+                __builder.AddAttribute(3, "class", "ip-link");
+                __builder.AddAttribute(4, "onclick", EventCallback.Factory.Create(this, () => DrillDownToIp(ip)));
+                __builder.OpenElement(5, "code");
+                __builder.AddContent(6, ip);
+                __builder.CloseElement();
+                __builder.CloseElement();
+                desc = after;
+            }
+        }
+        catch { /* fall through to plain text */ }
+        __builder.AddContent(7, desc);
+    };
 
     private static string GetPortServiceName(int port)
     {
