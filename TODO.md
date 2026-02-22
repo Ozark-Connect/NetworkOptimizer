@@ -109,6 +109,59 @@ New audit section focused on network performance issues (distinct from security 
 - **Co-channel interference severity scaling:** Reduce urgency/severity of co-channel interference warnings as AP count increases. With many APs in a dense deployment, some co-channel overlap is unavoidable and expected. Current warnings may be too aggressive for larger deployments.
 - **MLO per-AP detection:** Check MLO status per-AP based on which SSIDs each AP broadcasts (via vap_table), not just global WLAN config. An AP only has MLO impact if it broadcasts an MLO-enabled SSID.
 
+### Floor Plan Heatmap - Per-Channel Frequency
+- Current heatmap uses a single center frequency per band (2437, 5500, 6500 MHz)
+- 5 GHz spans 5150-5850 MHz (channels 36-165), ~1 dB FSPL difference at the extremes
+- Material attenuation also varies across the band range
+- Implementation:
+  - Add `Channel` (or `FrequencyMhz`) to `PropagationAp` from UniFi radio config
+  - Map channel number to center frequency (e.g., ch 36 = 5180, ch 149 = 5745)
+  - Pass actual frequency to `ComputeSignalAtPoint` instead of band center
+  - Update `MaterialAttenuation` to interpolate between band values if needed
+
+### Floor Plan Heatmap - Channel Bandwidth & Per-Client Signal Modeling
+- Current heatmap shows raw RSSI (dBm) with no awareness of channel bandwidth
+- Wider channels raise the thermal noise floor, reducing effective SNR and usable range:
+  - 20 MHz: -96 dBm noise floor, 40 MHz: -93, 80 MHz: -90, 160 MHz: -87, 320 MHz: -84
+  - (assumes ~5 dB receiver noise figure)
+- A -80 dBm signal gives 16 dB SNR on 20 MHz (decent) but only 7 dB on 160 MHz (unusable)
+- Noise floor formula: -174 + 10*log10(BW_Hz) + NF_dB
+
+#### Per-Client Channel Width Negotiation (critical nuance)
+- 802.11 negotiates channel width per-client based on capabilities. The AP does NOT force a
+  single channel width on all clients. A 160 MHz AP transmits to an 80 MHz client using 80 MHz.
+- From the client's perspective, the noise floor matches ITS supported width, not the AP's config:
+  - Client supports 80 MHz on a 160 MHz AP -> client sees -90 dBm noise floor, not -87 dBm
+  - Client supports 40 MHz -> sees -93 dBm noise floor regardless of AP config
+- The client's receiver only processes its supported bandwidth. The extra spectrum the AP has
+  configured is simply unused for that client's transmissions.
+- This means UniFi Design Center's heatmap (and our current one) shows worst-case coverage for
+  clients negotiating the FULL configured width - which are typically the newest devices sitting
+  close to the AP where it doesn't matter anyway. The heatmap makes it look like coverage is
+  bricked when most clients actually have much better coverage than shown.
+- Real-world: most clients are 80 MHz capable. Configuring 160 MHz gives 80 MHz coverage
+  footprint for those devices plus throughput bonus for 160 MHz clients when close enough.
+- Downsides of wider AP config: consumes more spectrum (matters for multi-AP channel planning),
+  and DFS events on the secondary 80 MHz segment can force the whole channel to shift,
+  briefly disrupting all clients including 80 MHz ones.
+
+#### Implementation
+- Add `ChannelWidthMhz` to `PropagationAp` (pull from UniFi radio config)
+- **Default view**: show coverage based on the AP's configured channel width (current behavior
+  plus bandwidth-aware color thresholds) - this is the conservative/worst-case view
+- **Per-capability tier view**: let users toggle between client capability tiers to see what
+  coverage actually looks like for their devices:
+  - "160 MHz clients" (worst case, smallest coverage)
+  - "80 MHz clients" (most common, realistic coverage)
+  - "40 MHz clients" (older devices, best coverage)
+  - "20 MHz clients" (legacy, maximum coverage)
+  The selected tier overrides the AP's configured width for noise floor and color threshold
+  calculations. Signal strength (RSSI) stays the same - only SNR interpretation changes.
+- Alternatively/additionally, offer an SNR view mode that shows signal quality (dB above noise
+  floor) rather than raw power (dBm), making bandwidth impact visually obvious
+- Consider showing a summary callout: "Most of your clients support 80 MHz - here's what they
+  actually experience" to educate users about the per-client negotiation reality
+
 #### Implemented Features (v1.x)
 The following were implemented in the WiFi Optimizer feature:
 - ✅ Channel utilization analysis per AP (Airtime Fairness tab)
