@@ -31,11 +31,11 @@ public class ThreatCollectionService : BackgroundService
     private int _pollIntervalMinutes = 1;
     private int _retentionDays = 90;
 
-    // On-demand trigger: released by TriggerCollectionAsync(), waited on during poll sleep
+    // On-demand trigger: released by TriggerCollection(), waited on during poll sleep
     private readonly SemaphoreSlim _triggerSignal = new(0, 1);
-    private readonly object _backfillLock = new();
     private bool _hasCollectedOnce;
-    private DateTimeOffset? _backfillOverride;
+
+    // Gradual backfill: tracks how far back we've collected
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -71,65 +71,15 @@ public class ThreatCollectionService : BackgroundService
     }
 
     /// <summary>
-    /// Request a backfill collection from a specific start time.
-    /// The next collection cycle will use this as the start instead of last_sync_timestamp.
-    /// Used when the dashboard switches to a wider time range that may not have data yet.
-    /// </summary>
-    public void RequestBackfill(DateTimeOffset from)
-    {
-        lock (_backfillLock) { _backfillOverride = from; }
-        TriggerCollection();
-    }
-
-    /// <summary>
-    /// Synchronously collect threat data for a specific time range.
-    /// Awaitable - the caller blocks until collection completes.
-    /// Used by the dashboard when the user switches to a wider time range.
-    /// </summary>
-    public async Task CollectForRangeAsync(DateTimeOffset from, DateTimeOffset to,
-        CancellationToken cancellationToken = default)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
-        var settings = scope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
-
-        var apiClient = _uniFiClientAccessor.Client;
-        if (apiClient == null)
-        {
-            _logger.LogDebug("UniFi API client not available for on-demand collection");
-            return;
-        }
-
-        var allEvents = new List<ThreatEvent>();
-
-        // On-demand: no page cap - fetch all available data for the range
-        var flowEvents = await CollectTrafficFlowsAsync(apiClient, from, to, maxPages: int.MaxValue, cancellationToken);
-        allEvents.AddRange(flowEvents);
-
-        var ipsEvents = await CollectIpsEventsAsync(apiClient, from, to, cancellationToken);
-        allEvents.AddRange(ipsEvents);
-
-        if (allEvents.Count == 0)
-        {
-            _logger.LogDebug("On-demand collection for {From} to {To}: no events found", from, to);
-            return;
-        }
-
-        _geoService.EnrichEvents(allEvents);
-
-        foreach (var evt in allEvents)
-            evt.KillChainStage = _classifier.Classify(evt);
-
-        await repository.SaveEventsAsync(allEvents, cancellationToken);
-
-        _logger.LogInformation("On-demand collection: {Count} events ({Flows} flows, {Ips} IPS) for {From} to {To}",
-            allEvents.Count, flowEvents.Count, ipsEvents.Count, from, to);
-    }
-
-    /// <summary>
     /// Whether the service has completed at least one collection cycle.
     /// </summary>
     public bool HasCollectedOnce => _hasCollectedOnce;
+
+    /// <summary>
+    /// How far back the gradual backfill has reached. Null if backfill hasn't started or is complete.
+    /// The dashboard uses this to show "Data from {date} - present (building...)" coverage info.
+    /// </summary>
+    public DateTimeOffset? BackfillCursor { get; private set; }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -177,10 +127,8 @@ public class ThreatCollectionService : BackgroundService
         var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
         var settings = scope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
 
-        // Load config
         await LoadConfigAsync(settings, cancellationToken);
 
-        // Check if collection is enabled (null = not set = enabled by default)
         var enabled = await settings.GetSettingAsync("threats.enabled", cancellationToken);
         if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
         {
@@ -188,46 +136,6 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        // Determine sync window
-        DateTimeOffset? backfill;
-        lock (_backfillLock) { backfill = _backfillOverride; _backfillOverride = null; }
-        var lastSync = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
-        DateTimeOffset start;
-
-        if (backfill.HasValue)
-        {
-            // Dashboard requested a wider backfill (e.g., user switched to 30d view)
-            // Use the earlier of backfill request or last sync
-            start = lastSync != null
-                ? DateTimeOffset.Parse(lastSync) < backfill.Value ? DateTimeOffset.Parse(lastSync) : backfill.Value
-                : backfill.Value;
-            _logger.LogInformation("Backfill requested from {From}", start);
-        }
-        else if (lastSync != null)
-        {
-            start = DateTimeOffset.Parse(lastSync);
-
-            // If the stored cursor would create a window of less than 1 hour AND we haven't
-            // successfully collected events yet, this is likely a stale cursor from a prior
-            // deploy. Reset to 7 days so the first collection backfills historical data.
-            if (!_hasCollectedOnce && DateTimeOffset.UtcNow - start < TimeSpan.FromHours(1))
-            {
-                var eventCount = await repository.GetThreatSummaryAsync(
-                    DateTime.UtcNow.AddDays(-7), DateTime.UtcNow, cancellationToken);
-                if (eventCount.TotalEvents == 0)
-                {
-                    _logger.LogInformation("Stale sync cursor detected with empty DB, resetting to 7-day backfill");
-                    start = DateTimeOffset.UtcNow.AddDays(-7);
-                }
-            }
-        }
-        else
-        {
-            start = DateTimeOffset.UtcNow.AddDays(-7);
-        }
-        var end = DateTimeOffset.UtcNow;
-
-        // Get the UniFi API client via the accessor (singleton, connected via UniFiConnectionService)
         var apiClient = _uniFiClientAccessor.Client;
         if (apiClient == null)
         {
@@ -235,63 +143,115 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
+        // === PHASE 1: Forward edge - collect new data since last sync ===
+        var lastSync = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
+        var forwardStart = lastSync != null ? DateTimeOffset.Parse(lastSync) : DateTimeOffset.UtcNow.AddMinutes(-5);
+        var now = DateTimeOffset.UtcNow;
+
+        var forwardEvents = await CollectRangeAsync(apiClient, forwardStart, now, maxPages: 50, cancellationToken);
+        await ProcessAndSaveAsync(forwardEvents, repository, cancellationToken);
+        await settings.SaveSettingAsync("threats.last_sync_timestamp", now.ToString("O"));
+
+        if (forwardEvents.Count > 0)
+            _logger.LogInformation("Forward: {Count} new events", forwardEvents.Count);
+
+        // === PHASE 2: Gradual backfill - nibble backwards through history ===
+        var backfillCursorStr = await settings.GetSettingAsync("threats.backfill_cursor", cancellationToken);
+        var retentionLimit = DateTimeOffset.UtcNow.AddDays(-_retentionDays);
+
+        // Initialize cursor to "now" on first run (we'll work backwards from here)
+        var cursor = backfillCursorStr != null ? DateTimeOffset.Parse(backfillCursorStr) : now;
+
+        if (cursor > retentionLimit)
+        {
+            // Work backwards in 1-hour chunks, ~5 pages per cycle (gentle on the gateway)
+            var chunkEnd = cursor;
+            var chunkStart = cursor.AddHours(-1);
+            if (chunkStart < retentionLimit) chunkStart = retentionLimit;
+
+            var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 5, cancellationToken);
+            await ProcessAndSaveAsync(backfillEvents, repository, cancellationToken);
+
+            // Move cursor back
+            cursor = chunkStart;
+            await settings.SaveSettingAsync("threats.backfill_cursor", cursor.ToString("O"));
+            BackfillCursor = cursor;
+
+            if (backfillEvents.Count > 0)
+                _logger.LogInformation("Backfill: {Count} events from {From} to {To}", backfillEvents.Count, chunkStart, chunkEnd);
+            else
+                _logger.LogDebug("Backfill: 0 events from {From} to {To}, cursor at {Cursor}", chunkStart, chunkEnd, cursor);
+        }
+        else
+        {
+            BackfillCursor = null; // Backfill complete
+            _logger.LogDebug("Backfill complete - coverage back to retention limit ({Days}d)", _retentionDays);
+        }
+
+        // Periodic cleanup (3 AM UTC)
+        if (DateTime.UtcNow.Hour == 3 && DateTime.UtcNow.Minute < _pollIntervalMinutes)
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-_retentionDays);
+            await repository.PurgeOldEventsAsync(cutoff, cancellationToken);
+            await repository.PurgeCrowdSecCacheAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Collect traffic flows and IPS events for a specific time range.
+    /// </summary>
+    private async Task<List<ThreatEvent>> CollectRangeAsync(
+        UniFi.UniFiApiClient apiClient,
+        DateTimeOffset start, DateTimeOffset end,
+        int maxPages, CancellationToken cancellationToken)
+    {
         var allEvents = new List<ThreatEvent>();
 
-        // 1. Collect traffic flows (PRIMARY source) - background uses 50-page cap
-        var flowEvents = await CollectTrafficFlowsAsync(apiClient, start, end, maxPages: 50, cancellationToken);
+        var flowEvents = await CollectTrafficFlowsAsync(apiClient, start, end, maxPages, cancellationToken);
         allEvents.AddRange(flowEvents);
 
-        // 2. Collect IPS events (SECONDARY source)
         var ipsEvents = await CollectIpsEventsAsync(apiClient, start, end, cancellationToken);
         allEvents.AddRange(ipsEvents);
 
-        if (allEvents.Count == 0)
-        {
-            _logger.LogDebug("No new threat events found");
-            await settings.SaveSettingAsync("threats.last_sync_timestamp", end.ToString("O"));
-            return;
-        }
+        return allEvents;
+    }
 
-        // 3. Enrich with geo data (flow events with internal source -> enrich on dest IP)
-        _geoService.EnrichEvents(allEvents);
+    /// <summary>
+    /// Enrich, classify, save events, run pattern analysis, and publish alerts.
+    /// </summary>
+    private async Task ProcessAndSaveAsync(List<ThreatEvent> events,
+        IThreatRepository repository, CancellationToken cancellationToken)
+    {
+        if (events.Count == 0) return;
 
-        // 4. Classify kill chain stages
-        foreach (var evt in allEvents)
-        {
+        _geoService.EnrichEvents(events);
+
+        foreach (var evt in events)
             evt.KillChainStage = _classifier.Classify(evt);
-        }
 
-        // 5. Save to database
-        await repository.SaveEventsAsync(allEvents, cancellationToken);
+        await repository.SaveEventsAsync(events, cancellationToken);
 
-        // Update sync cursor
-        await settings.SaveSettingAsync("threats.last_sync_timestamp", end.ToString("O"));
-
-        // 6. Run pattern analysis
+        // Pattern analysis on recent data
         try
         {
-            var analysisWindow = DateTime.UtcNow.AddHours(-1);
-            var recentEvents = await repository.GetEventsAsync(analysisWindow, DateTime.UtcNow, limit: 5000, cancellationToken: cancellationToken);
+            var recentEvents = await repository.GetEventsAsync(
+                DateTime.UtcNow.AddHours(-1), DateTime.UtcNow, limit: 5000, cancellationToken: cancellationToken);
             var patterns = _patternAnalyzer.DetectPatterns(recentEvents);
             foreach (var pattern in patterns)
-            {
                 await repository.SavePatternAsync(pattern, cancellationToken);
-            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Pattern analysis failed");
         }
 
-        // 7. Publish high-severity events to alert bus
-        var criticalEvents = allEvents.Where(e => e.Severity >= 4).ToList();
-        foreach (var evt in criticalEvents)
+        // Publish high-severity events to alert bus
+        foreach (var evt in events.Where(e => e.Severity >= 4))
         {
             try
             {
                 var eventType = evt.EventSource == Models.EventSource.TrafficFlow
-                    ? "threats.traffic_flow"
-                    : "threats.ips_event";
+                    ? "threats.traffic_flow" : "threats.ips_event";
                 var titlePrefix = evt.EventSource == Models.EventSource.TrafficFlow ? "Flow" : "IPS";
 
                 await _alertEventBus.PublishAsync(new AlertEvent
@@ -315,17 +275,6 @@ public class ThreatCollectionService : BackgroundService
             {
                 _logger.LogDebug(ex, "Failed to publish alert for threat event");
             }
-        }
-
-        _logger.LogInformation("Processed {Total} threat events ({Flows} flows, {Ips} IPS, {Critical} critical)",
-            allEvents.Count, flowEvents.Count, ipsEvents.Count, criticalEvents.Count);
-
-        // Periodic cleanup (3 AM UTC)
-        if (DateTime.UtcNow.Hour == 3 && DateTime.UtcNow.Minute < _pollIntervalMinutes)
-        {
-            var cutoff = DateTime.UtcNow.AddDays(-_retentionDays);
-            await repository.PurgeOldEventsAsync(cutoff, cancellationToken);
-            await repository.PurgeCrowdSecCacheAsync(cancellationToken);
         }
     }
 
@@ -351,7 +300,6 @@ public class ThreatCollectionService : BackgroundService
                 if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0)
                     break;
 
-                // Filter interesting flows before normalization
                 var interestingFlows = new List<JsonElement>();
                 foreach (var flow in data.EnumerateArray())
                 {
@@ -361,26 +309,19 @@ public class ThreatCollectionService : BackgroundService
 
                 if (interestingFlows.Count > 0)
                 {
-                    // Build a filtered response for the normalizer
                     var filteredJson = JsonSerializer.Serialize(new { data = interestingFlows });
                     using var doc = JsonDocument.Parse(filteredJson);
                     var normalized = _normalizer.NormalizeFlowEvents(doc.RootElement);
                     events.AddRange(normalized);
                 }
 
-                // Check pagination
                 var hasNext = response.TryGetProperty("has_next", out var hn) && hn.GetBoolean();
                 if (!hasNext) break;
-
-                // Log progress on first page so we know the scale
-                if (page == 0 && response.TryGetProperty("total_page_count", out var tpc))
-                    _logger.LogDebug("Traffic flows: {TotalPages} total pages available", tpc);
-
                 page++;
             }
 
-            _logger.LogDebug("Collected {Count} interesting flow events across {Pages} pages (cap: {Max})",
-                events.Count, page + 1, maxPages == int.MaxValue ? "none" : maxPages);
+            if (events.Count > 0)
+                _logger.LogDebug("Collected {Count} interesting flow events across {Pages} pages", events.Count, page + 1);
         }
         catch (Exception ex)
         {

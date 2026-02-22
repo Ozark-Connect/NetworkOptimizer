@@ -2260,7 +2260,10 @@ public class UniFiApiClient : IDisposable
         DateTimeOffset start,
         DateTimeOffset end,
         int pageNumber = 0,
-        int pageSize = 100,
+        int pageSize = 500,
+        string[]? riskFilter = null,
+        string[]? actionFilter = null,
+        string[]? directionFilter = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
@@ -2274,9 +2277,9 @@ public class UniFiApiClient : IDisposable
 
         var body = new Dictionary<string, object>
         {
-            ["risk"] = Array.Empty<string>(),
-            ["action"] = Array.Empty<string>(),
-            ["direction"] = Array.Empty<string>(),
+            ["risk"] = riskFilter ?? Array.Empty<string>(),
+            ["action"] = actionFilter ?? Array.Empty<string>(),
+            ["direction"] = directionFilter ?? Array.Empty<string>(),
             ["protocol"] = Array.Empty<string>(),
             ["policy"] = Array.Empty<string>(),
             ["policy_type"] = Array.Empty<string>(),
@@ -2306,7 +2309,7 @@ public class UniFiApiClient : IDisposable
             ["pageNumber"] = pageNumber,
             ["search_text"] = "",
             ["pageSize"] = pageSize,
-            ["skip_count"] = false
+            ["skip_count"] = pageNumber > 0 // only count on first page
         };
 
         return await _retryPolicy.ExecuteAsync(async () =>
