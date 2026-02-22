@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
 using NetworkOptimizer.Storage.Models;
@@ -41,32 +42,76 @@ public class ThreatRepository : IThreatRepository
     /// <summary>
     /// Apply noise filter exclusions to an IQueryable. Each filter adds a WHERE clause
     /// that excludes events matching all non-null filter fields.
+    /// Supports CIDR notation (e.g. "10.0.0.0/8") for /8, /16, /24 subnets.
     /// </summary>
     private IQueryable<ThreatEvent> ApplyNoiseFilters(IQueryable<ThreatEvent> query)
     {
         foreach (var f in _noiseFilters)
         {
-            // Capture for closure
             var srcIp = f.SourceIp;
             var dstIp = f.DestIp;
             var dstPort = f.DestPort;
+            var srcPrefix = ToCidrPrefix(srcIp);
+            var dstPrefix = ToCidrPrefix(dstIp);
+            var srcIsExact = srcIp != null && srcPrefix == null;
+            var dstIsExact = dstIp != null && dstPrefix == null;
+            var srcIsCidr = srcPrefix != null;
+            var dstIsCidr = dstPrefix != null;
 
-            // Exclude events where ALL non-null fields match (De Morgan's: keep if ANY doesn't match)
+            // Build the exclusion using De Morgan's: keep if ANY condition doesn't match.
+            // For CIDR, use StartsWith (translates to LIKE in SQLite).
             if (srcIp != null && dstIp != null && dstPort != null)
-                query = query.Where(e => e.SourceIp != srcIp || e.DestIp != dstIp || e.DestPort != dstPort);
+            {
+                if (srcIsCidr && dstIsCidr)
+                    query = query.Where(e => !e.SourceIp.StartsWith(srcPrefix!) || !e.DestIp.StartsWith(dstPrefix!) || e.DestPort != dstPort);
+                else if (srcIsCidr)
+                    query = query.Where(e => !e.SourceIp.StartsWith(srcPrefix!) || e.DestIp != dstIp || e.DestPort != dstPort);
+                else if (dstIsCidr)
+                    query = query.Where(e => e.SourceIp != srcIp || !e.DestIp.StartsWith(dstPrefix!) || e.DestPort != dstPort);
+                else
+                    query = query.Where(e => e.SourceIp != srcIp || e.DestIp != dstIp || e.DestPort != dstPort);
+            }
             else if (srcIp != null && dstIp != null)
-                query = query.Where(e => e.SourceIp != srcIp || e.DestIp != dstIp);
+            {
+                if (srcIsCidr && dstIsCidr)
+                    query = query.Where(e => !e.SourceIp.StartsWith(srcPrefix!) || !e.DestIp.StartsWith(dstPrefix!));
+                else if (srcIsCidr)
+                    query = query.Where(e => !e.SourceIp.StartsWith(srcPrefix!) || e.DestIp != dstIp);
+                else if (dstIsCidr)
+                    query = query.Where(e => e.SourceIp != srcIp || !e.DestIp.StartsWith(dstPrefix!));
+                else
+                    query = query.Where(e => e.SourceIp != srcIp || e.DestIp != dstIp);
+            }
             else if (srcIp != null && dstPort != null)
-                query = query.Where(e => e.SourceIp != srcIp || e.DestPort != dstPort);
+            {
+                if (srcIsCidr)
+                    query = query.Where(e => !e.SourceIp.StartsWith(srcPrefix!) || e.DestPort != dstPort);
+                else
+                    query = query.Where(e => e.SourceIp != srcIp || e.DestPort != dstPort);
+            }
             else if (dstIp != null && dstPort != null)
-                query = query.Where(e => e.DestIp != dstIp || e.DestPort != dstPort);
+            {
+                if (dstIsCidr)
+                    query = query.Where(e => !e.DestIp.StartsWith(dstPrefix!) || e.DestPort != dstPort);
+                else
+                    query = query.Where(e => e.DestIp != dstIp || e.DestPort != dstPort);
+            }
             else if (srcIp != null)
-                query = query.Where(e => e.SourceIp != srcIp);
+            {
+                if (srcIsCidr)
+                    query = query.Where(e => !e.SourceIp.StartsWith(srcPrefix!));
+                else
+                    query = query.Where(e => e.SourceIp != srcIp);
+            }
             else if (dstIp != null)
-                query = query.Where(e => e.DestIp != dstIp);
+            {
+                if (dstIsCidr)
+                    query = query.Where(e => !e.DestIp.StartsWith(dstPrefix!));
+                else
+                    query = query.Where(e => e.DestIp != dstIp);
+            }
             else if (dstPort != null)
                 query = query.Where(e => e.DestPort != dstPort);
-            // If all null, skip (would match everything)
         }
 
         return query;
@@ -74,7 +119,7 @@ public class ThreatRepository : IThreatRepository
 
     /// <summary>
     /// Build a SQL noise filter WHERE clause for raw SQL queries.
-    /// Returns empty string if no filters active.
+    /// Returns empty string if no filters active. Supports CIDR notation.
     /// </summary>
     private string BuildNoiseFilterSql(out List<object> parameters)
     {
@@ -85,8 +130,33 @@ public class ThreatRepository : IThreatRepository
         foreach (var f in _noiseFilters)
         {
             var parts = new List<string>();
-            if (f.SourceIp != null) { parts.Add($"SourceIp != {{{parameters.Count}}}"); parameters.Add(f.SourceIp); }
-            if (f.DestIp != null) { parts.Add($"DestIp != {{{parameters.Count}}}"); parameters.Add(f.DestIp); }
+            if (f.SourceIp != null)
+            {
+                var prefix = ToCidrPrefix(f.SourceIp);
+                if (prefix != null)
+                {
+                    // CIDR: use NOT LIKE 'prefix%' (manually constructed, prefix is validated)
+                    parts.Add($"SourceIp NOT LIKE '{prefix}%'");
+                }
+                else
+                {
+                    parts.Add($"SourceIp != {{{parameters.Count}}}");
+                    parameters.Add(f.SourceIp);
+                }
+            }
+            if (f.DestIp != null)
+            {
+                var prefix = ToCidrPrefix(f.DestIp);
+                if (prefix != null)
+                {
+                    parts.Add($"DestIp NOT LIKE '{prefix}%'");
+                }
+                else
+                {
+                    parts.Add($"DestIp != {{{parameters.Count}}}");
+                    parameters.Add(f.DestIp);
+                }
+            }
             if (f.DestPort != null) { parts.Add($"DestPort != {{{parameters.Count}}}"); parameters.Add(f.DestPort); }
 
             if (parts.Count > 0)
@@ -95,6 +165,8 @@ public class ThreatRepository : IThreatRepository
 
         return clauses.Count > 0 ? " AND " + string.Join(" AND ", clauses) : "";
     }
+
+    private static string? ToCidrPrefix(string? value) => NetworkUtilities.GetCidrLikePrefix(value);
 
     #region Threat Events
 
