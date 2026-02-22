@@ -211,13 +211,8 @@ public class PropagationService
         if (needSwap)
         {
             // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
-            // Ceiling-native APs on wall: mirror left/right because the elevation ring's
-            // up/down maps to floor plan left/right with opposite handedness top-down vs face-on.
-            // Wall-native APs (e.g., U7-Pro-Outdoor directional) don't need this - their
-            // physical orientation already matches the pattern measurement perspective.
-            var swapAzIdx = isCeilingNative ? (360 - azimuthDeg) % 360 : azimuthDeg;
             // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
-            azGain = _antennaLoader.GetElevationGain(ap.Model, band, swapAzIdx, ap.AntennaMode);
+            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
