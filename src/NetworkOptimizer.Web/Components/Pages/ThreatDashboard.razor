@@ -392,7 +392,7 @@ else
                                 @foreach (var source in _dashboardData.TopSources)
                                 {
                                     <tr>
-                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)">@source.SourceIp</a>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
+                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)"><code>@source.SourceIp</code></a>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
                                         <td>@if (string.IsNullOrEmpty(source.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(source.CountryCode)" style="cursor:default">@CountryFlag(source.CountryCode)</span> }</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
@@ -742,7 +742,7 @@ else
                                 @foreach (var seq in _attackSequences)
                                 {
                                     <tr>
-                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)">@seq.SourceIp</a>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
+                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)"><code>@seq.SourceIp</code></a>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
                                         <td class="hide-mobile">@if (string.IsNullOrEmpty(seq.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(seq.CountryCode)" style="cursor:default">@CountryFlag(seq.CountryCode)</span> }</td>
                                         <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
                                         <td>
@@ -850,7 +850,7 @@ else
                                 @foreach (var dest in _drilldownData.Destinations)
                                 {
                                     <tr>
-                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)">@dest.Ip</a>@if (destName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@destName</span> }</td>
+                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@destName</span> }</td>
                                         <td class="hide-mobile">@(dest.Domain ?? "-")</td>
                                         <td><code style="font-size:0.8rem;">@dest.PortRanges</code></td>
                                         <td class="hide-mobile">@(dest.Services ?? "-")</td>
@@ -891,7 +891,7 @@ else
                                 @foreach (var src in _drilldownData.Sources)
                                 {
                                     <tr>
-                                        <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)">@src.Ip</a>@if (srcPeerName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcPeerName</span> }</td>
+                                        <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a>@if (srcPeerName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcPeerName</span> }</td>
                                         <td class="hide-mobile">@(src.Domain ?? "-")</td>
                                         <td><code style="font-size:0.8rem;">@src.PortRanges</code></td>
                                         <td class="hide-mobile">@(src.Services ?? "-")</td>
@@ -1063,13 +1063,14 @@ else
 
     /* Clickable IP links */
     .ip-link {
-        color: var(--primary-color);
         text-decoration: none;
-        font-family: var(--font-mono, monospace);
-        font-size: 0.9rem;
         cursor: pointer;
     }
-    .ip-link:hover {
+    .ip-link code {
+        color: var(--primary-color);
+        cursor: pointer;
+    }
+    .ip-link:hover code {
         color: var(--primary-hover);
         text-decoration: underline;
     }
