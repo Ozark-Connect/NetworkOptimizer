@@ -12,6 +12,7 @@
 @implements IDisposable
 @inject NavigationManager NavigationManager
 @inject ILogger<ThreatDashboard> Logger
+@inject IJSRuntime JS
 
 <PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
 
@@ -1555,6 +1556,7 @@ else
         {
             _loading = false;
             StateHasChanged();
+            await JS.InvokeVoidAsync("window.scrollTo", 0, 0);
         }
     }
 
