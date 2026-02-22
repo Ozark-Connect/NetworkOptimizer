@@ -1341,9 +1341,13 @@ else
             if (_activeTab == "overview")
             {
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
-                _timeline = await DashboardService.GetTimelineDataAsync(from, to);
+                // Mutate the existing list (don't replace reference) so the chart's Items binding stays valid
+                var newTimeline = await DashboardService.GetTimelineDataAsync(from, to);
+                _timeline.Clear();
+                _timeline.AddRange(newTimeline);
                 BuildDerivedChartData();
-                _chartNeedsUpdate = true;
+                // Only flag chart update when charts already exist; first creation renders with current data
+                if (_hasLoadedOnce) _chartNeedsUpdate = true;
             }
             else if (_activeTab == "exposure")
             {
