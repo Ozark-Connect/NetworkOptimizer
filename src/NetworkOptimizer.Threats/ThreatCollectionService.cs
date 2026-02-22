@@ -267,7 +267,7 @@ public class ThreatCollectionService : BackgroundService
         try
         {
             var recentEvents = await repository.GetEventsAsync(
-                DateTime.UtcNow.AddHours(-1), DateTime.UtcNow, limit: 5000, cancellationToken: cancellationToken);
+                DateTime.UtcNow.AddHours(-6), DateTime.UtcNow, limit: 5000, cancellationToken: cancellationToken);
             var patterns = _patternAnalyzer.DetectPatterns(recentEvents);
             foreach (var pattern in patterns)
                 await repository.SavePatternAsync(pattern, cancellationToken);
