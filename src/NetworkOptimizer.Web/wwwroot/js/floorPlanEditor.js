@@ -411,7 +411,8 @@ window.fpEditor = {
             var heatmapTimer = null;
             m.on('moveend', function () {
                 if (heatmapTimer) clearTimeout(heatmapTimer);
-                // Abort any in-flight fetch immediately so stale bounds don't render
+                // Invalidate any in-flight or just-completed fetch so stale bounds don't render
+                self._heatmapRequestId = (self._heatmapRequestId || 0) + 1;
                 if (self._heatmapAbort) self._heatmapAbort.abort();
                 heatmapTimer = setTimeout(function () {
                     if (self._heatmapBaseUrl) {
