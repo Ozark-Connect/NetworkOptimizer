@@ -402,6 +402,8 @@ window.fpEditor = {
             var heatmapTimer = null;
             m.on('moveend', function () {
                 if (heatmapTimer) clearTimeout(heatmapTimer);
+                // Abort any in-flight fetch immediately so stale bounds don't render
+                if (self._heatmapAbort) self._heatmapAbort.abort();
                 heatmapTimer = setTimeout(function () {
                     if (self._heatmapBaseUrl) {
                         self.computeHeatmap();
