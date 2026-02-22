@@ -796,6 +796,33 @@ else
             {
                 <span style="color:var(--text-secondary); font-size:1rem;">@drilldownName</span>
             }
+            @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
+            {
+                var hasDrilldownCti = _manualCtiCache.TryGetValue(_drilldownData.Ip, out var drilldownCti);
+                var drilldownBadge = drilldownCti?.Badge;
+                var drilldownBehaviors = drilldownCti?.Behaviors;
+                @if (drilldownBadge != null)
+                {
+                    <span class="reputation-badge reputation-@drilldownBadge"
+                          data-tooltip="@(drilldownBehaviors ?? "No behaviors identified")">
+                        @drilldownBadge
+                    </span>
+                }
+                else if (hasDrilldownCti)
+                {
+                    <span style="color:var(--text-muted); font-size:0.85rem;">Not in CrowdSec DB</span>
+                }
+                else if (_lookingUpIp == _drilldownData.Ip)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)">
+                        Look up
+                    </button>
+                }
+            }
             @if (_drilldownData.FirstSeen.HasValue)
             {
                 <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
@@ -803,6 +830,18 @@ else
                 </span>
             }
         </div>
+
+        @* CTI details row (behaviors) when we have data *@
+        @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
+        {
+            var ctiEntry = _manualCtiCache.GetValueOrDefault(_drilldownData.Ip);
+            @if (ctiEntry?.Behaviors != null)
+            {
+                <div style="margin-bottom:1rem; color:var(--text-secondary); font-size:0.85rem;">
+                    <span style="color:var(--text-muted);">Behaviors:</span> @ctiEntry.Behaviors
+                </div>
+            }
+        }
 
         @* 4 stat cards *@
         <div class="threat-summary-grid">
@@ -974,7 +1013,16 @@ else
                                 {
                                     <tr>
                                         <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@sig.Name</td>
-                                        <td class="hide-mobile">@(string.IsNullOrEmpty(sig.Category) ? "-" : PrettifyCategory(sig.Category))</td>
+                                        <td class="hide-mobile">
+                                            @if (string.IsNullOrEmpty(sig.Category))
+                                            {
+                                                <span>-</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="category-badge">@PrettifyCategory(sig.Category)</span>
+                                            }
+                                        </td>
                                         <td>@FormatNumber(sig.EventCount)</td>
                                         <td>
                                             <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:@GetSeverityColor(sig.MaxSeverity); margin-right:0.4rem;"></span>
@@ -1080,6 +1128,16 @@ else
     .ip-link:hover code {
         color: var(--primary-hover);
         text-decoration: underline;
+    }
+
+    .category-badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.78rem;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        white-space: nowrap;
     }
 
     /* Noise filter active count badge */
@@ -1420,6 +1478,36 @@ else
         {
             Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
             _manualCtiCache[source.SourceIp] = new CtiLookupResult(null, 0, null);
+        }
+        finally
+        {
+            _lookingUpIp = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LookUpDrilldownReputationAsync(string ip)
+    {
+        _lookingUpIp = ip;
+        StateHasChanged();
+        try
+        {
+            var source = new SourceIpSummary { SourceIp = ip };
+            var result = await DashboardService.EnrichSingleSourceAsync(source);
+            if (result?.CrowdSecReputation != null)
+            {
+                _manualCtiCache[ip] = new CtiLookupResult(
+                    result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors);
+            }
+            else
+            {
+                _manualCtiCache[ip] = new CtiLookupResult(null, 0, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", ip);
+            _manualCtiCache[ip] = new CtiLookupResult(null, 0, null);
         }
         finally
         {
@@ -1831,10 +1919,25 @@ else
         return $"{code.ToUpperInvariant()} - {name}";
     }
 
+    private static readonly HashSet<string> ProtocolTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "TCP", "UDP", "ICMP", "HTTP", "HTTPS", "SSH", "DNS", "FTP", "SMTP", "SNMP",
+        "RDP", "SIP", "IMAP", "POP3", "NTP", "LDAP", "SMB", "TLS", "SSL",
+        "MQTT", "QUIC", "RPC", "TFTP", "DHCP", "ARP", "IP", "P2P", "IRC", "VPN"
+    };
+
     private static string PrettifyCategory(string category)
     {
         if (string.IsNullOrEmpty(category)) return category;
-        return System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(category.ToLowerInvariant());
+        var titleCased = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(category.ToLowerInvariant());
+        // Restore uppercase for known protocol tokens
+        var words = titleCased.Split(' ');
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (ProtocolTokens.Contains(words[i]))
+                words[i] = words[i].ToUpperInvariant();
+        }
+        return string.Join(' ', words);
     }
 
     private static string GetStageColor(KillChainStage stage)
