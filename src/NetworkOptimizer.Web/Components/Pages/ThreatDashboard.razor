@@ -1170,9 +1170,11 @@ else
         if (_chartNeedsUpdate)
         {
             _chartNeedsUpdate = false;
+            Logger.LogWarning("[TIMELINE-DEBUG] OnAfterRenderAsync: updating charts. timelineChart={HasRef}, timeline count={Count}, total={Total}",
+                _timelineChart != null, _timeline.Count, _timeline.Sum(t => t.Total));
             // Multi-series charts need RenderAsync(); single-series use UpdateSeriesAsync
             // (Matches ClientDashboard pattern for signal chart)
-            try { if (_timelineChart != null) await _timelineChart.RenderAsync(); } catch { }
+            try { if (_timelineChart != null) await _timelineChart.RenderAsync(); } catch (Exception ex) { Logger.LogWarning(ex, "[TIMELINE-DEBUG] RenderAsync failed"); }
             try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
             try { if (_actionChart != null) await _actionChart.UpdateSeriesAsync(true); } catch { }
         }
@@ -1340,8 +1342,13 @@ else
 
             if (_activeTab == "overview")
             {
+                Logger.LogWarning("[TIMELINE-DEBUG] LoadDataAsync: filtersActive={Active}, FiltersDisabled={Disabled}",
+                    _filtersActive, DashboardService.FiltersDisabled);
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
+                var totalFromTimeline = _timeline.Sum(t => t.Total);
+                Logger.LogWarning("[TIMELINE-DEBUG] Got {Count} buckets, total events={Total}, summary total={SummaryTotal}",
+                    _timeline.Count, totalFromTimeline, _dashboardData.Summary.TotalEvents);
                 BuildDerivedChartData();
                 // Only flag chart update when charts already exist; first creation renders with current data
                 if (_hasLoadedOnce) _chartNeedsUpdate = true;

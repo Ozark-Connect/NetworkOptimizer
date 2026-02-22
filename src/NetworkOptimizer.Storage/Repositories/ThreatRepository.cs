@@ -339,7 +339,9 @@ public class ThreatRepository : IThreatRepository
         try
         {
             // Use raw SQL with strftime for server-side hour truncation (avoids loading all events into memory)
+            _logger.LogWarning("[TIMELINE-DEBUG] GetTimelineAsync: noiseFilters.Count={Count}", _noiseFilters.Count);
             var noiseFilterSql = BuildNoiseFilterSql(out var extraParams);
+            _logger.LogWarning("[TIMELINE-DEBUG] BuildNoiseFilterSql returned: '{Sql}', params={ParamCount}", noiseFilterSql, extraParams.Count);
             var allParams = new List<object> { from, to };
             // Offset parameter indices in the noise filter SQL by 2 (for from/to)
             var offsetFilterSql = noiseFilterSql;

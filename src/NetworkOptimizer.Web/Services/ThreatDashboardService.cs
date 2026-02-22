@@ -204,6 +204,7 @@ public class ThreatDashboardService
     {
         try
         {
+            _logger.LogWarning("[TIMELINE-DEBUG] GetTimelineDataAsync: FiltersDisabled={Disabled}", FiltersDisabled);
             await ApplyNoiseFiltersToRepository(cancellationToken);
             return await _repository.GetTimelineAsync(from, to, cancellationToken);
         }
@@ -487,10 +488,12 @@ public class ThreatDashboardService
     {
         if (FiltersDisabled)
         {
+            _logger.LogWarning("[TIMELINE-DEBUG] ApplyNoiseFilters: DISABLED, setting empty filters");
             _repository.SetNoiseFilters([]);
             return;
         }
         var filters = await GetActiveFiltersAsync(cancellationToken);
+        _logger.LogWarning("[TIMELINE-DEBUG] ApplyNoiseFilters: ENABLED, setting {Count} filters", filters.Count);
         _repository.SetNoiseFilters(filters);
     }
 
