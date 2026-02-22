@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.CrowdSec;
 using NetworkOptimizer.Threats.Interfaces;
@@ -15,6 +16,7 @@ public class ThreatDashboardService
     private readonly ExposureValidator _exposureValidator;
     private readonly CrowdSecEnrichmentService _crowdSecService;
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
+    private readonly IThreatSettingsAccessor _settingsAccessor;
     private readonly ILogger<ThreatDashboardService> _logger;
 
     public ThreatDashboardService(
@@ -22,12 +24,14 @@ public class ThreatDashboardService
         ExposureValidator exposureValidator,
         CrowdSecEnrichmentService crowdSecService,
         IUniFiClientAccessor uniFiClientAccessor,
+        IThreatSettingsAccessor settingsAccessor,
         ILogger<ThreatDashboardService> logger)
     {
         _repository = repository;
         _exposureValidator = exposureValidator;
         _crowdSecService = crowdSecService;
         _uniFiClientAccessor = uniFiClientAccessor;
+        _settingsAccessor = settingsAccessor;
         _logger = logger;
     }
 
@@ -41,6 +45,9 @@ public class ThreatDashboardService
             var topSources = await _repository.GetTopSourcesAsync(from, to, 10, cancellationToken);
             var topPorts = await _repository.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
             var patterns = await _repository.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
+
+            // Enrich top sources with CrowdSec CTI reputation (cached 24h, ~10 API calls max)
+            await EnrichTopSourcesWithCtiAsync(topSources, cancellationToken);
 
             return new ThreatDashboardData
             {
@@ -57,6 +64,78 @@ public class ThreatDashboardService
             return new ThreatDashboardData();
         }
     }
+
+    /// <summary>
+    /// Auto-enrich top sources with CrowdSec CTI only if quota is generous (>= 100/day).
+    /// With 24h cache, this typically costs 0-10 API calls per dashboard load.
+    /// </summary>
+    private async Task EnrichTopSourcesWithCtiAsync(List<SourceIpSummary> sources,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var apiKey = await _settingsAccessor.GetSettingAsync("crowdsec.api_key", cancellationToken);
+            if (string.IsNullOrWhiteSpace(apiKey)) return;
+
+            var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
+            var quota = int.TryParse(quotaStr, out var q) ? q : 30; // free tier default
+            if (quota < 100) return; // low quota - user must enrich manually
+
+            await EnrichSourcesAsync(sources, apiKey, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "CrowdSec CTI auto-enrichment failed");
+        }
+    }
+
+    /// <summary>
+    /// Enrich a specific IP with CrowdSec CTI. Called by the dashboard for manual enrichment.
+    /// </summary>
+    public async Task<SourceIpSummary?> EnrichSingleSourceAsync(SourceIpSummary source,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var apiKey = await _settingsAccessor.GetSettingAsync("crowdsec.api_key", cancellationToken);
+            if (string.IsNullOrWhiteSpace(apiKey)) return null;
+
+            await EnrichSourcesAsync([source], apiKey, cancellationToken);
+            return source;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to enrich {Ip}", source.SourceIp);
+            return null;
+        }
+    }
+
+    private async Task EnrichSourcesAsync(List<SourceIpSummary> sources, string apiKey,
+        CancellationToken cancellationToken)
+    {
+        foreach (var source in sources)
+        {
+            if (NetworkUtilities.IsPrivateIpAddress(source.SourceIp)) continue;
+
+            try
+            {
+                var info = await _crowdSecService.GetReputationAsync(
+                    source.SourceIp, apiKey, _repository, cacheTtlHours: 24, cancellationToken);
+                if (info == null) continue;
+
+                source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
+                source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
+                source.TopBehaviors = info.Behaviors.Count > 0
+                    ? string.Join(", ", info.Behaviors.Take(3).Select(b => b.Label))
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to enrich {Ip} with CrowdSec CTI", source.SourceIp);
+            }
+        }
+    }
+
 
     public async Task<List<TimelineBucket>> GetTimelineDataAsync(DateTime from, DateTime to,
         CancellationToken cancellationToken = default)

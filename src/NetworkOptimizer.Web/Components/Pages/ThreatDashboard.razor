@@ -234,7 +234,11 @@ else
                                     <th>Country</th>
                                     <th class="hide-mobile">ASN</th>
                                     <th>Events</th>
-                                    <th>Max Severity</th>
+                                    <th>Severity</th>
+                                    @if (_crowdSecEnabled)
+                                    {
+                                        <th class="hide-mobile">Reputation</th>
+                                    }
                                 </tr>
                             </thead>
                             <tbody>
@@ -249,6 +253,33 @@ else
                                             <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:@GetSeverityColor(source.MaxSeverity); margin-right:0.4rem;"></span>
                                             @GetSeverityLabel(source.MaxSeverity)
                                         </td>
+                                        @if (_crowdSecEnabled)
+                                        {
+                                            <td class="hide-mobile">
+                                                @if (source.CrowdSecReputation != null)
+                                                {
+                                                    <span class="reputation-badge reputation-@source.CrowdSecReputation"
+                                                          data-tooltip="@(source.TopBehaviors ?? "No behaviors identified")">
+                                                        @source.CrowdSecReputation
+                                                    </span>
+                                                }
+                                                else if (NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(source.SourceIp))
+                                                {
+                                                    <span style="color:var(--text-muted);">Local</span>
+                                                }
+                                                else if (!_crowdSecAutoEnrich)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary"
+                                                            @onclick="() => LookUpReputationAsync(source)">
+                                                        Look up
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <span style="color:var(--text-muted);">-</span>
+                                                }
+                                            </td>
+                                        }
                                     </tr>
                                 }
                             </tbody>
@@ -607,6 +638,21 @@ else
         transition: width 0.3s ease;
     }
 
+    /* CrowdSec reputation badges */
+    .reputation-badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: var(--border-radius);
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: capitalize;
+    }
+    .reputation-malicious { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    .reputation-suspicious { background: rgba(249, 115, 22, 0.2); color: #f97316; }
+    .reputation-known { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+    .reputation-safe { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+    .reputation-unknown { background: var(--bg-hover); color: var(--text-muted); }
+
     /* Kill chain stage bars in attack sequences table */
     .stage-bar {
         display: inline-block;
@@ -641,6 +687,7 @@ else
     private ExposureReport? _exposureReport;
     private List<AttackSequence> _attackSequences = [];
     private bool _crowdSecEnabled;
+    private bool _crowdSecAutoEnrich; // true if quota >= 100, false = manual lookups
     private bool _crowdSecBannerDismissed;
     private bool _collectingFirstData;
 
@@ -712,6 +759,12 @@ else
         {
             var apiKey = await SettingsAccessor.GetSettingAsync("crowdsec.api_key");
             _crowdSecEnabled = !string.IsNullOrWhiteSpace(apiKey);
+            if (_crowdSecEnabled)
+            {
+                var quotaStr = await SettingsAccessor.GetSettingAsync("crowdsec.daily_quota");
+                var quota = int.TryParse(quotaStr, out var q) ? q : 30;
+                _crowdSecAutoEnrich = quota >= 100;
+            }
         }
         catch (Exception ex)
         {
@@ -835,6 +888,19 @@ else
             new() { Label = "Blocked", Count = _dashboardData.Summary.BlockedCount },
             new() { Label = "Detected", Count = _dashboardData.Summary.DetectedCount }
         };
+    }
+
+    private async Task LookUpReputationAsync(SourceIpSummary source)
+    {
+        try
+        {
+            await DashboardService.EnrichSingleSourceAsync(source);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
+        }
     }
 
     private async Task SetActiveTab(string tab)

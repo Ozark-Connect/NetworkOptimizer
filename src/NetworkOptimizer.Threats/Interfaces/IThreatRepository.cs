@@ -57,6 +57,11 @@ public record SourceIpSummary
     public int? Asn { get; init; }
     public string? AsnOrg { get; init; }
     public int MaxSeverity { get; init; }
+
+    // CrowdSec CTI enrichment (populated post-query by dashboard service)
+    public string? CrowdSecReputation { get; set; }
+    public int? ThreatScore { get; set; }
+    public string? TopBehaviors { get; set; }
 }
 
 /// <summary>
