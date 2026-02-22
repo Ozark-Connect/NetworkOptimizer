@@ -397,15 +397,6 @@ window.fpEditor = {
             m.on('zoomend', updateApScale);
             updateApScale();
 
-            // TODO: remove zoom logging
-            var lastZoom = m.getZoom();
-            m.on('zoomend', function () {
-                var z = m.getZoom();
-                var dir = z > lastZoom ? 'IN' : z < lastZoom ? 'OUT' : 'same';
-                console.log('[Zoom] ' + dir + ' ' + lastZoom + ' -> ' + z);
-                lastZoom = z;
-            });
-
             // Immediately invalidate + abort on zoom/pan START so stale responses
             // can't render with wrong-viewport bounds
             m.on('zoomstart movestart', function () {
@@ -3169,9 +3160,6 @@ window.fpEditor = {
             body.excludePlannedAps = true;
         }
 
-        var t0 = performance.now(); // TODO: remove timing
-        var requestZoom = m.getZoom(); // TODO: remove zoom logging
-        console.log('[Heatmap] request @ zoom=' + requestZoom + ' res=' + res.toFixed(1) + 'm');
         fetch(baseUrl + '/api/floor-plan/heatmap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3180,9 +3168,6 @@ window.fpEditor = {
         })
         .then(function (r) { if (!r.ok) throw new Error('Heatmap request failed: ' + r.status); return r.json(); })
         .then(function (data) {
-            var t1 = performance.now(); // TODO: remove timing
-            var currentZoom = m.getZoom();
-            console.log('[Heatmap] loaded @ zoom=' + currentZoom + ' (requested @ ' + requestZoom + ') fetch=' + Math.round(t1 - t0) + 'ms');
             if (!data || !data.data) return;
             if (requestId !== self._heatmapRequestId) return; // stale request, discard
 
@@ -3232,11 +3217,10 @@ window.fpEditor = {
             var dataUrl = canvas.toDataURL();
             var bounds = [[data.swLat, data.swLng], [data.neLat, data.neLng]];
             // Add new overlay first, then remove old - avoids a blank frame between swap
-            var oldOverlay = self._heatmapOverlay;
+            if (self._heatmapOverlay) m.removeLayer(self._heatmapOverlay);
             self._heatmapOverlay = L.imageOverlay(dataUrl, bounds, {
                 opacity: 0.6, pane: 'heatmapPane', interactive: false
             }).addTo(m);
-            if (oldOverlay) m.removeLayer(oldOverlay);
 
             // Contour lines using marching squares
             if (self._contourLayer) m.removeLayer(self._contourLayer);
@@ -3309,7 +3293,6 @@ window.fpEditor = {
                 }
             });
         })
-        .then(function () { console.log('[Heatmap] total: ' + Math.round(performance.now() - t0) + 'ms'); }) // TODO: remove timing
         .catch(function (err) { if (err.name !== 'AbortError') console.error('Heatmap error:', err); });
     },
 
