@@ -145,19 +145,18 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        // === ONE-TIME: Re-collect last 24h with higher page limit to catch missed events ===
-        // TODO: Remove this block after next deploy
-        // TODO: Remove this block after confirming phone→CloudKey events appear
-        var rebackfillDone = await settings.GetSettingAsync("threats.rebackfill_24h_v2", cancellationToken);
+        // === ONE-TIME: Re-collect last 24h with both passes to catch all interesting flows ===
+        // TODO: Remove this block after confirming data looks good
+        var rebackfillDone = await settings.GetSettingAsync("threats.rebackfill_24h_v3", cancellationToken);
         if (rebackfillDone == null)
         {
-            _logger.LogInformation("One-time 24h re-backfill starting");
+            _logger.LogInformation("One-time 24h re-backfill (v3 two-pass) starting");
             var rbEnd = DateTimeOffset.UtcNow;
             var rbStart = rbEnd.AddHours(-24);
             var rbEvents = await CollectRangeAsync(apiClient, rbStart, rbEnd, maxPages: 100, cancellationToken);
             await ProcessAndSaveAsync(rbEvents, repository, cancellationToken);
-            await settings.SaveSettingAsync("threats.rebackfill_24h_v2", "true");
-            _logger.LogInformation("One-time 24h re-backfill: {Count} events collected", rbEvents.Count);
+            await settings.SaveSettingAsync("threats.rebackfill_24h_v3", "true");
+            _logger.LogInformation("One-time 24h re-backfill (v3): {Count} events collected", rbEvents.Count);
         }
 
         // === PHASE 1: Forward edge - collect new data since last sync ===
@@ -325,11 +324,48 @@ public class ThreatCollectionService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Two-pass flow collection:
+    /// Pass 1 (unfiltered): Gets all flows through the page limit, FlowInterestFilter picks out
+    ///   medium/high risk detected flows + sensitive port probes. May miss some blocked flows
+    ///   buried deep in pagination (allowed flows fill up pages first).
+    /// Pass 2 (blocked-only): Gets ALL blocked flows reliably since the API only returns blocked,
+    ///   so pagination works through them efficiently.
+    /// Deduplication happens in SaveEventsAsync via InnerAlertId.
+    /// </summary>
     private async Task<List<ThreatEvent>> CollectTrafficFlowsAsync(
         UniFi.UniFiApiClient apiClient,
         DateTimeOffset start,
         DateTimeOffset end,
         int maxPages,
+        CancellationToken cancellationToken)
+    {
+        var events = new List<ThreatEvent>();
+
+        // Pass 1: Unfiltered - catches medium/high risk + sensitive port probes via FlowInterestFilter
+        var pass1 = await CollectFlowsPassAsync(apiClient, start, end, maxPages,
+            actionFilter: null, applyInterestFilter: true, cancellationToken);
+        events.AddRange(pass1);
+
+        // Pass 2: Blocked-only - ensures ALL blocked flows are captured regardless of pagination
+        var pass2 = await CollectFlowsPassAsync(apiClient, start, end, maxPages,
+            actionFilter: new[] { "blocked" }, applyInterestFilter: false, cancellationToken);
+        events.AddRange(pass2);
+
+        if (events.Count > 0)
+            _logger.LogDebug("Collected {Count} flow events (pass1={Pass1}, pass2={Pass2})",
+                events.Count, pass1.Count, pass2.Count);
+
+        return events;
+    }
+
+    private async Task<List<ThreatEvent>> CollectFlowsPassAsync(
+        UniFi.UniFiApiClient apiClient,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int maxPages,
+        string[]? actionFilter,
+        bool applyInterestFilter,
         CancellationToken cancellationToken)
     {
         var events = new List<ThreatEvent>();
@@ -341,23 +377,23 @@ public class ThreatCollectionService : BackgroundService
             while (page < maxPages)
             {
                 var response = await apiClient.GetTrafficFlowsAsync(start, end, page,
-                    actionFilter: new[] { "blocked" }, cancellationToken: cancellationToken);
+                    actionFilter: actionFilter, cancellationToken: cancellationToken);
                 if (response.ValueKind == JsonValueKind.Undefined)
                     break;
 
                 if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0)
                     break;
 
-                var interestingFlows = new List<JsonElement>();
+                var flowsToNormalize = new List<JsonElement>();
                 foreach (var flow in data.EnumerateArray())
                 {
-                    if (Analysis.FlowInterestFilter.IsInteresting(flow))
-                        interestingFlows.Add(flow);
+                    if (!applyInterestFilter || Analysis.FlowInterestFilter.IsInteresting(flow))
+                        flowsToNormalize.Add(flow);
                 }
 
-                if (interestingFlows.Count > 0)
+                if (flowsToNormalize.Count > 0)
                 {
-                    var filteredJson = JsonSerializer.Serialize(new { data = interestingFlows });
+                    var filteredJson = JsonSerializer.Serialize(new { data = flowsToNormalize });
                     using var doc = JsonDocument.Parse(filteredJson);
                     var normalized = _normalizer.NormalizeFlowEvents(doc.RootElement);
                     events.AddRange(normalized);
@@ -367,13 +403,11 @@ public class ThreatCollectionService : BackgroundService
                 if (!hasNext) break;
                 page++;
             }
-
-            if (events.Count > 0)
-                _logger.LogDebug("Collected {Count} interesting flow events across {Pages} pages", events.Count, page + 1);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Traffic flows collection failed");
+            _logger.LogDebug(ex, "Traffic flows collection pass failed (filter={Filter})",
+                actionFilter != null ? string.Join(",", actionFilter) : "none");
         }
 
         return events;
