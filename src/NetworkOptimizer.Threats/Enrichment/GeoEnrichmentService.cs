@@ -1,12 +1,11 @@
+using System.Formats.Tar;
+using System.IO.Compression;
 using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
 using MaxMind.GeoIP2;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Threats.Models;
-using SharpCompress.Archives;
-using SharpCompress.Archives.Tar;
-using SharpCompress.Common;
-using SharpCompress.Compressors;
-using SharpCompress.Compressors.Deflate;
 
 namespace NetworkOptimizer.Threats.Enrichment;
 
@@ -232,27 +231,44 @@ public class GeoEnrichmentService : IDisposable
     }
 
     /// <summary>
-    /// Download GeoLite2 databases from MaxMind using a license key.
+    /// Download GeoLite2 databases from MaxMind using account ID and license key.
+    /// Uses the current MaxMind download API with Basic auth.
     /// </summary>
     public async Task<(bool Success, string Message)> DownloadDatabasesAsync(
-        string licenseKey, string dataPath, HttpClient httpClient, CancellationToken cancellationToken = default)
+        string accountId, string licenseKey, string dataPath, HttpClient httpClient, CancellationToken cancellationToken = default)
     {
         var editions = new[] { "GeoLite2-City", "GeoLite2-ASN" };
         var errors = new List<string>();
+
+        // Basic auth: account_id:license_key
+        var authValue = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{accountId}:{licenseKey}"));
 
         foreach (var edition in editions)
         {
             try
             {
-                var url = $"https://download.maxmind.com/app/geoip_download?edition_id={edition}&license_key={licenseKey}&suffix=tar.gz";
+                var url = $"https://download.maxmind.com/geoip/databases/{edition}/download?suffix=tar.gz";
                 _logger.LogInformation("Downloading {Edition} database...", edition);
 
-                using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Basic", authValue);
+
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                 {
                     var body = await response.Content.ReadAsStringAsync(cancellationToken);
                     errors.Add($"{edition}: HTTP {(int)response.StatusCode} - {body}");
+                    continue;
+                }
+
+                // Verify content type looks like a tarball, not an error page
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+                if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase) ||
+                    contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+                {
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    errors.Add($"{edition}: Unexpected content type '{contentType}' - {body[..Math.Min(200, body.Length)]}");
                     continue;
                 }
 
@@ -265,19 +281,28 @@ public class GeoEnrichmentService : IDisposable
                         await response.Content.CopyToAsync(fs, cancellationToken);
                     }
 
-                    // Extract .mmdb from tar.gz
+                    var fileSize = new FileInfo(tempPath).Length;
+                    if (fileSize < 1024)
+                    {
+                        var content = await File.ReadAllTextAsync(tempPath, cancellationToken);
+                        errors.Add($"{edition}: Downloaded file too small ({fileSize} bytes) - {content[..Math.Min(200, content.Length)]}");
+                        continue;
+                    }
+
+                    // Extract .mmdb from tar.gz using .NET built-in libraries
                     var targetFile = Path.Combine(dataPath, $"{edition}.mmdb");
                     var extracted = false;
 
                     await using var fileStream = File.OpenRead(tempPath);
                     await using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
-                    using var archive = TarArchive.Open(gzipStream);
+                    await using var tarReader = new TarReader(gzipStream);
 
-                    foreach (var entry in archive.Entries)
+                    while (await tarReader.GetNextEntryAsync(copyData: true, cancellationToken) is { } entry)
                     {
-                        if (entry.Key != null && entry.Key.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase) && !entry.IsDirectory)
+                        if (entry.Name.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase) && entry.DataStream != null)
                         {
-                            entry.WriteToFile(targetFile, new ExtractionOptions { Overwrite = true });
+                            await using var outFile = File.Create(targetFile);
+                            await entry.DataStream.CopyToAsync(outFile, cancellationToken);
                             extracted = true;
                             _logger.LogInformation("Extracted {Edition}.mmdb ({Size:F1} MB)", edition, new FileInfo(targetFile).Length / 1_048_576.0);
                             break;
@@ -291,7 +316,6 @@ public class GeoEnrichmentService : IDisposable
                 }
                 finally
                 {
-                    // Clean up temp tar.gz
                     try { File.Delete(tempPath); } catch { /* ignore */ }
                 }
             }

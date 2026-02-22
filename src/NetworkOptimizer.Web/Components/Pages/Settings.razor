@@ -1384,14 +1384,22 @@
                 </div>
 
                 <div class="form-group" style="margin-top: 0.75rem;">
+                    <label class="form-label">MaxMind Account ID</label>
+                    <input type="text" class="form-control" @bind="maxmindAccountId" autocomplete="off"
+                           placeholder="@(hasMaxmindAccountId ? "Saved - enter new to update" : "Enter MaxMind account ID")"
+                           style="max-width: 200px;"
+                           data-1p-ignore data-lpignore="true" data-bwignore />
+                </div>
+
+                <div class="form-group" style="margin-top: 0.75rem;">
                     <label class="form-label">MaxMind License Key</label>
                     <input type="password" class="form-control" @bind="maxmindLicenseKey" autocomplete="new-password"
                            placeholder="@(hasMaxmindLicenseKey ? "Saved - enter new to update" : "Enter MaxMind license key")"
                            data-1p-ignore data-lpignore="true" data-bwignore />
-                    <small class="form-help">Get a free license key at <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" style="color: var(--primary-color);">maxmind.com</a> - enables automatic GeoLite2 database downloads</small>
+                    <small class="form-help">Get a free account at <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">maxmind.com</a> - Account ID and license key are under Account > Manage License Keys</small>
                 </div>
 
-                @if (hasMaxmindLicenseKey || !string.IsNullOrEmpty(maxmindLicenseKey))
+                @if ((hasMaxmindAccountId || !string.IsNullOrEmpty(maxmindAccountId)) && (hasMaxmindLicenseKey || !string.IsNullOrEmpty(maxmindLicenseKey)))
                 {
                     <button class="btn btn-secondary btn-sm" @onclick="DownloadMaxMindDatabases" disabled="@downloadingMaxmind" style="margin-top: 0.5rem;">
                         @if (downloadingMaxmind)
@@ -1467,7 +1475,7 @@
                 <div class="form-group">
                     <label class="form-label">CTI API Key</label>
                     <input type="password" class="form-control" @bind="crowdsecApiKey" autocomplete="new-password" placeholder="@(hasCrowdsecApiKey ? "Saved - enter new to update" : "Enter CrowdSec CTI API key")" data-1p-ignore data-lpignore="true" data-bwignore />
-                    <small class="form-help">Generate a CTI API key at <a href="https://app.crowdsec.net" target="_blank" style="color: var(--primary-color);">app.crowdsec.net</a> under CTI API Keys (30 lookups/day free tier)</small>
+                    <small class="form-help">Generate a CTI API key at <a href="https://app.crowdsec.net" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">app.crowdsec.net</a> under CTI API Keys (30 lookups/day free tier)</small>
                 </div>
 
                 <div class="form-group">
@@ -1833,6 +1841,8 @@
     private string threatSettingsMessageClass = "";
 
     // MaxMind GeoLite2 Settings
+    private string maxmindAccountId = "";
+    private bool hasMaxmindAccountId = false;
     private string maxmindLicenseKey = "";
     private bool hasMaxmindLicenseKey = false;
     private bool downloadingMaxmind = false;
@@ -3469,6 +3479,9 @@
             else
                 threatGeoStatus = "Not found - add a MaxMind license key below to auto-download";
 
+            var mmAcct = await SystemSettings.GetAsync("maxmind.account_id");
+            hasMaxmindAccountId = !string.IsNullOrEmpty(mmAcct);
+
             var mmKey = await SystemSettings.GetAsync("maxmind.license_key");
             hasMaxmindLicenseKey = !string.IsNullOrEmpty(mmKey);
 
@@ -3503,6 +3516,14 @@
             await SystemSettings.SetAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
             await SystemSettings.SetAsync("threats.retention_days", threatRetentionDays.ToString());
 
+            if (!string.IsNullOrEmpty(maxmindAccountId))
+            {
+                var encAcct = CredentialService.Encrypt(maxmindAccountId);
+                await SystemSettings.SetAsync("maxmind.account_id", encAcct);
+                hasMaxmindAccountId = true;
+                maxmindAccountId = "";
+            }
+
             if (!string.IsNullOrEmpty(maxmindLicenseKey))
             {
                 var encrypted = CredentialService.Encrypt(maxmindLicenseKey);
@@ -3533,7 +3554,15 @@
 
         try
         {
-            // Use entered key or load saved key
+            // Use entered values or load saved credentials
+            var accountId = maxmindAccountId;
+            if (string.IsNullOrEmpty(accountId))
+            {
+                var encAcct = await SystemSettings.GetAsync("maxmind.account_id");
+                if (!string.IsNullOrEmpty(encAcct))
+                    accountId = CredentialService.IsEncrypted(encAcct) ? CredentialService.Decrypt(encAcct) : encAcct;
+            }
+
             var licenseKey = maxmindLicenseKey;
             if (string.IsNullOrEmpty(licenseKey))
             {
@@ -3542,14 +3571,22 @@
                     licenseKey = CredentialService.IsEncrypted(encrypted) ? CredentialService.Decrypt(encrypted) : encrypted;
             }
 
-            if (string.IsNullOrEmpty(licenseKey))
+            if (string.IsNullOrEmpty(accountId) || string.IsNullOrEmpty(licenseKey))
             {
-                maxmindMessage = "Please enter a MaxMind license key first.";
+                maxmindMessage = "Please enter both MaxMind Account ID and License Key.";
                 maxmindMessageClass = "warning";
                 return;
             }
 
-            // Save the key if it was just entered
+            // Save credentials if just entered
+            if (!string.IsNullOrEmpty(maxmindAccountId))
+            {
+                var encAcct = CredentialService.Encrypt(maxmindAccountId);
+                await SystemSettings.SetAsync("maxmind.account_id", encAcct);
+                hasMaxmindAccountId = true;
+                maxmindAccountId = "";
+            }
+
             if (!string.IsNullOrEmpty(maxmindLicenseKey))
             {
                 var encKey = CredentialService.Encrypt(maxmindLicenseKey);
@@ -3562,7 +3599,7 @@
             using var httpClient = HttpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
 
-            var (success, message) = await GeoService.DownloadDatabasesAsync(licenseKey, dataPath, httpClient);
+            var (success, message) = await GeoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient);
             maxmindMessage = message;
             maxmindMessageClass = success ? "success" : "danger";
 

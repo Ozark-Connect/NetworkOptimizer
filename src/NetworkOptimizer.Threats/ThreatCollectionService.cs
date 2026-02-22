@@ -416,10 +416,11 @@ public class ThreatCollectionService : BackgroundService
             using var scope = _scopeFactory.CreateScope();
             var settings = scope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
 
+            var accountId = await settings.GetDecryptedSettingAsync("maxmind.account_id", cancellationToken);
             var licenseKey = await settings.GetDecryptedSettingAsync("maxmind.license_key", cancellationToken);
-            if (string.IsNullOrEmpty(licenseKey))
+            if (string.IsNullOrEmpty(accountId) || string.IsNullOrEmpty(licenseKey))
             {
-                _logger.LogDebug("No MaxMind license key configured, skipping auto-download");
+                _logger.LogDebug("MaxMind account ID or license key not configured, skipping auto-download");
                 return;
             }
 
@@ -427,7 +428,7 @@ public class ThreatCollectionService : BackgroundService
             using var httpClient = _httpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
 
-            var (success, message) = await _geoService.DownloadDatabasesAsync(licenseKey, dataPath, httpClient, cancellationToken);
+            var (success, message) = await _geoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient, cancellationToken);
 
             if (success)
             {
