@@ -33,7 +33,7 @@ public static class IssueTypes
     public const string DnsLeakage = "DNS_LEAKAGE";
     public const string DnsSharedServers = "DNS_SHARED_SERVERS";
     public const string RoutingEnabled = "ROUTING_ENABLED";
-    public const string MgmtDhcpEnabled = "MGMT_DHCP_ENABLED";
+    public const string MgmtNoFixedIps = "MGMT_NO_FIXED_IPS";
     public const string SecurityNetworkNotIsolated = "SECURITY_NETWORK_NOT_ISOLATED";
     public const string MgmtNetworkNotIsolated = "MGMT_NETWORK_NOT_ISOLATED";
     public const string IotNetworkNotIsolated = "IOT_NETWORK_NOT_ISOLATED";

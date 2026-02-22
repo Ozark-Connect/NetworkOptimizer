@@ -814,7 +814,7 @@ public class ConfigAuditEngine
 
         var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(ctx.Networks);
         var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(ctx.Networks);
-        var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(ctx.Networks, gatewayName);
+        var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(ctx.Networks, ctx.Clients, gatewayName);
         // Note: Network isolation and internet access analysis moved to Phase 5 where firewall rules are available
         var infraVlanIssues = _vlanAnalyzer.AnalyzeInfrastructureVlanPlacement(ctx.DeviceData, ctx.Networks, gatewayName);
 

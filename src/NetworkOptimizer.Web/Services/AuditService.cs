@@ -1565,7 +1565,7 @@ public class AuditService
 
         // VLAN security issues (includes device placement - putting devices on correct VLAN)
         "VLAN_VIOLATION" or "INTER_VLAN" or Audit.IssueTypes.RoutingEnabled => "VLAN Security",
-        Audit.IssueTypes.MgmtDhcpEnabled => "VLAN Security",
+        Audit.IssueTypes.MgmtNoFixedIps => "VLAN Security",
         Audit.IssueTypes.SecurityNetworkNotIsolated or Audit.IssueTypes.MgmtNetworkNotIsolated or Audit.IssueTypes.IotNetworkNotIsolated => "VLAN Security",
         Audit.IssueTypes.SecurityNetworkHasInternet or Audit.IssueTypes.MgmtNetworkHasInternet => "VLAN Security",
         Audit.IssueTypes.MgmtMissingUnifiAccess or Audit.IssueTypes.MgmtMissingAfcAccess or Audit.IssueTypes.MgmtMissingNtpAccess or Audit.IssueTypes.MgmtMissing5gAccess => "Firewall Rules",
@@ -1630,7 +1630,7 @@ public class AuditService
 
             // VLAN security
             Audit.IssueTypes.RoutingEnabled => "Routing on Isolated VLAN",
-            Audit.IssueTypes.MgmtDhcpEnabled => "Management VLAN Has DHCP Enabled",
+            Audit.IssueTypes.MgmtNoFixedIps => "Management VLAN: Devices Without Fixed IPs",
             Audit.IssueTypes.SecurityNetworkNotIsolated => "Security Network Not Isolated",
             Audit.IssueTypes.MgmtNetworkNotIsolated => "Management Network Not Isolated",
             Audit.IssueTypes.IotNetworkNotIsolated => "IoT Network Not Isolated",
