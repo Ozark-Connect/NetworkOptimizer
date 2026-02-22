@@ -30,7 +30,7 @@
 }
 
 @* Tab bar and time range *@
-<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:0;">
+<div class="threat-header-bar">
     <div class="view-tabs" style="margin-bottom:0; border-bottom:none;">
         <button class="view-tab @(_activeTab == "overview" ? "active" : "")"
                 @onclick='() => SetActiveTab("overview")'>Overview</button>
@@ -241,7 +241,7 @@ else
                                 @foreach (var source in _dashboardData.TopSources)
                                 {
                                     <tr>
-                                        <td><code>@ResolveIp(source.SourceIp)</code></td>
+                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<code>@source.SourceIp</code>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">(@srcName)</span> }</td>
                                         <td>@(source.CountryCode ?? "-")</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
@@ -534,7 +534,7 @@ else
                                 @foreach (var seq in _attackSequences)
                                 {
                                     <tr>
-                                        <td><code>@ResolveIp(seq.SourceIp)</code></td>
+                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<code>@seq.SourceIp</code>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">(@seqName)</span> }</td>
                                         <td class="hide-mobile">@(seq.CountryCode ?? "-")</td>
                                         <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
                                         <td>
@@ -571,6 +571,15 @@ else
 }
 
 <style>
+    .threat-header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
     .threat-summary-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -699,11 +708,9 @@ else
         }
     }
 
-    private string ResolveIp(string ip)
+    private string? GetClientName(string ip)
     {
-        if (_clientNames.TryGetValue(ip, out var name))
-            return $"{ip} ({name})";
-        return ip;
+        return _clientNames.TryGetValue(ip, out var name) ? name : null;
     }
 
     private async Task LoadDataAsync()
@@ -776,6 +783,11 @@ else
     {
         if (_timeRange == range) return;
         _timeRange = range;
+
+        // Request a backfill if switching to a wider range that may not have data
+        var (from, _) = GetTimeRange();
+        CollectionService.RequestBackfill(new DateTimeOffset(from, TimeSpan.Zero));
+
         await LoadDataAsync();
     }
 

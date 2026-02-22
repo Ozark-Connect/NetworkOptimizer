@@ -313,6 +313,14 @@ The following were implemented in the WiFi Optimizer feature:
 - **Severity:** Low (causes extra SSH traffic but no errors)
 - **Partial:** Basic `_isPolling` lock prevents concurrent polls, but no time-based debounce yet
 
+### Shared IP-to-Client-Name Resolver
+- Threat Dashboard resolves local IPs to UniFi client names inline (fetches clients, builds IP→name dict)
+- Other pages that display IPs could benefit from the same lookup:
+  - Security Audit (firewall rules referencing IPs)
+  - Config Optimizer (device references)
+- Refactor into a shared service (e.g., `IClientNameResolver` in `NetworkOptimizer.Web/Services/`)
+- Cache client list with short TTL to avoid repeated API calls across pages
+
 ### Uniform Date/Time Formatting in UI
 - Audit all date/time displays across the UI for consistency
 - Standardize format (e.g., "Jan 4, 2026 3:45 PM" vs "2026-01-04 15:45:00")

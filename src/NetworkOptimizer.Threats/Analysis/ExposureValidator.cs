@@ -63,12 +63,13 @@ public class ExposureValidator
             foreach (var port in ports)
             {
                 var threats = threatsByPort.GetValueOrDefault(port, 0);
-                if (threats == 0) continue;
-
                 totalThreats += threats;
 
-                // Get detailed data for this port
-                var portEvents = await repository.GetEventsAsync(from, to, destPort: port, limit: 500, cancellationToken: cancellationToken);
+                List<ThreatEvent> portEvents = [];
+                if (threats > 0)
+                {
+                    portEvents = await repository.GetEventsAsync(from, to, destPort: port, limit: 500, cancellationToken: cancellationToken);
+                }
 
                 var service = new ExposedService
                 {

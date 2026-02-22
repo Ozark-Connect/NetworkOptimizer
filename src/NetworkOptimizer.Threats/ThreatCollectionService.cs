@@ -34,6 +34,7 @@ public class ThreatCollectionService : BackgroundService
     // On-demand trigger: released by TriggerCollectionAsync(), waited on during poll sleep
     private readonly SemaphoreSlim _triggerSignal = new(0, 1);
     private bool _hasCollectedOnce;
+    private DateTimeOffset? _backfillOverride;
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -66,6 +67,17 @@ public class ThreatCollectionService : BackgroundService
         // TryRelease: if semaphore is already at 1, this is a no-op (avoids SemaphoreFullException)
         try { _triggerSignal.Release(); }
         catch (SemaphoreFullException) { /* already signaled */ }
+    }
+
+    /// <summary>
+    /// Request a backfill collection from a specific start time.
+    /// The next collection cycle will use this as the start instead of last_sync_timestamp.
+    /// Used when the dashboard switches to a wider time range that may not have data yet.
+    /// </summary>
+    public void RequestBackfill(DateTimeOffset from)
+    {
+        _backfillOverride = from;
+        TriggerCollection();
     }
 
     /// <summary>
@@ -131,9 +143,20 @@ public class ThreatCollectionService : BackgroundService
         }
 
         // Determine sync window
+        var backfill = Interlocked.Exchange(ref _backfillOverride, null);
         var lastSync = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
         DateTimeOffset start;
-        if (lastSync != null)
+
+        if (backfill.HasValue)
+        {
+            // Dashboard requested a wider backfill (e.g., user switched to 30d view)
+            // Use the earlier of backfill request or last sync
+            start = lastSync != null
+                ? DateTimeOffset.Parse(lastSync) < backfill.Value ? DateTimeOffset.Parse(lastSync) : backfill.Value
+                : backfill.Value;
+            _logger.LogInformation("Backfill requested from {From}", start);
+        }
+        else if (lastSync != null)
         {
             start = DateTimeOffset.Parse(lastSync);
 
