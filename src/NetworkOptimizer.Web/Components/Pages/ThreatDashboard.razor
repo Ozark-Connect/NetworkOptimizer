@@ -9,6 +9,7 @@
 @inject IThreatSettingsAccessor SettingsAccessor
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor UniFiClientAccessor
+@implements IDisposable
 @inject ILogger<ThreatDashboard> Logger
 
 <PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
@@ -698,6 +699,7 @@ else
     private bool _crowdSecBannerDismissed;
     private bool _collectingFirstData;
     private string? _lookingUpIp;
+    private System.Threading.Timer? _refreshTimer;
 
     // Chart refs and options - each chart needs its own options instance
     private ApexChart<TimelineBucket>? _timelineChart;
@@ -730,6 +732,19 @@ else
             StateHasChanged();
             _ = WaitForFirstCollectionAsync();
         }
+
+        // Auto-refresh every 30 seconds while the dashboard is open
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadDataAsync();
+                });
+            }
+            catch { /* prevent timer death on circuit disconnect */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     private async Task WaitForFirstCollectionAsync()
@@ -1251,5 +1266,10 @@ else
     {
         public string Label { get; set; } = string.Empty;
         public int Count { get; set; }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
     }
 }
