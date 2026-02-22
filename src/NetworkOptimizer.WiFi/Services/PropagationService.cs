@@ -217,7 +217,11 @@ public class PropagationService
         }
         else
         {
-            azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azimuthDeg + azRotOffset) % 360, ap.AntennaMode);
+            // Wall APs using azimuth pattern directly (e.g., outdoor omni): mirror
+            // the index for top-down floor plan view. The pattern was measured face-on
+            // but the floor plan looks from above, flipping left-right.
+            var azIdx = effectiveMount == "wall" ? (360 - azimuthDeg) % 360 : azimuthDeg;
+            azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
         var antennaGain = azGain + elGain;
