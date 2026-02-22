@@ -267,16 +267,27 @@ else
                                         @if (_crowdSecEnabled)
                                         {
                                             <td class="hide-mobile">
-                                                @if (source.CrowdSecReputation != null)
+                                                @{
+                                                    // Check manual cache first (persists across auto-refresh)
+                                                    var hasCachedCti = _manualCtiCache.TryGetValue(source.SourceIp, out var cachedCti);
+                                                    var effectiveBadge = source.CrowdSecReputation ?? cachedCti?.Badge;
+                                                    var effectiveBehaviors = source.TopBehaviors ?? cachedCti?.Behaviors;
+                                                }
+                                                @if (effectiveBadge != null)
                                                 {
-                                                    <span class="reputation-badge reputation-@source.CrowdSecReputation"
-                                                          data-tooltip="@(source.TopBehaviors ?? "No behaviors identified")">
-                                                        @source.CrowdSecReputation
+                                                    <span class="reputation-badge reputation-@effectiveBadge"
+                                                          data-tooltip="@(effectiveBehaviors ?? "No behaviors identified")">
+                                                        @effectiveBadge
                                                     </span>
                                                 }
                                                 else if (NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(source.SourceIp))
                                                 {
                                                     <span style="color:var(--text-muted);">Local</span>
+                                                }
+                                                else if (hasCachedCti)
+                                                {
+                                                    @* Looked up but not in CrowdSec database *@
+                                                    <span style="color:var(--text-muted);">Not in DB</span>
                                                 }
                                                 else if (!_crowdSecAutoEnrich)
                                                 {
@@ -711,6 +722,11 @@ else
     private string? _lookingUpIp;
     private System.Threading.Timer? _refreshTimer;
 
+    // Persist manual CTI lookups across auto-refresh cycles (fresh DB objects lose in-memory enrichment)
+    private readonly Dictionary<string, CtiLookupResult> _manualCtiCache = new();
+
+    private record CtiLookupResult(string? Badge, int? ThreatScore, string? Behaviors);
+
     // Chart refs and options - each chart needs its own options instance
     private ApexChart<TimelineBucket>? _timelineChart;
     private ApexChartOptions<TimelineBucket> _timelineChartOptions = CreateTimelineChartOptions();
@@ -744,10 +760,13 @@ else
         }
 
         // Auto-refresh every 30 seconds while the dashboard is open
+        // Also triggers a collection cycle so backfill progresses faster while watching
         _refreshTimer = new System.Threading.Timer(async _ =>
         {
             try
             {
+                if (_lookingUpIp != null) return; // Don't refresh during CTI lookup
+                CollectionService.TriggerCollection();
                 await InvokeAsync(async () =>
                 {
                     await LoadDataAsync();
@@ -929,11 +948,23 @@ else
         StateHasChanged();
         try
         {
-            await DashboardService.EnrichSingleSourceAsync(source);
+            var result = await DashboardService.EnrichSingleSourceAsync(source);
+            if (result != null && result.CrowdSecReputation != null)
+            {
+                // Cache for persistence across auto-refresh cycles
+                _manualCtiCache[source.SourceIp] = new CtiLookupResult(
+                    result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors);
+            }
+            else
+            {
+                // API returned null (IP not in CrowdSec database) - remember so we don't re-show button
+                _manualCtiCache[source.SourceIp] = new CtiLookupResult(null, 0, null);
+            }
         }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
+            _manualCtiCache[source.SourceIp] = new CtiLookupResult(null, 0, null);
         }
         finally
         {
