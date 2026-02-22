@@ -147,7 +147,8 @@ public class ThreatCollectionService : BackgroundService
 
         // === ONE-TIME: Re-collect last 24h with higher page limit to catch missed events ===
         // TODO: Remove this block after next deploy
-        var rebackfillDone = await settings.GetSettingAsync("threats.rebackfill_24h_done", cancellationToken);
+        // TODO: Remove this block after confirming phone→CloudKey events appear
+        var rebackfillDone = await settings.GetSettingAsync("threats.rebackfill_24h_v2", cancellationToken);
         if (rebackfillDone == null)
         {
             _logger.LogInformation("One-time 24h re-backfill starting");
@@ -155,7 +156,7 @@ public class ThreatCollectionService : BackgroundService
             var rbStart = rbEnd.AddHours(-24);
             var rbEvents = await CollectRangeAsync(apiClient, rbStart, rbEnd, maxPages: 100, cancellationToken);
             await ProcessAndSaveAsync(rbEvents, repository, cancellationToken);
-            await settings.SaveSettingAsync("threats.rebackfill_24h_done", "true");
+            await settings.SaveSettingAsync("threats.rebackfill_24h_v2", "true");
             _logger.LogInformation("One-time 24h re-backfill: {Count} events collected", rbEvents.Count);
         }
 
@@ -339,7 +340,8 @@ public class ThreatCollectionService : BackgroundService
 
             while (page < maxPages)
             {
-                var response = await apiClient.GetTrafficFlowsAsync(start, end, page, cancellationToken: cancellationToken);
+                var response = await apiClient.GetTrafficFlowsAsync(start, end, page,
+                    actionFilter: new[] { "blocked" }, cancellationToken: cancellationToken);
                 if (response.ValueKind == JsonValueKind.Undefined)
                     break;
 
