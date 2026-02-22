@@ -495,7 +495,7 @@ else
                                         <td>@GetPortServiceName(port.Port)</td>
                                         <td>@FormatNumber(port.EventCount)</td>
                                         <td class="hide-mobile">@FormatNumber(port.UniqueSourceIps)</td>
-                                        <td class="hide-mobile" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(string.IsNullOrEmpty(port.TopSignature) ? "-" : port.TopSignature)</td>
+                                        <td class="hide-mobile" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@PrettifySignature(port.TopSignature)</td>
                                     </tr>
                                 }
                             </tbody>
@@ -653,7 +653,7 @@ else
                                             </td>
                                             <td class="hide-mobile">@FormatNumber(svc.UniqueSourceIps)</td>
                                             <td class="hide-mobile" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                                                @(svc.TopSignatures.Count > 0 ? string.Join(", ", svc.TopSignatures.Take(2)) : "-")
+                                                @(svc.TopSignatures.Count > 0 ? string.Join(", ", svc.TopSignatures.Take(2).Select(PrettifySignature)) : "-")
                                             </td>
                                         </tr>
                                     }
@@ -758,7 +758,7 @@ else
                                                 @foreach (var stage in seq.Stages)
                                                 {
                                                     <span class="stage-bar"
-                                                          data-tooltip="@GetKillChainLabel(stage.Stage): @stage.EventCount events, @stage.TopSignature"
+                                                          data-tooltip="@GetKillChainLabel(stage.Stage): @stage.EventCount events, @PrettifySignature(stage.TopSignature)"
                                                           style="min-width:@(Math.Max(24, stage.EventCount * 2))px; background:@GetStageColor(stage.Stage);">
                                                         @GetStageAbbrev(stage.Stage)
                                                     </span>
@@ -1013,7 +1013,7 @@ else
                                 @foreach (var sig in _drilldownData.TopSignatures)
                                 {
                                     <tr>
-                                        <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@sig.Name</td>
+                                        <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@PrettifySignature(sig.Name)</td>
                                         <td class="hide-mobile">
                                             @if (string.IsNullOrEmpty(sig.Category))
                                             {
@@ -1947,7 +1947,7 @@ else
 
     private static readonly string[] SeverityPrefixes =
         ["high risk", "low risk", "medium risk", "not suspicious", "potentially bad", "misc"];
-    private static readonly string[] DirectionTokens = ["incoming", "outgoing", "inbound", "outbound"];
+    private static readonly string[] DirectionTokens = ["incoming", "outgoing", "inbound", "outbound", "local"];
     private static readonly HashSet<string> ProtocolTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "TCP", "UDP", "ICMP", "HTTP", "HTTPS", "SSH", "DNS", "FTP", "SMTP", "SNMP",
@@ -1955,20 +1955,64 @@ else
         "MQTT", "QUIC", "RPC", "TFTP", "DHCP", "ARP", "IP", "P2P", "IRC", "VPN", "IPP"
     };
 
+    private static readonly Dictionary<string, string> ServiceNameMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["MICROSOFT_DS"] = "SMB",
+        ["NETBIOS_SESSION"] = "NetBIOS",
+        ["FTP_DATA"] = "FTP Data",
+        ["FTPS_CONTROL"] = "FTPS",
+        ["DNC_RPC"] = "RPC",
+        ["OTHER"] = "Other",
+    };
+
     private static string FormatServices(string? services)
     {
         if (string.IsNullOrEmpty(services)) return "-";
         return string.Join(", ", services.Split(',', StringSplitOptions.TrimEntries)
-            .Select(TitleCaseWithProtocols));
+            .Select(FormatServiceToken));
+    }
+
+    private static string FormatServiceToken(string token)
+    {
+        var trimmed = token.Trim();
+        if (ServiceNameMap.TryGetValue(trimmed, out var mapped)) return mapped;
+        if (ProtocolTokens.Contains(trimmed)) return trimmed.ToUpperInvariant();
+        return System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(trimmed.ToLowerInvariant());
+    }
+
+    private static string PrettifySignature(string? sig)
+    {
+        if (string.IsNullOrEmpty(sig)) return "-";
+
+        // "Flow: MICROSOFT_DS incoming blocked" → "SMB - Incoming Blocked"
+        if (sig.StartsWith("Flow:", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = sig[5..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return sig;
+
+            var service = FormatServiceToken(parts[0]);
+            var rest = parts.Length > 1
+                ? string.Join(" ", parts.Skip(1).Select(p =>
+                    System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(p.ToLowerInvariant())))
+                : "";
+
+            return rest.Length > 0 ? $"{service} - {rest}" : service;
+        }
+
+        return TitleCaseWithProtocols(sig);
     }
 
     private static string TitleCaseWithProtocols(string text)
     {
-        var titleCased = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(text);
+        // Replace underscores with spaces first
+        var normalized = text.Replace('_', ' ');
+        var titleCased = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(normalized.ToLowerInvariant());
         var words = titleCased.Split(' ');
         for (var i = 0; i < words.Length; i++)
         {
-            if (ProtocolTokens.Contains(words[i]))
+            if (ServiceNameMap.TryGetValue(words[i], out var mapped))
+                words[i] = mapped;
+            else if (ProtocolTokens.Contains(words[i]))
                 words[i] = words[i].ToUpperInvariant();
         }
         return string.Join(' ', words);
@@ -2003,10 +2047,11 @@ else
             break;
         }
 
-        // Remainder is the protocol/type - apply protocol uppercasing
+        // Remainder is the protocol/type - use FormatServiceToken for known service names
         if (remainder.Length > 0)
         {
-            parts.Add(new CategoryPart(TitleCaseWithProtocols(remainder), "type"));
+            var label = FormatServiceToken(remainder);
+            parts.Add(new CategoryPart(label, "type"));
         }
 
         // Fallback: if no parts matched, return the whole thing
