@@ -656,7 +656,7 @@ else
     {
         try
         {
-            var apiKey = await SettingsAccessor.GetSettingAsync("threats.crowdsec_api_key");
+            var apiKey = await SettingsAccessor.GetSettingAsync("crowdsec.api_key");
             _crowdSecEnabled = !string.IsNullOrWhiteSpace(apiKey);
         }
         catch (Exception ex)
