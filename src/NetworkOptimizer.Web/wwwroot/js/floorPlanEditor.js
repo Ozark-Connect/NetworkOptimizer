@@ -3187,8 +3187,6 @@ window.fpEditor = {
             if (!data || !data.data) return;
             if (requestId !== self._heatmapRequestId) return; // stale request, discard
 
-            if (self._heatmapOverlay) m.removeLayer(self._heatmapOverlay);
-
             var canvas = document.createElement('canvas');
             canvas.width = data.width;
             canvas.height = data.height;
@@ -3234,9 +3232,12 @@ window.fpEditor = {
             ctx.putImageData(imgData, 0, 0);
             var dataUrl = canvas.toDataURL();
             var bounds = [[data.swLat, data.swLng], [data.neLat, data.neLng]];
+            // Add new overlay first, then remove old - avoids a blank frame between swap
+            var oldOverlay = self._heatmapOverlay;
             self._heatmapOverlay = L.imageOverlay(dataUrl, bounds, {
                 opacity: 0.6, pane: 'heatmapPane', interactive: false
             }).addTo(m);
+            if (oldOverlay) m.removeLayer(oldOverlay);
 
             // Contour lines using marching squares
             if (self._contourLayer) m.removeLayer(self._contourLayer);
