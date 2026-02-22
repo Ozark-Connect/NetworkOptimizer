@@ -210,9 +210,17 @@ public class PropagationService
         float azGain, elGain;
         if (needSwap)
         {
-            // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
-            // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
-            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            // Swapped: elevation pattern used for horizontal, azimuth for vertical.
+            // The elevation ring was measured in one vertical plane. Forward/backward
+            // map correctly, but left/right indices contain up/down data (vertical
+            // features that shouldn't appear in the floor plan). Blend with the
+            // azimuth pattern for left/right, which still has valid horizontal data.
+            var elevH = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            var azimH = _antennaLoader.GetAzimuthGain(ap.Model, band, (azimuthDeg + azRotOffset) % 360, ap.AntennaMode);
+            var theta = azimuthDeg * Math.PI / 180.0;
+            var fbWeight = (float)(Math.Cos(theta) * Math.Cos(theta)); // 1 at forward/back, 0 at left/right
+            var lrWeight = 1f - fbWeight;                               // 0 at forward/back, 1 at left/right
+            azGain = elevH * fbWeight + azimH * lrWeight;
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
