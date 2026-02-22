@@ -8,6 +8,7 @@
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
+@inject NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor UniFiClientAccessor
 @inject ILogger<ThreatDashboard> Logger
 
 <PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
@@ -240,7 +241,7 @@ else
                                 @foreach (var source in _dashboardData.TopSources)
                                 {
                                     <tr>
-                                        <td><code>@source.SourceIp</code></td>
+                                        <td><code>@ResolveIp(source.SourceIp)</code></td>
                                         <td>@(source.CountryCode ?? "-")</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
@@ -533,7 +534,7 @@ else
                                 @foreach (var seq in _attackSequences)
                                 {
                                     <tr>
-                                        <td><code>@seq.SourceIp</code></td>
+                                        <td><code>@ResolveIp(seq.SourceIp)</code></td>
                                         <td class="hide-mobile">@(seq.CountryCode ?? "-")</td>
                                         <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
                                         <td>
@@ -607,9 +608,13 @@ else
     private List<KillChainItem> _killChainItems = [];
     private List<ActionBreakdownItem> _actionBreakdownItems = [];
 
+    // IP to client name lookup for local devices
+    private Dictionary<string, string> _clientNames = new();
+
     protected override async Task OnInitializedAsync()
     {
         await CheckCrowdSecStatus();
+        await LoadClientNamesAsync();
         await LoadDataAsync();
 
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
@@ -664,6 +669,41 @@ else
             Logger.LogDebug(ex, "Failed to check CrowdSec status");
             _crowdSecEnabled = false;
         }
+    }
+
+    private async Task LoadClientNamesAsync()
+    {
+        try
+        {
+            var apiClient = UniFiClientAccessor.Client;
+            if (apiClient == null) return;
+
+            var clients = await apiClient.GetClientsAsync();
+            if (clients == null) return;
+
+            foreach (var c in clients)
+            {
+                var ip = c.Ip;
+                if (string.IsNullOrEmpty(ip)) continue;
+
+                var name = !string.IsNullOrEmpty(c.Name) ? c.Name
+                    : !string.IsNullOrEmpty(c.Hostname) ? c.Hostname
+                    : null;
+                if (name != null)
+                    _clientNames[ip] = name;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to load client names for IP resolution");
+        }
+    }
+
+    private string ResolveIp(string ip)
+    {
+        if (_clientNames.TryGetValue(ip, out var name))
+            return $"{ip} ({name})";
+        return ip;
     }
 
     private async Task LoadDataAsync()
