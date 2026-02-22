@@ -84,7 +84,7 @@
                         @onclick="() => _showFilterPanel = !_showFilterPanel"
                         data-tooltip="Configure noise filters"
                         data-tooltip-hover-only
-                        style="padding:0.25rem 0.5rem; font-size:0.85rem;">&#9881;</button>
+                        style="padding:0.25rem 0.4rem; font-size:0.8rem; min-width:0; line-height:1;">&#9881;</button>
             </div>
         }
         else
@@ -393,7 +393,7 @@ else
                                 {
                                     <tr>
                                         <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)">@source.SourceIp</a>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
-                                        <td>@(source.CountryCode ?? "-")</td>
+                                        <td><span data-tooltip="@CountryTooltip(source.CountryCode)">@(string.IsNullOrEmpty(source.CountryCode) ? "-" : CountryFlag(source.CountryCode))</span></td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
                                         <td>
@@ -680,7 +680,7 @@ else
                                 {
                                     var pct = geoTotal > 0 ? (double)entry.Value / geoTotal * 100 : 0;
                                     <tr>
-                                        <td><strong>@entry.Key</strong></td>
+                                        <td><span data-tooltip="@CountryTooltip(entry.Key)">@CountryFlag(entry.Key)</span> <strong>@entry.Key</strong></td>
                                         <td>@FormatNumber(entry.Value)</td>
                                         <td>@($"{pct:F1}")%</td>
                                         <td class="hide-mobile" style="width:40%;">
@@ -731,7 +731,7 @@ else
                                 {
                                     <tr>
                                         <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)">@seq.SourceIp</a>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
-                                        <td class="hide-mobile">@(seq.CountryCode ?? "-")</td>
+                                        <td class="hide-mobile"><span data-tooltip="@CountryTooltip(seq.CountryCode)">@(string.IsNullOrEmpty(seq.CountryCode) ? "-" : CountryFlag(seq.CountryCode))</span></td>
                                         <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
                                         <td>
                                             <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
@@ -1712,6 +1712,58 @@ else
             >= 1_000 => $"{value:N0}",
             _ => value.ToString()
         };
+    }
+
+    private static string CountryFlag(string? countryCode)
+    {
+        if (string.IsNullOrEmpty(countryCode) || countryCode.Length != 2) return "";
+        var upper = countryCode.ToUpperInvariant();
+        return string.Concat(
+            char.ConvertFromUtf32(0x1F1E6 + (upper[0] - 'A')),
+            char.ConvertFromUtf32(0x1F1E6 + (upper[1] - 'A')));
+    }
+
+    private static readonly Dictionary<string, string> CountryNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["AF"] = "Afghanistan", ["AL"] = "Albania", ["DZ"] = "Algeria", ["AR"] = "Argentina",
+        ["AM"] = "Armenia", ["AU"] = "Australia", ["AT"] = "Austria", ["AZ"] = "Azerbaijan",
+        ["BD"] = "Bangladesh", ["BY"] = "Belarus", ["BE"] = "Belgium", ["BA"] = "Bosnia and Herzegovina",
+        ["BR"] = "Brazil", ["BG"] = "Bulgaria", ["KH"] = "Cambodia", ["CA"] = "Canada",
+        ["CL"] = "Chile", ["CN"] = "China", ["CO"] = "Colombia", ["CR"] = "Costa Rica",
+        ["HR"] = "Croatia", ["CU"] = "Cuba", ["CY"] = "Cyprus", ["CZ"] = "Czechia",
+        ["DK"] = "Denmark", ["EC"] = "Ecuador", ["EG"] = "Egypt", ["EE"] = "Estonia",
+        ["ET"] = "Ethiopia", ["FI"] = "Finland", ["FR"] = "France", ["GE"] = "Georgia",
+        ["DE"] = "Germany", ["GH"] = "Ghana", ["GR"] = "Greece", ["HK"] = "Hong Kong",
+        ["HU"] = "Hungary", ["IS"] = "Iceland", ["IN"] = "India", ["ID"] = "Indonesia",
+        ["IR"] = "Iran", ["IQ"] = "Iraq", ["IE"] = "Ireland", ["IL"] = "Israel",
+        ["IT"] = "Italy", ["JP"] = "Japan", ["JO"] = "Jordan", ["KZ"] = "Kazakhstan",
+        ["KE"] = "Kenya", ["KP"] = "North Korea", ["KR"] = "South Korea", ["KW"] = "Kuwait",
+        ["LV"] = "Latvia", ["LB"] = "Lebanon", ["LT"] = "Lithuania", ["LU"] = "Luxembourg",
+        ["MY"] = "Malaysia", ["MX"] = "Mexico", ["MD"] = "Moldova", ["MN"] = "Mongolia",
+        ["MA"] = "Morocco", ["MM"] = "Myanmar", ["NL"] = "Netherlands", ["NZ"] = "New Zealand",
+        ["NG"] = "Nigeria", ["NO"] = "Norway", ["PK"] = "Pakistan", ["PA"] = "Panama",
+        ["PE"] = "Peru", ["PH"] = "Philippines", ["PL"] = "Poland", ["PT"] = "Portugal",
+        ["QA"] = "Qatar", ["RO"] = "Romania", ["RU"] = "Russia", ["SA"] = "Saudi Arabia",
+        ["RS"] = "Serbia", ["SG"] = "Singapore", ["SK"] = "Slovakia", ["SI"] = "Slovenia",
+        ["ZA"] = "South Africa", ["ES"] = "Spain", ["LK"] = "Sri Lanka", ["SE"] = "Sweden",
+        ["CH"] = "Switzerland", ["TW"] = "Taiwan", ["TH"] = "Thailand", ["TR"] = "Turkey",
+        ["UA"] = "Ukraine", ["AE"] = "UAE", ["GB"] = "United Kingdom", ["US"] = "United States",
+        ["UY"] = "Uruguay", ["UZ"] = "Uzbekistan", ["VE"] = "Venezuela", ["VN"] = "Vietnam",
+    };
+
+    private static string CountryLabel(string? code)
+    {
+        if (string.IsNullOrEmpty(code)) return "-";
+        var flag = CountryFlag(code);
+        var name = CountryNames.TryGetValue(code, out var n) ? n : code.ToUpperInvariant();
+        return flag;
+    }
+
+    private static string CountryTooltip(string? code)
+    {
+        if (string.IsNullOrEmpty(code)) return "";
+        var name = CountryNames.TryGetValue(code, out var n) ? n : code.ToUpperInvariant();
+        return $"{code.ToUpperInvariant()} - {name}";
     }
 
     private static string PrettifyCategory(string category)
