@@ -344,12 +344,11 @@ public class ThreatRepository : IThreatRepository
             _logger.LogWarning("[TIMELINE-DEBUG] BuildNoiseFilterSql returned: '{Sql}', params={ParamCount}", noiseFilterSql, extraParams.Count);
             var allParams = new List<object> { from, to };
             // Offset parameter indices in the noise filter SQL by 2 (for from/to)
+            // Iterate backwards so {1} doesn't match inside {10}, {11}, etc.
             var offsetFilterSql = noiseFilterSql;
             for (var i = extraParams.Count - 1; i >= 0; i--)
-            {
                 offsetFilterSql = offsetFilterSql.Replace($"{{{i}}}", $"{{{i + 2}}}");
-                allParams.Add(extraParams[i]);
-            }
+            allParams.AddRange(extraParams);
 
             // All dynamic values use parameterized {N} placeholders - safe from injection
 #pragma warning disable EF1002
