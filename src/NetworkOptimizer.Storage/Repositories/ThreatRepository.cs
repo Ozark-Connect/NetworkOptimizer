@@ -183,7 +183,10 @@ public class ThreatRepository : IThreatRepository
                 .Select(e => e.InnerAlertId)
                 .ToHashSetAsync(cancellationToken);
 
-            var newEvents = events.Where(e => !existingIds.Contains(e.InnerAlertId)).ToList();
+            var newEvents = events
+                .Where(e => !existingIds.Contains(e.InnerAlertId))
+                .DistinctBy(e => e.InnerAlertId)
+                .ToList();
             if (newEvents.Count == 0)
             {
                 _logger.LogDebug("All {Count} events already exist, skipping", events.Count);

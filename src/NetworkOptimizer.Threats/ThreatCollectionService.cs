@@ -348,9 +348,10 @@ public class ThreatCollectionService : BackgroundService
         events.AddRange(pass1);
 
         // Pass 2: Blocked-only - ensures ALL blocked flows are captured regardless of pagination
+        var pass1Ids = events.Select(e => e.InnerAlertId).ToHashSet();
         var pass2 = await CollectFlowsPassAsync(apiClient, start, end, maxPages,
             actionFilter: new[] { "blocked" }, applyInterestFilter: false, cancellationToken);
-        events.AddRange(pass2);
+        events.AddRange(pass2.Where(e => !pass1Ids.Contains(e.InnerAlertId)));
 
         if (events.Count > 0)
             _logger.LogDebug("Collected {Count} flow events (pass1={Pass1}, pass2={Pass2})",
