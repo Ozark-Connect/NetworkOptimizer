@@ -11,8 +11,6 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/stargazers)
 [![License](https://img.shields.io/badge/license-BSL_1.1-green)](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/LICENSE)
 
-> **Notice:** This project is under rapid development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Releases and main are stable, but be careful testing any new feature branches you might find.
-
 ## New: Client Performance
 
 A per-device analytics dashboard for any client on your network. Pick a device and get live signal monitoring, speed test history with download/upload trends, latency and jitter charts, network path visualization showing every hop and bottleneck link, and a connection timeline tracking AP roams and disconnects. Walk around with the page open on your phone (over HTTPS) and it builds a GPS-based signal heatmap of your actual coverage. Three tabs - Speed, Signal, and Connection - give you everything you need to troubleshoot why a device is slow or unstable.
