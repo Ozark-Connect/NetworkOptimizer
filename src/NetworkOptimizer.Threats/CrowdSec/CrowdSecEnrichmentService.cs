@@ -23,18 +23,24 @@ public class CrowdSecEnrichmentService
 
     /// <summary>
     /// Get reputation for an IP, checking cache first.
+    /// Positive hits are cached for <paramref name="cacheTtlHours"/> (default 720 = 30 days).
+    /// Negative hits (IP not in CrowdSec DB) are cached for 24 hours to avoid wasting API calls.
     /// </summary>
     public async Task<CrowdSecIpInfo?> GetReputationAsync(
         string ipAddress,
         string apiKey,
         IThreatRepository repository,
-        int cacheTtlHours = 24,
+        int cacheTtlHours = 720,
         CancellationToken cancellationToken = default)
     {
         // Check cache first
         var cached = await repository.GetCrowdSecCacheAsync(ipAddress, cancellationToken);
         if (cached != null)
         {
+            // Negative cache entry - API previously returned null for this IP
+            if (cached.ReputationJson == "null")
+                return null;
+
             try
             {
                 return JsonSerializer.Deserialize<CrowdSecIpInfo>(cached.ReputationJson);
@@ -47,17 +53,18 @@ public class CrowdSecEnrichmentService
 
         // Query API
         var result = await _client.GetIpReputationAsync(ipAddress, apiKey, cancellationToken);
-        if (result == null) return null;
 
-        // Cache result
+        // Cache result (positive or negative)
         try
         {
             var reputation = new CrowdSecReputation
             {
                 Ip = ipAddress,
-                ReputationJson = JsonSerializer.Serialize(result),
+                ReputationJson = result != null ? JsonSerializer.Serialize(result) : "null",
                 FetchedAt = DateTime.UtcNow,
-                ExpiresAt = DateTime.UtcNow.AddHours(cacheTtlHours)
+                ExpiresAt = result != null
+                    ? DateTime.UtcNow.AddHours(cacheTtlHours)   // positive: 30 days
+                    : DateTime.UtcNow.AddHours(24)               // negative: 24 hours
             };
             await repository.SaveCrowdSecCacheAsync(reputation, cancellationToken);
         }

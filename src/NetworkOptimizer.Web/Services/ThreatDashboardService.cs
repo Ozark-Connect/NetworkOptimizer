@@ -131,7 +131,7 @@ public class ThreatDashboardService
             try
             {
                 var info = await _crowdSecService.GetReputationAsync(
-                    source.SourceIp, apiKey, _repository, cacheTtlHours: 24, cancellationToken);
+                    source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
                 if (info == null) continue;
 
                 source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
@@ -223,7 +223,7 @@ public class ThreatDashboardService
     }
 
     public async Task<CrowdSecIpInfo?> GetCrowdSecReputationAsync(string ip, string apiKey,
-        int cacheTtlHours = 24, CancellationToken cancellationToken = default)
+        int cacheTtlHours = 720, CancellationToken cancellationToken = default)
     {
         return await _crowdSecService.GetReputationAsync(ip, apiKey, _repository, cacheTtlHours, cancellationToken);
     }
@@ -267,6 +267,177 @@ public class ThreatDashboardService
             return [];
         }
     }
+
+    public async Task<IpDrilldownData> GetIpDrilldownAsync(string ip, DateTime from, DateTime to,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var events = await _repository.GetEventsByIpAsync(ip, from, to, cancellationToken: cancellationToken);
+
+            var asSource = events.Where(e => e.SourceIp == ip).ToList();
+            var asDest = events.Where(e => e.DestIp == ip).ToList();
+
+            // Peer groups: destinations when IP is source
+            var destinations = asSource
+                .GroupBy(e => e.DestIp)
+                .Select(g => BuildPeerGroup(g.Key, g.ToList()))
+                .OrderByDescending(p => p.EventCount)
+                .ToList();
+
+            // Peer groups: sources when IP is destination
+            var sources = asDest
+                .GroupBy(e => e.SourceIp)
+                .Select(g => BuildPeerGroup(g.Key, g.ToList()))
+                .OrderByDescending(p => p.EventCount)
+                .ToList();
+
+            // Port range breakdown (all events involving this IP)
+            var portGroups = events
+                .GroupBy(e => e.DestPort)
+                .OrderByDescending(g => g.Count())
+                .Select(g => new PortRangeGroup
+                {
+                    Port = g.Key,
+                    Service = GetServiceName(g.Key),
+                    EventCount = g.Count(),
+                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
+                    DetectedCount = g.Count(e => e.Action != ThreatAction.Blocked)
+                })
+                .ToList();
+
+            // Collapse consecutive ports into ranges
+            var portRanges = CollapsePortRanges(portGroups);
+
+            // Top signatures
+            var signatures = events
+                .GroupBy(e => e.SignatureName)
+                .Where(g => !string.IsNullOrEmpty(g.Key))
+                .Select(g => new SignatureGroup
+                {
+                    Name = g.Key,
+                    Category = g.First().Category,
+                    EventCount = g.Count(),
+                    MaxSeverity = g.Max(e => e.Severity)
+                })
+                .OrderByDescending(s => s.EventCount)
+                .Take(20)
+                .ToList();
+
+            return new IpDrilldownData
+            {
+                Ip = ip,
+                TotalEvents = events.Count,
+                BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked),
+                DetectedCount = events.Count(e => e.Action != ThreatAction.Blocked),
+                AsSourceCount = asSource.Count,
+                AsDestCount = asDest.Count,
+                FirstSeen = events.Count > 0 ? events.Min(e => e.Timestamp) : (DateTime?)null,
+                LastSeen = events.Count > 0 ? events.Max(e => e.Timestamp) : (DateTime?)null,
+                Destinations = destinations,
+                Sources = sources,
+                PortRanges = portRanges,
+                TopSignatures = signatures
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get IP drilldown for {Ip}", ip);
+            return new IpDrilldownData { Ip = ip };
+        }
+    }
+
+    private IpPeerGroup BuildPeerGroup(string peerIp, List<ThreatEvent> events)
+    {
+        var ports = events.Select(e => e.DestPort).Distinct().OrderBy(p => p).ToList();
+        var portRangesStr = FormatPortRanges(ports);
+        var services = events
+            .Select(e => e.Service)
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Distinct()
+            .ToList();
+
+        return new IpPeerGroup
+        {
+            Ip = peerIp,
+            Domain = events.FirstOrDefault(e => !string.IsNullOrEmpty(e.Domain))?.Domain,
+            PortRanges = portRangesStr,
+            Services = services.Count > 0 ? string.Join(", ", services) : null,
+            EventCount = events.Count,
+            BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked)
+        };
+    }
+
+    private static string FormatPortRanges(List<int> sortedPorts)
+    {
+        if (sortedPorts.Count == 0) return "-";
+
+        var ranges = new List<string>();
+        var start = sortedPorts[0];
+        var end = start;
+
+        for (var i = 1; i < sortedPorts.Count; i++)
+        {
+            if (sortedPorts[i] == end + 1)
+            {
+                end = sortedPorts[i];
+            }
+            else
+            {
+                ranges.Add(start == end ? start.ToString() : $"{start}-{end}");
+                start = sortedPorts[i];
+                end = start;
+            }
+        }
+        ranges.Add(start == end ? start.ToString() : $"{start}-{end}");
+
+        return string.Join(", ", ranges);
+    }
+
+    private static List<PortRangeGroup> CollapsePortRanges(List<PortRangeGroup> portGroups)
+    {
+        if (portGroups.Count == 0) return portGroups;
+
+        var sorted = portGroups.OrderBy(p => p.Port).ToList();
+        var result = new List<PortRangeGroup>();
+        var current = sorted[0];
+
+        for (var i = 1; i < sorted.Count; i++)
+        {
+            if (sorted[i].Port == current.Port + 1 && string.IsNullOrEmpty(current.Service) == string.IsNullOrEmpty(sorted[i].Service))
+            {
+                // Merge into range
+                current = new PortRangeGroup
+                {
+                    Port = current.Port,
+                    PortEnd = sorted[i].PortEnd > 0 ? sorted[i].PortEnd : sorted[i].Port,
+                    Service = current.Service ?? sorted[i].Service,
+                    EventCount = current.EventCount + sorted[i].EventCount,
+                    BlockedCount = current.BlockedCount + sorted[i].BlockedCount,
+                    DetectedCount = current.DetectedCount + sorted[i].DetectedCount
+                };
+            }
+            else
+            {
+                result.Add(current);
+                current = sorted[i];
+            }
+        }
+        result.Add(current);
+        return result.OrderByDescending(r => r.EventCount).ToList();
+    }
+
+    private static string GetServiceName(int port)
+    {
+        return port switch
+        {
+            21 => "FTP", 22 => "SSH", 23 => "Telnet", 25 => "SMTP", 53 => "DNS",
+            80 => "HTTP", 443 => "HTTPS", 445 => "SMB", 993 => "IMAPS", 1433 => "MSSQL",
+            1883 => "MQTT", 3306 => "MySQL", 3389 => "RDP", 5432 => "PostgreSQL",
+            5900 => "VNC", 6379 => "Redis", 8080 => "HTTP-Alt", 8443 => "HTTPS-Alt",
+            27017 => "MongoDB", _ => ""
+        };
+    }
 }
 
 /// <summary>
@@ -288,4 +459,62 @@ public record ThreatTrendPoint
 {
     public DateTime Hour { get; init; }
     public int Count { get; init; }
+}
+
+/// <summary>
+/// All data for the IP drill-down view.
+/// </summary>
+public class IpDrilldownData
+{
+    public string Ip { get; set; } = string.Empty;
+    public int TotalEvents { get; set; }
+    public int BlockedCount { get; set; }
+    public int DetectedCount { get; set; }
+    public int AsSourceCount { get; set; }
+    public int AsDestCount { get; set; }
+    public DateTime? FirstSeen { get; set; }
+    public DateTime? LastSeen { get; set; }
+    public List<IpPeerGroup> Destinations { get; set; } = [];
+    public List<IpPeerGroup> Sources { get; set; } = [];
+    public List<PortRangeGroup> PortRanges { get; set; } = [];
+    public List<SignatureGroup> TopSignatures { get; set; } = [];
+}
+
+/// <summary>
+/// A peer IP group within drill-down (destination or source).
+/// </summary>
+public class IpPeerGroup
+{
+    public string Ip { get; set; } = string.Empty;
+    public string? Domain { get; set; }
+    public string PortRanges { get; set; } = "-";
+    public string? Services { get; set; }
+    public int EventCount { get; set; }
+    public int BlockedCount { get; set; }
+}
+
+/// <summary>
+/// Port or port range with event counts.
+/// </summary>
+public class PortRangeGroup
+{
+    public int Port { get; set; }
+    public int PortEnd { get; set; }
+    public string Service { get; set; } = string.Empty;
+    public int EventCount { get; set; }
+    public int BlockedCount { get; set; }
+    public int DetectedCount { get; set; }
+
+    public string RangeLabel => PortEnd > 0 && PortEnd != Port ? $"{Port}-{PortEnd}" : Port.ToString();
+}
+
+/// <summary>
+/// Signature aggregation within drill-down.
+/// </summary>
+public class SignatureGroup
+{
+    public string Name { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public int EventCount { get; set; }
+    public int MaxSeverity { get; set; }
 }

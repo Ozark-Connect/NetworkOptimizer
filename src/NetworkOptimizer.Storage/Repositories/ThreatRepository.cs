@@ -254,6 +254,25 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
+    public async Task<List<ThreatEvent>> GetEventsByIpAsync(string ip, DateTime from, DateTime to,
+        int limit = 5000, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.ThreatEvents
+                .AsNoTracking()
+                .Where(e => (e.SourceIp == ip || e.DestIp == ip) && e.Timestamp >= from && e.Timestamp <= to)
+                .OrderByDescending(e => e.Timestamp)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get events for IP {Ip}", ip);
+            throw;
+        }
+    }
+
     public async Task<int> GetThreatCountByPortAsync(int port, DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {

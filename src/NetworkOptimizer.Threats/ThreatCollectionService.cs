@@ -164,12 +164,12 @@ public class ThreatCollectionService : BackgroundService
 
         if (cursor > retentionLimit)
         {
-            // Work backwards in 1-hour chunks, ~5 pages per cycle (gentle on the gateway)
+            // Work backwards in 6-hour chunks, 20 pages per cycle (~6h to reach 90 days)
             var chunkEnd = cursor;
-            var chunkStart = cursor.AddHours(-1);
+            var chunkStart = cursor.AddHours(-6);
             if (chunkStart < retentionLimit) chunkStart = retentionLimit;
 
-            var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 5, cancellationToken);
+            var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
             await ProcessAndSaveAsync(backfillEvents, repository, cancellationToken);
 
             // Move cursor back

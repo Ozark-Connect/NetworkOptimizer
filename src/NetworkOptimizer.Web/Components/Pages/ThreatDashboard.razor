@@ -32,16 +32,26 @@
 
 @* Tab bar and time range *@
 <div class="threat-header-bar">
-    <div class="view-tabs" style="margin-bottom:0; border-bottom:none;">
-        <button class="view-tab @(_activeTab == "overview" ? "active" : "")"
-                @onclick='() => SetActiveTab("overview")'>Overview</button>
-        <button class="view-tab @(_activeTab == "exposure" ? "active" : "")"
-                @onclick='() => SetActiveTab("exposure")'>Exposure</button>
-        <button class="view-tab @(_activeTab == "geographic" ? "active" : "")"
-                @onclick='() => SetActiveTab("geographic")'>Geographic</button>
-        <button class="view-tab @(_activeTab == "sequences" ? "active" : "")"
-                @onclick='() => SetActiveTab("sequences")'>Attack Sequences</button>
-    </div>
+    @if (_activeTab != "drilldown")
+    {
+        <div class="view-tabs" style="margin-bottom:0; border-bottom:none;">
+            <button class="view-tab @(_activeTab == "overview" ? "active" : "")"
+                    @onclick='() => SetActiveTab("overview")'>Overview</button>
+            <button class="view-tab @(_activeTab == "exposure" ? "active" : "")"
+                    @onclick='() => SetActiveTab("exposure")'>Exposure</button>
+            <button class="view-tab @(_activeTab == "geographic" ? "active" : "")"
+                    @onclick='() => SetActiveTab("geographic")'>Geographic</button>
+            <button class="view-tab @(_activeTab == "sequences" ? "active" : "")"
+                    @onclick='() => SetActiveTab("sequences")'>Attack Sequences</button>
+        </div>
+    }
+    else
+    {
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+            <button class="btn btn-secondary btn-sm" @onclick="ExitDrilldown">Back</button>
+            <span style="color:var(--text-secondary);">IP Drill-Down</span>
+        </div>
+    }
     <div class="time-range-selector">
         <button class="time-btn @(_timeRange == "24h" ? "active" : "")"
                 @onclick='() => SetTimeRange("24h")'>24h</button>
@@ -256,7 +266,7 @@ else
                                 @foreach (var source in _dashboardData.TopSources)
                                 {
                                     <tr>
-                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<code>@source.SourceIp</code>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
+                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)">@source.SourceIp</a>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
                                         <td>@(source.CountryCode ?? "-")</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
@@ -594,7 +604,7 @@ else
                                 @foreach (var seq in _attackSequences)
                                 {
                                     <tr>
-                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<code>@seq.SourceIp</code>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
+                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)">@seq.SourceIp</a>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
                                         <td class="hide-mobile">@(seq.CountryCode ?? "-")</td>
                                         <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
                                         <td>
@@ -626,6 +636,216 @@ else
                 }
             </div>
         </div>
+    }
+
+    @* ========== IP Drill-Down Tab ========== *@
+    @if (_activeTab == "drilldown" && _drilldownData != null)
+    {
+        @* Header: IP + client name + first/last seen *@
+        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:1.5rem; font-weight:700;">
+                <code style="font-size:1.3rem;">@_drilldownData.Ip</code>
+            </h2>
+            @{ var drilldownName = GetClientName(_drilldownData.Ip); }
+            @if (drilldownName != null)
+            {
+                <span style="color:var(--text-secondary); font-size:1rem;">@drilldownName</span>
+            }
+            @if (_drilldownData.FirstSeen.HasValue)
+            {
+                <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
+                    @_drilldownData.FirstSeen.Value.ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToString("MMM dd HH:mm") UTC
+                </span>
+            }
+        </div>
+
+        @* 4 stat cards *@
+        <div class="threat-summary-grid">
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_drilldownData.TotalEvents)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Total Events</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_drilldownData.AsSourceCount)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">As Source</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:#a78bfa;">@FormatNumber(_drilldownData.AsDestCount)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">As Destination</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
+                    <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_drilldownData.BlockedCount)</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Blocked</div>
+                </div>
+            </div>
+        </div>
+
+        @* Destinations Accessed (when IP is source) *@
+        @if (_drilldownData.Destinations.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h3 class="card-title">Destinations Accessed</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Destination</th>
+                                    <th class="hide-mobile">Domain</th>
+                                    <th>Port Ranges</th>
+                                    <th class="hide-mobile">Services</th>
+                                    <th>Events</th>
+                                    <th>Blocked</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var dest in _drilldownData.Destinations)
+                                {
+                                    <tr>
+                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)">@dest.Ip</a>@if (destName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@destName</span> }</td>
+                                        <td class="hide-mobile">@(dest.Domain ?? "-")</td>
+                                        <td><code style="font-size:0.8rem;">@dest.PortRanges</code></td>
+                                        <td class="hide-mobile">@(dest.Services ?? "-")</td>
+                                        <td>@FormatNumber(dest.EventCount)</td>
+                                        <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* Sources Targeting (when IP is destination) *@
+        @if (_drilldownData.Sources.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h3 class="card-title">Sources Targeting This IP</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Source</th>
+                                    <th class="hide-mobile">Domain</th>
+                                    <th>Port Ranges</th>
+                                    <th class="hide-mobile">Services</th>
+                                    <th>Events</th>
+                                    <th>Blocked</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var src in _drilldownData.Sources)
+                                {
+                                    <tr>
+                                        <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)">@src.Ip</a>@if (srcPeerName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcPeerName</span> }</td>
+                                        <td class="hide-mobile">@(src.Domain ?? "-")</td>
+                                        <td><code style="font-size:0.8rem;">@src.PortRanges</code></td>
+                                        <td class="hide-mobile">@(src.Services ?? "-")</td>
+                                        <td>@FormatNumber(src.EventCount)</td>
+                                        <td>@(src.BlockedCount > 0 ? FormatNumber(src.BlockedCount) : "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* Port Ranges *@
+        @if (_drilldownData.PortRanges.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h3 class="card-title">Port Ranges</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Port/Range</th>
+                                    <th>Service</th>
+                                    <th>Events</th>
+                                    <th>Blocked</th>
+                                    <th>Detected</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pr in _drilldownData.PortRanges)
+                                {
+                                    <tr>
+                                        <td><code>@pr.RangeLabel</code></td>
+                                        <td>@(string.IsNullOrEmpty(pr.Service) ? "-" : pr.Service)</td>
+                                        <td>@FormatNumber(pr.EventCount)</td>
+                                        <td>@(pr.BlockedCount > 0 ? FormatNumber(pr.BlockedCount) : "-")</td>
+                                        <td>@(pr.DetectedCount > 0 ? FormatNumber(pr.DetectedCount) : "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* Top Signatures *@
+        @if (_drilldownData.TopSignatures.Count > 0)
+        {
+            <div class="card" style="margin-bottom:1.5rem;">
+                <div class="card-header">
+                    <h3 class="card-title">Top Signatures</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Signature</th>
+                                    <th class="hide-mobile">Category</th>
+                                    <th>Events</th>
+                                    <th>Severity</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var sig in _drilldownData.TopSignatures)
+                                {
+                                    <tr>
+                                        <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@sig.Name</td>
+                                        <td class="hide-mobile">@(string.IsNullOrEmpty(sig.Category) ? "-" : sig.Category)</td>
+                                        <td>@FormatNumber(sig.EventCount)</td>
+                                        <td>
+                                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:@GetSeverityColor(sig.MaxSeverity); margin-right:0.4rem;"></span>
+                                            @GetSeverityLabel(sig.MaxSeverity)
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_drilldownData.TotalEvents == 0)
+        {
+            <div class="empty-state">
+                <p>No events found for this IP in the selected time range.</p>
+            </div>
+        }
     }
 }
 
@@ -699,6 +919,19 @@ else
         transition: min-width 0.3s ease;
     }
 
+    /* Clickable IP links */
+    .ip-link {
+        color: var(--primary-color);
+        text-decoration: none;
+        font-family: var(--font-mono, monospace);
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+    .ip-link:hover {
+        color: var(--primary-hover);
+        text-decoration: underline;
+    }
+
     @@media (max-width: 768px) {
         .threat-summary-grid {
             grid-template-columns: repeat(2, 1fr);
@@ -721,6 +954,11 @@ else
     private bool _collectingFirstData;
     private string? _lookingUpIp;
     private System.Threading.Timer? _refreshTimer;
+
+    // IP drill-down state
+    private string? _drilldownIp;
+    private string _previousTab = "overview";
+    private IpDrilldownData? _drilldownData;
 
     // Persist manual CTI lookups across auto-refresh cycles (fresh DB objects lose in-memory enrichment)
     private readonly Dictionary<string, CtiLookupResult> _manualCtiCache = new();
@@ -911,6 +1149,10 @@ else
             {
                 _attackSequences = await DashboardService.GetAttackSequencesAsync(from, to);
             }
+            else if (_activeTab == "drilldown" && _drilldownIp != null)
+            {
+                _drilldownData = await DashboardService.GetIpDrilldownAsync(_drilldownIp, from, to);
+            }
         }
         catch (Exception ex)
         {
@@ -984,6 +1226,40 @@ else
     {
         if (_timeRange == range) return;
         _timeRange = range;
+        await LoadDataAsync();
+    }
+
+    private async Task DrillDownToIp(string ip)
+    {
+        if (_activeTab != "drilldown")
+            _previousTab = _activeTab;
+        _drilldownIp = ip;
+        _activeTab = "drilldown";
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var (from, to) = GetTimeRange();
+            _drilldownData = await DashboardService.GetIpDrilldownAsync(ip, from, to);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load drilldown for {Ip}", ip);
+            _drilldownData = new IpDrilldownData { Ip = ip };
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExitDrilldown()
+    {
+        _drilldownIp = null;
+        _drilldownData = null;
+        _activeTab = _previousTab;
         await LoadDataAsync();
     }
 
