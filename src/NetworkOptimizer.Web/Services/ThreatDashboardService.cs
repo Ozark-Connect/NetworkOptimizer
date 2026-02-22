@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Threats.Analysis;
@@ -79,8 +80,9 @@ public class ThreatDashboardService
     }
 
     /// <summary>
-    /// Auto-enrich top sources with CrowdSec CTI only if quota is generous (>= 100/day).
-    /// With 24h cache, this typically costs 0-10 API calls per dashboard load.
+    /// Auto-enrich top sources with CrowdSec CTI.
+    /// Always checks the DB cache (free - no API calls) so previously looked-up IPs show their badge.
+    /// Only makes new API calls if quota is generous (>= 100/day).
     /// </summary>
     private async Task EnrichTopSourcesWithCtiAsync(List<SourceIpSummary> sources,
         CancellationToken cancellationToken)
@@ -90,15 +92,56 @@ public class ThreatDashboardService
             var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
             if (apiKey == null) return;
 
+            // Always check DB cache for previously looked-up IPs (no API calls, just DB reads)
+            await EnrichFromCacheAsync(sources, cancellationToken);
+
             var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
             var quota = int.TryParse(quotaStr, out var q) ? q : 30; // free tier default
-            if (quota < 100) return; // low quota - user must enrich manually
+            if (quota < 100) return; // low quota - cache hits only, no new API calls
 
             await EnrichSourcesAsync(sources, apiKey, cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "CrowdSec CTI auto-enrichment failed");
+        }
+    }
+
+    /// <summary>
+    /// Check the DB cache for CrowdSec data without making any API calls.
+    /// This ensures previously looked-up IPs (both positive and negative hits) show their badge
+    /// even for low-quota users who use manual lookups.
+    /// </summary>
+    private async Task EnrichFromCacheAsync(List<SourceIpSummary> sources,
+        CancellationToken cancellationToken)
+    {
+        foreach (var source in sources)
+        {
+            if (source.CrowdSecReputation != null) continue;
+            if (NetworkUtilities.IsPrivateIpAddress(source.SourceIp)) continue;
+
+            try
+            {
+                var cached = await _repository.GetCrowdSecCacheAsync(source.SourceIp, cancellationToken);
+                if (cached == null) continue;
+
+                CrowdSecIpInfo? info = null;
+                if (cached.ReputationJson != "null")
+                {
+                    try { info = JsonSerializer.Deserialize<CrowdSecIpInfo>(cached.ReputationJson); }
+                    catch { /* corrupted cache entry, treat as unknown */ }
+                }
+
+                source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
+                source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
+                source.TopBehaviors = info?.Behaviors.Count > 0
+                    ? string.Join(", ", info.Behaviors.Take(3).Select(b => b.Label))
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to check cache for {Ip}", source.SourceIp);
+            }
         }
     }
 

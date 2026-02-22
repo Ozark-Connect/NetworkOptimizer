@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace NetworkOptimizer.Threats.CrowdSec;
@@ -20,7 +21,7 @@ public class CrowdSecIpInfo
     public int BackgroundNoiseScore { get; set; }
 
     [JsonPropertyName("confidence")]
-    public CrowdSecConfidence? Confidence { get; set; }
+    public JsonElement? Confidence { get; set; }
 
     [JsonPropertyName("behaviors")]
     public List<CrowdSecBehavior> Behaviors { get; set; } = [];
