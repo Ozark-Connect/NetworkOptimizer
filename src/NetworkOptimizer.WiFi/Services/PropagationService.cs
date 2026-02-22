@@ -211,11 +211,8 @@ public class PropagationService
         if (needSwap)
         {
             // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
-            // Mirror azimuth index to correct left/right chirality: the elevation ring's
-            // up/down maps to floor plan left/right, but with opposite handedness.
-            var swappedAzIdx = (360 - azimuthDeg) % 360;
             // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
-            azGain = _antennaLoader.GetElevationGain(ap.Model, band, swappedAzIdx, ap.AntennaMode);
+            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
