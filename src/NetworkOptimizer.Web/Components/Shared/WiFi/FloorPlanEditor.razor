@@ -2996,14 +2996,8 @@
         }
         else
         {
-            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
-            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
-            if (_selectedFloor != null) await UpdateWalls();
-            if (_heatmapWasOn)
-            {
-                _showHeatmap = true;
-                await ComputeHeatmap();
-            }
+            await ExitDrawMode();
+            if (_showHeatmap) await ComputeHeatmap();
         }
         await UpdateApMarkers();
     }
@@ -3421,18 +3415,22 @@
 
     private async Task DeselectBuilding()
     {
-        // If currently drawing walls, exit draw mode first (commits in-progress shapes)
         if (_mode == "walls")
         {
-            await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
-            await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
-            if (_selectedFloor != null) await UpdateWalls();
+            await ExitDrawMode();
             _mode = "view";
-            if (_heatmapWasOn)
-                _showHeatmap = true;
         }
         await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
         if (_showHeatmap) await ComputeHeatmap();
+    }
+
+    private async Task ExitDrawMode()
+    {
+        await JS.InvokeVoidAsync("fpEditor.exitDrawMode");
+        await JS.InvokeVoidAsync("fpEditor.setOverlaysInteractive", true);
+        if (_selectedFloor != null) await UpdateWalls();
+        if (_heatmapWasOn)
+            _showHeatmap = true;
     }
 
     private void ShowAddBuildingDialog()
