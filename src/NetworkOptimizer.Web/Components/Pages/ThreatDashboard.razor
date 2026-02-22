@@ -1128,6 +1128,7 @@ else
 
     // Chart refs and options - each chart needs its own options instance
     private ApexChart<TimelineBucket>? _timelineChart;
+    private bool _chartNeedsUpdate;
     private ApexChartOptions<TimelineBucket> _timelineChartOptions = CreateTimelineChartOptions();
     private ApexChartOptions<KillChainItem> _killChainChartOptions = CreateKillChainChartOptions();
     private ApexChartOptions<ActionBreakdownItem> _actionChartOptions = CreateActionChartOptions();
@@ -1141,6 +1142,19 @@ else
     private static DateTime _clientNamesCacheExpiry = DateTime.MinValue;
     private static readonly object _clientNamesCacheLock = new();
     private Dictionary<string, string> _clientNames = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_chartNeedsUpdate)
+        {
+            _chartNeedsUpdate = false;
+            if (_timelineChart != null)
+            {
+                try { await _timelineChart.UpdateSeriesAsync(true); }
+                catch { /* chart may not be rendered yet */ }
+            }
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1307,13 +1321,7 @@ else
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
-
-                // ApexCharts requires explicit update after data changes
-                if (_timelineChart != null)
-                {
-                    try { await _timelineChart.UpdateSeriesAsync(true); }
-                    catch { /* chart may not be rendered yet */ }
-                }
+                _chartNeedsUpdate = true;
             }
             else if (_activeTab == "exposure")
             {
