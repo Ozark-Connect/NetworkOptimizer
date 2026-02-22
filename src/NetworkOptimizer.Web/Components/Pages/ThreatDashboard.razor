@@ -204,7 +204,7 @@
     var daysBack = (int)(DateTimeOffset.UtcNow - cursor).TotalDays;
     <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; color:var(--text-muted); font-size:0.8rem;">
         <span class="spinner-sm"></span>
-        <span>Building historical data - coverage: @(daysBack > 0 ? $"{daysBack}d" : "< 1d") back (@cursor.ToString("MMM d") to present)</span>
+        <span>Building historical data - coverage: @(daysBack > 0 ? $"{daysBack}d" : "< 1d") back (@cursor.ToLocalTime().ToString("MMM d") to present)</span>
     </div>
 }
 
@@ -542,7 +542,7 @@ else
                                         <td>@RenderPatternDescription(pattern)</td>
                                         <td class="hide-mobile">@($"{pattern.Confidence:P0}")</td>
                                         <td>@FormatNumber(pattern.EventCount)</td>
-                                        <td class="hide-mobile">@pattern.DetectedAt.ToString("MMM dd HH:mm")</td>
+                                        <td class="hide-mobile">@pattern.DetectedAt.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                     </tr>
                                 }
                             </tbody>
@@ -827,7 +827,7 @@ else
             @if (_drilldownData.FirstSeen.HasValue)
             {
                 <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
-                    @_drilldownData.FirstSeen.Value.ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToString("MMM dd HH:mm") UTC
+                    @_drilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
         </div>
