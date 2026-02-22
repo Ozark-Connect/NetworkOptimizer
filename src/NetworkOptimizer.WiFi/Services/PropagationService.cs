@@ -400,15 +400,24 @@ public class PropagationService
 
     /// <summary>
     /// Determine the native mount orientation of the antenna pattern data.
-    /// All directional patterns (base, narrow, wide, panel) are measured flat (ceiling).
-    /// Only omni patterns are measured wall-mounted.
-    /// When the requested omni variant doesn't exist for the band (e.g., U7-Pro-Outdoor
-    /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
-    /// so we must also fall back to ceiling.
+    /// Most AP patterns are measured flat (ceiling orientation). Some enterprise
+    /// models (E7-Campus, E7-Audience) were measured in wall orientation, so
+    /// their azimuth data represents horizontal coverage when wall-mounted.
+    /// Omni patterns for outdoor APs are also measured wall-mounted.
     /// </summary>
     private static bool IsOmniAntennaMode(string? antennaMode) =>
         !string.IsNullOrEmpty(antennaMode) &&
         antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Models whose antenna patterns were measured in wall/pole orientation.
+    /// Their azimuth data is the horizontal coverage plane when wall-mounted.
+    /// </summary>
+    private static readonly HashSet<string> WallMeasuredModels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "E7-Campus", "E7-Campus-EU",
+        "E7-Audience", "E7-Audience-EU",
+    };
 
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
@@ -422,7 +431,12 @@ public class PropagationService
                 return "wall"; // true omni pattern loaded, measured wall-mounted
         }
 
-        return "ceiling"; // all directional patterns are measured flat
+        // E7-series enterprise models were measured in wall/pole orientation
+        var stripped = model.EndsWith("-B", StringComparison.OrdinalIgnoreCase) ? model[..^2] : model;
+        if (WallMeasuredModels.Contains(stripped))
+            return "wall";
+
+        return "ceiling"; // default: patterns measured flat
     }
 
     /// <summary>
