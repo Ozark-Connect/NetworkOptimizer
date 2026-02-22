@@ -30,6 +30,17 @@
     </div>
 }
 
+@* MaxMind GeoIP banner - only show when not configured *@
+@if (!_maxMindConfigured && !_maxMindBannerDismissed)
+{
+    <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--info-color);">
+        <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0.75rem 1rem;">
+            <span style="color:var(--text-secondary); font-size:0.9rem;">MaxMind GeoIP adds country, city, and ASN data to threat sources for geographic analysis. Configure in <a href="/settings#maxmind" style="color:var(--primary-color);">Settings</a>.</span>
+            <button class="btn btn-secondary btn-sm" @onclick="() => _maxMindBannerDismissed = true" style="flex-shrink:0;">Dismiss</button>
+        </div>
+    </div>
+}
+
 @* Tab bar and time range *@
 <div class="threat-header-bar">
     @if (_activeTab != "drilldown")
@@ -53,12 +64,38 @@
         </div>
     }
     <div style="display:flex; align-items:center; gap:0.5rem;">
-        <button class="btn btn-sm @(_showFilterPanel ? "btn-primary" : "btn-secondary")"
-                @onclick="() => _showFilterPanel = !_showFilterPanel"
-                style="position:relative;"
-                data-tooltip="Noise filters - hide noisy traffic from the dashboard">
-            Filters@if (_noiseFilters.Count(f => f.Enabled) > 0) { <span class="noise-filter-badge">@_noiseFilters.Count(f => f.Enabled)</span> }
-        </button>
+        @if (_noiseFilters.Count > 0)
+        {
+            <div style="display:flex; align-items:center; gap:0.25rem;">
+                <button class="btn btn-sm @(_filtersActive ? "btn-primary" : "btn-secondary")"
+                        @onclick="ToggleFiltersActive"
+                        data-tooltip="@(_filtersActive ? "Noise filters active - click to disable" : "Noise filters disabled - click to enable")"
+                        data-tooltip-hover-only>
+                    <span>Filters</span>
+                    @{
+                        var activeCount = _noiseFilters.Count(f => f.Enabled);
+                    }
+                    @if (activeCount > 0)
+                    {
+                        <span class="noise-filter-badge@(!_filtersActive ? " noise-filter-badge-off" : "")">@activeCount</span>
+                    }
+                </button>
+                <button class="btn btn-sm btn-secondary"
+                        @onclick="() => _showFilterPanel = !_showFilterPanel"
+                        data-tooltip="Configure noise filters"
+                        data-tooltip-hover-only
+                        style="padding:0.25rem 0.5rem; font-size:0.85rem;">&#9881;</button>
+            </div>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-secondary"
+                    @onclick="() => _showFilterPanel = !_showFilterPanel"
+                    data-tooltip="Add noise filters to hide noisy traffic"
+                    data-tooltip-hover-only>
+                Filters
+            </button>
+        }
         <div class="time-range-selector">
             <button class="time-btn @(_timeRange == "24h" ? "active" : "")"
                     @onclick='() => SetTimeRange("24h")'>24h</button>
@@ -1040,6 +1077,10 @@ else
         margin-left: 0.3rem;
         padding: 0 4px;
     }
+    .noise-filter-badge-off {
+        background: var(--text-muted);
+        opacity: 0.6;
+    }
 
     @@media (max-width: 768px) {
         .threat-summary-grid {
@@ -1060,6 +1101,8 @@ else
     private bool _crowdSecEnabled;
     private bool _crowdSecAutoEnrich; // true if quota >= 100, false = manual lookups
     private bool _crowdSecBannerDismissed;
+    private bool _maxMindConfigured;
+    private bool _maxMindBannerDismissed;
     private bool _collectingFirstData;
     private string? _lookingUpIp;
     private System.Threading.Timer? _refreshTimer;
@@ -1071,6 +1114,7 @@ else
 
     // Noise filter state
     private List<ThreatNoiseFilter> _noiseFilters = [];
+    private bool _filtersActive = true;
     private bool _showFilterPanel;
     private string _newFilterSourceIp = "";
     private string _newFilterDestIp = "";
@@ -1101,6 +1145,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         await CheckCrowdSecStatus();
+        await CheckMaxMindStatus();
         await LoadClientNamesAsync();
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
@@ -1181,6 +1226,20 @@ else
         }
     }
 
+    private async Task CheckMaxMindStatus()
+    {
+        try
+        {
+            var accountId = await SettingsAccessor.GetSettingAsync("maxmind.account_id");
+            var licenseKey = await SettingsAccessor.GetSettingAsync("maxmind.license_key");
+            _maxMindConfigured = !string.IsNullOrWhiteSpace(accountId) && !string.IsNullOrWhiteSpace(licenseKey);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to check MaxMind status");
+        }
+    }
+
     private async Task LoadClientNamesAsync()
     {
         // Check static cache first (shared across Blazor circuits, 30s TTL)
@@ -1236,6 +1295,8 @@ else
     {
         _loading = true;
         StateHasChanged();
+
+        DashboardService.FiltersDisabled = !_filtersActive;
 
         try
         {
@@ -1698,6 +1759,12 @@ else
     }
 
     // --- Noise Filter Methods ---
+
+    private async Task ToggleFiltersActive()
+    {
+        _filtersActive = !_filtersActive;
+        await LoadDataAsync();
+    }
 
     private async Task LoadNoiseFiltersAsync()
     {

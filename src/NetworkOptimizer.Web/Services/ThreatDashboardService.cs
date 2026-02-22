@@ -24,6 +24,11 @@ public class ThreatDashboardService
     // Cached noise filters (loaded once per service scope, i.e., per request)
     private List<ThreatNoiseFilter>? _activeFilters;
 
+    /// <summary>
+    /// When true, noise filters are not applied to queries (global disable toggle).
+    /// </summary>
+    public bool FiltersDisabled { get; set; }
+
     public ThreatDashboardService(
         IThreatRepository repository,
         ExposureValidator exposureValidator,
@@ -437,6 +442,11 @@ public class ThreatDashboardService
 
     private async Task ApplyNoiseFiltersToRepository(CancellationToken cancellationToken)
     {
+        if (FiltersDisabled)
+        {
+            _repository.SetNoiseFilters([]);
+            return;
+        }
         var filters = await GetActiveFiltersAsync(cancellationToken);
         _repository.SetNoiseFilters(filters);
     }

@@ -35,7 +35,9 @@ public class ThreatCollectionService : BackgroundService
     private readonly SemaphoreSlim _triggerSignal = new(0, 1);
     private bool _hasCollectedOnce;
 
-    // Gradual backfill: tracks how far back we've collected
+    // Geo database staleness check (24h cooldown to avoid checking every cycle)
+    private DateTimeOffset _lastGeoCheck = DateTimeOffset.MinValue;
+    private bool _geoBackfillComplete;
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -164,28 +166,58 @@ public class ThreatCollectionService : BackgroundService
 
         if (cursor > retentionLimit)
         {
-            // Work backwards in 6-hour chunks, 20 pages per cycle (~6h to reach 90 days)
-            var chunkEnd = cursor;
-            var chunkStart = cursor.AddHours(-6);
-            if (chunkStart < retentionLimit) chunkStart = retentionLimit;
+            // Work backwards in 6-hour chunks, 20 pages per cycle
+            // When chunks return 0 events, accelerate through sparse periods (up to 48h per cycle)
+            var maxChunksPerCycle = 8;
+            for (var chunk = 0; chunk < maxChunksPerCycle && cursor > retentionLimit; chunk++)
+            {
+                var chunkEnd = cursor;
+                var chunkStart = cursor.AddHours(-6);
+                if (chunkStart < retentionLimit) chunkStart = retentionLimit;
 
-            var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
-            await ProcessAndSaveAsync(backfillEvents, repository, cancellationToken);
+                var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
+                await ProcessAndSaveAsync(backfillEvents, repository, cancellationToken);
 
-            // Move cursor back
-            cursor = chunkStart;
-            await settings.SaveSettingAsync("threats.backfill_cursor", cursor.ToString("O"));
-            BackfillCursor = cursor;
+                cursor = chunkStart;
+                await settings.SaveSettingAsync("threats.backfill_cursor", cursor.ToString("O"));
+                BackfillCursor = cursor;
 
-            if (backfillEvents.Count > 0)
-                _logger.LogInformation("Backfill: {Count} events from {From} to {To}", backfillEvents.Count, chunkStart, chunkEnd);
-            else
-                _logger.LogDebug("Backfill: 0 events from {From} to {To}, cursor at {Cursor}", chunkStart, chunkEnd, cursor);
+                if (backfillEvents.Count > 0)
+                {
+                    _logger.LogInformation("Backfill: {Count} events from {From} to {To}", backfillEvents.Count, chunkStart, chunkEnd);
+                    break; // Found events, yield to next cycle
+                }
+
+                _logger.LogDebug("Backfill: 0 events from {From} to {To}, accelerating", chunkStart, chunkEnd);
+            }
         }
         else
         {
             BackfillCursor = null; // Backfill complete
             _logger.LogDebug("Backfill complete - coverage back to retention limit ({Days}d)", _retentionDays);
+        }
+
+        // Periodic geo database staleness check (every 24h, triggered by dashboard loading)
+        if (DateTimeOffset.UtcNow - _lastGeoCheck > TimeSpan.FromHours(24))
+        {
+            _lastGeoCheck = DateTimeOffset.UtcNow;
+            await TryAutoDownloadGeoDatabasesAsync(cancellationToken);
+        }
+
+        // Re-enrich existing events that lack geo data (runs each cycle until complete)
+        if (_geoService.IsCityAvailable && !_geoBackfillComplete)
+        {
+            var enriched = await repository.BackfillGeoDataAsync(
+                events => _geoService.EnrichEvents(events), batchSize: 2000, cancellationToken);
+            if (enriched == 0)
+            {
+                _geoBackfillComplete = true;
+                _logger.LogDebug("Geo data backfill complete - all events enriched");
+            }
+            else
+            {
+                _logger.LogInformation("Geo backfill: enriched {Count} events with geo data", enriched);
+            }
         }
 
         // Periodic cleanup (3 AM UTC)

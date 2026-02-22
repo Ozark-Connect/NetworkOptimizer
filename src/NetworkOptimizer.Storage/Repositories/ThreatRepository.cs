@@ -404,6 +404,31 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
+    public async Task<int> BackfillGeoDataAsync(Action<List<ThreatEvent>> enrichAction,
+        int batchSize = 1000, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Get events with null geo data (tracked so changes are saved)
+            var events = await _context.ThreatEvents
+                .Where(e => e.CountryCode == null)
+                .OrderByDescending(e => e.Timestamp)
+                .Take(batchSize)
+                .ToListAsync(cancellationToken);
+
+            if (events.Count == 0) return 0;
+
+            enrichAction(events);
+            await _context.SaveChangesAsync(cancellationToken);
+            return events.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to backfill geo data");
+            return 0;
+        }
+    }
+
     #endregion
 
     #region Attack Sequences

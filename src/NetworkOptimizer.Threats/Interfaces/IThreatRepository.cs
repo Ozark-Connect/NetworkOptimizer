@@ -28,6 +28,12 @@ public interface IThreatRepository
     Task<Dictionary<int, int>> GetThreatCountsByPortAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
     Task PurgeOldEventsAsync(DateTime before, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Fetch events with null geo data (tracked, not AsNoTracking), enrich via callback, then save.
+    /// Returns the count of events enriched. Call in a loop until 0 is returned.
+    /// </summary>
+    Task<int> BackfillGeoDataAsync(Action<List<ThreatEvent>> enrichAction, int batchSize = 1000, CancellationToken cancellationToken = default);
+
     // --- Threat Patterns ---
     Task SavePatternAsync(ThreatPattern pattern, CancellationToken cancellationToken = default);
     Task<List<ThreatPattern>> GetPatternsAsync(DateTime from, DateTime to, PatternType? type = null, int limit = 50, CancellationToken cancellationToken = default);
