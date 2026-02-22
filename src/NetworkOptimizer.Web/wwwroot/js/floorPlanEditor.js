@@ -397,6 +397,15 @@ window.fpEditor = {
             m.on('zoomend', updateApScale);
             updateApScale();
 
+            // TODO: remove zoom logging
+            var lastZoom = m.getZoom();
+            m.on('zoomend', function () {
+                var z = m.getZoom();
+                var dir = z > lastZoom ? 'IN' : z < lastZoom ? 'OUT' : 'same';
+                console.log('[Zoom] ' + dir + ' ' + lastZoom + ' -> ' + z);
+                lastZoom = z;
+            });
+
             // Re-evaluate heatmap on zoom/pan (debounce to prevent flash during scroll-wheel zoom)
             // Calls JS computeHeatmap directly (reuses stored params) to avoid Blazor SignalR round-trip
             var heatmapTimer = null;
@@ -3161,6 +3170,8 @@ window.fpEditor = {
         }
 
         var t0 = performance.now(); // TODO: remove timing
+        var requestZoom = m.getZoom(); // TODO: remove zoom logging
+        console.log('[Heatmap] request @ zoom=' + requestZoom + ' res=' + res.toFixed(1) + 'm');
         fetch(baseUrl + '/api/floor-plan/heatmap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3170,7 +3181,8 @@ window.fpEditor = {
         .then(function (r) { if (!r.ok) throw new Error('Heatmap request failed: ' + r.status); return r.json(); })
         .then(function (data) {
             var t1 = performance.now(); // TODO: remove timing
-            console.log('[Heatmap] fetch: ' + Math.round(t1 - t0) + 'ms');
+            var currentZoom = m.getZoom();
+            console.log('[Heatmap] loaded @ zoom=' + currentZoom + ' (requested @ ' + requestZoom + ') fetch=' + Math.round(t1 - t0) + 'ms');
             if (!data || !data.data) return;
             if (requestId !== self._heatmapRequestId) return; // stale request, discard
 
