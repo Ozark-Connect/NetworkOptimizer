@@ -1468,6 +1468,12 @@
                     <small class="form-help">Generate a CTI API key at <a href="https://app.crowdsec.net" target="_blank" style="color: var(--primary-color);">app.crowdsec.net</a> under CTI API Keys (30 lookups/day free tier)</small>
                 </div>
 
+                <div class="form-group">
+                    <label class="form-label">Daily Quota</label>
+                    <input type="number" class="form-control" @bind="crowdsecDailyQuota" min="1" max="100000" style="max-width: 120px;" />
+                    <small class="form-help">Your plan's daily lookup limit (free tier: 30)</small>
+                </div>
+
                 <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
                     <span class="info-label">Usage Today:</span>
                     <span class="info-value" style="color: var(--text-secondary);">@crowdsecUsageDisplay</span>
@@ -1835,7 +1841,8 @@
     private bool crowdsecEnabled = false;
     private string crowdsecApiKey = "";
     private bool hasCrowdsecApiKey = false;
-    private string crowdsecUsageDisplay = "0/50";
+    private int crowdsecDailyQuota = 30;
+    private string crowdsecUsageDisplay = "0/30";
     private bool savingCrowdsecSettings = false;
     private bool testingCrowdsec = false;
     private string crowdsecMessage = "";
@@ -3468,8 +3475,12 @@
             var csKey = await SystemSettings.GetAsync("crowdsec.api_key");
             hasCrowdsecApiKey = !string.IsNullOrEmpty(csKey);
 
+            var csQuota = await SystemSettings.GetAsync("crowdsec.daily_quota");
+            if (!string.IsNullOrEmpty(csQuota) && int.TryParse(csQuota, out var quota) && quota >= 1)
+                crowdsecDailyQuota = quota;
+
             var rateLimitState = CrowdSecClient.GetRateLimitState();
-            crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/30";
+            crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/{rateLimitState.DailyLimit}";
         }
         catch (Exception ex)
         {
@@ -3596,6 +3607,13 @@
                 hasCrowdsecApiKey = true;
                 crowdsecApiKey = "";
             }
+
+            await SystemSettings.SetAsync("crowdsec.daily_quota", crowdsecDailyQuota.ToString());
+
+            // Update the rate limiter with the new quota
+            var state = CrowdSecClient.GetRateLimitState();
+            CrowdSecClient.LoadRateLimitState(state.RequestsToday, state.RequestsDate, crowdsecDailyQuota);
+            crowdsecUsageDisplay = $"{state.RequestsToday}/{crowdsecDailyQuota}";
 
             crowdsecMessage = "CrowdSec settings saved.";
             crowdsecMessageClass = "success";

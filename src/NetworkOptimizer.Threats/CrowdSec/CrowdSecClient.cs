@@ -14,11 +14,12 @@ public class CrowdSecClient
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<CrowdSecClient> _logger;
     private const string BaseUrl = "https://cti.api.crowdsec.net/v2/smoke/";
-    private const int FreeTierDailyLimit = 30;
+    private const int DefaultDailyLimit = 30;
     private const int SafetyMargin = 5;
 
     // In-memory rate limit tracking (also persisted via SystemSettings)
     private int _requestsToday;
+    private int _dailyLimit = DefaultDailyLimit;
     private DateOnly _requestsDate = DateOnly.FromDateTime(DateTime.UtcNow);
     private readonly object _rateLimitLock = new();
 
@@ -31,23 +32,24 @@ public class CrowdSecClient
     /// <summary>
     /// Load persisted rate limit state from SystemSettings on startup.
     /// </summary>
-    public void LoadRateLimitState(int requestsToday, DateOnly requestsDate)
+    public void LoadRateLimitState(int requestsToday, DateOnly requestsDate, int dailyLimit = DefaultDailyLimit)
     {
         lock (_rateLimitLock)
         {
             _requestsToday = requestsToday;
             _requestsDate = requestsDate;
+            _dailyLimit = dailyLimit >= 1 ? dailyLimit : DefaultDailyLimit;
         }
     }
 
     /// <summary>
     /// Get current rate limit state for persistence.
     /// </summary>
-    public (int RequestsToday, DateOnly RequestsDate) GetRateLimitState()
+    public (int RequestsToday, DateOnly RequestsDate, int DailyLimit) GetRateLimitState()
     {
         lock (_rateLimitLock)
         {
-            return (_requestsToday, _requestsDate);
+            return (_requestsToday, _requestsDate, _dailyLimit);
         }
     }
 
@@ -69,7 +71,7 @@ public class CrowdSecClient
         if (!CheckAndIncrementRateLimit())
         {
             _logger.LogDebug("CrowdSec rate limit reached ({Requests}/{Limit} today)",
-                _requestsToday, FreeTierDailyLimit);
+                _requestsToday, _dailyLimit);
             return null;
         }
 
@@ -94,7 +96,7 @@ public class CrowdSecClient
                 // Force rate limit to prevent further requests today
                 lock (_rateLimitLock)
                 {
-                    _requestsToday = FreeTierDailyLimit;
+                    _requestsToday = _dailyLimit;
                 }
                 return null;
             }
@@ -159,7 +161,7 @@ public class CrowdSecClient
                 _requestsToday = 0;
             }
 
-            if (_requestsToday >= FreeTierDailyLimit - SafetyMargin)
+            if (_requestsToday >= _dailyLimit - SafetyMargin)
                 return false;
 
             _requestsToday++;

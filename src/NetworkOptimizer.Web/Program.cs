@@ -505,6 +505,17 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
 
+// Load CrowdSec daily quota from settings
+{
+    var sysSettings = app.Services.GetRequiredService<ISystemSettingsService>();
+    var csQuota = await sysSettings.GetAsync("crowdsec.daily_quota");
+    var dailyLimit = 30;
+    if (!string.IsNullOrEmpty(csQuota) && int.TryParse(csQuota, out var q) && q >= 1)
+        dailyLimit = q;
+    app.Services.GetRequiredService<NetworkOptimizer.Threats.CrowdSec.CrowdSecClient>()
+        .LoadRateLimitState(0, DateOnly.FromDateTime(DateTime.UtcNow), dailyLimit);
+}
+
 // Clean up any leftover config transfer temp files from previous sessions
 app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
 

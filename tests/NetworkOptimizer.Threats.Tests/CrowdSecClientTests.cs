@@ -22,7 +22,7 @@ public class CrowdSecClientTests
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         _client.LoadRateLimitState(25, today);
 
-        var (requests, date) = _client.GetRateLimitState();
+        var (requests, date, _) = _client.GetRateLimitState();
         Assert.Equal(25, requests);
         Assert.Equal(today, date);
     }
@@ -33,7 +33,7 @@ public class CrowdSecClientTests
         var testDate = new DateOnly(2025, 6, 15);
         _client.LoadRateLimitState(10, testDate);
 
-        var (requests, date) = _client.GetRateLimitState();
+        var (requests, date, _) = _client.GetRateLimitState();
         Assert.Equal(10, requests);
         Assert.Equal(testDate, date);
     }
@@ -86,7 +86,7 @@ public class CrowdSecClientTests
         _client.LoadRateLimitState(30, day1);
         _client.LoadRateLimitState(5, day2);
 
-        var (requests, date) = _client.GetRateLimitState();
+        var (requests, date, _) = _client.GetRateLimitState();
         Assert.Equal(5, requests);
         Assert.Equal(day2, date);
     }
@@ -95,7 +95,7 @@ public class CrowdSecClientTests
     public void GetRateLimitState_InitialState_ReturnsZeroToday()
     {
         // Fresh client should have 0 requests for today
-        var (requests, _) = _client.GetRateLimitState();
+        var (requests, _, _) = _client.GetRateLimitState();
         Assert.Equal(0, requests);
     }
 
