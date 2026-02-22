@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi.Models;
 using static NetworkOptimizer.Core.Enums.DeviceTypeExtensions;
 
 namespace NetworkOptimizer.Audit.Analyzers;
@@ -653,10 +654,14 @@ public class VlanAnalyzer
     }
 
     /// <summary>
-    /// Analyze management VLAN DHCP configuration
-    /// Management VLANs (not VLAN 1) should have DHCP disabled
+    /// Analyze management VLAN DHCP configuration.
+    /// DHCP is fine on management VLANs as long as all clients have fixed IP (DHCP reservation) assignments.
+    /// Only flags networks where clients exist without fixed IPs.
     /// </summary>
-    public List<AuditIssue> AnalyzeManagementVlanDhcp(List<NetworkInfo> networks, string gatewayName = "Gateway")
+    public List<AuditIssue> AnalyzeManagementVlanDhcp(
+        List<NetworkInfo> networks,
+        List<UniFiClientResponse>? clients,
+        string gatewayName = "Gateway")
     {
         var issues = new List<AuditIssue>();
 
@@ -666,26 +671,54 @@ public class VlanAnalyzer
 
         foreach (var network in managementNetworks)
         {
-            if (network.DhcpEnabled)
+            if (!network.DhcpEnabled)
+                continue;
+
+            // Find clients on this management network
+            var networkClients = clients?.Where(c =>
+                c.EffectiveNetworkId == network.Id).ToList() ?? [];
+
+            // No clients on network - nothing to flag
+            if (networkClients.Count == 0)
+                continue;
+
+            var clientsWithoutFixedIp = networkClients
+                .Where(c => !c.UseFixedIp)
+                .ToList();
+
+            // All clients have fixed IPs - DHCP with full reservations is fine
+            if (clientsWithoutFixedIp.Count == 0)
+                continue;
+
+            var deviceNames = clientsWithoutFixedIp
+                .Select(c => !string.IsNullOrEmpty(c.Name) ? c.Name :
+                             !string.IsNullOrEmpty(c.Hostname) ? c.Hostname : c.Mac)
+                .ToList();
+
+            var deviceList = string.Join(", ", deviceNames.Take(5));
+            if (deviceNames.Count > 5)
+                deviceList += $" (+{deviceNames.Count - 5} more)";
+
+            issues.Add(new AuditIssue
             {
-                issues.Add(new AuditIssue
+                Type = IssueTypes.MgmtNoFixedIps,
+                Severity = AuditSeverity.Recommended,
+                Message = $"Management VLAN '{network.Name}' has {clientsWithoutFixedIp.Count} of {networkClients.Count} device(s) without DHCP reservations: {deviceList}",
+                DeviceName = gatewayName,
+                CurrentNetwork = network.Name,
+                CurrentVlan = network.VlanId,
+                Metadata = new Dictionary<string, object>
                 {
-                    Type = IssueTypes.MgmtDhcpEnabled,
-                    Severity = AuditSeverity.Recommended,
-                    Message = $"Management VLAN '{network.Name}' has DHCP enabled",
-                    DeviceName = gatewayName,
-                    CurrentNetwork = network.Name,
-                    CurrentVlan = network.VlanId,
-                    Metadata = new Dictionary<string, object>
-                    {
-                        { "network", network.Name },
-                        { "vlan", network.VlanId }
-                    },
-                    RuleId = "MGMT-DHCP-001",
-                    ScoreImpact = 3,
-                    RecommendedAction = "Disable DHCP and configure static IPs for management devices."
-                });
-            }
+                    { "network", network.Name },
+                    { "vlan", network.VlanId },
+                    { "totalClients", networkClients.Count },
+                    { "clientsWithoutFixedIp", clientsWithoutFixedIp.Count },
+                    { "devicesWithoutFixedIp", deviceNames }
+                },
+                RuleId = "MGMT-DHCP-001",
+                ScoreImpact = 3,
+                RecommendedAction = "Configure DHCP reservations (fixed IPs) for all management devices in the UniFi client settings."
+            });
         }
 
         return issues;
@@ -757,7 +790,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-ISO-002",
                     ScoreImpact = 15,
-                    RecommendedAction = "Enable network isolation to protect management infrastructure."
+                    RecommendedAction = "Enable Isolate Network or add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure."
                 });
             }
 

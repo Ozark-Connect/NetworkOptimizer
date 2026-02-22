@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
+using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Analyzers;
@@ -1237,45 +1239,134 @@ public class VlanAnalyzerTests
     #region AnalyzeManagementVlanDhcp Tests
 
     [Fact]
-    public void AnalyzeManagementVlanDhcp_DhcpEnabled_ReturnsIssue()
+    public void AnalyzeManagementVlanDhcp_ClientsWithoutFixedIps_ReturnsIssue()
+    {
+        var networkId = "net-mgmt-1";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, dhcpEnabled: true, id: networkId)
+        };
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Name = "Switch1", NetworkId = networkId, UseFixedIp = false },
+            new() { Name = "AP-Office", NetworkId = networkId, UseFixedIp = true, FixedIp = "192.168.99.10" }
+        };
+
+        var result = _analyzer.AnalyzeManagementVlanDhcp(networks, clients);
+
+        result.Should().ContainSingle();
+        result.First().Type.Should().Be(IssueTypes.MgmtNoFixedIps);
+        result.First().Severity.Should().Be(AuditSeverity.Recommended);
+        result.First().Message.Should().Contain("Switch1");
+        result.First().Message.Should().Contain("1 of 2");
+    }
+
+    [Fact]
+    public void AnalyzeManagementVlanDhcp_AllClientsHaveFixedIps_ReturnsNoIssues()
+    {
+        var networkId = "net-mgmt-1";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, dhcpEnabled: true, id: networkId)
+        };
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Name = "Switch1", NetworkId = networkId, UseFixedIp = true, FixedIp = "192.168.99.5" },
+            new() { Name = "AP-Office", NetworkId = networkId, UseFixedIp = true, FixedIp = "192.168.99.10" }
+        };
+
+        var result = _analyzer.AnalyzeManagementVlanDhcp(networks, clients);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementVlanDhcp_NoClientsOnNetwork_ReturnsNoIssues()
+    {
+        var networkId = "net-mgmt-1";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, dhcpEnabled: true, id: networkId)
+        };
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Name = "Device1", NetworkId = "other-network", UseFixedIp = false }
+        };
+
+        var result = _analyzer.AnalyzeManagementVlanDhcp(networks, clients);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementVlanDhcp_DhcpDisabled_ReturnsNoIssues()
+    {
+        var networkId = "net-mgmt-1";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, dhcpEnabled: false, id: networkId)
+        };
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Name = "Switch1", NetworkId = networkId, UseFixedIp = false }
+        };
+
+        var result = _analyzer.AnalyzeManagementVlanDhcp(networks, clients);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementVlanDhcp_NativeVlan_ClientsWithoutFixedIps_StillFlagged()
+    {
+        var networkId = "net-mgmt-native";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 1, dhcpEnabled: true, id: networkId)
+        };
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Hostname = "device1", NetworkId = networkId, UseFixedIp = false }
+        };
+
+        var result = _analyzer.AnalyzeManagementVlanDhcp(networks, clients);
+
+        result.Should().ContainSingle();
+        result.First().Type.Should().Be(IssueTypes.MgmtNoFixedIps);
+    }
+
+    [Fact]
+    public void AnalyzeManagementVlanDhcp_NullClients_ReturnsNoIssues()
     {
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, dhcpEnabled: true)
         };
 
-        var result = _analyzer.AnalyzeManagementVlanDhcp(networks);
-
-        result.Should().NotBeEmpty();
-        result.First().Type.Should().Be("MGMT_DHCP_ENABLED");
-        result.First().Severity.Should().Be(AuditSeverity.Recommended);
-    }
-
-    [Fact]
-    public void AnalyzeManagementVlanDhcp_DhcpDisabled_ReturnsNoIssues()
-    {
-        var networks = new List<NetworkInfo>
-        {
-            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, dhcpEnabled: false)
-        };
-
-        var result = _analyzer.AnalyzeManagementVlanDhcp(networks);
+        var result = _analyzer.AnalyzeManagementVlanDhcp(networks, null);
 
         result.Should().BeEmpty();
     }
 
     [Fact]
-    public void AnalyzeManagementVlanDhcp_NativeVlan_StillChecked()
+    public void AnalyzeManagementVlanDhcp_DeviceNameFallback_UsesHostnameThenMac()
     {
+        var networkId = "net-mgmt-1";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 1, dhcpEnabled: true)
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, dhcpEnabled: true, id: networkId)
+        };
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Name = "", Hostname = "host1", Mac = "aa:bb:cc:dd:ee:01", NetworkId = networkId, UseFixedIp = false },
+            new() { Name = "", Hostname = "", Mac = "aa:bb:cc:dd:ee:02", NetworkId = networkId, UseFixedIp = false }
         };
 
-        var result = _analyzer.AnalyzeManagementVlanDhcp(networks);
+        var result = _analyzer.AnalyzeManagementVlanDhcp(networks, clients);
 
-        result.Should().NotBeEmpty();
-        result.First().Type.Should().Be(IssueTypes.MgmtDhcpEnabled);
+        result.Should().ContainSingle();
+        result.First().Message.Should().Contain("host1");
+        result.First().Message.Should().Contain("aa:bb:cc:dd:ee:02");
     }
 
     #endregion
