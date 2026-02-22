@@ -79,7 +79,7 @@ public class ExposureValidatorTests
                 CreateThreatEvent("203.0.113.5", 443, "ET SCAN port probe")
             });
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
         var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
@@ -104,7 +104,7 @@ public class ExposureValidatorTests
         _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<int, int>()); // No threats on any port
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
         var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
@@ -132,7 +132,7 @@ public class ExposureValidatorTests
                 CreateThreatEvent("192.0.2.11", 22)
             });
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>
             {
                 { "CN", 30 },
@@ -201,7 +201,7 @@ public class ExposureValidatorTests
                 CreateThreatEvent("192.0.2.10", 22)
             });
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
         var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
@@ -233,7 +233,7 @@ public class ExposureValidatorTests
                 CreateThreatEvent("192.0.2.10", 8080)
             });
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
         var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
@@ -266,7 +266,7 @@ public class ExposureValidatorTests
         _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 500, It.IsAny<CancellationToken>()))
             .ReturnsAsync(events);
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
         var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
@@ -290,7 +290,7 @@ public class ExposureValidatorTests
             .ReturnsAsync(new List<ThreatEvent>());
 
         // Less than 10 total threats in country distribution
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>
             {
                 { "CN", 5 },
@@ -317,7 +317,7 @@ public class ExposureValidatorTests
         _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 500, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ThreatEvent>());
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
         var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
@@ -345,7 +345,7 @@ public class ExposureValidatorTests
                 CreateThreatEvent("192.0.2.13", 22, severity: 2)
             });
 
-        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
 
         var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);

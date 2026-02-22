@@ -314,12 +314,14 @@ public class ThreatRepository : IThreatRepository
     }
 
     public async Task<Dictionary<string, int>> GetCountryDistributionAsync(DateTime from, DateTime to,
-        CancellationToken cancellationToken = default)
+        ThreatAction? actionFilter = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await BaseQuery(from, to)
-                .Where(e => e.CountryCode != null)
+            var query = BaseQuery(from, to).Where(e => e.CountryCode != null);
+            if (actionFilter.HasValue)
+                query = query.Where(e => e.Action == actionFilter.Value);
+            return await query
                 .GroupBy(e => e.CountryCode!)
                 .Select(g => new { Country = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(g => g.Country, g => g.Count, cancellationToken);

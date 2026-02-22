@@ -220,7 +220,7 @@ public class ThreatDashboardService
         try
         {
             await ApplyNoiseFiltersToRepository(cancellationToken);
-            return await _repository.GetCountryDistributionAsync(from, to, cancellationToken);
+            return await _repository.GetCountryDistributionAsync(from, to, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {

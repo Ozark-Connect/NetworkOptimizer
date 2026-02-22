@@ -106,7 +106,9 @@ public class ExposureValidator
     private async Task<GeoBlockRecommendation?> CalculateGeoBlockRecommendation(
         IThreatRepository repository, DateTime from, DateTime to, CancellationToken ct)
     {
-        var countryDist = await repository.GetCountryDistributionAsync(from, to, ct);
+        // Only consider non-blocked events - blocked traffic was already handled by IPS
+        var countryDist = await repository.GetCountryDistributionAsync(from, to,
+            actionFilter: ThreatAction.Detected, cancellationToken: ct);
         if (countryDist.Count == 0) return null;
 
         var totalThreats = countryDist.Values.Sum();
@@ -128,7 +130,8 @@ public class ExposureValidator
         {
             Countries = significantCountries.Select(c => c.Key).ToList(),
             PreventionPercentage = Math.Round(percentage, 1),
-            Description = $"Blocking {string.Join(", ", significantCountries.Select(c => c.Key))} would have prevented {percentage:F0}% of threats"
+            TotalDetectedEvents = totalThreats,
+            PreventableEvents = preventable,
         };
     }
 

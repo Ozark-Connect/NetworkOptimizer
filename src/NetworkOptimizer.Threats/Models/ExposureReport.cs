@@ -34,5 +34,6 @@ public class GeoBlockRecommendation
 {
     public List<string> Countries { get; set; } = [];
     public double PreventionPercentage { get; set; }
-    public string Description { get; set; } = string.Empty;
+    public int TotalDetectedEvents { get; set; }
+    public int PreventableEvents { get; set; }
 }

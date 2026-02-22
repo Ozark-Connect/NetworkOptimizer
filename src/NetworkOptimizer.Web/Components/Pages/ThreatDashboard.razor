@@ -563,12 +563,24 @@ else
         else
         {
             @* Geo-block recommendation banner *@
-            @if (_exposureReport.GeoBlockRecommendation != null)
+            @if (_exposureReport.GeoBlockRecommendation is { } geoRec && geoRec.Countries.Count > 0)
             {
-                <div class="alert-info" style="margin-bottom:1rem;">
-                    <strong>Geo-Block Recommendation:</strong> @_exposureReport.GeoBlockRecommendation.Description
-                    Blocking @string.Join(", ", _exposureReport.GeoBlockRecommendation.Countries) could prevent
-                    @($"{_exposureReport.GeoBlockRecommendation.PreventionPercentage:F0}")% of threat events targeting exposed services.
+                <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--warning-color);">
+                    <div class="card-body" style="padding:0.75rem 1rem;">
+                        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;">
+                            <strong style="color:var(--warning-color);">Geo-Block Recommendation</strong>
+                        </div>
+                        <div style="color:var(--text-secondary); font-size:0.9rem;">
+                            Blocking
+                            @foreach (var (country, idx) in geoRec.Countries.Select((c, i) => (c, i)))
+                            {
+                                @if (idx > 0) { <span>, </span> }
+                                <strong>@CountryFlag(country) @(CountryNames.TryGetValue(country, out var name) ? name : country)</strong>
+                            }
+                            could prevent <strong>@($"{geoRec.PreventionPercentage:F0}")%</strong> of detected threat events
+                            (@FormatNumber(geoRec.PreventableEvents) of @FormatNumber(geoRec.TotalDetectedEvents)).
+                        </div>
+                    </div>
                 </div>
             }
 
@@ -680,7 +692,7 @@ else
                                 {
                                     var pct = geoTotal > 0 ? (double)entry.Value / geoTotal * 100 : 0;
                                     <tr>
-                                        <td><span data-tooltip="@CountryTooltip(entry.Key)" style="cursor:default">@CountryFlag(entry.Key)</span> <strong>@entry.Key</strong></td>
+                                        <td><span style="cursor:default">@CountryFlag(entry.Key)</span> <strong>@(CountryNames.TryGetValue(entry.Key, out var countryName) ? countryName : entry.Key)</strong></td>
                                         <td>@FormatNumber(entry.Value)</td>
                                         <td>@($"{pct:F1}")%</td>
                                         <td class="hide-mobile" style="width:40%;">
