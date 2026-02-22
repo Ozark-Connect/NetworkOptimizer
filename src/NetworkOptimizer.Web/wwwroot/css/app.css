@@ -7534,6 +7534,48 @@ a.path-hop.hop-clickable:hover {
     white-space: nowrap;
 }
 
+/* ============================================
+   Generic View Tabs (reusable across pages)
+   ============================================ */
+.view-tabs {
+    display: flex;
+    gap: 0.4rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.view-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.view-tab {
+    padding: 0.5rem 0.68rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.view-tab:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.view-tab.active {
+    background: var(--primary-color);
+    color: white;
+    border-radius: var(--border-radius);
+}
+
 /* Wi-Fi View Tabs */
 .wifi-view-tabs-wrapper {
     position: relative;

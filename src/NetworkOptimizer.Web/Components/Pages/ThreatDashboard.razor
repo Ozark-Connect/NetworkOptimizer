@@ -17,25 +17,27 @@
     <p class="page-description">IPS/IDS event analysis, attack patterns, and exposure mapping</p>
 </div>
 
-@* CrowdSec opt-in banner *@
+@* CrowdSec opt-in banner - only show when CTI is not configured *@
 @if (!_crowdSecEnabled && !_crowdSecBannerDismissed)
 {
-    <div class="alert-info" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
-        <span>CrowdSec CTI enrichment adds reputation data and MITRE ATT&CK context to threat sources. Enable in <a href="/settings">Settings</a> to unlock this data.</span>
-        <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecBannerDismissed = true">Dismiss</button>
+    <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--info-color);">
+        <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0.75rem 1rem;">
+            <span style="color:var(--text-secondary); font-size:0.9rem;">CrowdSec CTI enrichment adds reputation data and MITRE ATT&CK context to threat sources. Enable in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> to unlock this data.</span>
+            <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecBannerDismissed = true" style="flex-shrink:0;">Dismiss</button>
+        </div>
     </div>
 }
 
 @* Tab bar and time range *@
-<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
-    <div class="tab-bar">
-        <button class="tab-btn @(_activeTab == "overview" ? "active" : "")"
+<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:0;">
+    <div class="view-tabs" style="margin-bottom:0; border-bottom:none;">
+        <button class="view-tab @(_activeTab == "overview" ? "active" : "")"
                 @onclick='() => SetActiveTab("overview")'>Overview</button>
-        <button class="tab-btn @(_activeTab == "exposure" ? "active" : "")"
+        <button class="view-tab @(_activeTab == "exposure" ? "active" : "")"
                 @onclick='() => SetActiveTab("exposure")'>Exposure</button>
-        <button class="tab-btn @(_activeTab == "geographic" ? "active" : "")"
+        <button class="view-tab @(_activeTab == "geographic" ? "active" : "")"
                 @onclick='() => SetActiveTab("geographic")'>Geographic</button>
-        <button class="tab-btn @(_activeTab == "sequences" ? "active" : "")"
+        <button class="view-tab @(_activeTab == "sequences" ? "active" : "")"
                 @onclick='() => SetActiveTab("sequences")'>Attack Sequences</button>
     </div>
     <div class="time-range-selector">
