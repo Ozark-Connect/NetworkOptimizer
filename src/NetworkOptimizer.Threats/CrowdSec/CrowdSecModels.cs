@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace NetworkOptimizer.Threats.CrowdSec;
@@ -14,20 +13,44 @@ public class CrowdSecIpInfo
     [JsonPropertyName("ip_range")]
     public string? IpRange { get; set; }
 
+    [JsonPropertyName("ip_range_score")]
+    public int? IpRangeScore { get; set; }
+
+    [JsonPropertyName("ip_range_24")]
+    public string? IpRange24 { get; set; }
+
+    [JsonPropertyName("ip_range_24_reputation")]
+    public string? IpRange24Reputation { get; set; }
+
+    [JsonPropertyName("ip_range_24_score")]
+    public int? IpRange24Score { get; set; }
+
     [JsonPropertyName("reputation")]
     public string? Reputation { get; set; }
 
     [JsonPropertyName("background_noise_score")]
-    public int BackgroundNoiseScore { get; set; }
+    public int? BackgroundNoiseScore { get; set; }
+
+    [JsonPropertyName("background_noise")]
+    public string? BackgroundNoise { get; set; }
 
     [JsonPropertyName("confidence")]
-    public JsonElement? Confidence { get; set; }
+    public string? Confidence { get; set; }
+
+    [JsonPropertyName("reverse_dns")]
+    public string? ReverseDns { get; set; }
 
     [JsonPropertyName("behaviors")]
     public List<CrowdSecBehavior> Behaviors { get; set; } = [];
 
     [JsonPropertyName("attack_details")]
     public List<CrowdSecAttackDetail> AttackDetails { get; set; } = [];
+
+    [JsonPropertyName("references")]
+    public List<CrowdSecReference> References { get; set; } = [];
+
+    [JsonPropertyName("cves")]
+    public List<string> Cves { get; set; } = [];
 
     [JsonPropertyName("scores")]
     public CrowdSecScores? Scores { get; set; }
@@ -39,7 +62,7 @@ public class CrowdSecIpInfo
     public string? AsName { get; set; }
 
     [JsonPropertyName("as_num")]
-    public int AsNum { get; set; }
+    public int? AsNum { get; set; }
 
     [JsonPropertyName("classifications")]
     public CrowdSecClassifications? Classifications { get; set; }
@@ -49,21 +72,9 @@ public class CrowdSecIpInfo
 
     [JsonPropertyName("mitre_techniques")]
     public List<CrowdSecMitreTechnique> MitreTechniques { get; set; } = [];
-}
 
-public class CrowdSecConfidence
-{
-    [JsonPropertyName("overall")]
-    public string? Overall { get; set; }
-
-    [JsonPropertyName("last_day")]
-    public double LastDay { get; set; }
-
-    [JsonPropertyName("last_week")]
-    public double LastWeek { get; set; }
-
-    [JsonPropertyName("last_month")]
-    public double LastMonth { get; set; }
+    [JsonPropertyName("target_countries")]
+    public Dictionary<string, double>? TargetCountries { get; set; }
 }
 
 public class CrowdSecBehavior
@@ -79,6 +90,21 @@ public class CrowdSecBehavior
 }
 
 public class CrowdSecAttackDetail
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("references")]
+    public List<string> References { get; set; } = [];
+}
+
+public class CrowdSecReference
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
