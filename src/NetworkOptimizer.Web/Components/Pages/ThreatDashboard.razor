@@ -841,6 +841,13 @@ else
             {
                 <span style="color:var(--text-secondary); font-size:1rem;">@drilldownName</span>
             }
+            @if (!string.IsNullOrEmpty(_drilldownData.CountryCode))
+            {
+                <span data-tooltip="@CountryTooltip(_drilldownData.CountryCode)" style="cursor:default; font-size:1.1rem;">
+                    @CountryFlag(_drilldownData.CountryCode)
+                </span>
+                <span style="color:var(--text-secondary); font-size:0.9rem;">@(CountryNames.TryGetValue(_drilldownData.CountryCode, out var cn) ? cn : _drilldownData.CountryCode.ToUpperInvariant())</span>
+            }
             @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
             {
                 var hasDrilldownCti = _manualCtiCache.TryGetValue(_drilldownData.Ip, out var drilldownCti);
@@ -1029,7 +1036,21 @@ else
                                 @foreach (var pr in _drilldownData.PortRanges.Take(_portRangesVisible))
                                 {
                                     <tr>
-                                        <td>@if (pr.PortEnd == 0 || pr.PortEnd == pr.Port) { <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(pr.Port)"><code>@pr.RangeLabel</code></a> } else { <code>@pr.RangeLabel</code> }</td>
+                                        <td>
+                                            @if (pr.PortEnd == 0 || pr.PortEnd == pr.Port)
+                                            {
+                                                <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(pr.Port)"><code>@pr.Port</code></a>
+                                            }
+                                            else
+                                            {
+                                                @for (var p = pr.Port; p <= pr.PortEnd; p++)
+                                                {
+                                                    var port = p;
+                                                    @if (p > pr.Port) { <span style="color:var(--text-muted); margin:0 1px;">,</span> }
+                                                    <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(port)"><code>@port</code></a>
+                                                }
+                                            }
+                                        </td>
                                         <td>@(string.IsNullOrEmpty(pr.Service) ? "-" : pr.Service)</td>
                                         <td>@FormatNumber(pr.EventCount)</td>
                                         <td>@(pr.BlockedCount > 0 ? FormatNumber(pr.BlockedCount) : "-")</td>
@@ -1182,7 +1203,7 @@ else
                                 {
                                     <tr>
                                         <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
-                                        <td class="hide-mobile">@(src.CountryCode ?? "-")</td>
+                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(src.CountryCode)" style="cursor:default">@CountryFlag(src.CountryCode)</span> }</td>
                                         <td class="hide-mobile"><span style="max-width:200px; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
                                         <td>@src.BlockedCount</td>
@@ -1340,7 +1361,7 @@ else
                                 {
                                     <tr>
                                         <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
-                                        <td class="hide-mobile">@(src.CountryCode ?? "-")</td>
+                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(src.CountryCode)" style="cursor:default">@CountryFlag(src.CountryCode)</span> }</td>
                                         <td class="hide-mobile"><span style="max-width:200px; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
                                         <td>@src.BlockedCount</td>

@@ -401,9 +401,17 @@ public class ThreatDashboardService
                 .Take(20)
                 .ToList();
 
+            // Country code: take from the most common country across events for this IP
+            var countryCode = events
+                .Where(e => !string.IsNullOrEmpty(e.CountryCode))
+                .GroupBy(e => e.CountryCode)
+                .OrderByDescending(g => g.Count())
+                .FirstOrDefault()?.Key;
+
             return new IpDrilldownData
             {
                 Ip = ip,
+                CountryCode = countryCode,
                 TotalEvents = events.Count,
                 BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked),
                 DetectedCount = events.Count(e => e.Action != ThreatAction.Blocked),
@@ -771,6 +779,7 @@ public record ThreatTrendPoint
 public class IpDrilldownData
 {
     public string Ip { get; set; } = string.Empty;
+    public string? CountryCode { get; set; }
     public int TotalEvents { get; set; }
     public int BlockedCount { get; set; }
     public int DetectedCount { get; set; }
