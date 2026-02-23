@@ -189,15 +189,21 @@
                                         <option value="10080">Every 7 days</option>
                                     </select>
                                 </div>
-                                <label class="toggle-switch schedule-toggle" data-tooltip="Normal: 4 servers, 16 streams. Max Load: more servers and streams for saturating multi-gig links.">
-                                    <input type="checkbox" @bind="_newWanMaxMode" />
-                                    <span class="toggle-slider"></span>
-                                    <span class="toggle-label">Max Load</span>
-                                </label>
-                                <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
-                                        disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
-                                    Create Schedule
-                                </button>
+                                <div class="form-group schedule-field">
+                                    <label>Start Time (UTC)</label>
+                                    <input type="time" class="form-control" @bind="_newWanStartTime" />
+                                </div>
+                                <div class="schedule-inline-controls">
+                                    <label class="toggle-switch schedule-toggle" data-tooltip="Normal: 4 servers, 16 streams. Max Load: more servers and streams for saturating multi-gig links.">
+                                        <input type="checkbox" @bind="_newWanMaxMode" />
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">Max Load</span>
+                                    </label>
+                                    <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
+                                            disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
+                                        Create Schedule
+                                    </button>
+                                </div>
                             </div>
                             @if (!_gatewayAvailable && _newWanTestType != "server")
                             {
@@ -315,6 +321,10 @@
                                             <option value="2880">Every 48 hours</option>
                                             <option value="10080">Every 7 days</option>
                                         </select>
+                                    </div>
+                                    <div class="form-group schedule-field">
+                                        <label>Start Time (UTC)</label>
+                                        <input type="time" class="form-control" @bind="_newLanStartTime" />
                                     </div>
                                     <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
                                             disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
@@ -1027,6 +1037,12 @@
         font-size: 0.85rem;
         color: var(--text-secondary);
     }
+    .schedule-inline-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding-bottom: 2px;
+    }
     .status-success {
         background: rgba(36, 188, 112, 0.2);
         color: var(--success-color);
@@ -1071,7 +1087,9 @@
     private string _newWanTestType = "gateway";
     private string _newWanSelection = "0";
     private bool _newWanMaxMode;
+    private TimeOnly _newWanStartTime = new(6, 0);
     private string? _newLanDevice;
+    private TimeOnly _newLanStartTime = new(6, 0);
     private int _newWanFrequency = 1440;
     private int _newLanFrequency = 1440;
     private bool _creatingSchedule;
@@ -1614,6 +1632,8 @@
                 }
             }
 
+            var (startHour, startMinute) = ParseTimeInput(_newWanStartTime);
+
             var task = new ScheduledTask
             {
                 TaskType = "wan_speedtest",
@@ -1621,14 +1641,17 @@
                 TargetId = targetId,
                 TargetConfig = JsonSerializer.Serialize(config),
                 FrequencyMinutes = _newWanFrequency,
+                CustomMorningHour = startHour,
+                CustomMorningMinute = startMinute,
                 Enabled = true,
-                NextRunAt = DateTime.UtcNow.AddMinutes(_newWanFrequency)
+                NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute)
             };
 
             await ScheduleRepository.SaveAsync(task);
             _newWanSelection = "0";
             _newWanMaxMode = false;
             _newWanFrequency = 1440;
+            _newWanStartTime = new(6, 0);
             await LoadSchedules();
         }
         catch (Exception ex)
@@ -1652,19 +1675,24 @@
             var label = dev != null && !string.IsNullOrEmpty(dev.Name) ? dev.Name : _newLanDevice;
             var name = $"LAN Speed Test ({label})";
 
+            var (startHour, startMinute) = ParseTimeInput(_newLanStartTime);
+
             var task = new ScheduledTask
             {
                 TaskType = "lan_speedtest",
                 Name = name,
                 TargetId = _newLanDevice,
                 FrequencyMinutes = _newLanFrequency,
+                CustomMorningHour = startHour,
+                CustomMorningMinute = startMinute,
                 Enabled = true,
-                NextRunAt = DateTime.UtcNow.AddMinutes(_newLanFrequency)
+                NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute)
             };
 
             await ScheduleRepository.SaveAsync(task);
             _newLanDevice = null;
             _newLanFrequency = 1440;
+            _newLanStartTime = new(6, 0);
             await LoadSchedules();
         }
         catch (Exception ex)
@@ -1675,6 +1703,18 @@
         {
             _creatingSchedule = false;
         }
+    }
+
+    private static (int hour, int minute) ParseTimeInput(TimeOnly time) => (time.Hour, time.Minute);
+
+    private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute)
+    {
+        var now = DateTime.UtcNow;
+        var anchor = now.Date.AddHours(startHour).AddMinutes(startMinute);
+        var candidate = anchor;
+        while (candidate <= now.AddMinutes(1))
+            candidate = candidate.AddMinutes(frequencyMinutes);
+        return candidate;
     }
 
     private async Task DeleteSchedule(ScheduledTask task)

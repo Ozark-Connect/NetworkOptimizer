@@ -242,6 +242,14 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## General
 
+### Refactor Program.cs - Extract Business Logic and Break Up API Sets
+- **Issue:** `Program.cs` has grown into a monolith with schedule executor implementations, API endpoint registrations, and business logic all inline
+- **Goal:** Clean separation of concerns:
+  - Extract schedule executor registrations into a dedicated class (e.g., `ScheduleExecutorSetup.cs`)
+  - Break API endpoints into logical groups using minimal API route groups or extension methods (e.g., `SpeedTestEndpoints.cs`, `AuditEndpoints.cs`, `ThreatEndpoints.cs`)
+  - Move inline business logic out of endpoint handlers into services
+- **Priority:** Medium - not blocking but makes maintenance harder as the app grows
+
 ### Refactor DnsSecurityAnalyzer.AnalyzeAsync() Parameter Hell
 - **Issue:** `DnsSecurityAnalyzer.AnalyzeAsync()` takes 7 nullable parameters, making it error-prone:
   ```csharp

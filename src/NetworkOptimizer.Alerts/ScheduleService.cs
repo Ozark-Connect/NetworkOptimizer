@@ -121,12 +121,14 @@ public class ScheduleService : BackgroundService
             var targetId = task.TargetId;
             var targetConfig = task.TargetConfig;
             var frequencyMinutes = task.FrequencyMinutes;
+            var startHour = task.CustomMorningHour;
+            var startMinute = task.CustomMorningMinute;
 
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await ExecuteScheduledTaskAsync(taskId, taskType, targetId, targetConfig, frequencyMinutes, ct);
+                    await ExecuteScheduledTaskAsync(taskId, taskType, targetId, targetConfig, frequencyMinutes, startHour, startMinute, ct);
                 }
                 catch (Exception ex)
                 {
@@ -136,7 +138,7 @@ public class ScheduleService : BackgroundService
         }
     }
 
-    private async Task ExecuteScheduledTaskAsync(int taskId, string taskType, string? targetId, string? targetConfig, int frequencyMinutes, CancellationToken ct)
+    private async Task ExecuteScheduledTaskAsync(int taskId, string taskType, string? targetId, string? targetConfig, int frequencyMinutes, int? startHour, int? startMinute, CancellationToken ct)
     {
         lock (_runningLock)
         {
@@ -164,7 +166,7 @@ public class ScheduleService : BackgroundService
             };
 
             var status = success ? "success" : "failed";
-            var nextRun = CalculateNextRun(frequencyMinutes);
+            var nextRun = CalculateNextRun(frequencyMinutes, startHour, startMinute);
 
             // Update task status in DB
             using var scope = _scopeFactory.CreateScope();
@@ -206,7 +208,7 @@ public class ScheduleService : BackgroundService
             {
                 using var scope = _scopeFactory.CreateScope();
                 var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
-                var nextRun = CalculateNextRun(frequencyMinutes);
+                var nextRun = CalculateNextRun(frequencyMinutes, startHour, startMinute);
                 await repo.UpdateRunStatusAsync(taskId, startTime, nextRun, "failed", ex.Message, null, ct);
             }
             catch (Exception updateEx)
@@ -254,7 +256,7 @@ public class ScheduleService : BackgroundService
         {
             try
             {
-                await ExecuteScheduledTaskAsync(task.Id, task.TaskType, task.TargetId, task.TargetConfig, task.FrequencyMinutes, CancellationToken.None);
+                await ExecuteScheduledTaskAsync(task.Id, task.TaskType, task.TargetId, task.TargetConfig, task.FrequencyMinutes, task.CustomMorningHour, task.CustomMorningMinute, CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -276,9 +278,29 @@ public class ScheduleService : BackgroundService
         }
     }
 
-    private static DateTime CalculateNextRun(int frequencyMinutes)
+    /// <summary>
+    /// Calculate next run time. If startHour/startMinute are set, anchors runs to that
+    /// time-of-day (UTC). E.g., startHour=6, frequency=720 (12h) → runs at 06:00 and 18:00 UTC.
+    /// </summary>
+    private static DateTime CalculateNextRun(int frequencyMinutes, int? startHour = null, int? startMinute = null)
     {
-        return DateTime.UtcNow.AddMinutes(frequencyMinutes);
+        if (startHour == null)
+            return DateTime.UtcNow.AddMinutes(frequencyMinutes);
+
+        // Find the next occurrence anchored to startHour:startMinute
+        var now = DateTime.UtcNow;
+        var today = now.Date;
+        var anchor = today.AddHours(startHour.Value).AddMinutes(startMinute ?? 0);
+
+        // Walk forward from anchor by frequency until we find a time in the future
+        // (with 1-minute buffer to avoid re-triggering immediately)
+        var candidate = anchor;
+        while (candidate <= now.AddMinutes(1))
+        {
+            candidate = candidate.AddMinutes(frequencyMinutes);
+        }
+
+        return candidate;
     }
 
     private static string FormatTaskType(string taskType) => taskType switch
