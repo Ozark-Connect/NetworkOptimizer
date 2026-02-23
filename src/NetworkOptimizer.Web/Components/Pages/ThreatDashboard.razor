@@ -1707,6 +1707,7 @@ else
     private ApexChart<KillChainItem>? _killChainChart;
     private ApexChart<ActionBreakdownItem>? _actionChart;
     private bool _chartNeedsUpdate;
+    private bool _timelineChartNewlyCreated;
     private ApexChartOptions<TimelineBucket> _timelineChartOptions = CreateTimelineChartOptions();
     private ApexChartOptions<KillChainItem> _killChainChartOptions = CreateKillChainChartOptions();
     private ApexChartOptions<ActionBreakdownItem> _actionChartOptions = CreateActionChartOptions();
@@ -1729,6 +1730,13 @@ else
             try { if (_timelineChart != null) await _timelineChart.RenderAsync(); } catch { }
             try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
             try { if (_actionChart != null) await _actionChart.UpdateSeriesAsync(true); } catch { }
+        }
+        else if (_timelineChartNewlyCreated && _timelineChart != null)
+        {
+            // Multi-series charts don't auto-render their data on creation.
+            // Now that Blazor has mounted the component, force a render.
+            _timelineChartNewlyCreated = false;
+            try { await _timelineChart.RenderAsync(); } catch { }
         }
     }
 
@@ -2026,9 +2034,14 @@ else
                     _timelineChartOptions.Xaxis.Max = new DateTimeOffset(DateTime.SpecifyKind(maxHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                 }
 
-                // Only force-update charts that already exist in the DOM.
-                // New charts auto-render on creation; calling RenderAsync() too early breaks them.
-                if (chartExisted) _chartNeedsUpdate = true;
+                // Charts already in the DOM need an explicit update.
+                // Newly created single-series charts auto-render fine, but
+                // the multi-series timeline does not - flag it for a deferred
+                // RenderAsync once Blazor has mounted the component.
+                if (chartExisted)
+                    _chartNeedsUpdate = true;
+                else
+                    _timelineChartNewlyCreated = true;
             }
             else if (_activeTab == "exposure")
             {
