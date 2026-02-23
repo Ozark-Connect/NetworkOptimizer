@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using MimeKit;
 using NetworkOptimizer.Alerts.Events;
@@ -94,14 +95,27 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             var config = JsonSerializer.Deserialize<EmailChannelConfig>(channel.ConfigJson);
             if (config == null) return (false, "Invalid channel configuration");
 
+            if (string.IsNullOrWhiteSpace(config.SmtpHost))
+                return (false, "SMTP host is not configured");
+            if (string.IsNullOrWhiteSpace(config.FromAddress) || string.IsNullOrWhiteSpace(config.ToAddresses))
+                return (false, "From and To addresses are required");
+
             var body = "<html><body style='background:#1a2029;color:#f1f5f9;padding:24px;font-family:sans-serif;'>" +
                        "<h2>Network Optimizer Alert Test</h2>" +
                        "<p>This is a test message from the Network Optimizer alert system.</p>" +
                        "<p>If you received this email, your alert channel is configured correctly.</p>" +
                        "</body></html>";
 
-            var success = await SendEmailAsync(config, "Network Optimizer - Test Alert", body, cancellationToken);
-            return success ? (true, null) : (false, "Failed to send email");
+            // Use a short timeout for test - no retries, fail fast
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+            var (success, error) = await SendEmailCoreAsync(config, "Network Optimizer - Test Alert", body, cts.Token);
+            return (success, error);
+        }
+        catch (OperationCanceledException)
+        {
+            return (false, "Connection timed out after 15 seconds. Check SMTP host, port, and SSL settings.");
         }
         catch (Exception ex)
         {
@@ -111,42 +125,25 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
 
     private async Task<bool> SendEmailAsync(EmailChannelConfig config, string subject, string htmlBody, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(config.FromAddress) || string.IsNullOrWhiteSpace(config.ToAddresses))
-        {
-            _logger.LogWarning("Email channel missing from/to address configuration");
-            return false;
-        }
-
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(config.FromName, config.FromAddress));
-
-        foreach (var addr in config.ToAddresses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            message.To.Add(MailboxAddress.Parse(addr));
-        }
-
-        message.Subject = subject;
-        message.Body = new TextPart("html") { Text = htmlBody };
-
         const int maxRetries = 2;
         for (int attempt = 0; attempt <= maxRetries; attempt++)
         {
             try
             {
-                using var client = new SmtpClient();
-                await client.ConnectAsync(config.SmtpHost, config.SmtpPort, config.UseSsl, cancellationToken);
+                var (success, error) = await SendEmailCoreAsync(config, subject, htmlBody, cancellationToken);
+                if (success) return true;
 
-                if (!string.IsNullOrEmpty(config.Username))
+                if (attempt < maxRetries)
                 {
-                    var password = _secretDecryptor.Decrypt(config.Password);
-                    await client.AuthenticateAsync(config.Username, password, cancellationToken);
+                    var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
+                    _logger.LogWarning("Email send attempt {Attempt} failed, retrying in {Delay}s: {Error}",
+                        attempt + 1, delay.TotalSeconds, error);
+                    await Task.Delay(delay, cancellationToken);
                 }
-
-                await client.SendAsync(message, cancellationToken);
-                await client.DisconnectAsync(true, cancellationToken);
-
-                _logger.LogDebug("Email sent: {Subject}", subject);
-                return true;
+                else
+                {
+                    _logger.LogError("Failed to send email after {MaxRetries} retries: {Error}", maxRetries + 1, error);
+                }
             }
             catch (Exception ex) when (attempt < maxRetries)
             {
@@ -163,6 +160,52 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Single attempt to send an email. Returns (success, errorMessage).
+    /// </summary>
+    private async Task<(bool Success, string? Error)> SendEmailCoreAsync(EmailChannelConfig config, string subject, string htmlBody, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(config.FromAddress) || string.IsNullOrWhiteSpace(config.ToAddresses))
+            return (false, "Missing from/to address configuration");
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(config.FromName, config.FromAddress));
+
+        foreach (var addr in config.ToAddresses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            message.To.Add(MailboxAddress.Parse(addr));
+        }
+
+        message.Subject = subject;
+        message.Body = new TextPart("html") { Text = htmlBody };
+
+        using var client = new SmtpClient();
+        client.Timeout = 30_000; // 30 second timeout for connect/send operations
+
+        // Determine SSL mode based on port and UseSsl setting
+        var sslOptions = GetSecureSocketOptions(config);
+        await client.ConnectAsync(config.SmtpHost, config.SmtpPort, sslOptions, cancellationToken);
+
+        if (!string.IsNullOrEmpty(config.Username))
+        {
+            var password = _secretDecryptor.Decrypt(config.Password);
+            await client.AuthenticateAsync(config.Username, password, cancellationToken);
+        }
+
+        await client.SendAsync(message, cancellationToken);
+        await client.DisconnectAsync(true, cancellationToken);
+
+        _logger.LogDebug("Email sent: {Subject}", subject);
+        return (true, null);
+    }
+
+    private static SecureSocketOptions GetSecureSocketOptions(EmailChannelConfig config)
+    {
+        if (!config.UseSsl) return SecureSocketOptions.None;         // Port 25
+        if (config.UseStartTls) return SecureSocketOptions.StartTls; // Port 587
+        return SecureSocketOptions.SslOnConnect;                      // Port 465
     }
 
     private static string GetSeverityColor(Core.Enums.AlertSeverity severity) => severity switch

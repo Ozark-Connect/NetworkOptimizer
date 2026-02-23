@@ -1232,9 +1232,16 @@
                         </div>
                         <div class="form-group">
                             <label class="checkbox-label">
-                                <input type="checkbox" @bind="channelSmtpSsl" />
+                                <input type="checkbox" checked="@channelSmtpSsl" @onchange="OnSmtpSslChanged" />
                                 <span>Use SSL/TLS</span>
                             </label>
+                            @if (channelSmtpSsl)
+                            {
+                                <label class="checkbox-label" style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                                    <input type="checkbox" checked="@channelSmtpStartTls" @onchange="OnSmtpStartTlsChanged" />
+                                    <span>Use STARTTLS (recommended for port 587)</span>
+                                </label>
+                            }
                         </div>
                         <div class="form-group">
                             <label class="form-label">Username</label>
@@ -1815,6 +1822,7 @@
     private string channelSmtpHost = "";
     private int channelSmtpPort = 587;
     private bool channelSmtpSsl = true;
+    private bool channelSmtpStartTls = true;
     private string channelSmtpUser = "";
     private string channelSmtpPass = "";
     private string channelSmtpFrom = "";
@@ -3229,6 +3237,27 @@
         catch { alertChannels = new(); }
     }
 
+    private void OnSmtpSslChanged(ChangeEventArgs e)
+    {
+        channelSmtpSsl = (bool)(e.Value ?? false);
+        if (channelSmtpSsl)
+        {
+            channelSmtpStartTls = true;
+            channelSmtpPort = 587;
+        }
+        else
+        {
+            channelSmtpStartTls = false;
+            channelSmtpPort = 25;
+        }
+    }
+
+    private void OnSmtpStartTlsChanged(ChangeEventArgs e)
+    {
+        channelSmtpStartTls = (bool)(e.Value ?? false);
+        channelSmtpPort = channelSmtpStartTls ? 587 : 465;
+    }
+
     private void StartAddChannel()
     {
         editingChannelId = null;
@@ -3237,6 +3266,7 @@
         channelSmtpHost = "";
         channelSmtpPort = 587;
         channelSmtpSsl = true;
+        channelSmtpStartTls = true;
         channelSmtpUser = "";
         channelSmtpPass = "";
         channelSmtpFrom = "";
@@ -3272,6 +3302,7 @@
                     channelSmtpHost = cfg.SmtpHost;
                     channelSmtpPort = cfg.SmtpPort;
                     channelSmtpSsl = cfg.UseSsl;
+                    channelSmtpStartTls = cfg.UseStartTls;
                     channelSmtpUser = cfg.Username;
                     channelSmtpFrom = cfg.FromAddress;
                     channelSmtpTo = cfg.ToAddresses;
@@ -3315,6 +3346,40 @@
             }
 
             var channelType = Enum.Parse<DeliveryChannelType>(channelFormType);
+
+            // Validate required fields by channel type
+            if (channelType == DeliveryChannelType.Email)
+            {
+                if (string.IsNullOrWhiteSpace(channelSmtpHost))
+                {
+                    alertChannelMessage = "SMTP host is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(channelSmtpFrom))
+                {
+                    alertChannelMessage = "From address is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(channelSmtpTo))
+                {
+                    alertChannelMessage = "At least one recipient address is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+            }
+            else
+            {
+                // Webhook, Slack, Discord, Teams all require a URL
+                if (string.IsNullOrWhiteSpace(channelWebhookUrl))
+                {
+                    alertChannelMessage = "Webhook URL is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+            }
+
             var severity = Enum.Parse<NetworkOptimizer.Core.Enums.AlertSeverity>(channelMinSeverity);
             var configJson = BuildChannelConfigJson(channelType);
 
@@ -3375,6 +3440,7 @@
                 SmtpHost = channelSmtpHost,
                 SmtpPort = channelSmtpPort,
                 UseSsl = channelSmtpSsl,
+                UseStartTls = channelSmtpStartTls,
                 Username = channelSmtpUser,
                 Password = !string.IsNullOrEmpty(channelSmtpPass) ? SecretDecryptor.Encrypt(channelSmtpPass) : "",
                 FromAddress = channelSmtpFrom,
