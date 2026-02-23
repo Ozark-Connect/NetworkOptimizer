@@ -6689,6 +6689,35 @@ a.path-hop.hop-clickable:hover {
     padding: 0.25rem;
 }
 
+.custom-range-popover {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    z-index: 50;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    min-width: 240px;
+}
+
+.custom-range-input {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    width: 100%;
+    color-scheme: dark;
+}
+
+.custom-range-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
 /* Use secondary background when inside nested cards */
 .card .card .pill-selector,
 .card .card .time-range-selector,
