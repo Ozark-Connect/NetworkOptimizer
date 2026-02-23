@@ -370,7 +370,7 @@ else
         </div>
 
         @* Kill Chain + Blocked vs Detected row *@
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+        <div class="threat-two-chart-row">
             @* Kill Chain Distribution *@
             <div class="chart-card">
                 <div class="chart-header">
@@ -1433,6 +1433,13 @@ else
         margin-bottom: 1.5rem;
     }
 
+    .threat-two-chart-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
     /* Override built-in ApexCharts legend text spacing (default: 15px pad / -15px margin = 0 net) */
     .apexcharts-legend-text {
         padding-left: 20px !important;
@@ -1563,6 +1570,10 @@ else
 
         .threat-summary-grid {
             grid-template-columns: repeat(2, 1fr);
+        }
+
+        .threat-two-chart-row {
+            grid-template-columns: 1fr;
         }
     }
 </style>
