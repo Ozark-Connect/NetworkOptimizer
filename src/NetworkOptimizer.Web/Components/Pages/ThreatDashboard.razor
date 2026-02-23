@@ -293,11 +293,11 @@ else
         </div>
 
         @* Threat Timeline *@
-        <div class="chart-card" style="margin-bottom:1.5rem;">
+        <div class="chart-card">
             <div class="chart-header">
                 <h3 class="chart-title">Threat Timeline</h3>
             </div>
-            <div class="card-body">
+            <div class="threat-chart-body">
                 <ApexChart @ref="_timelineChart" TItem="TimelineBucket"
                            Options="_timelineChartOptions"
                            Height="@("280px")">
@@ -377,7 +377,7 @@ else
                 <div class="chart-header">
                     <h3 class="chart-title">Kill Chain Distribution</h3>
                 </div>
-                <div class="card-body">
+                <div class="threat-chart-body">
                     @if (_dashboardData.KillChainDistribution.Count > 0)
                     {
                         <ApexChart @ref="_killChainChart" TItem="KillChainItem"
@@ -406,7 +406,7 @@ else
                 <div class="chart-header">
                     <h3 class="chart-title">Blocked vs Detected</h3>
                 </div>
-                <div class="card-body">
+                <div class="threat-chart-body">
                     @if (_dashboardData.Summary.TotalEvents > 0)
                     {
                         <ApexChart @ref="_actionChart" TItem="ActionBreakdownItem"
@@ -1432,14 +1432,16 @@ else
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 1rem;
-        margin-bottom: 1.5rem;
     }
 
     .threat-two-chart-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 1rem;
-        margin-bottom: 1.5rem;
+    }
+
+    .threat-chart-body {
+        padding-top: 16px;
     }
 
     .threat-page .data-table {
