@@ -1793,12 +1793,18 @@ else
 
                 // Pin X-axis to the actual data extent (all severities) so toggling
                 // severity filters doesn't shrink/shift the visible date range.
-                if (_timeline.Count > 0)
+                // Fall back to the time filter range when data is too narrow (e.g. 1hr with 1 bucket).
+                if (_timeline.Count >= 2)
                 {
                     var minHour = _timeline[0].Hour;
                     var maxHour = _timeline[^1].Hour;
                     _timelineChartOptions.Xaxis.Min = new DateTimeOffset(DateTime.SpecifyKind(minHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                     _timelineChartOptions.Xaxis.Max = new DateTimeOffset(DateTime.SpecifyKind(maxHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+                }
+                else
+                {
+                    _timelineChartOptions.Xaxis.Min = new DateTimeOffset(DateTime.SpecifyKind(from, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+                    _timelineChartOptions.Xaxis.Max = new DateTimeOffset(DateTime.SpecifyKind(to, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                 }
 
                 // Only force-update charts that already exist in the DOM.
