@@ -148,7 +148,40 @@
         </div>
     </div>
 
-    <!-- Feature Guard: Show message if no WANs have Smart Queues enabled -->
+    <!-- No WANs detected at all - controller issue or no gateway -->
+    @if (!isLoading && gatewayConnected && !wanInterfaces.Any())
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="alert alert-warning" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                    <div>
+                        @if (!ConnectionService.IsConnected)
+                        {
+                            <strong>UniFi Console Not Connected:</strong>
+                            <span>Adaptive SQM needs a working UniFi Console connection to detect your WAN interfaces. Go to <a href="/settings">Settings</a> to configure your Console connection.</span>
+                        }
+                        else
+                        {
+                            <strong>No WAN Connections Detected:</strong>
+                            <span>Could not find any active WAN interfaces from your UniFi Console. Make sure your gateway is reachable from the Console (if separate) and has at least one WAN connection configured and enabled.</span>
+                        }
+                    </div>
+                    <button class="btn btn-primary btn-sm" @onclick="ManualRefresh" disabled="@isLoading" style="white-space: nowrap;">
+                        @if (isLoading)
+                        {
+                            <span>Checking...</span>
+                        }
+                        else
+                        {
+                            <span>Check Again</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Feature Guard: Show message if WANs found but none have Smart Queues enabled -->
     @if (!isLoading && wanInterfaces.Any() && !sqmEligibleWans.Any())
     {
         <div class="card">
@@ -156,7 +189,7 @@
                 <div class="alert alert-info" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
                     <div>
                         <strong>Smart Queues Required:</strong> Adaptive SQM requires at least one WAN connection with UniFi Smart Queues (SQM) enabled.
-                        Enable Smart Queues in your UniFi controller under <strong>Settings &rarr; Internet &rarr; <em>WAN Connection</em> &rarr; Advanced &rarr; Smart Queues</strong>.
+                        Enable Smart Queues in your UniFi Console under <strong>Settings &rarr; Internet &rarr; <em>WAN Connection</em> &rarr; Advanced &rarr; Smart Queues</strong>.
                     </div>
                     <button class="btn btn-primary btn-sm" @onclick="ManualRefresh" disabled="@isLoading" style="white-space: nowrap;">
                         @if (isLoading)
