@@ -1731,7 +1731,7 @@ else
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
-                if (_hasLoadedOnce) _chartNeedsUpdate = true;
+                _chartNeedsUpdate = true;
             }
             else if (_activeTab == "exposure")
             {
