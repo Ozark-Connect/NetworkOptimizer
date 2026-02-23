@@ -231,12 +231,15 @@ public class SqmService : ISqmService
             var allWanConfigs = await _connectionService.Client.GetWanConfigsAsync();
             var wanConfigs = allWanConfigs.Where(w => w.Enabled).ToList();
 
+            _logger.LogDebug("WAN network configs from controller: {Total} total, {Enabled} enabled. Details: {Details}",
+                allWanConfigs.Count,
+                wanConfigs.Count,
+                string.Join(", ", allWanConfigs.Select(w =>
+                    $"{w.Name} (enabled={w.Enabled}, group={w.WanNetworkgroup ?? "none"}, type={w.WanType ?? "none"})")));
+
             if (allWanConfigs.Count > 0 && wanConfigs.Count == 0)
             {
-                _logger.LogWarning("Found {Total} WAN network configs but all are disabled. " +
-                    "WAN names: {Names}",
-                    allWanConfigs.Count,
-                    string.Join(", ", allWanConfigs.Select(w => $"{w.Name} (enabled={w.Enabled})")));
+                _logger.LogWarning("All {Total} WAN network configs are disabled - no WAN interfaces will be detected", allWanConfigs.Count);
             }
             else if (allWanConfigs.Count == 0)
             {
@@ -275,9 +278,12 @@ public class SqmService : ISqmService
                     .Select(w => w.WanNetworkgroup!),
                 StringComparer.OrdinalIgnoreCase);
 
+            _logger.LogDebug("Enabled WAN network groups (used to filter device WANs): [{Groups}]",
+                enabledNetworkGroups.Count > 0 ? string.Join(", ", enabledNetworkGroups) : "none");
+
             result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToSmartqDownRate, networkGroupToName, networkGroupToWanType, enabledNetworkGroups);
 
-            _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
+            _logger.LogInformation("WAN interface detection complete: {Count} interface(s) available for Adaptive SQM", result.Count);
         }
         catch (Exception ex)
         {
@@ -316,10 +322,21 @@ public class SqmService : ISqmService
 
             foreach (var device in devices.EnumerateArray())
             {
-                // Only look at gateways
+                // Only consider gateway-capable device types (ugw, udm, uxg).
+                // Note: UDMs adopted as APs (e.g., UX7 in AP-only mode) still report type="udm"
+                // but won't have active WAN interfaces - we handle that below by checking wan1-wan6.
                 var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
                 if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
+                {
+                    var deviceModel = device.TryGetProperty("model", out var modelProp) ? modelProp.GetString() : "unknown";
+                    _logger.LogDebug("Skipping non-gateway device type={Type} model={Model}", deviceType, deviceModel);
                     continue;
+                }
+
+                var deviceName = device.TryGetProperty("name", out var devNameProp) ? devNameProp.GetString() : null;
+                var deviceModel2 = device.TryGetProperty("model", out var devModelProp) ? devModelProp.GetString() : null;
+                _logger.LogDebug("Examining gateway-capable device: type={DeviceType}, model={Model}, name={Name}",
+                    deviceType, deviceModel2, deviceName ?? "(unnamed)");
 
                 // Build ifname -> networkgroup lookup from ethernet_overrides
                 var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -337,8 +354,8 @@ public class SqmService : ISqmService
                     }
                 }
 
-                // Check for wan1, wan2, wan3, etc.
-                for (int i = 1; i <= 4; i++)
+                // Check for wan1 through wan6 (UDMs support as many WANs as available ports)
+                for (int i = 1; i <= 6; i++)
                 {
                     var wanKey = $"wan{i}";
                     if (device.TryGetProperty(wanKey, out var wanObj))
@@ -350,7 +367,10 @@ public class SqmService : ISqmService
                             uplinkIfname = uplinkProp.GetString();
 
                         if (string.IsNullOrEmpty(uplinkIfname))
+                        {
+                            _logger.LogDebug("Skipping {WanKey}: no uplink_ifname (interface not active or not connected)", wanKey);
                             continue;
+                        }
 
                         // Get the physical interface name (used for networkgroup lookup in ethernet_overrides)
                         // For PPPoE on eth6, uplink_ifname="ppp3" but ifname="eth6"
@@ -380,8 +400,8 @@ public class SqmService : ISqmService
                         // Skip disabled WAN interfaces
                         if (!string.IsNullOrEmpty(networkGroup) && !enabledNetworkGroups.Contains(networkGroup))
                         {
-                            _logger.LogDebug("Skipping disabled WAN {WanKey} ({Interface}, NetworkGroup: {NG})",
-                                wanKey, uplinkIfname, networkGroup);
+                            _logger.LogDebug("Skipping {WanKey}: network group {NG} is disabled in UniFi (interface={Interface})",
+                                wanKey, networkGroup, uplinkIfname);
                             continue;
                         }
 
@@ -463,14 +483,29 @@ public class SqmService : ISqmService
                             SmartqDownRateMbps = smartqDownRateMbps
                         });
 
-                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (NetworkGroup: {NG}, SmartQ: {SQ}, WanType: {WT})",
+                        _logger.LogDebug("Accepted {WanKey}: interface={Interface}, name={Name}, networkGroup={NG}, smartQ={SQ}, wanType={WT}",
                             wanKey, uplinkIfname, friendlyName, networkGroup, smartqEnabled, wanType);
                     }
                 }
 
-                // Found gateway, no need to check other devices
                 if (result.Count > 0)
+                {
+                    _logger.LogDebug("Gateway identified (type={DeviceType}, name={Name}): {Count} WAN interface(s) accepted",
+                        deviceType, deviceName ?? "(unnamed)", result.Count);
                     break;
+                }
+
+                // This gateway-capable device had no accepted WANs.
+                // Could be a UDM adopted as an AP, or all WANs are disabled/inactive.
+                // Continue checking other devices.
+                _logger.LogDebug("Device type={DeviceType}, name={Name} had no accepted WAN interfaces (may be adopted as AP). " +
+                    "Checking remaining devices...", deviceType, deviceName ?? "(unnamed)");
+            }
+
+            if (result.Count == 0)
+            {
+                _logger.LogWarning("No WAN interfaces found on any device. " +
+                    "Check above logs for skip reasons (disabled network group, missing uplink_ifname, UDM adopted as AP)");
             }
         }
         catch (Exception ex)
