@@ -664,7 +664,7 @@ else
                                     @foreach (var svc in _exposureReport.ExposedServices)
                                     {
                                         <tr>
-                                            <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(svc.Port)"><code>@svc.Port</code></a>/<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToProtocol(svc.Protocol)"><code>@svc.Protocol</code></a></td>
+                                            <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(svc.Port)"><code>@svc.Port</code></a>/<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToProtocol(svc.Protocol.ToUpperInvariant())"><code>@svc.Protocol.ToUpperInvariant()</code></a></td>
                                             <td>@(string.IsNullOrEmpty(svc.ServiceName) ? GetPortServiceName(svc.Port) : svc.ServiceName)</td>
                                             <td class="hide-mobile">@svc.ForwardTarget</td>
                                             <td>
