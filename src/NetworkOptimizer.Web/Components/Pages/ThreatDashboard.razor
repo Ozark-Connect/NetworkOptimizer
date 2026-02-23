@@ -860,7 +860,7 @@ else
                           data-tooltip="@(drilldownBehaviors ?? "No behaviors identified")">
                         @drilldownBadge
                     </span>
-                    @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase))
+                    @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase) && !_drilldownCtiLookedUp)
                     {
                         <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
                                 data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
@@ -1630,6 +1630,7 @@ else
     private bool _maxMindBannerDismissed;
     private bool _collectingFirstData;
     private string? _lookingUpIp;
+    private bool _drilldownCtiLookedUp;
     private System.Threading.Timer? _refreshTimer;
 
     // Drill-down state
@@ -1999,6 +2000,8 @@ else
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
                     result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors);
+                if (string.Equals(result.CrowdSecReputation, "unknown", StringComparison.OrdinalIgnoreCase))
+                    _drilldownCtiLookedUp = true;
             }
             else
             {
@@ -2079,6 +2082,7 @@ else
             _actionChart = null;
         }
         _drilldownIp = ip;
+        _drilldownCtiLookedUp = false;
         _drilldownPort = null;
         _drilldownProtocol = null;
         _portDrilldownData = null;
