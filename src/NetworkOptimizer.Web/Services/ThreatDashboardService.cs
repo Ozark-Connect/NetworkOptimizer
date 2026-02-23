@@ -157,6 +157,42 @@ public class ThreatDashboardService
     }
 
     /// <summary>
+    /// Check the DB cache for a single IP's CrowdSec reputation without making any API calls.
+    /// Returns a pre-enriched SourceIpSummary if cached, or null if not in cache.
+    /// </summary>
+    public async Task<SourceIpSummary?> GetCachedCtiAsync(string ip,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var cached = await _repository.GetCrowdSecCacheAsync(ip, cancellationToken);
+            if (cached == null) return null;
+
+            CrowdSecIpInfo? info = null;
+            if (cached.ReputationJson != "null")
+            {
+                try { info = JsonSerializer.Deserialize<CrowdSecIpInfo>(cached.ReputationJson); }
+                catch { return null; }
+            }
+
+            return new SourceIpSummary
+            {
+                SourceIp = ip,
+                CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info),
+                ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info),
+                TopBehaviors = info?.Behaviors.Count > 0
+                    ? string.Join(", ", info.Behaviors.Take(3).Select(b => b.Label))
+                    : null
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to check CTI cache for {Ip}", ip);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Look up CrowdSec CTI reputation for a single IP. Called by dashboard for manual lookups.
     /// </summary>
     public async Task<SourceIpSummary?> EnrichSingleSourceAsync(SourceIpSummary source,

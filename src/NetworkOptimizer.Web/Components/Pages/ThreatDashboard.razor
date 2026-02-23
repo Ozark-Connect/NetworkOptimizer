@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Threats.Models
 @using NetworkOptimizer.Threats.Interfaces
+@using NetworkOptimizer.Core.Helpers
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
@@ -2264,6 +2265,17 @@ else
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
                     source.CrowdSecReputation, source.ThreatScore, source.TopBehaviors);
+            }
+        }
+
+        // Fallback: check DB cache directly (handles fresh nav / refresh where overview wasn't loaded)
+        if (!_manualCtiCache.ContainsKey(ip) && !NetworkUtilities.IsPrivateIpAddress(ip))
+        {
+            var cached = await DashboardService.GetCachedCtiAsync(ip);
+            if (cached?.CrowdSecReputation != null)
+            {
+                _manualCtiCache[ip] = new CtiLookupResult(
+                    cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors);
             }
         }
 
