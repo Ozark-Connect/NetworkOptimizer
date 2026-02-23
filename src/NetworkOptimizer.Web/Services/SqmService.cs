@@ -324,7 +324,7 @@ public class SqmService : ISqmService
             {
                 // Only consider gateway-capable device types (ugw, udm, uxg).
                 // Note: UDMs adopted as APs (e.g., UX7 in AP-only mode) still report type="udm"
-                // but won't have active WAN interfaces - we handle that below by checking wan1-wan4.
+                // but won't have active WAN interfaces - we handle that below by checking wan1-wan6.
                 var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
                 if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
                 {
