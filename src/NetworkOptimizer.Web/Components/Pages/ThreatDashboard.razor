@@ -261,15 +261,8 @@ else
 
         @* Threat Timeline *@
         <div class="chart-card" style="margin-bottom:1.5rem;">
-            <div class="chart-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
-                <h3 class="chart-title" style="margin:0;">Threat Timeline</h3>
-                <div class="filter-tabs" style="gap:0.35rem;">
-                    <button class="sev-tab @(ShowSev5 && !SevShowAll ? "active" : "") sev-critical" @onclick="() => ToggleSeverity(5)">Critical</button>
-                    <button class="sev-tab @(ShowSev4 && !SevShowAll ? "active" : "") sev-high" @onclick="() => ToggleSeverity(4)">High</button>
-                    <button class="sev-tab @(ShowSev3 && !SevShowAll ? "active" : "") sev-medium" @onclick="() => ToggleSeverity(3)">Medium</button>
-                    <button class="sev-tab @(ShowSev2 && !SevShowAll ? "active" : "") sev-low" @onclick="() => ToggleSeverity(2)">Low</button>
-                    <button class="sev-tab @(ShowSev1 && !SevShowAll ? "active" : "") sev-info" @onclick="() => ToggleSeverity(1)">Info</button>
-                </div>
+            <div class="chart-header">
+                <h3 class="chart-title">Threat Timeline</h3>
             </div>
             <div class="card-body">
                 @if (_timeline.Count > 0)
@@ -314,6 +307,35 @@ else
                                          YValue="e => (decimal)e.Severity1"
                                          OrderBy="e => e.X" />
                     </ApexChart>
+
+                    @* Severity Filter Badges (below chart, same pattern as WAN Speed Test) *@
+                    <div class="wan-filter-badges">
+                        <button class="wan-filter-badge @(ShowSev5 ? "active" : "inactive")"
+                                @onclick="() => ToggleSeverity(5)">
+                            <span class="wan-badge-dot" style="background-color: #ef4444"></span>
+                            Critical
+                        </button>
+                        <button class="wan-filter-badge @(ShowSev4 ? "active" : "inactive")"
+                                @onclick="() => ToggleSeverity(4)">
+                            <span class="wan-badge-dot" style="background-color: #f97316"></span>
+                            High
+                        </button>
+                        <button class="wan-filter-badge @(ShowSev3 ? "active" : "inactive")"
+                                @onclick="() => ToggleSeverity(3)">
+                            <span class="wan-badge-dot" style="background-color: #eab308"></span>
+                            Medium
+                        </button>
+                        <button class="wan-filter-badge @(ShowSev2 ? "active" : "inactive")"
+                                @onclick="() => ToggleSeverity(2)">
+                            <span class="wan-badge-dot" style="background-color: #3b82f6"></span>
+                            Low
+                        </button>
+                        <button class="wan-filter-badge @(ShowSev1 ? "active" : "inactive")"
+                                @onclick="() => ToggleSeverity(1)">
+                            <span class="wan-badge-dot" style="background-color: #10b981"></span>
+                            Info
+                        </button>
+                    </div>
                 }
                 else
                 {
@@ -1745,6 +1767,7 @@ else
         StateHasChanged();
 
         DashboardService.FiltersDisabled = !_filtersActive;
+        DashboardService.SeverityFilter = SevShowAll ? null : GetActiveSeverities();
 
         try
         {
@@ -1901,8 +1924,6 @@ else
             case 1: _showSev1 = !_showSev1; break;
         }
 
-        // Update service filter and re-query all overview data
-        DashboardService.SeverityFilter = SevShowAll ? null : GetActiveSeverities();
         await LoadDataAsync();
     }
 
@@ -2107,12 +2128,7 @@ else
                 Curve = Curve.Smooth,
                 Width = 2
             },
-            Legend = new Legend
-            {
-                Show = true,
-                Position = LegendPosition.Top,
-                Labels = new LegendLabels { Colors = "#9ca3af" }
-            },
+            Legend = new Legend { Show = false },
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
