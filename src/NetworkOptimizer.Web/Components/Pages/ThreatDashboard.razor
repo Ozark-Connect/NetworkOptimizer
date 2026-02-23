@@ -270,25 +270,11 @@ else
                            Height="@("280px")">
 
                     <ApexPointSeries TItem="TimelineBucket"
-                                     Items="@(ShowSev5 ? _timeline : _emptyTimeline)"
-                                     Name="Critical"
+                                     Items="@(ShowSev1 ? _timeline : _emptyTimeline)"
+                                     Name="Info"
                                      SeriesType="SeriesType.Area"
                                      XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
-                                     YValue="e => (decimal)e.Severity5"
-                                     OrderBy="e => e.X" />
-                    <ApexPointSeries TItem="TimelineBucket"
-                                     Items="@(ShowSev4 ? _timeline : _emptyTimeline)"
-                                     Name="High"
-                                     SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
-                                     YValue="e => (decimal)e.Severity4"
-                                     OrderBy="e => e.X" />
-                    <ApexPointSeries TItem="TimelineBucket"
-                                     Items="@(ShowSev3 ? _timeline : _emptyTimeline)"
-                                     Name="Medium"
-                                     SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
-                                     YValue="e => (decimal)e.Severity3"
+                                     YValue="e => (decimal)e.Severity1"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="TimelineBucket"
                                      Items="@(ShowSev2 ? _timeline : _emptyTimeline)"
@@ -298,11 +284,25 @@ else
                                      YValue="e => (decimal)e.Severity2"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="TimelineBucket"
-                                     Items="@(ShowSev1 ? _timeline : _emptyTimeline)"
-                                     Name="Info"
+                                     Items="@(ShowSev3 ? _timeline : _emptyTimeline)"
+                                     Name="Medium"
                                      SeriesType="SeriesType.Area"
                                      XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
-                                     YValue="e => (decimal)e.Severity1"
+                                     YValue="e => (decimal)e.Severity3"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="TimelineBucket"
+                                     Items="@(ShowSev4 ? _timeline : _emptyTimeline)"
+                                     Name="High"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                     YValue="e => (decimal)e.Severity4"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="TimelineBucket"
+                                     Items="@(ShowSev5 ? _timeline : _emptyTimeline)"
+                                     Name="Critical"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                     YValue="e => (decimal)e.Severity5"
                                      OrderBy="e => e.X" />
                 </ApexChart>
 
@@ -2084,7 +2084,7 @@ else
                     AnimateGradually = new AnimateGradually { Enabled = false }
                 }
             },
-            Colors = new List<string> { "#ef4444", "#f97316", "#eab308", "#3b82f6", "#10b981" },
+            Colors = new List<string> { "#10b981", "#3b82f6", "#eab308", "#f97316", "#ef4444" },
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
