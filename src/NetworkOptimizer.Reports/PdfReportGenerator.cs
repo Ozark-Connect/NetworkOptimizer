@@ -184,6 +184,12 @@ public class PdfReportGenerator
                 column.Item().PaddingTop(20).Element(c => ComposeDnsSecuritySection(c, data));
             }
 
+            // Threat Intelligence Summary (if available)
+            if (data.ThreatSummary != null && data.ThreatSummary.TotalEvents > 0)
+            {
+                column.Item().PaddingTop(20).Element(c => ComposeThreatSummary(c, data));
+            }
+
             // Executive Summary
             column.Item().PaddingTop(20).Element(c => ComposeExecutiveSummary(c, data));
 
@@ -1083,6 +1089,186 @@ public class PdfReportGenerator
                 DataCell(status);
 
                 rowIndex++;
+            }
+        });
+    }
+
+    private void ComposeThreatSummary(IContainer container, ReportData data)
+    {
+        var primaryColor = GetColor(_branding.Colors.Primary);
+        var successColor = GetColor(_branding.Colors.Success);
+        var warningColor = GetColor(_branding.Colors.Warning);
+        var criticalColor = GetColor(_branding.Colors.Critical);
+        var lightGray = GetColor(_branding.Colors.LightGray);
+
+        var threat = data.ThreatSummary!;
+
+        container.Column(column =>
+        {
+            column.Item()
+                .PaddingBottom(10)
+                .Text("Threat Intelligence")
+                .FontSize(16)
+                .Bold()
+                .FontColor(primaryColor);
+
+            column.Item()
+                .PaddingBottom(6)
+                .Text($"Period: {threat.TimeRange}")
+                .FontSize(9)
+                .FontColor(Colors.Grey.Medium);
+
+            // Summary stats table
+            column.Item().Table(table =>
+            {
+                table.ColumnsDefinition(columns =>
+                {
+                    columns.RelativeColumn(1f);
+                    columns.RelativeColumn(1f);
+                    columns.RelativeColumn(1f);
+                    columns.RelativeColumn(1f);
+                });
+
+                table.Header(header =>
+                {
+                    header.Cell().Background(lightGray).Padding(6)
+                        .Text("Total Events").Bold().FontSize(9);
+                    header.Cell().Background(lightGray).Padding(6)
+                        .Text("Blocked").Bold().FontSize(9);
+                    header.Cell().Background(lightGray).Padding(6)
+                        .Text("Detected").Bold().FontSize(9);
+                    header.Cell().Background(lightGray).Padding(6)
+                        .Text("Unique Sources").Bold().FontSize(9);
+                });
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(threat.TotalEvents.ToString("N0")).FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(threat.TotalBlocked.ToString("N0")).FontSize(9).FontColor(successColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(threat.TotalDetected.ToString("N0")).FontSize(9).FontColor(threat.TotalDetected > 0 ? warningColor : successColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(threat.UniqueSourceIps.ToString("N0")).FontSize(9);
+            });
+
+            // Kill chain distribution (text bar)
+            if (threat.ByKillChain.Any())
+            {
+                column.Item()
+                    .PaddingTop(10)
+                    .PaddingBottom(4)
+                    .Text("Kill Chain Distribution")
+                    .FontSize(10)
+                    .Bold()
+                    .FontColor(primaryColor);
+
+                foreach (var stage in threat.ByKillChain.OrderByDescending(k => k.Value))
+                {
+                    var pct = threat.TotalEvents > 0 ? (double)stage.Value / threat.TotalEvents * 100 : 0;
+                    column.Item()
+                        .PaddingBottom(2)
+                        .Text($"  {stage.Key}: {stage.Value:N0} ({pct:F0}%)")
+                        .FontSize(9);
+                }
+            }
+
+            // Top sources
+            if (threat.TopSources.Any())
+            {
+                column.Item()
+                    .PaddingTop(10)
+                    .PaddingBottom(4)
+                    .Text("Top Threat Sources")
+                    .FontSize(10)
+                    .Bold()
+                    .FontColor(primaryColor);
+
+                column.Item().Table(table =>
+                {
+                    table.ColumnsDefinition(columns =>
+                    {
+                        columns.RelativeColumn(2f);
+                        columns.RelativeColumn(1f);
+                        columns.RelativeColumn(2f);
+                        columns.RelativeColumn(1f);
+                    });
+
+                    table.Header(header =>
+                    {
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("IP Address").Bold().FontSize(8);
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("Country").Bold().FontSize(8);
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("ASN").Bold().FontSize(8);
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("Events").Bold().FontSize(8);
+                    });
+
+                    foreach (var source in threat.TopSources.Take(5))
+                    {
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(source.Ip).FontSize(8);
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(source.CountryCode ?? "-").FontSize(8);
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(source.AsnOrg ?? "-").FontSize(8);
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(source.EventCount.ToString("N0")).FontSize(8);
+                    }
+                });
+            }
+
+            // Exposed services
+            if (threat.ExposedServices.Any())
+            {
+                column.Item()
+                    .PaddingTop(10)
+                    .PaddingBottom(4)
+                    .Text("Exposed Services Under Attack")
+                    .FontSize(10)
+                    .Bold()
+                    .FontColor(criticalColor);
+
+                column.Item().Table(table =>
+                {
+                    table.ColumnsDefinition(columns =>
+                    {
+                        columns.RelativeColumn(1f);
+                        columns.RelativeColumn(1.5f);
+                        columns.RelativeColumn(1.5f);
+                        columns.RelativeColumn(1f);
+                        columns.RelativeColumn(1f);
+                    });
+
+                    table.Header(header =>
+                    {
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("Port").Bold().FontSize(8);
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("Service").Bold().FontSize(8);
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("Forward To").Bold().FontSize(8);
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("Threats").Bold().FontSize(8);
+                        header.Cell().Background(lightGray).Padding(4)
+                            .Text("Sources").Bold().FontSize(8);
+                    });
+
+                    foreach (var svc in threat.ExposedServices)
+                    {
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(svc.Port.ToString()).FontSize(8);
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(svc.ServiceName).FontSize(8);
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(svc.ForwardTarget).FontSize(8);
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(svc.ThreatCount.ToString("N0")).FontSize(8).FontColor(criticalColor);
+                        table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                            .Text(svc.UniqueSourceIps.ToString("N0")).FontSize(8);
+                    }
+                });
             }
         });
     }

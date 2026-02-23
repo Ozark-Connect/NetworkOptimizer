@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body style="margin:0;padding:0;background:#1a2029;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#1a2029;padding:24px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#242c39;border-radius:8px;overflow:hidden;">
+        <!-- Header -->
+        <tr>
+          <td style="background:{{ severity_color }};padding:16px 24px;">
+            <span style="color:#fff;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">{{ severity }}</span>
+          </td>
+        </tr>
+        <!-- Title -->
+        <tr>
+          <td style="padding:24px 24px 8px;">
+            <h1 style="margin:0;color:#f1f5f9;font-size:20px;font-weight:600;">{{ title }}</h1>
+          </td>
+        </tr>
+        <!-- Message -->
+        {{ if message != "" }}
+        <tr>
+          <td style="padding:8px 24px;">
+            <p style="margin:0;color:#cbd5e1;font-size:14px;line-height:1.5;">{{ message }}</p>
+          </td>
+        </tr>
+        {{ end }}
+        <!-- Details -->
+        <tr>
+          <td style="padding:16px 24px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#1a2029;border-radius:6px;padding:16px;">
+              <tr>
+                <td style="padding:4px 8px;color:#64748b;font-size:12px;width:120px;">Source</td>
+                <td style="padding:4px 8px;color:#f1f5f9;font-size:13px;">{{ source }}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 8px;color:#64748b;font-size:12px;">Event Type</td>
+                <td style="padding:4px 8px;color:#f1f5f9;font-size:13px;">{{ event_type }}</td>
+              </tr>
+              {{ if device_name }}
+              <tr>
+                <td style="padding:4px 8px;color:#64748b;font-size:12px;">Device</td>
+                <td style="padding:4px 8px;color:#f1f5f9;font-size:13px;">{{ device_name }}{{ if device_ip }} ({{ device_ip }}){{ end }}</td>
+              </tr>
+              {{ end }}
+              {{ if metric_value }}
+              <tr>
+                <td style="padding:4px 8px;color:#64748b;font-size:12px;">Metric Value</td>
+                <td style="padding:4px 8px;color:#f1f5f9;font-size:13px;">{{ metric_value }}{{ if threshold_value }} / threshold: {{ threshold_value }}{{ end }}</td>
+              </tr>
+              {{ end }}
+              {{ for item in context }}
+              <tr>
+                <td style="padding:4px 8px;color:#64748b;font-size:12px;">{{ item.key }}</td>
+                <td style="padding:4px 8px;color:#f1f5f9;font-size:13px;">{{ item.value }}</td>
+              </tr>
+              {{ end }}
+              <tr>
+                <td style="padding:4px 8px;color:#64748b;font-size:12px;">Time</td>
+                <td style="padding:4px 8px;color:#f1f5f9;font-size:13px;">{{ timestamp }}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="padding:16px 24px;border-top:1px solid #334155;">
+            <p style="margin:0;color:#64748b;font-size:11px;">Sent by Network Optimizer Alert Engine</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

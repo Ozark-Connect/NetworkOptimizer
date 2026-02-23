@@ -7,17 +7,13 @@
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
 
-### Scheduled LAN Speed Test
-- Allow users to schedule recurring LAN speed tests (e.g., hourly, daily, weekly)
-- Automatically run iperf3 tests against configured devices on a schedule
-- Store results for trend analysis and historical comparison
-- Useful for detecting intermittent performance degradation over time
+### ✅ ~~Scheduled LAN Speed Test~~ (done - Alerts & Scheduling feature)
 
-### Scheduled WAN Speed Test
-- Allow users to schedule recurring WAN speed tests
-- Automatically test WAN throughput on a configurable schedule
-- Track ISP performance over time with historical data
-- Alert on significant speed drops compared to provisioned/expected speeds
+### ✅ ~~Scheduled WAN Speed Test~~ (done - Alerts & Scheduling feature)
+
+## Alerts & Scheduling
+
+### ✅ ~~LAN Speed Test Schedule: UniFi Device Targets~~ (done)
 
 ## Security Audit / PDF Report
 
@@ -242,6 +238,14 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## General
 
+### Refactor Program.cs - Extract Business Logic and Break Up API Sets
+- **Issue:** `Program.cs` has grown into a monolith with schedule executor implementations, API endpoint registrations, and business logic all inline
+- **Goal:** Clean separation of concerns:
+  - Extract schedule executor registrations into a dedicated class (e.g., `ScheduleExecutorSetup.cs`)
+  - Break API endpoints into logical groups using minimal API route groups or extension methods (e.g., `SpeedTestEndpoints.cs`, `AuditEndpoints.cs`, `ThreatEndpoints.cs`)
+  - Move inline business logic out of endpoint handlers into services
+- **Priority:** Medium - not blocking but makes maintenance harder as the app grows
+
 ### Refactor DnsSecurityAnalyzer.AnalyzeAsync() Parameter Hell
 - **Issue:** `DnsSecurityAnalyzer.AnalyzeAsync()` takes 7 nullable parameters, making it error-prone:
   ```csharp
@@ -312,6 +316,16 @@ The following were implemented in the WiFi Optimizer feature:
 - **Fix:** Add debounce or lock around UI-triggered polls in `CellularModemService`
 - **Severity:** Low (causes extra SSH traffic but no errors)
 - **Partial:** Basic `_isPolling` lock prevents concurrent polls, but no time-based debounce yet
+
+### Shared IP-to-Client-Name Resolver
+- Threat Dashboard resolves local IPs to UniFi client names inline (fetches clients, builds IP→name dict)
+- Currently cached for 30 seconds (static across Blazor circuits) to avoid hammering the API
+- **Note:** Real-time features (e.g., live threat feed, active monitoring) will need to invalidate/refresh the cache before using it, since device IPs can change via DHCP
+- Other pages that display IPs could benefit from the same lookup:
+  - Security Audit (firewall rules referencing IPs)
+  - Config Optimizer (device references)
+- Refactor into a shared service (e.g., `IClientNameResolver` in `NetworkOptimizer.Web/Services/`)
+- Shared service should expose `InvalidateCache()` for real-time consumers
 
 ### Uniform Date/Time Formatting in UI
 - Audit all date/time displays across the UI for consistency

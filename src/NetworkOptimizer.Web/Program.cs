@@ -7,10 +7,12 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
+using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Ssh;
 using Serilog;
@@ -162,6 +164,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();
@@ -206,6 +209,61 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Iperf3ServerServic
 
 // Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
 builder.Services.AddHostedService<NginxHostedService>();
+
+// Register Alert Engine services (Vigilance)
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Events.IAlertEventBus, NetworkOptimizer.Alerts.Events.AlertEventBus>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertCooldownTracker>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertRuleEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertCorrelationService>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertProcessingService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.AlertProcessingService>());
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.DigestService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.DigestService>());
+// ISecretDecryptor adapter: bridges Alerts project's interface to existing credential protection
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.ISecretDecryptor>(sp =>
+{
+    var credService = sp.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialProtectionService>();
+    return new SecretDecryptorAdapter(credService);
+});
+// Delivery channels (singleton - stateless, use HttpClient)
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel, NetworkOptimizer.Alerts.Delivery.EmailDeliveryChannel>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.WebhookDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.WebhookDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient(),
+        sp.GetRequiredService<NetworkOptimizer.Alerts.Delivery.ISecretDecryptor>()));
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.SlackDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.SlackDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.DiscordDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.DiscordDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.TeamsDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.TeamsDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+
+// Register Threat Intelligence services
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.CrowdSec.CrowdSecClient>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.CrowdSec.CrowdSecEnrichmentService>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatEventNormalizer>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.KillChainClassifier>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ThreatPatternAnalyzer>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Analysis.ExposureValidator>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.ThreatCollectionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.ThreatCollectionService>());
+builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatRepository, NetworkOptimizer.Storage.Repositories.ThreatRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>();
+builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor, NetworkOptimizer.Web.Services.ThreatSettingsAccessor>();
+builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
+
+// Register Schedule services (scheduling engine for periodic audits, speed tests)
+builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IScheduleRepository, NetworkOptimizer.Storage.Repositories.ScheduleRepository>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.ScheduleService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>());
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
@@ -431,10 +489,206 @@ using (var scope = app.Services.CreateScope())
 
     // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
     db.Database.Migrate();
+
+    // Seed default alert rules - insert any missing rules by EventTypePattern
+    {
+        var defaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults();
+        var existingPatterns = db.AlertRules.Select(r => r.EventTypePattern).ToHashSet();
+        var missing = defaults.Where(d => !existingPatterns.Contains(d.EventTypePattern)).ToList();
+        if (missing.Count > 0)
+        {
+            db.AlertRules.AddRange(missing);
+            db.SaveChanges();
+            app.Logger.LogInformation("Seeded {Count} new alert rules", missing.Count);
+        }
+    }
+
+    // Seed default scheduled tasks if none exist
+    if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !db.ScheduledTasks.Any())
+    {
+        db.ScheduledTasks.Add(new NetworkOptimizer.Alerts.Models.ScheduledTask
+        {
+            TaskType = "audit",
+            Name = "Security Audit",
+            Enabled = true,
+            FrequencyMinutes = 720, // 12 hours
+            NextRunAt = DateTime.UtcNow.AddMinutes(720), // Don't fire immediately on fresh install
+            CreatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+        app.Logger.LogInformation("Seeded default scheduled tasks");
+    }
 }
 
 // Pre-generate the credential encryption key (resolves singleton, triggering key creation)
 app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialProtectionService>().EnsureKeyExists();
+
+// Initialize GeoLite2 enrichment (looks for .mmdb files in data directory)
+var geoDataPath = Path.GetDirectoryName(dbPath)!;
+app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
+
+// Load CrowdSec daily quota from settings
+{
+    var sysSettings = app.Services.GetRequiredService<ISystemSettingsService>();
+    var csQuota = await sysSettings.GetAsync("crowdsec.daily_quota");
+    var dailyLimit = 30;
+    if (!string.IsNullOrEmpty(csQuota) && int.TryParse(csQuota, out var q) && q >= 1)
+        dailyLimit = q;
+    app.Services.GetRequiredService<NetworkOptimizer.Threats.CrowdSec.CrowdSecClient>()
+        .LoadRateLimitState(0, DateOnly.FromDateTime(DateTime.UtcNow), dailyLimit);
+}
+
+// Register schedule executor delegates (bridges Alerts project to Web project services)
+if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
+{
+    var scheduleService = app.Services.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>();
+
+    scheduleService.AuditExecutor = async (ct) =>
+    {
+        using var scope = app.Services.CreateScope();
+        var auditService = scope.ServiceProvider.GetRequiredService<AuditService>();
+        if (auditService.IsRunning)
+            return (false, null, "Audit is already running");
+
+        try
+        {
+            var result = await auditService.RunAuditAsync(new AuditOptions());
+            return (true, $"Score: {result.Score}", null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
+    };
+
+    scheduleService.WanSpeedTestExecutor = async (targetId, targetConfig, ct) =>
+    {
+        try
+        {
+            // Parse config for test type, max mode, multi-WAN
+            var testType = "gateway";
+            var maxMode = false;
+            string? wanGroup = null;
+            string? wanName = null;
+            string[]? multiInterfaces = null;
+
+            if (!string.IsNullOrEmpty(targetConfig))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(targetConfig);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("testType", out var tt))
+                    testType = tt.GetString() ?? "gateway";
+                if (root.TryGetProperty("maxMode", out var mm))
+                    maxMode = mm.GetBoolean();
+                if (root.TryGetProperty("wanGroup", out var wg))
+                    wanGroup = wg.GetString();
+                if (root.TryGetProperty("wanName", out var wn))
+                    wanName = wn.GetString();
+                if (root.TryGetProperty("interfaces", out var ifaces) && ifaces.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    multiInterfaces = ifaces.EnumerateArray().Select(e => e.GetString()!).ToArray();
+            }
+
+            Iperf3Result? result;
+
+            if (testType == "server")
+            {
+                var serverService = app.Services.GetRequiredService<UwnSpeedTestService>();
+                if (serverService.IsRunning)
+                    return (false, null, "WAN speed test is already running");
+                result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);
+            }
+            else
+            {
+                var gatewayService = app.Services.GetRequiredService<GatewayWanSpeedTestService>();
+                if (gatewayService.IsRunning)
+                    return (false, null, "WAN speed test is already running");
+
+                if (multiInterfaces is { Length: > 1 })
+                {
+                    // Multi-WAN: resolve interface info for parallel test
+                    var sqmService = app.Services.GetRequiredService<SqmService>();
+                    var allWans = await sqmService.GetWanInterfacesFromControllerAsync();
+                    var selectedWans = allWans.Where(w => multiInterfaces.Contains(w.Interface)).ToList();
+                    result = await gatewayService.RunTestAsync(
+                        "", wanGroup, wanName,
+                        allInterfaces: selectedWans,
+                        maxMode: maxMode,
+                        cancellationToken: ct);
+                }
+                else
+                {
+                    result = await gatewayService.RunTestAsync(
+                        targetId ?? "eth4", wanGroup, wanName,
+                        maxMode: maxMode,
+                        cancellationToken: ct);
+                }
+            }
+
+            if (result == null)
+                return (false, null, "WAN speed test returned no result");
+
+            var dl = result.DownloadBitsPerSecond / 1_000_000.0;
+            var ul = result.UploadBitsPerSecond / 1_000_000.0;
+            return (true, $"{dl:F0} / {ul:F0} Mbps", null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
+    };
+
+    scheduleService.LanSpeedTestExecutor = async (targetId, _, ct) =>
+    {
+        if (string.IsNullOrEmpty(targetId))
+            return (false, null, "No target device specified");
+
+        var lanService = app.Services.GetRequiredService<Iperf3SpeedTestService>();
+        var devices = await lanService.GetDevicesAsync();
+        var device = devices.FirstOrDefault(d => d.Host == targetId);
+
+        // Fall back to UniFi-discovered devices if not found in manual config
+        if (device == null)
+        {
+            var connService = app.Services.GetRequiredService<UniFiConnectionService>();
+            try
+            {
+                var discovered = await connService.GetDiscoveredDevicesAsync(ct);
+                var unifiDevice = discovered.FirstOrDefault(d =>
+                    d.IpAddress == targetId && d.Type != DeviceType.Gateway && d.CanRunIperf3);
+                if (unifiDevice != null)
+                {
+                    device = new DeviceSshConfiguration
+                    {
+                        Name = unifiDevice.Name ?? "Unknown Device",
+                        Host = unifiDevice.IpAddress,
+                        DeviceType = unifiDevice.Type,
+                        Enabled = true,
+                        StartIperf3Server = true
+                    };
+                }
+            }
+            catch { /* UniFi unavailable - fall through to error */ }
+        }
+
+        if (device == null)
+            return (false, null, $"Device not found: {targetId}");
+
+        try
+        {
+            var result = await lanService.RunSpeedTestAsync(device);
+            if (result.ErrorMessage != null)
+                return (false, null, result.ErrorMessage);
+
+            var dl = result.DownloadBitsPerSecond / 1_000_000.0;
+            var ul = result.UploadBitsPerSecond / 1_000_000.0;
+            return (true, $"{dl:F0} / {ul:F0} Mbps", null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
+    };
+}
 
 // Clean up any leftover config transfer temp files from previous sessions
 app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
@@ -584,6 +838,9 @@ app.UseCors(); // Required for OpenSpeedTest to POST results
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Alert Engine API endpoints
+app.MapAlertEndpoints();
 
 // API endpoints for agent metrics ingestion
 app.MapPost("/api/metrics", async (HttpContext context) =>
@@ -1516,3 +1773,10 @@ record FloorUpdateRequest(double? SwLatitude = null, double? SwLongitude = null,
 record FloorImageUpdateRequest(double? SwLatitude = null, double? SwLongitude = null, double? NeLatitude = null,
     double? NeLongitude = null, double? Opacity = null, double? RotationDeg = null, string? CropJson = null,
     string? Label = null);
+
+// Adapter to bridge ISecretDecryptor (Alerts project) to ICredentialProtectionService (Storage project)
+class SecretDecryptorAdapter(NetworkOptimizer.Storage.Services.ICredentialProtectionService inner) : NetworkOptimizer.Alerts.Delivery.ISecretDecryptor
+{
+    public string Decrypt(string encrypted) => inner.Decrypt(encrypted);
+    public string Encrypt(string plaintext) => inner.Encrypt(plaintext);
+}

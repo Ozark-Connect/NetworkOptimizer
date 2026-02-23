@@ -34,6 +34,12 @@ public class MarkdownReportGenerator
         // Header
         ComposeHeader(sb, data);
 
+        // Threat Intelligence Summary
+        if (data.ThreatSummary != null && data.ThreatSummary.TotalEvents > 0)
+        {
+            ComposeThreatSummary(sb, data);
+        }
+
         // Network Reference
         ComposeNetworkReference(sb, data);
 
@@ -274,6 +280,63 @@ public class MarkdownReportGenerator
         }
 
         sb.AppendLine();
+    }
+
+    private void ComposeThreatSummary(StringBuilder sb, ReportData data)
+    {
+        var threat = data.ThreatSummary!;
+
+        sb.AppendLine("## Threat Intelligence");
+        sb.AppendLine();
+        sb.AppendLine($"*{threat.TimeRange}*");
+        sb.AppendLine();
+
+        // Summary stats
+        sb.AppendLine("| Total Events | Blocked | Detected | Unique Sources |");
+        sb.AppendLine("|-------------|---------|----------|----------------|");
+        sb.AppendLine($"| {threat.TotalEvents:N0} | {threat.TotalBlocked:N0} | {threat.TotalDetected:N0} | {threat.UniqueSourceIps:N0} |");
+        sb.AppendLine();
+
+        // Kill chain
+        if (threat.ByKillChain.Any())
+        {
+            sb.AppendLine("### Kill Chain Distribution");
+            sb.AppendLine();
+            foreach (var stage in threat.ByKillChain.OrderByDescending(k => k.Value))
+            {
+                var pct = threat.TotalEvents > 0 ? (double)stage.Value / threat.TotalEvents * 100 : 0;
+                sb.AppendLine($"- **{stage.Key}**: {stage.Value:N0} ({pct:F0}%)");
+            }
+            sb.AppendLine();
+        }
+
+        // Top sources
+        if (threat.TopSources.Any())
+        {
+            sb.AppendLine("### Top Threat Sources");
+            sb.AppendLine();
+            sb.AppendLine("| IP Address | Country | ASN | Events |");
+            sb.AppendLine("|-----------|---------|-----|--------|");
+            foreach (var source in threat.TopSources.Take(5))
+            {
+                sb.AppendLine($"| {source.Ip} | {source.CountryCode ?? "-"} | {source.AsnOrg ?? "-"} | {source.EventCount:N0} |");
+            }
+            sb.AppendLine();
+        }
+
+        // Exposed services
+        if (threat.ExposedServices.Any())
+        {
+            sb.AppendLine("### Exposed Services Under Attack");
+            sb.AppendLine();
+            sb.AppendLine("| Port | Service | Forward To | Threats | Sources |");
+            sb.AppendLine("|------|---------|-----------|---------|---------|");
+            foreach (var svc in threat.ExposedServices)
+            {
+                sb.AppendLine($"| {svc.Port} | {svc.ServiceName} | {svc.ForwardTarget} | {svc.ThreatCount:N0} | {svc.UniqueSourceIps:N0} |");
+            }
+            sb.AppendLine();
+        }
     }
 
     private void ComposeFooter(StringBuilder sb, ReportData data)

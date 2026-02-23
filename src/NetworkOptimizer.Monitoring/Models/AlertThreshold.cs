@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Enums;
+
 namespace NetworkOptimizer.Monitoring.Models;
 
 /// <summary>

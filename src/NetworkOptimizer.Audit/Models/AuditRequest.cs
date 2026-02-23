@@ -112,4 +112,10 @@ public class AuditRequest
     /// Overrides are applied after VlanAnalyzer extraction in Phase 1.
     /// </summary>
     public Dictionary<string, string>? NetworkPurposeOverrides { get; init; }
+
+    /// <summary>
+    /// Optional: Threat intelligence context for threat-informed scoring.
+    /// When present, port forward issues targeting actively attacked ports get severity bumps.
+    /// </summary>
+    public ConfigAuditEngine.ThreatContext? ThreatContext { get; init; }
 }

@@ -89,6 +89,34 @@ public class ConfigAuditEngine
         /// Provides zone ID to zone key mapping and validation.
         /// </summary>
         public FirewallZoneLookup? ZoneLookup { get; set; }
+
+        /// <summary>
+        /// Optional threat intelligence context. When present, port forward issues
+        /// targeting actively attacked ports get severity bumps.
+        /// </summary>
+        public ThreatContext? ThreatContext { get; init; }
+    }
+
+    /// <summary>
+    /// Threat intelligence context passed into the audit engine for threat-informed scoring.
+    /// Populated from recent threat data when available, null otherwise (scoring unchanged).
+    /// </summary>
+    public class ThreatContext
+    {
+        /// <summary>
+        /// Threat count by destination port over the last 30 days.
+        /// </summary>
+        public Dictionary<int, int> ThreatCountByDestPort { get; init; } = new();
+
+        /// <summary>
+        /// IPs that are actively being targeted.
+        /// </summary>
+        public HashSet<string> ActivelyTargetedIps { get; init; } = [];
+
+        /// <summary>
+        /// Total threat events in the last 30 days.
+        /// </summary>
+        public int TotalThreatsLast30Days { get; init; }
     }
 
     /// <summary>
@@ -281,6 +309,7 @@ public class ConfigAuditEngine
         ExecutePhase5_AnalyzeFirewallRules(ctx);
         await ExecutePhase5b_AnalyzeDnsSecurityAsync(ctx);
         ExecutePhase5c_AnalyzeUpnpSecurity(ctx);
+        ExecutePhase5d_AnalyzeThreatExposure(ctx);
         ExecutePhase6_AnalyzeHardeningMeasures(ctx);
 
         // Build and score the final result
@@ -398,7 +427,8 @@ public class ConfigAuditEngine
             FirewallZones = request.FirewallZones,
             ZoneLookup = zoneLookup,
             ExternalZoneId = externalZoneId,
-            NetworkPurposeOverrides = request.NetworkPurposeOverrides
+            NetworkPurposeOverrides = request.NetworkPurposeOverrides,
+            ThreatContext = request.ThreatContext
         };
     }
 
@@ -916,6 +946,54 @@ public class ConfigAuditEngine
 
         _logger.LogInformation("Found {IssueCount} UPnP security issues, {HardeningCount} hardening notes",
             result.Issues.Count, result.HardeningNotes.Count);
+    }
+
+    /// <summary>
+    /// Phase 5d: Cross-reference port forward rules with threat intelligence data.
+    /// Creates additional issues for port forwards that are actively being targeted by threats.
+    /// Purely additive - if no ThreatContext, this is a no-op.
+    /// </summary>
+    private void ExecutePhase5d_AnalyzeThreatExposure(AuditContext ctx)
+    {
+        if (ctx.ThreatContext == null || ctx.ThreatContext.TotalThreatsLast30Days == 0)
+            return;
+
+        _logger.LogInformation("Phase 5d: Analyzing threat exposure ({TotalThreats} threats in last 30 days)",
+            ctx.ThreatContext.TotalThreatsLast30Days);
+
+        var portForwardRules = ctx.PortForwardRules?.Where(r => r.Enabled == true).ToList() ?? [];
+        if (portForwardRules.Count == 0) return;
+
+        var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
+
+        foreach (var rule in portForwardRules)
+        {
+            if (string.IsNullOrEmpty(rule.DstPort)) continue;
+
+            // Parse port(s) from the rule
+            foreach (var portStr in rule.DstPort.Split(','))
+            {
+                if (!int.TryParse(portStr.Trim(), out var port)) continue;
+
+                if (ctx.ThreatContext.ThreatCountByDestPort.TryGetValue(port, out var threatCount) && threatCount >= 10)
+                {
+                    ctx.AllIssues.Add(new AuditIssue
+                    {
+                        Type = IssueTypes.ThreatExposedPortForward,
+                        Severity = threatCount >= 100 ? Models.AuditSeverity.Critical : Models.AuditSeverity.Recommended,
+                        Message = $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days. Consider adding source IP restrictions or geo-blocking.",
+                        DeviceName = gatewayName,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["port"] = port,
+                            ["threat_count"] = threatCount,
+                            ["rule_name"] = rule.Name ?? "Unnamed",
+                            ["forward_target"] = $"{rule.Fwd}:{rule.FwdPort ?? portStr}"
+                        }
+                    });
+                }
+            }
+        }
     }
 
     private void ExecutePhase6_AnalyzeHardeningMeasures(AuditContext ctx)

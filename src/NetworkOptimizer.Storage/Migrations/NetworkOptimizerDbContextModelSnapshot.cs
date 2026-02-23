@@ -1278,6 +1278,510 @@ namespace NetworkOptimizer.Storage.Migrations
                 {
                     b.Navigation("Floors");
                 });
+
+            modelBuilder.Entity("NetworkOptimizer.Alerts.Models.AlertRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CooldownSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("DigestOnly")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EscalationMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EscalationSeverity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EventTypePattern")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MinSeverity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TargetDevices")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("ThresholdPercent")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AlertRules", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Alerts.Models.DeliveryChannel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChannelType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ConfigJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("DigestEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DigestSchedule")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MinSeverity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DeliveryChannels", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Alerts.Models.AlertHistoryEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContextJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeliveredToChannels")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeliveryError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("DeliverySucceeded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeviceId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceIp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("IncidentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("RuleId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Severity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TriggeredAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentId");
+
+                    b.HasIndex("RuleId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("TriggeredAt");
+
+                    b.HasIndex("Source", "TriggeredAt");
+
+                    b.ToTable("AlertHistory", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Alerts.Models.AlertIncident", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AlertCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CorrelationKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstTriggeredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastTriggeredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Severity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrelationKey");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("AlertIncidents", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Threats.Models.CrowdSecReputation", b =>
+                {
+                    b.Property<string>("Ip")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReputationJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FetchedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Ip");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("CrowdSecReputations", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Threats.Models.ThreatNoiseFilter", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SourceIp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DestIp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DestPort")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ThreatNoiseFilters", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Threats.Models.ThreatPattern", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PatternType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceIpsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("TargetPort")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EventCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("FirstSeen")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeen")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PatternType", "DetectedAt");
+
+                    b.ToTable("ThreatPatterns", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Threats.Models.ThreatEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceIp")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SourcePort")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DestIp")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DestPort")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("SignatureId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SignatureName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Severity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("InnerAlertId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CountryCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("City")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("Asn")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AsnOrg")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("KillChainStage")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EventSource")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Domain")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Direction")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Service")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("BytesTotal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("FlowDurationMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NetworkName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RiskLevel")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PatternId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Timestamp");
+
+                    b.HasIndex("SourceIp", "Timestamp");
+
+                    b.HasIndex("DestPort", "Timestamp");
+
+                    b.HasIndex("KillChainStage");
+
+                    b.HasIndex("EventSource");
+
+                    b.HasIndex("InnerAlertId")
+                        .IsUnique();
+
+                    b.HasIndex("PatternId");
+
+                    b.ToTable("ThreatEvents", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Threats.Models.ThreatEvent", b =>
+                {
+                    b.HasOne("NetworkOptimizer.Threats.Models.ThreatPattern", "Pattern")
+                        .WithMany("Events")
+                        .HasForeignKey("PatternId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Pattern");
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Threats.Models.ThreatPattern", b =>
+                {
+                    b.Navigation("Events");
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Alerts.Models.ScheduledTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TaskType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FrequencyMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CustomMorningHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CustomMorningMinute")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CustomEveningHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CustomEveningMinute")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TargetId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TargetConfig")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastRunAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NextRunAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastStatus")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastResultSummary")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TaskType");
+
+                    b.HasIndex("Enabled");
+
+                    b.HasIndex("NextRunAt");
+
+                    b.ToTable("ScheduledTasks", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

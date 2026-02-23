@@ -1,5 +1,7 @@
 using System.Net;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -21,6 +23,7 @@ public abstract class WanSpeedTestServiceBase
     protected readonly INetworkPathAnalyzer PathAnalyzer;
     protected readonly ILogger Logger;
     protected readonly Iperf3ServerService Iperf3Server;
+    private readonly IAlertEventBus? _alertEventBus;
 
     // Observable test state (polled by UI components)
     private readonly object _lock = new();
@@ -71,12 +74,14 @@ public abstract class WanSpeedTestServiceBase
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
         ILogger logger,
-        Iperf3ServerService iperf3Server)
+        Iperf3ServerService iperf3Server,
+        IAlertEventBus? alertEventBus = null)
     {
         DbFactory = dbFactory;
         PathAnalyzer = pathAnalyzer;
         Logger = logger;
         Iperf3Server = iperf3Server;
+        _alertEventBus = alertEventBus;
     }
 
     /// <summary>
@@ -128,6 +133,9 @@ public abstract class WanSpeedTestServiceBase
             var resultId = result.Id;
 
             lock (_lock) _lastCompletedResult = result;
+
+            // Publish alert event
+            await PublishWanAlertAsync(result);
 
             // Trigger background path analysis
             var wanIp = LastMetadata?.WanIp;
@@ -311,6 +319,83 @@ public abstract class WanSpeedTestServiceBase
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Failed to analyze path for WAN speed test result {Id}", resultId);
+        }
+    }
+
+    private async Task PublishWanAlertAsync(Iperf3Result result)
+    {
+        if (_alertEventBus == null) return;
+
+        try
+        {
+            var downloadMbps = result.DownloadMbps;
+            var uploadMbps = result.UploadMbps;
+            var wanName = result.WanName ?? "Unknown";
+
+            await _alertEventBus.PublishAsync(new AlertEvent
+            {
+                EventType = "wan.speed_completed",
+                Severity = AlertSeverity.Info,
+                Source = "wan",
+                Title = $"WAN Speed Test: {downloadMbps:F1} / {uploadMbps:F1} Mbps",
+                Message = $"Download: {downloadMbps:F1} Mbps, Upload: {uploadMbps:F1} Mbps ({Direction})",
+                Context = new Dictionary<string, string>
+                {
+                    ["download_mbps"] = downloadMbps.ToString("F1"),
+                    ["upload_mbps"] = uploadMbps.ToString("F1"),
+                    ["direction"] = Direction.ToString(),
+                    ["wan_name"] = wanName
+                }
+            });
+
+            // Check for degradation vs recent average (same WAN, same direction)
+            try
+            {
+                await using var db = DbFactory.CreateDbContext();
+                var recent = await db.Iperf3Results
+                    .AsNoTracking()
+                    .Where(r => r.Direction == Direction && r.WanName == result.WanName && r.Id != result.Id && r.Success)
+                    .OrderByDescending(r => r.TestTime)
+                    .Take(5)
+                    .ToListAsync();
+
+                if (recent.Count >= 3)
+                {
+                    var avgDownload = recent.Average(r => r.DownloadMbps);
+                    var dropPercent = avgDownload > 0 ? (avgDownload - downloadMbps) / avgDownload * 100 : 0;
+
+                    if (dropPercent > 0)
+                    {
+                        await _alertEventBus.PublishAsync(new AlertEvent
+                        {
+                            EventType = "wan.speed_degradation",
+                            Severity = dropPercent >= 50 ? AlertSeverity.Error
+                                : dropPercent >= 25 ? AlertSeverity.Warning : AlertSeverity.Info,
+                            Source = "wan",
+                            Title = $"WAN degradation: {downloadMbps:F0} Mbps ({dropPercent:F0}% below average)",
+                            Message = $"{wanName} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
+                            MetricValue = downloadMbps,
+                            ThresholdValue = avgDownload,
+                            Context = new Dictionary<string, string>
+                            {
+                                ["wan_name"] = wanName,
+                                ["current_mbps"] = downloadMbps.ToString("F1"),
+                                ["average_mbps"] = avgDownload.ToString("F1"),
+                                ["drop_percent"] = dropPercent.ToString("F0"),
+                                ["sample_count"] = recent.Count.ToString()
+                            }
+                        });
+                    }
+                }
+            }
+            catch (Exception degradeEx)
+            {
+                Logger.LogDebug(degradeEx, "Failed to check WAN speed degradation");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to publish WAN speed test alert event");
         }
     }
 

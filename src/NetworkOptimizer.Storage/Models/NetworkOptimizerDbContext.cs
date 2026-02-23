@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Models;
+using NetworkOptimizer.Threats.Models;
 
 namespace NetworkOptimizer.Storage.Models;
 
@@ -33,6 +35,15 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<PlannedAp> PlannedAps { get; set; }
     public DbSet<FloorPlanImage> FloorPlanImages { get; set; }
     public DbSet<ClientSignalLog> ClientSignalLogs { get; set; }
+    public DbSet<AlertRule> AlertRules { get; set; }
+    public DbSet<DeliveryChannel> DeliveryChannels { get; set; }
+    public DbSet<AlertHistoryEntry> AlertHistory { get; set; }
+    public DbSet<AlertIncident> AlertIncidents { get; set; }
+    public DbSet<ThreatEvent> ThreatEvents { get; set; }
+    public DbSet<ThreatPattern> ThreatPatterns { get; set; }
+    public DbSet<CrowdSecReputation> CrowdSecReputations { get; set; }
+    public DbSet<ThreatNoiseFilter> ThreatNoiseFilters { get; set; }
+    public DbSet<ScheduledTask> ScheduledTasks { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -204,6 +215,95 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("ClientSignalLogs");
             entity.HasIndex(e => new { e.ClientMac, e.Timestamp });
             entity.HasIndex(e => e.TraceHash);
+        });
+
+        // AlertRule configuration
+        modelBuilder.Entity<AlertRule>(entity =>
+        {
+            entity.ToTable("AlertRules");
+            entity.Property(e => e.MinSeverity).HasConversion<int>();
+            entity.Property(e => e.EscalationSeverity).HasConversion<int>();
+        });
+
+        // DeliveryChannel configuration
+        modelBuilder.Entity<DeliveryChannel>(entity =>
+        {
+            entity.ToTable("DeliveryChannels");
+            entity.Property(e => e.ChannelType).HasConversion<int>();
+            entity.Property(e => e.MinSeverity).HasConversion<int>();
+        });
+
+        // AlertHistoryEntry configuration
+        modelBuilder.Entity<AlertHistoryEntry>(entity =>
+        {
+            entity.ToTable("AlertHistory");
+            entity.HasIndex(e => e.TriggeredAt);
+            entity.HasIndex(e => new { e.Source, e.TriggeredAt });
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.RuleId);
+            entity.HasIndex(e => e.IncidentId);
+            entity.Property(e => e.Severity).HasConversion<int>();
+            entity.Property(e => e.Status).HasConversion<int>();
+        });
+
+        // AlertIncident configuration
+        modelBuilder.Entity<AlertIncident>(entity =>
+        {
+            entity.ToTable("AlertIncidents");
+            entity.HasIndex(e => e.CorrelationKey);
+            entity.HasIndex(e => e.Status);
+            entity.Property(e => e.Severity).HasConversion<int>();
+            entity.Property(e => e.Status).HasConversion<int>();
+        });
+
+        // ThreatEvent configuration
+        modelBuilder.Entity<ThreatEvent>(entity =>
+        {
+            entity.ToTable("ThreatEvents");
+            entity.HasIndex(e => e.Timestamp);
+            entity.HasIndex(e => new { e.SourceIp, e.Timestamp });
+            entity.HasIndex(e => new { e.DestPort, e.Timestamp });
+            entity.HasIndex(e => e.KillChainStage);
+            entity.HasIndex(e => e.InnerAlertId).IsUnique();
+            entity.HasIndex(e => e.EventSource);
+            entity.Property(e => e.Action).HasConversion<int>();
+            entity.Property(e => e.KillChainStage).HasConversion<int>();
+            entity.Property(e => e.EventSource).HasConversion<int>();
+            entity.HasOne(e => e.Pattern)
+                .WithMany(p => p.Events)
+                .HasForeignKey(e => e.PatternId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ThreatPattern configuration
+        modelBuilder.Entity<ThreatPattern>(entity =>
+        {
+            entity.ToTable("ThreatPatterns");
+            entity.HasIndex(e => new { e.PatternType, e.DetectedAt });
+            entity.Property(e => e.PatternType).HasConversion<int>();
+        });
+
+        // CrowdSecReputation configuration
+        modelBuilder.Entity<CrowdSecReputation>(entity =>
+        {
+            entity.ToTable("CrowdSecReputations");
+            entity.HasKey(e => e.Ip);
+            entity.HasIndex(e => e.ExpiresAt);
+        });
+
+        // ThreatNoiseFilter configuration
+        modelBuilder.Entity<ThreatNoiseFilter>(entity =>
+        {
+            entity.ToTable("ThreatNoiseFilters");
+        });
+
+        // ScheduledTask configuration
+        modelBuilder.Entity<ScheduledTask>(entity =>
+        {
+            entity.ToTable("ScheduledTasks");
+            entity.HasIndex(e => e.TaskType);
+            entity.HasIndex(e => e.Enabled);
+            entity.HasIndex(e => e.NextRunAt);
         });
     }
 }

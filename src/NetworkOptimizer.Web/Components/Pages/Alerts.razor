@@ -1,0 +1,1953 @@
+@page "/alerts"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using NetworkOptimizer.Alerts
+@using NetworkOptimizer.Alerts.Interfaces
+@using NetworkOptimizer.Alerts.Models
+@using NetworkOptimizer.Core
+@using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Storage.Models
+@using System.Text.Json
+@using NetworkOptimizer.Web.Services.Ssh
+@inject IAlertRepository AlertRepository
+@inject IScheduleRepository ScheduleRepository
+@inject ScheduleService ScheduleService
+@inject ILogger<Alerts> Logger
+@inject NavigationManager NavigationManager
+@inject SqmService SqmService
+@inject Iperf3SpeedTestService SpeedTestService
+@inject UniFiConnectionService ConnectionService
+@inject IGatewaySshService GatewaySshService
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Alerts & Schedule - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Alerts & Schedule</h1>
+    <p class="page-description">Monitor alerts and manage scheduled tasks</p>
+</div>
+
+<div class="alerts-page">
+    <div class="alerts-header-bar">
+        <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left"
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+            <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
+                @if (FeatureFlags.SchedulingEnabled)
+                {
+                    <button class="wifi-view-tab @(_activeTab == "schedule" ? "active" : "")"
+                            @onclick='() => SetActiveTab("schedule")'>Schedule</button>
+                }
+                <button class="wifi-view-tab @(_activeTab == "active" ? "active" : "")"
+                        @onclick='() => SetActiveTab("active")'>Active Alerts</button>
+                <button class="wifi-view-tab @(_activeTab == "history" ? "active" : "")"
+                        @onclick='() => SetActiveTab("history")'>History</button>
+                <button class="wifi-view-tab @(_activeTab == "rules" ? "active" : "")"
+                        @onclick='() => SetActiveTab("rules")'>Rules</button>
+                <button class="wifi-view-tab @(_activeTab == "incidents" ? "active" : "")"
+                        @onclick='() => SetActiveTab("incidents")'>Incidents</button>
+                <button class="wifi-view-tab"
+                        @onclick='() => NavigationManager.NavigateTo("/settings#alert-channels")'>Channels</button>
+            </div>
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right"
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading-container">
+            <span class="spinner"></span>
+        </div>
+    }
+    else
+    {
+        @* ========== Schedule Tab ========== *@
+        @if (_activeTab == "schedule")
+        {
+            @if (!string.IsNullOrEmpty(_scheduleMessage))
+            {
+                <div class="alert alert-@_scheduleMessageClass" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span>@_scheduleMessage</span>
+                    <button class="btn btn-sm btn-secondary" @onclick="() => _scheduleMessage = null">Dismiss</button>
+                </div>
+            }
+            <div class="schedule-section">
+                <h2 class="schedule-section-title">Security Audit</h2>
+                @{ var auditTask = _scheduledTasks.FirstOrDefault(t => t.TaskType == "audit"); }
+                @if (auditTask != null)
+                {
+                    <div class="schedule-card">
+                        <div class="schedule-card-header">
+                            <div class="schedule-card-title">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" checked="@auditTask.Enabled" @onchange="() => ToggleSchedule(auditTask)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>@auditTask.Name</span>
+                            </div>
+                            <div class="schedule-card-actions">
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => RunScheduleNow(auditTask)"
+                                        disabled="@(ScheduleService.IsTaskRunning(auditTask.Id))">
+                                    @if (ScheduleService.IsTaskRunning(auditTask.Id))
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <text>Running...</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Run Now</text>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                        <div class="schedule-card-body">
+                            <div class="schedule-config">
+                                <div class="form-group schedule-field">
+                                    <label>Frequency</label>
+                                    <select class="form-control" value="@auditTask.FrequencyMinutes"
+                                            @onchange="e => UpdateFrequency(auditTask, e)">
+                                        <option value="360">Every 6 hours</option>
+                                        <option value="720">Every 12 hours</option>
+                                        <option value="1440">Every 24 hours</option>
+                                        <option value="2880">Every 48 hours</option>
+                                        <option value="10080">Every 7 days</option>
+                                    </select>
+                                </div>
+                            </div>
+                            @if (auditTask.LastRunAt.HasValue)
+                            {
+                                <div class="schedule-status">
+                                    <span class="schedule-status-item">
+                                        <span class="detail-label">Last run:</span>
+                                        <span class="detail-value">@FormatTime(auditTask.LastRunAt.Value)</span>
+                                        @if (!string.IsNullOrEmpty(auditTask.LastStatus))
+                                        {
+                                            <span class="status-badge @GetScheduleStatusClass(auditTask.LastStatus)">@auditTask.LastStatus</span>
+                                        }
+                                    </span>
+                                    @if (!string.IsNullOrEmpty(auditTask.LastResultSummary))
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-value">@auditTask.LastResultSummary</span>
+                                        </span>
+                                    }
+                                    @if (auditTask.NextRunAt.HasValue && auditTask.Enabled)
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Next run:</span>
+                                            <span class="detail-value">@FormatTime(auditTask.NextRunAt.Value)</span>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(auditTask.LastErrorMessage))
+                            {
+                                <div class="alert alert-danger schedule-error">@auditTask.LastErrorMessage</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="schedule-section">
+                <h2 class="schedule-section-title">WAN Speed Tests</h2>
+                @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
+                @foreach (var task in wanTasks)
+                    {
+                        <div class="schedule-card">
+                            <div class="schedule-card-header">
+                                <div class="schedule-card-title">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>@task.Name</span>
+                                </div>
+                                <div class="schedule-card-actions">
+                                    <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => RunScheduleNow(task)"
+                                            disabled="@(ScheduleService.IsTaskRunning(task.Id))">
+                                        @if (ScheduleService.IsTaskRunning(task.Id))
+                                        {
+                                            <span class="spinner spinner-sm"></span>
+                                            <text>Running...</text>
+                                        }
+                                        else
+                                        {
+                                            <text>Run Now</text>
+                                        }
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
+                                </div>
+                            </div>
+                            <div class="schedule-card-body">
+                                <div class="schedule-detail-row">
+                                    @{ var wanConfig = ParseTargetConfig(task.TargetConfig); }
+                                    <span class="schedule-detail-tag">@(GetConfigValue(wanConfig, "testType") == "server" ? "Server" : "Gateway")</span>
+                                    @if (GetConfigValue(wanConfig, "wanName") is string wanName && !string.IsNullOrEmpty(wanName))
+                                    {
+                                        <span class="schedule-detail-tag">@wanName</span>
+                                    }
+                                    @if (GetConfigBool(wanConfig, "maxMode"))
+                                    {
+                                        <span class="schedule-detail-tag tag-accent">Max Load</span>
+                                    }
+                                    <span class="schedule-detail-tag tag-muted">@FormatFrequency(task.FrequencyMinutes)</span>
+                                    @if (task.CustomMorningHour.HasValue)
+                                    {
+                                        <span class="schedule-detail-tag tag-muted">@FormatStartTime(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)</span>
+                                    }
+                                </div>
+                                @if (task.LastRunAt.HasValue)
+                                {
+                                    <div class="schedule-status">
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Last run:</span>
+                                            <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
+                                            @if (!string.IsNullOrEmpty(task.LastStatus))
+                                            {
+                                                <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
+                                            }
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(task.LastResultSummary))
+                                        {
+                                            <span class="schedule-status-item">
+                                                <span class="detail-value">@task.LastResultSummary</span>
+                                            </span>
+                                        }
+                                        @if (task.NextRunAt.HasValue && task.Enabled)
+                                        {
+                                            <span class="schedule-status-item">
+                                                <span class="detail-label">Next run:</span>
+                                                <span class="detail-value">@FormatTime(task.NextRunAt.Value)</span>
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(task.LastErrorMessage))
+                                {
+                                    <div class="alert alert-danger schedule-error">@task.LastErrorMessage</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                <div class="schedule-card">
+                    <div class="schedule-card-body">
+                        <div class="schedule-config">
+                            <div class="form-group schedule-field">
+                                <label>Test Type</label>
+                                <select class="form-control" @bind="_newWanTestType">
+                                    @if (_gatewayAvailable)
+                                    {
+                                        <option value="gateway">Gateway (Direct)</option>
+                                    }
+                                    <option value="server">Server</option>
+                                </select>
+                            </div>
+                            @if (_newWanTestType == "gateway" && _wanSelectorOptions.Count > 0)
+                            {
+                                <div class="form-group schedule-field">
+                                    <label>WAN</label>
+                                    <select class="form-control" @bind="_newWanSelection">
+                                        @foreach (var opt in _wanSelectorOptions)
+                                        {
+                                            if (opt.IsSeparator)
+                                            {
+                                                <option disabled value="">──────────</option>
+                                            }
+                                            else
+                                            {
+                                                <option value="@opt.Value">@opt.Label</option>
+                                            }
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            <div class="form-group schedule-field">
+                                <label>Frequency</label>
+                                <select class="form-control" @bind="_newWanFrequency">
+                                    <option value="360">Every 6 hours</option>
+                                    <option value="720">Every 12 hours</option>
+                                    <option value="1440">Every 24 hours</option>
+                                    <option value="2880">Every 48 hours</option>
+                                    <option value="10080">Every 7 days</option>
+                                </select>
+                            </div>
+                            <div class="form-group schedule-field">
+                                <label>Start Time (@_serverTzAbbrev)</label>
+                                <input type="time" class="form-control" @bind="_newWanStartTime" />
+                            </div>
+                            <div class="schedule-inline-controls">
+                                <label class="toggle-switch schedule-toggle" data-tooltip="Normal: 4 servers, 16 streams. Max Load: more servers and streams for saturating multi-gig links.">
+                                    <input type="checkbox" @bind="_newWanMaxMode" />
+                                    <span class="toggle-slider"></span>
+                                    <span class="toggle-label">Max Load</span>
+                                </label>
+                                <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
+                                        disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
+                                    Add Schedule
+                                </button>
+                            </div>
+                        </div>
+                        @if (!_gatewayAvailable && _newWanTestType != "server")
+                        {
+                            <p class="form-help" style="margin-top:0.5rem;">Gateway SSH not configured. <a href="/settings">Configure in Settings</a> to enable gateway tests.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="schedule-section">
+                <h2 class="schedule-section-title">LAN Speed Tests</h2>
+                @{ var lanTasks = _scheduledTasks.Where(t => t.TaskType == "lan_speedtest").ToList(); }
+                @foreach (var task in lanTasks)
+                {
+                    <div class="schedule-card">
+                        <div class="schedule-card-header">
+                            <div class="schedule-card-title">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>@task.Name</span>
+                            </div>
+                            <div class="schedule-card-actions">
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => RunScheduleNow(task)"
+                                        disabled="@(ScheduleService.IsTaskRunning(task.Id))">
+                                    @if (ScheduleService.IsTaskRunning(task.Id))
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <text>Running...</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Run Now</text>
+                                    }
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
+                            </div>
+                        </div>
+                        <div class="schedule-card-body">
+                            <div class="schedule-detail-row">
+                                <span class="schedule-detail-tag tag-muted">@FormatFrequency(task.FrequencyMinutes)</span>
+                                @if (task.CustomMorningHour.HasValue)
+                                {
+                                    <span class="schedule-detail-tag tag-muted">@FormatStartTime(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)</span>
+                                }
+                                @if (!string.IsNullOrEmpty(task.TargetId))
+                                {
+                                    <span class="schedule-detail-tag">@task.TargetId</span>
+                                }
+                            </div>
+                            @if (task.LastRunAt.HasValue)
+                            {
+                                <div class="schedule-status">
+                                    <span class="schedule-status-item">
+                                        <span class="detail-label">Last run:</span>
+                                        <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
+                                        @if (!string.IsNullOrEmpty(task.LastStatus))
+                                        {
+                                            <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
+                                        }
+                                    </span>
+                                    @if (!string.IsNullOrEmpty(task.LastResultSummary))
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-value">@task.LastResultSummary</span>
+                                        </span>
+                                    }
+                                    @if (task.NextRunAt.HasValue && task.Enabled)
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Next run:</span>
+                                            <span class="detail-value">@FormatTime(task.NextRunAt.Value)</span>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(task.LastErrorMessage))
+                            {
+                                <div class="alert alert-danger schedule-error">@task.LastErrorMessage</div>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (_lanDeviceOptions.Count > 0)
+                {
+                    <div class="schedule-card">
+                        <div class="schedule-card-body">
+                            <div class="schedule-config">
+                                <div class="form-group schedule-field">
+                                    <label>Device</label>
+                                    <select class="form-control" @bind="_newLanDevice">
+                                        <option value="">Select device...</option>
+                                        @foreach (var opt in _lanDeviceOptions)
+                                        {
+                                            <option value="@opt.Host">@opt.Label</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="form-group schedule-field">
+                                    <label>Frequency</label>
+                                    <select class="form-control" @bind="_newLanFrequency">
+                                        <option value="360">Every 6 hours</option>
+                                        <option value="720">Every 12 hours</option>
+                                        <option value="1440">Every 24 hours</option>
+                                        <option value="2880">Every 48 hours</option>
+                                        <option value="10080">Every 7 days</option>
+                                    </select>
+                                </div>
+                                <div class="form-group schedule-field">
+                                    <label>Start Time (@_serverTzAbbrev)</label>
+                                    <input type="time" class="form-control" @bind="_newLanStartTime" />
+                                </div>
+                                <div class="schedule-inline-controls">
+                                    <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
+                                            disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
+                                        Add Schedule
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (lanTasks.Count == 0)
+                {
+                    <div class="empty-state">
+                        <h3>No Devices Available</h3>
+                        <p>Connect to your UniFi controller or add devices on the LAN Speed Test page.</p>
+                        <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
+                    </div>
+                }
+            </div>
+        }
+
+        @* ========== Active Alerts Tab ========== *@
+        @if (_activeTab == "active")
+        {
+            @if (_activeAlerts.Count == 0)
+            {
+                <div class="empty-state">
+                    <div class="no-alerts-icon">&#10003;</div>
+                    <h3>All Clear</h3>
+                    <p>No active alerts at this time.</p>
+                </div>
+            }
+            else
+            {
+                <div class="alert-list">
+                    @foreach (var alert in _activeAlerts)
+                    {
+                        <div class="alert-item @GetSeverityClass(alert.Severity)">
+                            <div class="alert-icon">@GetSeverityIcon(alert.Severity)</div>
+                            <div class="alert-content">
+                                <div class="alert-header">
+                                    <h3 class="alert-title">@alert.Title</h3>
+                                    <span class="alert-time">@FormatTime(alert.TriggeredAt)</span>
+                                </div>
+                                <p class="alert-message">@alert.Message</p>
+                                @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
+                                {
+                                    <span class="alert-source">
+                                        @alert.Source
+                                        @if (!string.IsNullOrEmpty(alert.DeviceName))
+                                        {
+                                            <text> &middot; @alert.DeviceName</text>
+                                        }
+                                        @if (!string.IsNullOrEmpty(alert.DeviceIp))
+                                        {
+                                            <text> &middot; @alert.DeviceIp</text>
+                                        }
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="alert-source">@alert.Source</span>
+                                }
+                            </div>
+                            <div class="alert-actions">
+                                @if (alert.Status == AlertStatus.Active)
+                                {
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeAlert(alert)">
+                                        Acknowledge
+                                    </button>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
+                                        Resolve
+                                    </button>
+                                }
+                                else if (alert.Status == AlertStatus.Acknowledged)
+                                {
+                                    <span class="status-badge status-active">Acknowledged</span>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
+                                        Resolve
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+
+        @* ========== History Tab ========== *@
+        @if (_activeTab == "history")
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="history-filters">
+                        <div class="filter-group">
+                            <label class="filter-label">Source:</label>
+                            <select class="filter-select" @bind="_historySourceFilter" @bind:after="LoadHistory">
+                                <option value="">All Sources</option>
+                                <option value="audit">Audit</option>
+                                <option value="device">Device</option>
+                                <option value="speedtest">Speed Test</option>
+                                <option value="wan">WAN</option>
+                                <option value="wifi">WiFi</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Min Severity:</label>
+                            <select class="filter-select" @bind="_historySeverityFilter" @bind:after="LoadHistory">
+                                <option value="">All</option>
+                                <option value="Info">Info</option>
+                                <option value="Warning">Warning</option>
+                                <option value="Error">Error</option>
+                                <option value="Critical">Critical</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
+                    </div>
+                </div>
+            </div>
+
+            @if (_historyAlerts.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>No Alert History</h3>
+                    <p>Alert history will appear here as alerts are triggered.</p>
+                </div>
+            }
+            else
+            {
+                <div class="card" style="margin-top: 1rem;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Severity</th>
+                                    <th>Title</th>
+                                    <th>Source</th>
+                                    <th class="hide-mobile">Device</th>
+                                    <th>Status</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var alert in _historyAlerts)
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="severity-badge @GetSeverityBadgeClass(alert.Severity)">
+                                                @alert.Severity
+                                            </span>
+                                        </td>
+                                        <td>@alert.Title</td>
+                                        <td>@alert.Source</td>
+                                        <td class="hide-mobile">@(alert.DeviceName ?? alert.DeviceIp ?? "-")</td>
+                                        <td>
+                                            <span class="status-badge @GetStatusBadgeClass(alert.Status)">
+                                                @alert.Status
+                                            </span>
+                                        </td>
+                                        <td>@FormatTime(alert.TriggeredAt)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+        }
+
+        @* ========== Rules Tab ========== *@
+        @if (_activeTab == "rules")
+        {
+            <div class="card">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 class="card-title">Alert Rules</h2>
+                    <button class="btn btn-sm btn-primary" @onclick="StartAddRule">Add Rule</button>
+                </div>
+                <div class="card-body">
+                    @if (_rules.Count == 0)
+                    {
+                        <div class="empty-state">
+                            <h3>No Alert Rules</h3>
+                            <p>Create rules to define which events trigger alerts.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Enabled</th>
+                                        <th>Name</th>
+                                        <th>Event Pattern</th>
+                                        <th class="hide-mobile">Source</th>
+                                        <th class="hide-mobile">Min Severity</th>
+                                        <th class="hide-mobile">Cooldown</th>
+                                        <th class="hide-mobile">Threshold</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var rule in _rules)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" checked="@rule.IsEnabled" @onchange="() => ToggleRule(rule)" />
+                                                    <span class="toggle-slider"></span>
+                                                </label>
+                                            </td>
+                                            <td>@rule.Name</td>
+                                            <td><code>@rule.EventTypePattern</code></td>
+                                            <td class="hide-mobile">@(rule.Source ?? "All")</td>
+                                            <td class="hide-mobile">
+                                                <span class="severity-badge @GetSeverityBadgeClass(rule.MinSeverity)">
+                                                    @rule.MinSeverity
+                                                </span>
+                                            </td>
+                                            <td class="hide-mobile">@FormatCooldown(rule.CooldownSeconds)</td>
+                                            <td class="hide-mobile">@(rule.ThresholdPercent.HasValue ? $"{rule.ThresholdPercent:F0}%" : "-")</td>
+                                            <td>
+                                                <div class="action-buttons">
+                                                    <button class="btn btn-sm btn-secondary" @onclick="() => StartEditRule(rule)">Edit</button>
+                                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteRule(rule)">Delete</button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Rule Add/Edit Form *@
+            @if (_showRuleForm)
+            {
+                <div class="card" style="margin-top: 1rem;">
+                    <div class="card-header">
+                        <h2 class="card-title">@(_editingRuleId > 0 ? "Edit Rule" : "Add Rule")</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" class="form-control" @bind="_ruleName" placeholder="e.g., Device Offline Alert" />
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Event Type Pattern</label>
+                                <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., device.offline, audit.*" />
+                                <small class="form-text">Use * for wildcard. Examples: device.offline, audit.*, speedtest.regression</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Threshold %</label>
+                                <input type="number" class="form-control" @bind="_ruleThresholdPercent" min="0" max="100" step="1" placeholder="Optional" />
+                                <small class="form-text">For degradation/regression rules: minimum % drop to trigger</small>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Source</label>
+                                <select class="form-control" @bind="_ruleSource">
+                                    <option value="">All Sources</option>
+                                    <option value="audit">Audit</option>
+                                    <option value="device">Device</option>
+                                    <option value="schedule">Schedule</option>
+                                    <option value="speedtest">Speed Test</option>
+                                    <option value="threats">Threats</option>
+                                    <option value="wan">WAN</option>
+                                    <option value="wifi">Wi-Fi</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Min Severity</label>
+                                <select class="form-control" @bind="_ruleMinSeverity">
+                                    <option value="Info">Info</option>
+                                    <option value="Warning">Warning</option>
+                                    <option value="Error">Error</option>
+                                    <option value="Critical">Critical</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Cooldown (seconds)</label>
+                                <input type="number" class="form-control" @bind="_ruleCooldown" min="0" />
+                                <small class="form-text">Minimum seconds between alerts for the same rule+device</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Escalation (minutes)</label>
+                                <input type="number" class="form-control" @bind="_ruleEscalationMinutes" min="0" />
+                                <small class="form-text">0 = no escalation. If set, unacknowledged alerts escalate after this time.</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_ruleDigestOnly" />
+                                <span>Digest only (no immediate alerts, included in digest summaries)</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Target Devices (optional)</label>
+                            <input type="text" class="form-control" @bind="_ruleTargetDevices" placeholder="Comma-separated IPs or MACs, empty = all" />
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" @onclick="SaveRule" disabled="@_savingRule">
+                                @if (_savingRule)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                }
+                                Save Rule
+                            </button>
+                            <button class="btn btn-secondary" @onclick="CancelRuleForm">Cancel</button>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_ruleError))
+                        {
+                            <div class="alert alert-danger" style="margin-top: 0.75rem;">@_ruleError</div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+
+        @* ========== Incidents Tab ========== *@
+        @if (_activeTab == "incidents")
+        {
+            @if (_incidents.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>No Incidents</h3>
+                    <p>Correlated alerts will be grouped into incidents automatically.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var incident in _incidents)
+                {
+                    <div class="card" style="margin-bottom: 1rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span class="severity-badge @GetSeverityBadgeClass(incident.Severity)">
+                                    @incident.Severity
+                                </span>
+                                <h2 class="card-title" style="margin: 0;">@incident.Title</h2>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span class="badge">@incident.AlertCount alert@(incident.AlertCount != 1 ? "s" : "")</span>
+                                <span class="status-badge @GetStatusBadgeClass(incident.Status)">@incident.Status</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div style="display: flex; gap: 2rem; flex-wrap: wrap; font-size: 0.8125rem; color: var(--text-secondary);">
+                                <div>
+                                    <span class="detail-label">Correlation Key</span>
+                                    <span class="detail-value"><code>@incident.CorrelationKey</code></span>
+                                </div>
+                                <div>
+                                    <span class="detail-label">First Triggered</span>
+                                    <span class="detail-value">@FormatTime(incident.FirstTriggeredAt)</span>
+                                </div>
+                                <div>
+                                    <span class="detail-label">Last Updated</span>
+                                    <span class="detail-value">@FormatTime(incident.LastTriggeredAt)</span>
+                                </div>
+                                @if (incident.ResolvedAt.HasValue)
+                                {
+                                    <div>
+                                        <span class="detail-label">Resolved</span>
+                                        <span class="detail-value">@FormatTime(incident.ResolvedAt.Value)</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        }
+    }
+</div>
+
+<style>
+    .alerts-page {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .alerts-header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    .alerts-header-bar > .wifi-view-tabs-wrapper {
+        flex: 1;
+        min-width: 0;
+    }
+    .alerts-header-bar .wifi-tabs-scroll-btn {
+        border-bottom: none;
+        margin-top: 0.35rem;
+    }
+    .alert-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .severity-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--border-radius-lg);
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .severity-critical {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--danger-color);
+    }
+    .severity-error {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+    }
+    .severity-warning {
+        background: rgba(245, 158, 11, 0.2);
+        color: var(--warning-color);
+    }
+    .severity-info {
+        background: rgba(71, 151, 255, 0.2);
+        color: var(--info-color);
+    }
+    .history-filters {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .filter-label {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+    .filter-select {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        color: var(--text-primary);
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8125rem;
+    }
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+    .form-text {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+    .form-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.625rem;
+        border-radius: var(--border-radius-lg);
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+    .action-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+    }
+    .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: var(--bg-tertiary);
+        border-radius: 20px;
+        transition: 0.2s;
+    }
+    .toggle-slider::before {
+        content: "";
+        position: absolute;
+        height: 14px;
+        width: 14px;
+        left: 3px;
+        bottom: 3px;
+        background: white;
+        border-radius: 50%;
+        transition: 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+        background: var(--primary-color);
+    }
+    .toggle-switch input:checked + .toggle-slider::before {
+        transform: translateX(16px);
+    }
+
+    /* Schedule tab */
+    .schedule-section {
+        margin-bottom: 1.5rem;
+    }
+    .schedule-section-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .schedule-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        margin-bottom: 0.75rem;
+    }
+    .schedule-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.875rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .schedule-card-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+    .schedule-card-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .schedule-card-body {
+        padding: 0.875rem 1rem;
+    }
+    .schedule-config {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+    .schedule-field {
+        margin-bottom: 0;
+        min-width: 180px;
+    }
+    .schedule-field label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+    .schedule-status {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+        font-size: 0.8125rem;
+    }
+    .schedule-status-item {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    .schedule-error {
+        margin-top: 0.75rem;
+        margin-bottom: 0;
+        font-size: 0.8125rem;
+    }
+    .schedule-config .schedule-toggle {
+        width: auto;
+        height: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+    .schedule-config .schedule-toggle input {
+        display: none;
+    }
+    .schedule-config .schedule-toggle .toggle-slider {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        background: var(--bg-secondary);
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        transition: background 0.15s ease-out;
+        flex-shrink: 0;
+    }
+    .schedule-config .schedule-toggle .toggle-slider::before {
+        display: none;
+    }
+    .schedule-config .schedule-toggle .toggle-slider::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        background: var(--text-secondary);
+        border-radius: 50%;
+        transition: transform 0.2s, background 0.2s;
+    }
+    .schedule-config .schedule-toggle input:checked + .toggle-slider {
+        background: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+    .schedule-config .schedule-toggle input:checked + .toggle-slider::after {
+        transform: translateX(16px);
+        background: white;
+    }
+    .schedule-config .schedule-toggle .toggle-label {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+    .schedule-detail-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.5rem;
+    }
+    .schedule-detail-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--border-radius-lg);
+        font-size: 0.75rem;
+        font-weight: 500;
+        background: rgba(59, 130, 246, 0.15);
+        color: var(--info-color);
+    }
+    .schedule-detail-tag.tag-accent {
+        background: rgba(249, 115, 22, 0.15);
+        color: var(--accent-color);
+    }
+    .schedule-detail-tag.tag-muted {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+    .schedule-inline-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding-bottom: 0.25rem;
+    }
+    .status-success {
+        background: rgba(36, 188, 112, 0.2);
+        color: var(--success-color);
+    }
+    .status-failed {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--danger-color);
+    }
+
+    @@media (max-width: 768px) {
+        .form-row {
+            grid-template-columns: 1fr;
+        }
+        .alert-item {
+            flex-direction: column;
+        }
+        .alert-actions {
+            flex-direction: row;
+            align-items: center;
+        }
+        .schedule-card-header {
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .schedule-status {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+    }
+</style>
+
+@code {
+    private string _activeTab = FeatureFlags.SchedulingEnabled ? "schedule" : "active";
+    private bool _loading = true;
+
+    // Schedule
+    private List<ScheduledTask> _scheduledTasks = [];
+    private List<WanInterfaceInfo> _wanInterfaces = [];
+    private List<DeviceSshConfiguration> _lanDevices = [];
+    private List<(string Host, string Label, bool IsUniFi)> _lanDeviceOptions = [];
+    private List<WanSelectorOption> _wanSelectorOptions = [];
+    private bool _gatewayAvailable;
+    private string _newWanTestType = "gateway";
+    private string _newWanSelection = "0";
+    private bool _newWanMaxMode;
+    private TimeOnly _newWanStartTime = new(6, 0);
+    private string? _newLanDevice;
+    private TimeOnly _newLanStartTime = new(6, 0);
+    private int _newWanFrequency = 1440;
+    private int _newLanFrequency = 1440;
+    private bool _creatingSchedule;
+    private string? _scheduleMessage;
+    private string _scheduleMessageClass = "info";
+    private bool CanCreateWanSchedule => _newWanTestType == "server" || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
+    private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
+
+    private class WanSelectorOption
+    {
+        public string Value { get; set; } = "";
+        public string Label { get; set; } = "";
+        public bool IsSeparator { get; set; }
+        public int[] Indices { get; set; } = [];
+    }
+
+    // Active alerts
+    private List<AlertHistoryEntry> _activeAlerts = [];
+
+    // History
+    private List<AlertHistoryEntry> _historyAlerts = [];
+    private string _historySourceFilter = "";
+    private string _historySeverityFilter = "";
+
+    // Rules
+    private List<AlertRule> _rules = [];
+    private bool _showRuleForm;
+    private int _editingRuleId;
+    private string _ruleName = "";
+    private string _ruleEventPattern = "";
+    private string _ruleSource = "";
+    private string _ruleMinSeverity = "Warning";
+    private int _ruleCooldown = 300;
+    private int _ruleEscalationMinutes;
+    private bool _ruleDigestOnly;
+    private double? _ruleThresholdPercent;
+    private string _ruleTargetDevices = "";
+    private bool _savingRule;
+    private string? _ruleError;
+
+    // Incidents
+    private List<AlertIncident> _incidents = [];
+
+    // Auto-refresh
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (FeatureFlags.SchedulingEnabled)
+        {
+            await LoadSchedules();
+            await LoadScheduleOptions();
+        }
+        else
+            await LoadActiveAlerts();
+        _loading = false;
+
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_activeTab == "active")
+                        await LoadActiveAlerts();
+                    else if (_activeTab == "schedule")
+                        await LoadSchedules();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            switch (tab)
+            {
+                case "schedule":
+                    await LoadSchedules();
+                    break;
+                case "active":
+                    await LoadActiveAlerts();
+                    break;
+                case "history":
+                    await LoadHistory();
+                    break;
+                case "rules":
+                    await LoadRules();
+                    break;
+                case "incidents":
+                    await LoadIncidents();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading {Tab} tab", tab);
+        }
+
+        _loading = false;
+    }
+
+    // ========== Data Loading ==========
+
+    private async Task LoadSchedules()
+    {
+        try
+        {
+            _scheduledTasks = await ScheduleRepository.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading scheduled tasks");
+            _scheduledTasks = [];
+        }
+    }
+
+    private async Task LoadScheduleOptions()
+    {
+        try
+        {
+            _wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load WAN interfaces");
+            _wanInterfaces = [];
+        }
+
+        try
+        {
+            var gwSettings = await GatewaySshService.GetSettingsAsync();
+            _gatewayAvailable = !string.IsNullOrEmpty(gwSettings.Host) && gwSettings.HasCredentials && gwSettings.Enabled;
+        }
+        catch
+        {
+            _gatewayAvailable = false;
+        }
+
+        if (!_gatewayAvailable)
+            _newWanTestType = "server";
+
+        BuildWanSelectorOptions();
+
+        try
+        {
+            _lanDevices = await SpeedTestService.GetDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load LAN devices");
+            _lanDevices = [];
+        }
+
+        // Build unified device options: manual devices + UniFi-discovered devices
+        _lanDeviceOptions.Clear();
+        var manualHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dev in _lanDevices)
+        {
+            var label = !string.IsNullOrEmpty(dev.Name) ? $"{dev.Name} ({dev.Host})" : dev.Host;
+            _lanDeviceOptions.Add((dev.Host, label, false));
+            manualHosts.Add(dev.Host);
+        }
+        try
+        {
+            var discovered = await ConnectionService.GetDiscoveredDevicesAsync();
+            foreach (var dev in discovered.Where(d => d.Type != DeviceType.Gateway && d.CanRunIperf3))
+            {
+                if (!manualHosts.Contains(dev.IpAddress))
+                    _lanDeviceOptions.Add((dev.IpAddress, $"{dev.Name} ({dev.IpAddress})", true));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load UniFi devices for schedule dropdown");
+        }
+    }
+
+    private void BuildWanSelectorOptions()
+    {
+        _wanSelectorOptions.Clear();
+        if (_wanInterfaces.Count == 0) return;
+
+        for (var i = 0; i < _wanInterfaces.Count; i++)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = i.ToString(),
+                Label = $"{_wanInterfaces[i].Name} ({_wanInterfaces[i].Interface})",
+                Indices = [i]
+            });
+        }
+
+        if (_wanInterfaces.Count < 2) return;
+
+        _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+
+        for (var size = 2; size < _wanInterfaces.Count; size++)
+        {
+            foreach (var combo in GetCombinations(Enumerable.Range(0, _wanInterfaces.Count).ToArray(), size))
+            {
+                var indices = combo.ToArray();
+                var value = string.Join("+", indices);
+                var label = string.Join(" + ", indices.Select(idx => _wanInterfaces[idx].Name));
+                _wanSelectorOptions.Add(new WanSelectorOption
+                {
+                    Value = value,
+                    Label = label,
+                    Indices = indices
+                });
+            }
+        }
+
+        if (_wanInterfaces.Count >= 3)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = "all",
+                Label = "All WAN Links",
+                Indices = Enumerable.Range(0, _wanInterfaces.Count).ToArray()
+            });
+        }
+    }
+
+    private static IEnumerable<List<int>> GetCombinations(int[] items, int size)
+    {
+        if (size == 0) { yield return new List<int>(); yield break; }
+        for (var i = 0; i <= items.Length - size; i++)
+        {
+            foreach (var tail in GetCombinations(items[(i + 1)..], size - 1))
+            {
+                tail.Insert(0, items[i]);
+                yield return tail;
+            }
+        }
+    }
+
+    private async Task LoadActiveAlerts()
+    {
+        try
+        {
+            _activeAlerts = await AlertRepository.GetActiveAlertsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading active alerts");
+            _activeAlerts = [];
+        }
+    }
+
+    private async Task LoadHistory()
+    {
+        try
+        {
+            AlertSeverity? severity = null;
+            if (!string.IsNullOrEmpty(_historySeverityFilter) && Enum.TryParse<AlertSeverity>(_historySeverityFilter, out var s))
+                severity = s;
+
+            var source = string.IsNullOrEmpty(_historySourceFilter) ? null : _historySourceFilter;
+            _historyAlerts = await AlertRepository.GetAlertHistoryAsync(200, source, severity);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading alert history");
+            _historyAlerts = [];
+        }
+    }
+
+    private async Task LoadRules()
+    {
+        try
+        {
+            _rules = await AlertRepository.GetRulesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading alert rules");
+            _rules = [];
+        }
+    }
+
+    private async Task LoadIncidents()
+    {
+        try
+        {
+            _incidents = await AlertRepository.GetIncidentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading incidents");
+            _incidents = [];
+        }
+    }
+
+    // ========== Active Alert Actions ==========
+
+    private async Task AcknowledgeAlert(AlertHistoryEntry alert)
+    {
+        try
+        {
+            alert.Status = AlertStatus.Acknowledged;
+            alert.AcknowledgedAt = DateTime.UtcNow;
+            await AlertRepository.UpdateAlertAsync(alert);
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error acknowledging alert {Id}", alert.Id);
+        }
+    }
+
+    private async Task ResolveAlert(AlertHistoryEntry alert)
+    {
+        try
+        {
+            alert.Status = AlertStatus.Resolved;
+            alert.ResolvedAt = DateTime.UtcNow;
+            await AlertRepository.UpdateAlertAsync(alert);
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resolving alert {Id}", alert.Id);
+        }
+    }
+
+    // ========== Rule CRUD ==========
+
+    private void StartAddRule()
+    {
+        _editingRuleId = 0;
+        _ruleName = "";
+        _ruleEventPattern = "";
+        _ruleSource = "";
+        _ruleMinSeverity = "Warning";
+        _ruleCooldown = 300;
+        _ruleEscalationMinutes = 0;
+        _ruleDigestOnly = false;
+        _ruleThresholdPercent = null;
+        _ruleTargetDevices = "";
+        _ruleError = null;
+        _showRuleForm = true;
+    }
+
+    private void StartEditRule(AlertRule rule)
+    {
+        _editingRuleId = rule.Id;
+        _ruleName = rule.Name;
+        _ruleEventPattern = rule.EventTypePattern;
+        _ruleSource = rule.Source ?? "";
+        _ruleMinSeverity = rule.MinSeverity.ToString();
+        _ruleCooldown = rule.CooldownSeconds;
+        _ruleEscalationMinutes = rule.EscalationMinutes;
+        _ruleDigestOnly = rule.DigestOnly;
+        _ruleThresholdPercent = rule.ThresholdPercent;
+        _ruleTargetDevices = rule.TargetDevices ?? "";
+        _ruleError = null;
+        _showRuleForm = true;
+    }
+
+    private void CancelRuleForm()
+    {
+        _showRuleForm = false;
+        _ruleError = null;
+    }
+
+    private async Task SaveRule()
+    {
+        if (string.IsNullOrWhiteSpace(_ruleName) || string.IsNullOrWhiteSpace(_ruleEventPattern))
+        {
+            _ruleError = "Name and event type pattern are required.";
+            return;
+        }
+
+        _savingRule = true;
+        _ruleError = null;
+
+        try
+        {
+            if (!Enum.TryParse<AlertSeverity>(_ruleMinSeverity, out var severity))
+                severity = AlertSeverity.Warning;
+
+            if (_editingRuleId > 0)
+            {
+                var rule = await AlertRepository.GetRuleAsync(_editingRuleId);
+                if (rule != null)
+                {
+                    rule.Name = _ruleName.Trim();
+                    rule.EventTypePattern = _ruleEventPattern.Trim();
+                    rule.Source = string.IsNullOrEmpty(_ruleSource) ? null : _ruleSource;
+                    rule.MinSeverity = severity;
+                    rule.CooldownSeconds = _ruleCooldown;
+                    rule.EscalationMinutes = _ruleEscalationMinutes;
+                    rule.DigestOnly = _ruleDigestOnly;
+                    rule.ThresholdPercent = _ruleThresholdPercent;
+                    rule.TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim();
+                    rule.UpdatedAt = DateTime.UtcNow;
+                    await AlertRepository.UpdateRuleAsync(rule);
+                }
+            }
+            else
+            {
+                var rule = new AlertRule
+                {
+                    Name = _ruleName.Trim(),
+                    EventTypePattern = _ruleEventPattern.Trim(),
+                    Source = string.IsNullOrEmpty(_ruleSource) ? null : _ruleSource,
+                    MinSeverity = severity,
+                    CooldownSeconds = _ruleCooldown,
+                    EscalationMinutes = _ruleEscalationMinutes,
+                    DigestOnly = _ruleDigestOnly,
+                    ThresholdPercent = _ruleThresholdPercent,
+                    TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim()
+                };
+                await AlertRepository.SaveRuleAsync(rule);
+            }
+
+            _showRuleForm = false;
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving rule");
+            _ruleError = "Failed to save rule. Check logs for details.";
+        }
+        finally
+        {
+            _savingRule = false;
+        }
+    }
+
+    private async Task ToggleRule(AlertRule rule)
+    {
+        try
+        {
+            rule.IsEnabled = !rule.IsEnabled;
+            rule.UpdatedAt = DateTime.UtcNow;
+            await AlertRepository.UpdateRuleAsync(rule);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling rule {Id}", rule.Id);
+            rule.IsEnabled = !rule.IsEnabled; // Revert on failure
+        }
+    }
+
+    private async Task DeleteRule(AlertRule rule)
+    {
+        try
+        {
+            await AlertRepository.DeleteRuleAsync(rule.Id);
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting rule {Id}", rule.Id);
+        }
+    }
+
+    // ========== Schedule Actions ==========
+
+    private async Task ToggleSchedule(ScheduledTask task)
+    {
+        try
+        {
+            task.Enabled = !task.Enabled;
+            await ScheduleRepository.UpdateAsync(task);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling schedule {Id}", task.Id);
+            task.Enabled = !task.Enabled; // Revert on failure
+        }
+    }
+
+    private async Task UpdateFrequency(ScheduledTask task, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var minutes))
+        {
+            try
+            {
+                task.FrequencyMinutes = minutes;
+                // Recalculate next run if currently enabled and has a last run
+                if (task.Enabled && task.LastRunAt.HasValue)
+                {
+                    task.NextRunAt = task.LastRunAt.Value.AddMinutes(minutes);
+                }
+                await ScheduleRepository.UpdateAsync(task);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error updating frequency for schedule {Id}", task.Id);
+            }
+        }
+    }
+
+    private async Task RunScheduleNow(ScheduledTask task)
+    {
+        try
+        {
+            var started = await ScheduleService.RunNowAsync(task.Id);
+            if (!started)
+            {
+                _scheduleMessage = "Task is already running.";
+                _scheduleMessageClass = "warning";
+                StateHasChanged();
+                return;
+            }
+
+            StateHasChanged();
+
+            // Poll until the task finishes, then reload to show results
+            for (var i = 0; i < 120; i++) // up to 2 minutes
+            {
+                await Task.Delay(1000);
+                if (!ScheduleService.IsTaskRunning(task.Id))
+                    break;
+                StateHasChanged(); // keep spinner visible
+            }
+
+            await LoadSchedules();
+            var updated = _scheduledTasks.FirstOrDefault(t => t.Id == task.Id);
+            if (updated?.LastStatus == "success")
+            {
+                _scheduleMessage = $"{task.Name}: {updated.LastResultSummary ?? "completed successfully"}";
+                _scheduleMessageClass = "success";
+            }
+            else if (updated?.LastStatus == "failed")
+            {
+                _scheduleMessage = $"{task.Name} failed: {updated.LastErrorMessage ?? "unknown error"}";
+                _scheduleMessageClass = "danger";
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error running schedule {Id} now", task.Id);
+            _scheduleMessage = $"Error: {ex.Message}";
+            _scheduleMessageClass = "danger";
+            StateHasChanged();
+        }
+    }
+
+    private async Task CreateWanSchedule()
+    {
+        if (!CanCreateWanSchedule || _creatingSchedule) return;
+        _creatingSchedule = true;
+
+        try
+        {
+            string taskName;
+            string? targetId = null;
+            var config = new Dictionary<string, object>();
+            config["testType"] = _newWanTestType;
+            if (_newWanMaxMode)
+                config["maxMode"] = true;
+
+            if (_newWanTestType == "server")
+            {
+                taskName = _newWanMaxMode ? "WAN Speed Test (Server, Max Load)" : "WAN Speed Test (Server)";
+            }
+            else
+            {
+                // Gateway test - resolve selected WAN option
+                var selected = _wanSelectorOptions.FirstOrDefault(o => o.Value == _newWanSelection);
+                if (selected == null || selected.IsSeparator) return;
+
+                var selectedInterfaces = selected.Indices.Select(i => _wanInterfaces[i]).ToList();
+
+                if (selectedInterfaces.Count == 1)
+                {
+                    targetId = selectedInterfaces[0].Interface;
+                    var wanGroup = selectedInterfaces[0].NetworkGroup;
+                    var wanName = selectedInterfaces[0].Name;
+                    config["wanGroup"] = wanGroup ?? "WAN";
+                    config["wanName"] = wanName ?? "WAN";
+                    var suffix = _newWanMaxMode ? ", Max Load" : "";
+                    taskName = $"WAN Speed Test ({wanName ?? wanGroup ?? "Gateway"}{suffix})";
+                }
+                else
+                {
+                    // Multi-WAN combo
+                    targetId = "";
+                    var groups = selectedInterfaces
+                        .Select(w => w.NetworkGroup ?? "WAN")
+                        .Distinct().OrderBy(g => g);
+                    var wanGroup = string.Join("+", groups);
+                    var wanName = string.Join(" + ", selectedInterfaces
+                        .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
+                        .Distinct().OrderBy(n => n));
+
+                    config["wanGroup"] = wanGroup;
+                    config["wanName"] = wanName;
+                    config["interfaces"] = selectedInterfaces.Select(w => w.Interface).ToArray();
+                    var suffix = _newWanMaxMode ? ", Max Load" : "";
+                    taskName = $"WAN Speed Test ({wanName}{suffix})";
+                }
+            }
+
+            var (startHour, startMinute) = ParseTimeInput(_newWanStartTime);
+
+            var task = new ScheduledTask
+            {
+                TaskType = "wan_speedtest",
+                Name = taskName,
+                TargetId = targetId,
+                TargetConfig = JsonSerializer.Serialize(config),
+                FrequencyMinutes = _newWanFrequency,
+                CustomMorningHour = startHour,
+                CustomMorningMinute = startMinute,
+                Enabled = true,
+                NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute)
+            };
+
+            await ScheduleRepository.SaveAsync(task);
+            _newWanSelection = "0";
+            _newWanMaxMode = false;
+            _newWanFrequency = 1440;
+            _newWanStartTime = new(6, 0);
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating WAN speed test schedule");
+        }
+        finally
+        {
+            _creatingSchedule = false;
+        }
+    }
+
+    private async Task CreateLanSchedule()
+    {
+        if (string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule) return;
+        _creatingSchedule = true;
+
+        try
+        {
+            var opt = _lanDeviceOptions.FirstOrDefault(o => o.Host == _newLanDevice);
+            var label = opt.Host != null ? opt.Label.Split(" (")[0] : _newLanDevice;
+            var name = $"LAN Speed Test ({label})";
+
+            var (startHour, startMinute) = ParseTimeInput(_newLanStartTime);
+
+            var task = new ScheduledTask
+            {
+                TaskType = "lan_speedtest",
+                Name = name,
+                TargetId = _newLanDevice,
+                FrequencyMinutes = _newLanFrequency,
+                CustomMorningHour = startHour,
+                CustomMorningMinute = startMinute,
+                Enabled = true,
+                NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute)
+            };
+
+            await ScheduleRepository.SaveAsync(task);
+            _newLanDevice = null;
+            _newLanFrequency = 1440;
+            _newLanStartTime = new(6, 0);
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating LAN speed test schedule");
+        }
+        finally
+        {
+            _creatingSchedule = false;
+        }
+    }
+
+    private static (int hour, int minute) ParseTimeInput(TimeOnly localTime)
+    {
+        // Convert server-local time to UTC for storage
+        var today = DateTime.Today; // local date
+        var localDt = today.Add(localTime.ToTimeSpan());
+        var utcDt = localDt.ToUniversalTime();
+        return (utcDt.Hour, utcDt.Minute);
+    }
+
+    private static string GetServerTimezoneAbbrev()
+    {
+        var tz = TimeZoneInfo.Local;
+        var now = DateTime.Now;
+        var name = tz.IsDaylightSavingTime(now) ? tz.DaylightName : tz.StandardName;
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
+    }
+
+    private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute)
+    {
+        var now = DateTime.UtcNow;
+        var anchor = now.Date.AddHours(startHour).AddMinutes(startMinute);
+        var candidate = anchor;
+        while (candidate <= now.AddMinutes(1))
+            candidate = candidate.AddMinutes(frequencyMinutes);
+        return candidate;
+    }
+
+    private async Task DeleteSchedule(ScheduledTask task)
+    {
+        try
+        {
+            await ScheduleRepository.DeleteAsync(task.Id);
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting schedule {Id}", task.Id);
+        }
+    }
+
+    private static Dictionary<string, JsonElement>? ParseTargetConfig(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json); }
+        catch { return null; }
+    }
+
+    private static string? GetConfigValue(Dictionary<string, JsonElement>? config, string key)
+    {
+        if (config == null || !config.TryGetValue(key, out var el)) return null;
+        return el.ValueKind == JsonValueKind.String ? el.GetString() : el.ToString();
+    }
+
+    private static bool GetConfigBool(Dictionary<string, JsonElement>? config, string key)
+    {
+        if (config == null || !config.TryGetValue(key, out var el)) return false;
+        return el.ValueKind == JsonValueKind.True;
+    }
+
+    private static string FormatFrequency(int minutes) => minutes switch
+    {
+        360 => "Every 6h",
+        720 => "Every 12h",
+        1440 => "Every 24h",
+        2880 => "Every 48h",
+        10080 => "Every 7d",
+        _ => $"Every {minutes}m"
+    };
+
+    private static string FormatStartTime(int utcHour, int utcMinute)
+    {
+        // Convert stored UTC hour/minute to server-local for display
+        var utcDt = DateTime.UtcNow.Date.AddHours(utcHour).AddMinutes(utcMinute);
+        var localDt = utcDt.ToLocalTime();
+        return localDt.ToString("h:mm tt");
+    }
+
+    private static string GetScheduleStatusClass(string status) => status switch
+    {
+        "success" => "status-success",
+        "failed" => "status-failed",
+        _ => "status-badge"
+    };
+
+    // ========== Formatters ==========
+
+    private static string GetSeverityClass(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Critical => "alert-critical",
+        AlertSeverity.Error => "alert-critical",
+        AlertSeverity.Warning => "alert-warning",
+        _ => "alert-info"
+    };
+
+    private static string GetSeverityIcon(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Critical => "!!",
+        AlertSeverity.Error => "!",
+        AlertSeverity.Warning => "!",
+        _ => "i"
+    };
+
+    private static string GetSeverityBadgeClass(AlertSeverity severity) => severity switch
+    {
+        AlertSeverity.Critical => "severity-critical",
+        AlertSeverity.Error => "severity-error",
+        AlertSeverity.Warning => "severity-warning",
+        _ => "severity-info"
+    };
+
+    private static string GetStatusBadgeClass(AlertStatus status) => status switch
+    {
+        AlertStatus.Active => "status-active",
+        AlertStatus.Acknowledged => "status-connected",
+        AlertStatus.Resolved => "status-inactive",
+        AlertStatus.Suppressed => "status-disconnected",
+        _ => "status-inactive"
+    };
+
+    private static string FormatTime(DateTime utcTime)
+    {
+        var elapsed = DateTime.UtcNow - utcTime;
+        if (elapsed.TotalMinutes < 1) return "Just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
+        return utcTime.ToString("MMM d, yyyy");
+    }
+
+    private static string FormatCooldown(int seconds)
+    {
+        if (seconds <= 0) return "None";
+        if (seconds < 60) return $"{seconds}s";
+        if (seconds < 3600) return $"{seconds / 60}m";
+        return $"{seconds / 3600}h";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

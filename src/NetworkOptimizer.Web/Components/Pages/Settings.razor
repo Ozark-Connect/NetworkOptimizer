@@ -20,6 +20,14 @@
 @inject IAdminAuthService AdminAuth
 @inject IJSRuntime JS
 @inject DiagnosticsService DiagnosticsService
+@inject NetworkOptimizer.Alerts.Interfaces.IAlertRepository AlertRepository
+@inject IEnumerable<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel> DeliveryChannels
+@inject NetworkOptimizer.Alerts.Delivery.ISecretDecryptor SecretDecryptor
+@inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService GeoService
+@inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
+@inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
+@inject IHttpClientFactory HttpClientFactory
+@using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
@@ -993,38 +1001,8 @@
         </div>
         <div class="card-body">
             <div class="form-group">
-                <label class="form-label">Monitoring Interval (seconds)</label>
-                <input type="number" class="form-control" @bind="monitoringInterval" min="30" max="3600" />
-                <small class="form-help">How often to poll devices for metrics</small>
-            </div>
-
-            <div class="form-group">
                 <label class="form-label">Alert Retention (days)</label>
                 <input type="number" class="form-control" @bind="alertRetention" min="1" max="365" />
-            </div>
-
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" @bind="enableNotifications" />
-                    <span>Enable email notifications for critical issues</span>
-                </label>
-            </div>
-
-            @if (enableNotifications)
-            {
-                <div class="form-group">
-                    <label class="form-label">Notification Email</label>
-                    <input type="email" class="form-control" @bind="notificationEmail" />
-                </div>
-            }
-
-            <div class="form-group">
-                <label class="form-label">Theme</label>
-                <select class="form-control" @bind="theme">
-                    <option value="dark">Dark (Default)</option>
-                    <option value="light">Light</option>
-                    <option value="auto">Auto (System)</option>
-                </select>
             </div>
 
             <div class="action-buttons">
@@ -1135,6 +1113,392 @@
             {
                 <div class="alert alert-@auditSettingsMessageClass" style="margin-top: 1rem;">
                     @auditSettingsMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Alert Channels Configuration -->
+    <div class="card" id="alert-channels">
+        <div class="card-header">
+            <h2 class="card-title">Alert Channels</h2>
+            @if (alertChannels?.Count > 0)
+            {
+                <span class="status-badge status-active">@alertChannels.Count configured</span>
+            }
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Configure notification channels for the alert engine. Alerts are delivered via email, webhooks, Slack, Discord, or Microsoft Teams.
+            </p>
+
+            @if (alertChannels?.Count > 0)
+            {
+                @foreach (var ch in alertChannels)
+                {
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--bg-tertiary);">
+                        <div>
+                            <strong style="color: var(--text-primary);">@ch.Name</strong>
+                            <span class="status-badge" style="margin-left: 0.5rem;">@ch.ChannelType</span>
+                            @if (!ch.IsEnabled)
+                            {
+                                <span style="color: var(--text-muted); margin-left: 0.5rem;">(disabled)</span>
+                            }
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary btn-sm" @onclick="() => TestAlertChannel(ch.Id)" disabled="@testingAlertChannel">
+                                @if (testingAlertChannel && testingAlertChannelId == ch.Id)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                }
+                                else
+                                {
+                                    <span>Test</span>
+                                }
+                            </button>
+                            <button class="btn btn-secondary btn-sm" @onclick="() => StartEditChannel(ch)">Edit</button>
+                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteAlertChannel(ch.Id)">Delete</button>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="empty-state" style="padding: 2rem;">
+                    <p>No alert channels configured. Add one to start receiving notifications.</p>
+                </div>
+            }
+
+            @if (showChannelForm)
+            {
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 6px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 1rem;">@(editingChannelId.HasValue ? "Edit" : "Add") Channel</h4>
+
+                    <div class="form-group">
+                        <label class="form-label">Channel Name</label>
+                        <input type="text" class="form-control" @bind="channelFormName" placeholder="e.g., Ops Team Slack" />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Channel Type</label>
+                        <select class="form-control" @bind="channelFormType">
+                            <option value="Email">Email (SMTP)</option>
+                            <option value="Webhook">Webhook</option>
+                            <option value="Slack">Slack</option>
+                            <option value="Discord">Discord</option>
+                            <option value="Teams">Microsoft Teams</option>
+                        </select>
+                    </div>
+
+                    @if (channelFormType == "Email")
+                    {
+                        <div class="form-group">
+                            <label class="form-label">SMTP Host</label>
+                            <input type="text" class="form-control" @bind="channelSmtpHost" placeholder="smtp.gmail.com" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">SMTP Port</label>
+                            <input type="number" class="form-control" @bind="channelSmtpPort" />
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" checked="@channelSmtpSsl" @onchange="OnSmtpSslChanged" />
+                                <span>Use SSL/TLS</span>
+                            </label>
+                            @if (channelSmtpSsl)
+                            {
+                                <label class="checkbox-label" style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                                    <input type="checkbox" checked="@channelSmtpStartTls" @onchange="OnSmtpStartTlsChanged" />
+                                    <span>Use STARTTLS (recommended for port 587)</span>
+                                </label>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" @bind="channelSmtpUser" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" @bind="channelSmtpPass" autocomplete="new-password" placeholder="@(editingChannelId.HasValue ? "Saved - enter new to update" : "")" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">From Address</label>
+                            <input type="email" class="form-control" @bind="channelSmtpFrom" placeholder="alerts@example.com" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">To Addresses</label>
+                            <input type="text" class="form-control" @bind="channelSmtpTo" placeholder="admin@example.com, ops@example.com" />
+                            <small class="form-help">Comma-separated email addresses</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Webhook URL</label>
+                            <input type="url" class="form-control" @bind="channelWebhookUrl" placeholder="https://hooks.slack.com/services/..." autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        @if (channelFormType == "Webhook")
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Secret (for HMAC signature)</label>
+                                <input type="password" class="form-control" @bind="channelWebhookSecret" autocomplete="new-password" placeholder="Optional" data-1p-ignore data-lpignore="true" data-bwignore />
+                            </div>
+                        }
+                    }
+
+                    <div class="form-group">
+                        <label class="form-label">Minimum Severity</label>
+                        <select class="form-control" @bind="channelMinSeverity">
+                            <option value="Info">Info</option>
+                            <option value="Warning">Warning</option>
+                            <option value="Error">Error</option>
+                            <option value="Critical">Critical</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="channelEnabled" />
+                            <span>Enabled</span>
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="channelDigestEnabled" />
+                            <span>Enable digest summaries</span>
+                        </label>
+                    </div>
+
+                    @if (channelDigestEnabled)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Digest Schedule</label>
+                            <select class="form-control" @bind="channelDigestSchedule">
+                                <option value="daily:08:00">Daily at 08:00 UTC</option>
+                                <option value="daily:18:00">Daily at 18:00 UTC</option>
+                                <option value="weekly:monday:08:00">Weekly on Monday</option>
+                            </select>
+                        </div>
+                    }
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveAlertChannel" disabled="@savingAlertChannel">
+                            @if (savingAlertChannel)
+                            {
+                                <span class="spinner"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>Save Channel</span>
+                            }
+                        </button>
+                        <button class="btn btn-secondary" @onclick="CancelChannelForm">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="action-buttons" style="margin-top: 1rem;">
+                    <button class="btn btn-primary" @onclick="StartAddChannel">+ Add Channel</button>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(alertChannelMessage))
+            {
+                <div class="alert alert-@alertChannelMessageClass" style="margin-top: 1rem;">
+                    @alertChannelMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Threat Intelligence Configuration -->
+    <div class="card" id="threat-intelligence">
+        <div class="card-header">
+            <h2 class="card-title">Threat Intelligence</h2>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Configure IPS / IDS event collection from your UniFi gateway. Events are collected via the UniFi API and analyzed for attack patterns.
+            </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="threatCollectionEnabled" />
+                    <span>Enable threat event collection</span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Background Collection Interval</label>
+                <select class="form-control" @bind="threatPollInterval">
+                    <option value="1">Every minute</option>
+                    <option value="5">Every 5 minutes</option>
+                    <option value="10">Every 10 minutes</option>
+                    <option value="15">Every 15 minutes</option>
+                    <option value="30">Every 30 minutes</option>
+                </select>
+                <small class="form-help">How often new events are fetched from UniFi in the background. The dashboard auto-refreshes every 30 seconds when open.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Data Retention</label>
+                <select class="form-control" @bind="threatRetentionDays">
+                    <option value="30">30 days</option>
+                    <option value="60">60 days</option>
+                    <option value="90">90 days</option>
+                    <option value="180">180 days</option>
+                    <option value="365">1 year</option>
+                </select>
+            </div>
+
+            <div id="maxmind" style="margin-top: 1.25rem; padding: 1rem; background: var(--bg-primary); border-radius: 8px;">
+                <div class="info-row">
+                    <span class="info-label">GeoLite2 Database:</span>
+                    <span class="info-value" style="color: var(--text-secondary);">@threatGeoStatus</span>
+                </div>
+
+                <div class="form-group" style="margin-top: 0.75rem;">
+                    <label class="form-label">MaxMind Account ID</label>
+                    <input type="text" class="form-control" @bind="maxmindAccountId" autocomplete="off"
+                           placeholder="@(hasMaxmindAccountId ? "Saved - enter new to update" : "Enter MaxMind account ID")"
+                           style="max-width: 200px;"
+                           data-1p-ignore data-lpignore="true" data-bwignore />
+                </div>
+
+                <div class="form-group" style="margin-top: 0.75rem;">
+                    <label class="form-label">MaxMind License Key</label>
+                    <input type="password" class="form-control" @bind="maxmindLicenseKey" autocomplete="new-password"
+                           placeholder="@(hasMaxmindLicenseKey ? "Saved - enter new to update" : "Enter MaxMind license key")"
+                           data-1p-ignore data-lpignore="true" data-bwignore />
+                    <small class="form-help">Get a free account at <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">maxmind.com</a> - Account ID and license key are under Account > Manage License Keys</small>
+                </div>
+
+                @if ((hasMaxmindAccountId || !string.IsNullOrEmpty(maxmindAccountId)) && (hasMaxmindLicenseKey || !string.IsNullOrEmpty(maxmindLicenseKey)))
+                {
+                    <button class="btn btn-secondary btn-sm" @onclick="DownloadMaxMindDatabases" disabled="@downloadingMaxmind" style="margin-top: 0.5rem;">
+                        @if (downloadingMaxmind)
+                        {
+                            <span class="spinner-sm"></span>
+                            <span>Downloading...</span>
+                        }
+                        else
+                        {
+                            <span>Download Now</span>
+                        }
+                    </button>
+                }
+
+                @if (!string.IsNullOrEmpty(maxmindMessage))
+                {
+                    <div class="alert alert-@maxmindMessageClass" style="margin-top: 1rem;">
+                        @maxmindMessage
+                    </div>
+                }
+            </div>
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-primary" @onclick="SaveThreatSettings" disabled="@savingThreatSettings">
+                    @if (savingThreatSettings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(threatSettingsMessage))
+            {
+                <div class="alert alert-@threatSettingsMessageClass" style="margin-top: 1rem;">
+                    @threatSettingsMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- CrowdSec CTI Configuration -->
+    <div class="card" id="crowdsec">
+        <div class="card-header">
+            <h2 class="card-title">CrowdSec CTI</h2>
+            @if (crowdsecEnabled)
+            {
+                <span class="status-badge status-active">Enabled</span>
+            }
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Enrich threat data with CrowdSec community threat intelligence. When enabled, source IPs from detected threats are checked against the CrowdSec reputation database.
+            </p>
+
+            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                <strong>Privacy notice:</strong> When enabled, source IPs from detected IPS / IDS events will be sent to the CrowdSec API for reputation lookup. No other data is shared.
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="crowdsecEnabled" />
+                    <span>Enable CrowdSec CTI enrichment</span>
+                </label>
+            </div>
+
+            @if (crowdsecEnabled)
+            {
+                <div class="form-group">
+                    <label class="form-label">CTI API Key</label>
+                    <input type="password" class="form-control" @bind="crowdsecApiKey" autocomplete="new-password" placeholder="@(hasCrowdsecApiKey ? "Saved - enter new to update" : "Enter CrowdSec CTI API key")" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <small class="form-help">Generate a CTI API key at <a href="https://app.crowdsec.net" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color);">app.crowdsec.net</a> under CTI API Keys (30 lookups/day free tier)</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Daily Quota</label>
+                    <input type="number" class="form-control" @bind="crowdsecDailyQuota" min="1" max="100000" style="max-width: 120px;" />
+                    <small class="form-help">Your plan's daily lookup limit (free tier: 30)</small>
+                </div>
+
+                <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
+                    <span class="info-label">Usage Today:</span>
+                    <span class="info-value" style="color: var(--text-secondary);">@crowdsecUsageDisplay</span>
+                </div>
+            }
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-primary" @onclick="SaveCrowdSecSettings" disabled="@savingCrowdsecSettings">
+                    @if (savingCrowdsecSettings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+                @if (crowdsecEnabled && hasCrowdsecApiKey)
+                {
+                    <button class="btn btn-secondary" @onclick="TestCrowdSec" disabled="@testingCrowdsec">
+                        @if (testingCrowdsec)
+                        {
+                            <span class="spinner"></span>
+                            <span>Testing...</span>
+                        }
+                        else
+                        {
+                            <span>Test CTI Key</span>
+                        }
+                    </button>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(crowdsecMessage))
+            {
+                <div class="alert alert-@crowdsecMessageClass" style="margin-top: 1rem;">
+                    @crowdsecMessage
                 </div>
             }
         </div>
@@ -1398,11 +1762,7 @@
     private string adminPasswordMessageClass = "";
 
     // Application Settings
-    private int monitoringInterval = 300;
     private int alertRetention = 30;
-    private bool enableNotifications = false;
-    private string notificationEmail = "";
-    private string theme = "dark";
 
     // Security Audit Settings
     private bool allowAppleStreamingOnMainNetwork = false;
@@ -1418,6 +1778,61 @@
     private bool savingAuditSettings = false;
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
+
+    // Alert Channels
+    private List<DeliveryChannel>? alertChannels;
+    private bool showChannelForm = false;
+    private int? editingChannelId = null;
+    private string channelFormName = "";
+    private string channelFormType = "Email";
+    private string channelSmtpHost = "";
+    private int channelSmtpPort = 587;
+    private bool channelSmtpSsl = true;
+    private bool channelSmtpStartTls = true;
+    private string channelSmtpUser = "";
+    private string channelSmtpPass = "";
+    private string channelSmtpFrom = "";
+    private string channelSmtpTo = "";
+    private string channelWebhookUrl = "";
+    private string channelWebhookSecret = "";
+    private string channelMinSeverity = "Warning";
+    private bool channelEnabled = true;
+    private bool channelDigestEnabled = false;
+    private string channelDigestSchedule = "daily:08:00";
+    private bool savingAlertChannel = false;
+    private bool testingAlertChannel = false;
+    private int testingAlertChannelId = 0;
+    private string alertChannelMessage = "";
+    private string alertChannelMessageClass = "";
+
+    // Threat Intelligence Settings
+    private bool threatCollectionEnabled = true;
+    private int threatPollInterval = 5;
+    private int threatRetentionDays = 90;
+    private string threatGeoStatus = "Checking...";
+    private bool savingThreatSettings = false;
+    private string threatSettingsMessage = "";
+    private string threatSettingsMessageClass = "";
+
+    // MaxMind GeoLite2 Settings
+    private string maxmindAccountId = "";
+    private bool hasMaxmindAccountId = false;
+    private string maxmindLicenseKey = "";
+    private bool hasMaxmindLicenseKey = false;
+    private bool downloadingMaxmind = false;
+    private string maxmindMessage = "";
+    private string maxmindMessageClass = "";
+
+    // CrowdSec Settings
+    private bool crowdsecEnabled = false;
+    private string crowdsecApiKey = "";
+    private bool hasCrowdsecApiKey = false;
+    private int crowdsecDailyQuota = 30;
+    private string crowdsecUsageDisplay = "0/30";
+    private bool savingCrowdsecSettings = false;
+    private bool testingCrowdsec = false;
+    private string crowdsecMessage = "";
+    private string crowdsecMessageClass = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -1444,6 +1859,8 @@
         await LoadIperf3Settings();
         await LoadAdminPasswordSettings();
         await LoadAuditSettings();
+        await LoadAlertChannels();
+        await LoadThreatSettings();
     }
 
     private async Task LoadIperf3Settings()
@@ -2775,6 +3192,551 @@
         {
             savingAuditSettings = false;
             StateHasChanged();
+        }
+    }
+
+    // ===== Alert Channel Methods =====
+
+    private async Task LoadAlertChannels()
+    {
+        try { alertChannels = await AlertRepository.GetChannelsAsync(); }
+        catch { alertChannels = new(); }
+    }
+
+    private void OnSmtpSslChanged(ChangeEventArgs e)
+    {
+        channelSmtpSsl = (bool)(e.Value ?? false);
+        if (channelSmtpSsl)
+        {
+            channelSmtpStartTls = true;
+            channelSmtpPort = 587;
+        }
+        else
+        {
+            channelSmtpStartTls = false;
+            channelSmtpPort = 25;
+        }
+    }
+
+    private void OnSmtpStartTlsChanged(ChangeEventArgs e)
+    {
+        channelSmtpStartTls = (bool)(e.Value ?? false);
+        channelSmtpPort = channelSmtpStartTls ? 587 : 465;
+    }
+
+    private void StartAddChannel()
+    {
+        editingChannelId = null;
+        channelFormName = "";
+        channelFormType = "Email";
+        channelSmtpHost = "";
+        channelSmtpPort = 587;
+        channelSmtpSsl = true;
+        channelSmtpStartTls = true;
+        channelSmtpUser = "";
+        channelSmtpPass = "";
+        channelSmtpFrom = "";
+        channelSmtpTo = "";
+        channelWebhookUrl = "";
+        channelWebhookSecret = "";
+        channelMinSeverity = "Warning";
+        channelEnabled = true;
+        channelDigestEnabled = false;
+        channelDigestSchedule = "daily:08:00";
+        showChannelForm = true;
+        alertChannelMessage = "";
+    }
+
+    private void StartEditChannel(DeliveryChannel ch)
+    {
+        editingChannelId = ch.Id;
+        channelFormName = ch.Name;
+        channelFormType = ch.ChannelType.ToString();
+        channelMinSeverity = ch.MinSeverity.ToString();
+        channelEnabled = ch.IsEnabled;
+        channelDigestEnabled = ch.DigestEnabled;
+        channelDigestSchedule = ch.DigestSchedule ?? "daily:08:00";
+
+        // Parse config JSON based on type
+        try
+        {
+            if (ch.ChannelType == DeliveryChannelType.Email)
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<NetworkOptimizer.Alerts.Delivery.EmailChannelConfig>(ch.ConfigJson);
+                if (cfg != null)
+                {
+                    channelSmtpHost = cfg.SmtpHost;
+                    channelSmtpPort = cfg.SmtpPort;
+                    channelSmtpSsl = cfg.UseSsl;
+                    channelSmtpStartTls = cfg.UseStartTls;
+                    channelSmtpUser = cfg.Username;
+                    channelSmtpFrom = cfg.FromAddress;
+                    channelSmtpTo = cfg.ToAddresses;
+                    channelSmtpPass = ""; // Don't expose
+                }
+            }
+            else
+            {
+                var json = System.Text.Json.JsonDocument.Parse(ch.ConfigJson);
+                if (json.RootElement.TryGetProperty("WebhookUrl", out var url) ||
+                    json.RootElement.TryGetProperty("webhookUrl", out url))
+                    channelWebhookUrl = url.GetString() ?? "";
+            }
+        }
+        catch { /* Ignore parse errors */ }
+
+        showChannelForm = true;
+        alertChannelMessage = "";
+    }
+
+    private void CancelChannelForm()
+    {
+        showChannelForm = false;
+        editingChannelId = null;
+        alertChannelMessage = "";
+    }
+
+    private async Task SaveAlertChannel()
+    {
+        savingAlertChannel = true;
+        alertChannelMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(channelFormName))
+            {
+                alertChannelMessage = "Channel name is required.";
+                alertChannelMessageClass = "warning";
+                return;
+            }
+
+            var channelType = Enum.Parse<DeliveryChannelType>(channelFormType);
+
+            // Validate required fields by channel type
+            if (channelType == DeliveryChannelType.Email)
+            {
+                if (string.IsNullOrWhiteSpace(channelSmtpHost))
+                {
+                    alertChannelMessage = "SMTP host is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(channelSmtpFrom))
+                {
+                    alertChannelMessage = "From address is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(channelSmtpTo))
+                {
+                    alertChannelMessage = "At least one recipient address is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+            }
+            else
+            {
+                // Webhook, Slack, Discord, Teams all require a URL
+                if (string.IsNullOrWhiteSpace(channelWebhookUrl))
+                {
+                    alertChannelMessage = "Webhook URL is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+            }
+
+            var severity = Enum.Parse<NetworkOptimizer.Core.Enums.AlertSeverity>(channelMinSeverity);
+            var configJson = BuildChannelConfigJson(channelType);
+
+            if (editingChannelId.HasValue)
+            {
+                var existing = await AlertRepository.GetChannelAsync(editingChannelId.Value);
+                if (existing != null)
+                {
+                    existing.Name = channelFormName;
+                    existing.ChannelType = channelType;
+                    existing.ConfigJson = configJson;
+                    existing.MinSeverity = severity;
+                    existing.IsEnabled = channelEnabled;
+                    existing.DigestEnabled = channelDigestEnabled;
+                    existing.DigestSchedule = channelDigestEnabled ? channelDigestSchedule : null;
+                    await AlertRepository.UpdateChannelAsync(existing);
+                }
+            }
+            else
+            {
+                var channel = new DeliveryChannel
+                {
+                    Name = channelFormName,
+                    ChannelType = channelType,
+                    ConfigJson = configJson,
+                    MinSeverity = severity,
+                    IsEnabled = channelEnabled,
+                    DigestEnabled = channelDigestEnabled,
+                    DigestSchedule = channelDigestEnabled ? channelDigestSchedule : null
+                };
+                await AlertRepository.SaveChannelAsync(channel);
+            }
+
+            await LoadAlertChannels();
+            showChannelForm = false;
+            editingChannelId = null;
+            alertChannelMessage = "Channel saved successfully.";
+            alertChannelMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            alertChannelMessage = $"Error saving channel: {ex.Message}";
+            alertChannelMessageClass = "danger";
+        }
+        finally
+        {
+            savingAlertChannel = false;
+            StateHasChanged();
+        }
+    }
+
+    private string BuildChannelConfigJson(DeliveryChannelType type)
+    {
+        if (type == DeliveryChannelType.Email)
+        {
+            var cfg = new NetworkOptimizer.Alerts.Delivery.EmailChannelConfig
+            {
+                SmtpHost = channelSmtpHost,
+                SmtpPort = channelSmtpPort,
+                UseSsl = channelSmtpSsl,
+                UseStartTls = channelSmtpStartTls,
+                Username = channelSmtpUser,
+                Password = !string.IsNullOrEmpty(channelSmtpPass) ? SecretDecryptor.Encrypt(channelSmtpPass) : "",
+                FromAddress = channelSmtpFrom,
+                ToAddresses = channelSmtpTo
+            };
+            return System.Text.Json.JsonSerializer.Serialize(cfg);
+        }
+
+        if (type == DeliveryChannelType.Webhook)
+        {
+            var cfg = new NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig
+            {
+                Url = channelWebhookUrl,
+                Secret = !string.IsNullOrEmpty(channelWebhookSecret) ? SecretDecryptor.Encrypt(channelWebhookSecret) : null
+            };
+            return System.Text.Json.JsonSerializer.Serialize(cfg);
+        }
+
+        // Slack, Discord, Teams all use webhook URL
+        return System.Text.Json.JsonSerializer.Serialize(new { WebhookUrl = channelWebhookUrl });
+    }
+
+    private async Task TestAlertChannel(int channelId)
+    {
+        testingAlertChannel = true;
+        testingAlertChannelId = channelId;
+        alertChannelMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var channel = await AlertRepository.GetChannelAsync(channelId);
+            if (channel == null)
+            {
+                alertChannelMessage = "Channel not found.";
+                alertChannelMessageClass = "danger";
+                return;
+            }
+
+            var handler = DeliveryChannels.FirstOrDefault(d => d.ChannelType == channel.ChannelType);
+            if (handler == null)
+            {
+                alertChannelMessage = $"No handler for {channel.ChannelType}.";
+                alertChannelMessageClass = "danger";
+                return;
+            }
+
+            var (success, error) = await handler.TestAsync(channel);
+            alertChannelMessage = success ? "Test message sent successfully!" : $"Test failed: {error}";
+            alertChannelMessageClass = success ? "success" : "danger";
+        }
+        catch (Exception ex)
+        {
+            alertChannelMessage = $"Test error: {ex.Message}";
+            alertChannelMessageClass = "danger";
+        }
+        finally
+        {
+            testingAlertChannel = false;
+            testingAlertChannelId = 0;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteAlertChannel(int channelId)
+    {
+        try
+        {
+            await AlertRepository.DeleteChannelAsync(channelId);
+            await LoadAlertChannels();
+            alertChannelMessage = "Channel deleted.";
+            alertChannelMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            alertChannelMessage = $"Error deleting: {ex.Message}";
+            alertChannelMessageClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private async Task LoadThreatSettings()
+    {
+        try
+        {
+            var enabled = await SystemSettings.GetAsync("threats.enabled");
+            threatCollectionEnabled = enabled != "false";
+
+            var interval = await SystemSettings.GetAsync("threats.poll_interval_minutes");
+            if (int.TryParse(interval, out var i)) threatPollInterval = i;
+
+            var retention = await SystemSettings.GetAsync("threats.retention_days");
+            if (int.TryParse(retention, out var r)) threatRetentionDays = r;
+
+            // Build geo database status from service properties
+            if (GeoService.IsCityAvailable && GeoService.IsAsnAvailable)
+                threatGeoStatus = "City and ASN databases loaded";
+            else if (GeoService.IsCityAvailable)
+                threatGeoStatus = "City database loaded (ASN database missing)";
+            else if (GeoService.IsAsnAvailable)
+                threatGeoStatus = "ASN database loaded (City database missing)";
+            else
+                threatGeoStatus = "Not found - add a MaxMind license key below to auto-download";
+
+            var mmAcct = await SystemSettings.GetAsync("maxmind.account_id");
+            hasMaxmindAccountId = !string.IsNullOrEmpty(mmAcct);
+
+            var mmKey = await SystemSettings.GetAsync("maxmind.license_key");
+            hasMaxmindLicenseKey = !string.IsNullOrEmpty(mmKey);
+
+            var csEnabled = await SystemSettings.GetAsync("crowdsec.enabled");
+            crowdsecEnabled = csEnabled == "true";
+            var csKey = await SystemSettings.GetAsync("crowdsec.api_key");
+            hasCrowdsecApiKey = !string.IsNullOrEmpty(csKey);
+
+            var csQuota = await SystemSettings.GetAsync("crowdsec.daily_quota");
+            if (!string.IsNullOrEmpty(csQuota) && int.TryParse(csQuota, out var quota) && quota >= 1)
+                crowdsecDailyQuota = quota;
+
+            var rateLimitState = CrowdSecClient.GetRateLimitState();
+            crowdsecUsageDisplay = $"{rateLimitState.RequestsToday}/{rateLimitState.DailyLimit}";
+        }
+        catch (Exception ex)
+        {
+            threatSettingsMessage = $"Error loading threat settings: {ex.Message}";
+            threatSettingsMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveThreatSettings()
+    {
+        savingThreatSettings = true;
+        threatSettingsMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await SystemSettings.SetAsync("threats.enabled", threatCollectionEnabled ? "true" : "false");
+            await SystemSettings.SetAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
+            await SystemSettings.SetAsync("threats.retention_days", threatRetentionDays.ToString());
+
+            if (!string.IsNullOrEmpty(maxmindAccountId))
+            {
+                var encAcct = CredentialService.Encrypt(maxmindAccountId);
+                await SystemSettings.SetAsync("maxmind.account_id", encAcct);
+                hasMaxmindAccountId = true;
+                maxmindAccountId = "";
+            }
+
+            if (!string.IsNullOrEmpty(maxmindLicenseKey))
+            {
+                var encrypted = CredentialService.Encrypt(maxmindLicenseKey);
+                await SystemSettings.SetAsync("maxmind.license_key", encrypted);
+                hasMaxmindLicenseKey = true;
+                maxmindLicenseKey = "";
+            }
+
+            threatSettingsMessage = "Threat intelligence settings saved.";
+            threatSettingsMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            threatSettingsMessage = $"Error saving settings: {ex.Message}";
+            threatSettingsMessageClass = "danger";
+        }
+        finally
+        {
+            savingThreatSettings = false;
+        }
+    }
+
+    private async Task DownloadMaxMindDatabases()
+    {
+        downloadingMaxmind = true;
+        maxmindMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            // Use entered values or load saved credentials
+            var accountId = maxmindAccountId;
+            if (string.IsNullOrEmpty(accountId))
+            {
+                var encAcct = await SystemSettings.GetAsync("maxmind.account_id");
+                if (!string.IsNullOrEmpty(encAcct))
+                    accountId = CredentialService.IsEncrypted(encAcct) ? CredentialService.Decrypt(encAcct) : encAcct;
+            }
+
+            var licenseKey = maxmindLicenseKey;
+            if (string.IsNullOrEmpty(licenseKey))
+            {
+                var encrypted = await SystemSettings.GetAsync("maxmind.license_key");
+                if (!string.IsNullOrEmpty(encrypted))
+                    licenseKey = CredentialService.IsEncrypted(encrypted) ? CredentialService.Decrypt(encrypted) : encrypted;
+            }
+
+            if (string.IsNullOrEmpty(accountId) || string.IsNullOrEmpty(licenseKey))
+            {
+                maxmindMessage = "Please enter both MaxMind Account ID and License Key.";
+                maxmindMessageClass = "warning";
+                return;
+            }
+
+            // Save credentials if just entered
+            if (!string.IsNullOrEmpty(maxmindAccountId))
+            {
+                var encAcct = CredentialService.Encrypt(maxmindAccountId);
+                await SystemSettings.SetAsync("maxmind.account_id", encAcct);
+                hasMaxmindAccountId = true;
+                maxmindAccountId = "";
+            }
+
+            if (!string.IsNullOrEmpty(maxmindLicenseKey))
+            {
+                var encKey = CredentialService.Encrypt(maxmindLicenseKey);
+                await SystemSettings.SetAsync("maxmind.license_key", encKey);
+                hasMaxmindLicenseKey = true;
+                maxmindLicenseKey = "";
+            }
+
+            var dataPath = GetGeoDataPath();
+            using var httpClient = HttpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(5);
+
+            var (success, message) = await GeoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient);
+            maxmindMessage = message;
+            maxmindMessageClass = success ? "success" : "danger";
+
+            if (success)
+            {
+                await SystemSettings.SetAsync("maxmind.last_download", DateTime.UtcNow.ToString("O"));
+                await LoadThreatSettings(); // Refresh geo status display
+            }
+        }
+        catch (Exception ex)
+        {
+            maxmindMessage = $"Download failed: {ex.Message}";
+            maxmindMessageClass = "danger";
+        }
+        finally
+        {
+            downloadingMaxmind = false;
+        }
+    }
+
+    private static string GetGeoDataPath()
+    {
+        if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
+            return "/app/data";
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(AppContext.BaseDirectory, "data");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkOptimizer");
+    }
+
+    private async Task SaveCrowdSecSettings()
+    {
+        savingCrowdsecSettings = true;
+        crowdsecMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await SystemSettings.SetAsync("crowdsec.enabled", crowdsecEnabled ? "true" : "false");
+
+            if (!string.IsNullOrEmpty(crowdsecApiKey))
+            {
+                var encrypted = CredentialService.Encrypt(crowdsecApiKey);
+                await SystemSettings.SetAsync("crowdsec.api_key", encrypted);
+                hasCrowdsecApiKey = true;
+                crowdsecApiKey = "";
+            }
+
+            await SystemSettings.SetAsync("crowdsec.daily_quota", crowdsecDailyQuota.ToString());
+
+            // Update the rate limiter with the new quota
+            var state = CrowdSecClient.GetRateLimitState();
+            CrowdSecClient.LoadRateLimitState(state.RequestsToday, state.RequestsDate, crowdsecDailyQuota);
+            crowdsecUsageDisplay = $"{state.RequestsToday}/{crowdsecDailyQuota}";
+
+            crowdsecMessage = "CrowdSec settings saved.";
+            crowdsecMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            crowdsecMessage = $"Error saving settings: {ex.Message}";
+            crowdsecMessageClass = "danger";
+        }
+        finally
+        {
+            savingCrowdsecSettings = false;
+        }
+    }
+
+    private async Task TestCrowdSec()
+    {
+        testingCrowdsec = true;
+        crowdsecMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var stored = await SystemSettings.GetAsync("crowdsec.api_key");
+            if (string.IsNullOrEmpty(stored))
+            {
+                crowdsecMessage = "No CTI API key configured.";
+                crowdsecMessageClass = "warning";
+                return;
+            }
+
+            var apiKey = CredentialService.IsEncrypted(stored) ? CredentialService.Decrypt(stored) : stored;
+            var result = await CrowdSecClient.TestApiKeyAsync(apiKey);
+            if (result.Success)
+            {
+                crowdsecMessage = result.Message;
+                crowdsecMessageClass = "success";
+            }
+            else
+            {
+                crowdsecMessage = result.Message;
+                crowdsecMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            crowdsecMessage = $"Test failed: {ex.Message}";
+            crowdsecMessageClass = "danger";
+        }
+        finally
+        {
+            testingCrowdsec = false;
         }
     }
 }

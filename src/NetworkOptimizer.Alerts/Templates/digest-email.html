@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body style="margin:0;padding:0;background:#1a2029;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#1a2029;padding:24px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#242c39;border-radius:8px;overflow:hidden;">
+        <!-- Header -->
+        <tr>
+          <td style="background:#0559C9;padding:16px 24px;">
+            <span style="color:#fff;font-size:14px;font-weight:600;">Alert Digest</span>
+          </td>
+        </tr>
+        <!-- Summary -->
+        <tr>
+          <td style="padding:24px;">
+            <h2 style="margin:0 0 16px;color:#f1f5f9;font-size:18px;font-weight:600;">{{ total_count }} alerts in this period</h2>
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#1a2029;border-radius:6px;">
+              {{ if critical_count > 0 }}
+              <tr>
+                <td style="padding:8px 12px;">
+                  <span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:50%;margin-right:8px;"></span>
+                  <span style="color:#f1f5f9;font-size:13px;font-weight:500;">{{ critical_count }} Critical</span>
+                </td>
+              </tr>
+              {{ end }}
+              {{ if error_count > 0 }}
+              <tr>
+                <td style="padding:8px 12px;">
+                  <span style="display:inline-block;width:10px;height:10px;background:#ee6368;border-radius:50%;margin-right:8px;"></span>
+                  <span style="color:#f1f5f9;font-size:13px;font-weight:500;">{{ error_count }} Error</span>
+                </td>
+              </tr>
+              {{ end }}
+              {{ if warning_count > 0 }}
+              <tr>
+                <td style="padding:8px 12px;">
+                  <span style="display:inline-block;width:10px;height:10px;background:#e79613;border-radius:50%;margin-right:8px;"></span>
+                  <span style="color:#f1f5f9;font-size:13px;font-weight:500;">{{ warning_count }} Warning</span>
+                </td>
+              </tr>
+              {{ end }}
+              {{ if info_count > 0 }}
+              <tr>
+                <td style="padding:8px 12px;">
+                  <span style="display:inline-block;width:10px;height:10px;background:#4797ff;border-radius:50%;margin-right:8px;"></span>
+                  <span style="color:#f1f5f9;font-size:13px;font-weight:500;">{{ info_count }} Info</span>
+                </td>
+              </tr>
+              {{ end }}
+            </table>
+          </td>
+        </tr>
+        <!-- Grouped Alerts -->
+        {{ for group in groups }}
+        <tr>
+          <td style="padding:0 24px 16px;">
+            <h3 style="margin:0 0 8px;color:#cbd5e1;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">{{ group.source }} ({{ group.count }})</h3>
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#1a2029;border-radius:6px;">
+              {{ for alert in group.alerts }}
+              <tr>
+                <td style="padding:8px 12px;border-bottom:1px solid #334155;">
+                  <span style="display:inline-block;width:8px;height:8px;background:{{ alert.severity_color }};border-radius:50%;margin-right:8px;"></span>
+                  <span style="color:#f1f5f9;font-size:13px;">{{ alert.title }}</span>
+                  <span style="color:#64748b;font-size:11px;margin-left:8px;">{{ alert.triggered_at }}</span>
+                </td>
+              </tr>
+              {{ end }}
+            </table>
+          </td>
+        </tr>
+        {{ end }}
+        <!-- Footer -->
+        <tr>
+          <td style="padding:16px 24px;border-top:1px solid #334155;">
+            <p style="margin:0;color:#64748b;font-size:11px;">Generated {{ generated_at }} by Network Optimizer Alert Engine</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

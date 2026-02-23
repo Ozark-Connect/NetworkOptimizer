@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Enums;
+
 namespace NetworkOptimizer.Monitoring.Models;
 
 /// <summary>
@@ -124,28 +126,6 @@ public class Alert
     /// Notes added to the alert
     /// </summary>
     public string? Notes { get; set; }
-}
-
-/// <summary>
-/// Alert severity levels
-/// </summary>
-public enum AlertSeverity
-{
-    Info = 0,
-    Warning = 1,
-    Error = 2,
-    Critical = 3
-}
-
-/// <summary>
-/// Alert status
-/// </summary>
-public enum AlertStatus
-{
-    Active,
-    Acknowledged,
-    Resolved,
-    Suppressed
 }
 
 /// <summary>

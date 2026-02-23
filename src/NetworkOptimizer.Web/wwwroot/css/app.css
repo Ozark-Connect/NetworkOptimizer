@@ -557,6 +557,10 @@ a:hover {
     border-bottom: 1px solid var(--border-color);
 }
 
+.speed-test-row:first-child {
+    padding-top: 0;
+}
+
 .speed-test-row:last-child {
     border-bottom: none;
 }
@@ -713,8 +717,19 @@ a.stat-card-link:active {
 }
 
 /* Main dashboard cards - fixed height to prevent flash during load */
-.content-grid > .card:nth-child(-n+4) {
+.content-grid > .card:first-child {
     min-height: 37vh;
+}
+
+/* Card stacking - two cards in one grid cell */
+.card-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.card-stack-even > .card {
+    flex: 1;
 }
 
 /* Dashboard Grid */
@@ -2700,6 +2715,15 @@ select.form-control {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.banner-icon-info {
+    background: var(--info-color);
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    width: 24px;
+    height: 24px;
 }
 
 .banner-text {
@@ -6689,6 +6713,45 @@ a.path-hop.hop-clickable:hover {
     padding: 0.25rem;
 }
 
+.custom-range-popover {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    z-index: 50;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    min-width: 240px;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.custom-range-popover.open {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.custom-range-input {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    width: 100%;
+    color-scheme: dark;
+}
+
+.custom-range-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
 /* Use secondary background when inside nested cards */
 .card .card .pill-selector,
 .card .card .time-range-selector,
@@ -7532,6 +7595,48 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.75rem;
     color: var(--text-muted);
     white-space: nowrap;
+}
+
+/* ============================================
+   Generic View Tabs (reusable across pages)
+   ============================================ */
+.view-tabs {
+    display: flex;
+    gap: 0.4rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.view-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.view-tab {
+    padding: 0.5rem 0.68rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.view-tab:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.view-tab.active {
+    background: var(--primary-color);
+    color: white;
+    border-radius: var(--border-radius);
 }
 
 /* Wi-Fi View Tabs */

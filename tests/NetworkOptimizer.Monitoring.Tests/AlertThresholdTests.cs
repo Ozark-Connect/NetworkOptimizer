@@ -1,6 +1,9 @@
 using FluentAssertions;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Models;
 using Xunit;
+
+using DeviceType = NetworkOptimizer.Monitoring.Models.DeviceType;
 
 namespace NetworkOptimizer.Monitoring.Tests;
 

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage;
@@ -24,6 +25,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly UniFiConnectionService _connectionService;
     private readonly ITopologySnapshotService _snapshotService;
+    private readonly IAlertEventBus? _alertEventBus;
 
     // Track running tests to prevent duplicates
     private readonly HashSet<string> _runningTests = new();
@@ -46,7 +48,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         SystemSettingsService settingsService,
         INetworkPathAnalyzer pathAnalyzer,
         UniFiConnectionService connectionService,
-        ITopologySnapshotService snapshotService)
+        ITopologySnapshotService snapshotService,
+        IAlertEventBus? alertEventBus = null)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
@@ -56,6 +59,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         _pathAnalyzer = pathAnalyzer;
         _connectionService = connectionService;
         _snapshotService = snapshotService;
+        _alertEventBus = alertEventBus;
     }
 
     /// <summary>
@@ -455,6 +459,9 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             // Save result to database
             await SaveResultAsync(result);
 
+            // Publish alert event for regression detection
+            await PublishSpeedTestAlertAsync(result);
+
             _logger.LogInformation("Speed test to {Device} completed: {FromDevice:F1} Mbps from / {ToDevice:F1} Mbps to device",
                 device.Name, result.DownloadMbps, result.UploadMbps);
 
@@ -786,6 +793,87 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         {
             _logger.LogWarning(ex, "Failed to analyze network path to {Host}", targetHost);
             // Don't fail the test - path analysis is optional
+        }
+    }
+
+    private async Task PublishSpeedTestAlertAsync(Iperf3Result result)
+    {
+        if (_alertEventBus == null || !result.Success) return;
+
+        try
+        {
+            var downloadMbps = result.DownloadMbps;
+            var uploadMbps = result.UploadMbps;
+            var deviceLabel = result.DeviceName ?? result.DeviceHost;
+
+            await _alertEventBus.PublishAsync(new AlertEvent
+            {
+                EventType = "speedtest.completed",
+                Severity = AlertSeverity.Info,
+                Source = "speedtest",
+                Title = $"LAN Speed test: {deviceLabel} - {downloadMbps:F0} / {uploadMbps:F0} Mbps",
+                Message = $"Device {deviceLabel} ({result.DeviceHost}): From device {downloadMbps:F1} Mbps, To device {uploadMbps:F1} Mbps",
+                DeviceIp = result.DeviceHost,
+                DeviceName = result.DeviceName,
+                MetricValue = downloadMbps,
+                Context = new Dictionary<string, string>
+                {
+                    ["downloadMbps"] = downloadMbps.ToString("F1"),
+                    ["uploadMbps"] = uploadMbps.ToString("F1")
+                }
+            });
+
+            // Check for regression vs recent average for same device and direction
+            try
+            {
+                await using var db = await _dbFactory.CreateDbContextAsync();
+                var recent = await db.Iperf3Results
+                    .AsNoTracking()
+                    .Where(r => r.DeviceHost == result.DeviceHost && r.Id != result.Id && r.Success
+                        && r.Direction == result.Direction
+                        && r.DownloadBitsPerSecond > 0)
+                    .OrderByDescending(r => r.TestTime)
+                    .Take(5)
+                    .ToListAsync();
+
+                if (recent.Count >= 3)
+                {
+                    var avgDownload = recent.Average(r => r.DownloadMbps);
+                    var dropPercent = avgDownload > 0 ? (avgDownload - downloadMbps) / avgDownload * 100 : 0;
+
+                    if (dropPercent > 0)
+                    {
+                        await _alertEventBus.PublishAsync(new AlertEvent
+                        {
+                            EventType = "speedtest.regression",
+                            Severity = dropPercent >= 50 ? AlertSeverity.Error
+                                : dropPercent >= 25 ? AlertSeverity.Warning : AlertSeverity.Info,
+                            Source = "speedtest",
+                            Title = $"Speed regression: {deviceLabel} at {downloadMbps:F0} Mbps ({dropPercent:F0}% below average)",
+                            Message = $"{deviceLabel} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
+                            DeviceIp = result.DeviceHost,
+                            DeviceName = result.DeviceName,
+                            MetricValue = downloadMbps,
+                            ThresholdValue = avgDownload,
+                            Context = new Dictionary<string, string>
+                            {
+                                ["current_mbps"] = downloadMbps.ToString("F1"),
+                                ["average_mbps"] = avgDownload.ToString("F1"),
+                                ["drop_percent"] = dropPercent.ToString("F0"),
+                                ["sample_count"] = recent.Count.ToString()
+                            }
+                        });
+                    }
+                }
+            }
+            catch (Exception regressEx)
+            {
+                _logger.LogDebug(regressEx, "Failed to check speed test regression");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish speed test alert event");
         }
     }
 

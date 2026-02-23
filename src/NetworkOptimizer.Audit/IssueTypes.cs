@@ -85,4 +85,7 @@ public static class IssueTypes
 
     // DNS Bypass Issues
     public const string DnsExternalBypass = "DNS_EXTERNAL_BYPASS";
+
+    // Threat Intelligence
+    public const string ThreatExposedPortForward = "THREAT_EXPOSED_PORT_FORWARD";
 }

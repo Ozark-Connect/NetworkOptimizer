@@ -19,6 +19,8 @@
     <ProjectReference Include="..\NetworkOptimizer.Agents\NetworkOptimizer.Agents.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Reports\NetworkOptimizer.Reports.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.WiFi\NetworkOptimizer.WiFi.csproj" />
+    <ProjectReference Include="..\NetworkOptimizer.Alerts\NetworkOptimizer.Alerts.csproj" />
+    <ProjectReference Include="..\NetworkOptimizer.Threats\NetworkOptimizer.Threats.csproj" />
   </ItemGroup>
 
   <ItemGroup>

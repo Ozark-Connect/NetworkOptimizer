@@ -261,6 +261,29 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// For an octet-aligned CIDR (/8, /16, /24), returns the IP prefix string suitable for
+    /// SQL LIKE matching (e.g. "10." for /8, "192.168.1." for /24).
+    /// Returns null for exact IPs (no slash), invalid input, /32, or non-octet-aligned masks.
+    /// </summary>
+    public static string? GetCidrLikePrefix(string? value)
+    {
+        if (value == null || !value.Contains('/')) return null;
+        var slash = value.IndexOf('/');
+        var ipPart = value[..slash];
+        if (!int.TryParse(value[(slash + 1)..], out var bits)) return null;
+        if (!IPAddress.TryParse(ipPart, out _)) return null;
+        var octets = ipPart.Split('.');
+        if (octets.Length != 4) return null;
+        return bits switch
+        {
+            8 => $"{octets[0]}.",
+            16 => $"{octets[0]}.{octets[1]}.",
+            24 => $"{octets[0]}.{octets[1]}.{octets[2]}.",
+            _ => null // /32 = exact match, others unsupported in SQL
+        };
+    }
+
+    /// <summary>
     /// Check if an IP address is a private/non-routable address.
     /// Includes RFC1918, loopback, link-local, and CGNAT ranges.
     /// </summary>
@@ -276,13 +299,17 @@ public static class NetworkUtilities
 
     /// <summary>
     /// Check if an IP address is a private/non-routable address.
-    /// Includes RFC1918, loopback, link-local, and CGNAT ranges.
+    /// Includes RFC1918, loopback, link-local, CGNAT, 0.0.0.0/8, multicast, and IPv6 equivalents.
     /// </summary>
     /// <param name="ip">Parsed IP address to check</param>
     /// <returns>True if the IP is private/non-routable, false if public</returns>
     public static bool IsPrivateIpAddress(IPAddress ip)
     {
-        // Only handle IPv4
+        // IPv6 loopback and link-local
+        if (ip.IsIPv6LinkLocal || IPAddress.IsLoopback(ip))
+            return true;
+
+        // Only do byte checks for IPv4
         if (ip.AddressFamily != AddressFamily.InterNetwork)
             return false;
 
@@ -310,6 +337,14 @@ public static class NetworkUtilities
 
         // 100.64.0.0/10 (CGNAT / Carrier-grade NAT)
         if (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127)
+            return true;
+
+        // 0.0.0.0/8
+        if (bytes[0] == 0)
+            return true;
+
+        // 224.0.0.0/4 (Multicast + reserved)
+        if (bytes[0] >= 224)
             return true;
 
         return false;

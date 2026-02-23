@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -40,8 +41,9 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         Iperf3ServerService iperf3ServerService,
         UniFiConnectionService connectionService,
         IGatewaySshService gatewaySsh,
-        IServiceScopeFactory scopeFactory)
-        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService)
+        IServiceScopeFactory scopeFactory,
+        IAlertEventBus? alertEventBus = null)
+        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus)
     {
         _configuration = configuration;
         _connectionService = connectionService;
