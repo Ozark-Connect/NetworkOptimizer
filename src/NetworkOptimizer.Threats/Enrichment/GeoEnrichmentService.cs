@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using MaxMind.GeoIP2;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Threats.Models;
 
 namespace NetworkOptimizer.Threats.Enrichment;
@@ -88,7 +89,7 @@ public class GeoEnrichmentService : IDisposable
             return GeoInfo.Empty;
 
         // Skip private/reserved ranges
-        if (IsPrivateOrReserved(ip))
+        if (NetworkUtilities.IsPrivateIpAddress(ip))
             return GeoInfo.Empty;
 
         string? countryCode = null;
@@ -163,7 +164,7 @@ public class GeoEnrichmentService : IDisposable
             if (evt.EventSource == EventSource.TrafficFlow &&
                 !string.IsNullOrEmpty(evt.SourceIp) &&
                 IPAddress.TryParse(evt.SourceIp, out var srcIp) &&
-                IsPrivateOrReserved(srcIp) &&
+                NetworkUtilities.IsPrivateIpAddress(srcIp) &&
                 !string.IsNullOrEmpty(evt.DestIp))
             {
                 enrichIp = evt.DestIp;
@@ -182,36 +183,6 @@ public class GeoEnrichmentService : IDisposable
             evt.Asn = geo.Asn;
             evt.AsnOrg = geo.AsnOrg;
         }
-    }
-
-    private static bool IsPrivateOrReserved(IPAddress ip)
-    {
-        var bytes = ip.GetAddressBytes();
-
-        // IPv4
-        if (bytes.Length == 4)
-        {
-            // 10.0.0.0/8
-            if (bytes[0] == 10) return true;
-            // 172.16.0.0/12
-            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
-            // 192.168.0.0/16
-            if (bytes[0] == 192 && bytes[1] == 168) return true;
-            // 127.0.0.0/8 (loopback)
-            if (bytes[0] == 127) return true;
-            // 169.254.0.0/16 (link-local)
-            if (bytes[0] == 169 && bytes[1] == 254) return true;
-            // 0.0.0.0/8
-            if (bytes[0] == 0) return true;
-            // 224.0.0.0/4 (multicast)
-            if (bytes[0] >= 224) return true;
-        }
-
-        // IPv6 loopback and link-local
-        if (ip.IsIPv6LinkLocal || IPAddress.IsLoopback(ip))
-            return true;
-
-        return false;
     }
 
     /// <summary>
