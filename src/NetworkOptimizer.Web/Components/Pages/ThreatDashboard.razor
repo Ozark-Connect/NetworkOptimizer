@@ -136,7 +136,7 @@
                         <input type="datetime-local" value="@_customToLocal" @onchange="e => SetCustomTo(e.Value?.ToString())" class="custom-range-input" />
                     </div>
                     <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
-                        <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomRange = false">Cancel</button>
+                        <button class="btn btn-sm btn-secondary" @onclick="CancelCustomRange">Cancel</button>
                         <button class="btn btn-sm btn-primary" @onclick="ApplyCustomRange">Apply</button>
                     </div>
                 </div>
@@ -2140,13 +2140,52 @@ else
         return (from, to);
     }
 
-    private void ToggleCustomRange()
+    private DotNetObjectReference<ThreatDashboard>? _dotNetRef;
+
+    private async Task ToggleCustomRange()
     {
         _showCustomRange = !_showCustomRange;
         if (_showCustomRange && _customFrom == null)
         {
             _customTo = DateTime.UtcNow;
             _customFrom = _customTo.Value.AddDays(-1);
+        }
+        await SetupClickOutsideHandler();
+    }
+
+    [JSInvokable]
+    public void CloseCustomRange()
+    {
+        if (_showCustomRange)
+        {
+            _showCustomRange = false;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SetupClickOutsideHandler()
+    {
+        if (_showCustomRange)
+        {
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval",
+                "window.__threatPopoverHandler && document.removeEventListener('mousedown', window.__threatPopoverHandler);" +
+                "window.__threatPopoverHandler = function(e) {" +
+                "  if (!e.target.closest('.custom-range-popover') && !e.target.closest('.time-btn')) {" +
+                "    document.removeEventListener('mousedown', window.__threatPopoverHandler);" +
+                "    window.__threatPopoverHandler = null;" +
+                "    window.__threatDotNetRef.invokeMethodAsync('CloseCustomRange');" +
+                "  }" +
+                "};" +
+                "window.__threatDotNetRef = arguments[0];" +
+                "setTimeout(function() { document.addEventListener('mousedown', window.__threatPopoverHandler); }, 0);",
+                _dotNetRef);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("eval",
+                "window.__threatPopoverHandler && document.removeEventListener('mousedown', window.__threatPopoverHandler);" +
+                "window.__threatPopoverHandler = null;");
         }
     }
 
@@ -2162,10 +2201,17 @@ else
             _customTo = dt.ToUniversalTime();
     }
 
+    private async Task CancelCustomRange()
+    {
+        _showCustomRange = false;
+        await SetupClickOutsideHandler();
+    }
+
     private async Task ApplyCustomRange()
     {
         _timeRange = "custom";
         _showCustomRange = false;
+        await SetupClickOutsideHandler();
         await LoadDataAsync();
     }
 
@@ -2766,5 +2812,6 @@ else
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+        _dotNetRef?.Dispose();
     }
 }
