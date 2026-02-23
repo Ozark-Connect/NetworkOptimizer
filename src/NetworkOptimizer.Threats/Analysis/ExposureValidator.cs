@@ -73,7 +73,7 @@ public class ExposureValidator
                 var service = new ExposedService
                 {
                     Port = port,
-                    Protocol = rule.Proto ?? "tcp",
+                    Protocol = (rule.Proto ?? "tcp").ToUpperInvariant(),
                     ServiceName = GetServiceName(port, rule.Name),
                     ForwardTarget = $"{rule.Fwd}:{rule.FwdPort ?? port.ToString()}",
                     RuleName = rule.Name,

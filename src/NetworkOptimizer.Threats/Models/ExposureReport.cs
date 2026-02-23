@@ -17,7 +17,7 @@ public class ExposureReport
 public class ExposedService
 {
     public int Port { get; set; }
-    public string Protocol { get; set; } = "tcp";
+    public string Protocol { get; set; } = "TCP";
     public string ServiceName { get; set; } = string.Empty;
     public string ForwardTarget { get; set; } = string.Empty;
     public string? RuleName { get; set; }
