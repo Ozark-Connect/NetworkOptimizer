@@ -1657,6 +1657,7 @@ else
     private int? _drilldownPort;
     private string? _drilldownProtocol;
     private string _previousTab = "overview";
+    private bool _hasInAppHistory; // true when drilldown was entered via in-app navigation
     private IpDrilldownData? _drilldownData;
     private PortDrilldownData? _portDrilldownData;
     private ProtocolDrilldownData? _protocolDrilldownData;
@@ -2240,6 +2241,7 @@ else
             _killChainChart = null;
             _actionChart = null;
         }
+        _hasInAppHistory = true;
         _drilldownIp = ip;
         _drilldownCtiLookedUp = false;
         _drilldownPort = null;
@@ -2330,6 +2332,7 @@ else
             _killChainChart = null;
             _actionChart = null;
         }
+        _hasInAppHistory = true;
         _drilldownPort = port;
         _drilldownIp = null;
         _drilldownProtocol = null;
@@ -2395,6 +2398,7 @@ else
             _killChainChart = null;
             _actionChart = null;
         }
+        _hasInAppHistory = true;
         _drilldownProtocol = protocol;
         _drilldownIp = null;
         _drilldownPort = null;
@@ -2452,7 +2456,10 @@ else
 
     private async Task GoBack()
     {
-        await JS.InvokeVoidAsync("history.back");
+        if (_hasInAppHistory)
+            await JS.InvokeVoidAsync("history.back");
+        else
+            await ExitDrilldown();
     }
 
     private async Task ExitDrilldown(bool pushHistory = true)
