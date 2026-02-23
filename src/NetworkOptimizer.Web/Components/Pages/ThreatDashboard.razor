@@ -126,24 +126,25 @@
             </button>
             @if (_showCustomRange)
             {
-                <div class="custom-range-popover">
-                    <div style="display:flex; flex-direction:column; gap:0.75rem;">
-                        <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary);">Custom Range</div>
-                        <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                            <label style="font-size:0.75rem; color:var(--text-muted);">From</label>
-                            <input type="datetime-local" value="@_customFromLocal" @onchange="e => SetCustomFrom(e.Value?.ToString())" class="custom-range-input" />
-                        </div>
-                        <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                            <label style="font-size:0.75rem; color:var(--text-muted);">To</label>
-                            <input type="datetime-local" value="@_customToLocal" @onchange="e => SetCustomTo(e.Value?.ToString())" class="custom-range-input" />
-                        </div>
-                        <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
-                            <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomRange = false">Cancel</button>
-                            <button class="btn btn-sm btn-primary" @onclick="ApplyCustomRange">Apply</button>
-                        </div>
+                <div class="popover-backdrop" @onclick="() => _showCustomRange = false"></div>
+            }
+            <div class="custom-range-popover @(_showCustomRange ? "open" : "")">
+                <div style="display:flex; flex-direction:column; gap:0.75rem;">
+                    <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary);">Custom Range</div>
+                    <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                        <label style="font-size:0.75rem; color:var(--text-muted);">From</label>
+                        <input type="datetime-local" value="@_customFromLocal" @onchange="e => SetCustomFrom(e.Value?.ToString())" class="custom-range-input" />
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                        <label style="font-size:0.75rem; color:var(--text-muted);">To</label>
+                        <input type="datetime-local" value="@_customToLocal" @onchange="e => SetCustomTo(e.Value?.ToString())" class="custom-range-input" />
+                    </div>
+                    <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                        <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomRange = false">Cancel</button>
+                        <button class="btn btn-sm btn-primary" @onclick="ApplyCustomRange">Apply</button>
                     </div>
                 </div>
-            }
+            </div>
         </div>
     </div>
 </div>
@@ -1936,6 +1937,7 @@ else
         if (_activeTab == tab) return;
         _activeTab = tab;
         _showFilterPanel = false;
+        _showCustomRange = false;
         await LoadDataAsync();
     }
 
@@ -1985,6 +1987,7 @@ else
         _portRangesVisible = DrilldownPageSize;
         _activeTab = "drilldown";
         _showFilterPanel = false;
+        _showCustomRange = false;
         _loading = true;
 
         // Seed CTI cache from overview's enriched top sources if not already cached
@@ -2029,6 +2032,7 @@ else
         _protocolDrilldownData = null;
         _activeTab = "drilldown";
         _showFilterPanel = false;
+        _showCustomRange = false;
         _loading = true;
         StateHasChanged();
 
@@ -2061,6 +2065,7 @@ else
         _portDrilldownData = null;
         _activeTab = "drilldown";
         _showFilterPanel = false;
+        _showCustomRange = false;
         _loading = true;
         StateHasChanged();
 
@@ -2092,6 +2097,7 @@ else
         _protocolDrilldownData = null;
         _activeTab = _previousTab;
         _showFilterPanel = false;
+        _showCustomRange = false;
         await LoadDataAsync();
     }
 

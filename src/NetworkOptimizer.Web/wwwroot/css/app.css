@@ -6689,6 +6689,12 @@ a.path-hop.hop-clickable:hover {
     padding: 0.25rem;
 }
 
+.popover-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+}
+
 .custom-range-popover {
     position: absolute;
     top: calc(100% + 0.5rem);
@@ -6700,6 +6706,16 @@ a.path-hop.hop-clickable:hover {
     padding: 1rem;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     min-width: 240px;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.custom-range-popover.open {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
 }
 
 .custom-range-input {
