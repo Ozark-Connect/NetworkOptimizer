@@ -793,8 +793,8 @@ else
     @if (_activeTab == "drilldown" && _drilldownData != null)
     {
         @* Header: IP + client name + first/last seen *@
-        <div style="display:flex; align-items:baseline; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
-            <h2 style="margin:0; font-size:1.5rem; font-weight:700; line-height:1;">
+        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:1.5rem; font-weight:700; line-height:1.2;">
                 <code style="font-size:1.3rem;">@_drilldownData.Ip</code>
             </h2>
             @{ var drilldownName = GetClientName(_drilldownData.Ip); }
