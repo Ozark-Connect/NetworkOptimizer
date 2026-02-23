@@ -1707,6 +1707,7 @@ else
     private ApexChart<KillChainItem>? _killChainChart;
     private ApexChart<ActionBreakdownItem>? _actionChart;
     private bool _chartNeedsUpdate;
+    private bool _timelineChartNewlyCreated;
     private ApexChartOptions<TimelineBucket> _timelineChartOptions = CreateTimelineChartOptions();
     private ApexChartOptions<KillChainItem> _killChainChartOptions = CreateKillChainChartOptions();
     private ApexChartOptions<ActionBreakdownItem> _actionChartOptions = CreateActionChartOptions();
@@ -1726,9 +1727,37 @@ else
         if (_chartNeedsUpdate)
         {
             _chartNeedsUpdate = false;
-            try { if (_timelineChart != null) await _timelineChart.RenderAsync(); } catch { }
+            await RenderTimelineChartWithRetry();
             try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
             try { if (_actionChart != null) await _actionChart.UpdateSeriesAsync(true); } catch { }
+        }
+        else if (_timelineChartNewlyCreated && _timelineChart != null)
+        {
+            _timelineChartNewlyCreated = false;
+            await RenderTimelineChartWithRetry();
+        }
+    }
+
+    /// <summary>
+    /// ApexCharts JS initializes asynchronously after the component is mounted.
+    /// RenderAsync can fail with NRE if called before JS is ready.
+    /// Retry briefly to let JS catch up.
+    /// </summary>
+    private async Task RenderTimelineChartWithRetry()
+    {
+        if (_timelineChart == null) return;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                await _timelineChart.RenderAsync();
+                return;
+            }
+            catch (NullReferenceException)
+            {
+                await Task.Delay(150);
+            }
+            catch { return; }
         }
     }
 
@@ -2026,9 +2055,14 @@ else
                     _timelineChartOptions.Xaxis.Max = new DateTimeOffset(DateTime.SpecifyKind(maxHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                 }
 
-                // Only force-update charts that already exist in the DOM.
-                // New charts auto-render on creation; calling RenderAsync() too early breaks them.
-                if (chartExisted) _chartNeedsUpdate = true;
+                // Charts already in the DOM need an explicit update.
+                // Newly created single-series charts auto-render fine, but
+                // the multi-series timeline does not - flag it for a deferred
+                // RenderAsync once Blazor has mounted the component.
+                if (chartExisted)
+                    _chartNeedsUpdate = true;
+                else
+                    _timelineChartNewlyCreated = true;
             }
             else if (_activeTab == "exposure")
             {
@@ -2486,6 +2520,16 @@ else
         _activeTab = _previousTab;
         _showFilterPanel = false;
         _showCustomRange = false;
+
+        // Null chart refs when returning to overview so chartExisted is correctly
+        // false in LoadDataAsync - stale refs from before drilldown would cause
+        // RenderAsync on a disposed chart instead of letting the new one auto-render.
+        if (_activeTab == "overview")
+        {
+            _timelineChart = null;
+            _killChainChart = null;
+            _actionChart = null;
+        }
 
         if (pushHistory)
         {
