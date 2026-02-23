@@ -170,9 +170,6 @@ public class ThreatCollectionService : BackgroundService
 
         var totalRecentEvents = 0;
 
-        _logger.LogDebug("=== Collection cycle: poll={PollMin}min, range {From:HH:mm} -> {To:HH:mm} UTC ({Span}) ===",
-            _pollIntervalMinutes, recentStart, now, now - recentStart);
-
         var chunkCursor = recentStart;
         while (chunkCursor < now)
         {
@@ -183,17 +180,13 @@ public class ThreatCollectionService : BackgroundService
             await ProcessAndSaveAsync(chunkEvents, repository, cancellationToken);
             totalRecentEvents += chunkEvents.Count;
 
-            if (chunkEvents.Count > 0)
-                _logger.LogDebug("  chunk {From:HH:mm}-{To:HH:mm}: {Count} events", chunkCursor, chunkEnd, chunkEvents.Count);
-
             chunkCursor = chunkEnd;
         }
 
         await settings.SaveSettingAsync("threats.last_sync_timestamp", now.ToString("O"));
 
-        _logger.LogDebug("=== 24h sweep complete: {Count} total events ===", totalRecentEvents);
         if (totalRecentEvents > 0)
-            _logger.LogInformation("Recent 24h: {Count} events across 24 chunks", totalRecentEvents);
+            _logger.LogInformation("Collected {Count} threat events", totalRecentEvents);
 
         // === PHASE 2: Gradual backfill (>24h ago) - page-limited to stay gentle ===
         var backfillCursorStr = await settings.GetSettingAsync("threats.backfill_cursor", cancellationToken);
@@ -472,10 +465,6 @@ public class ThreatCollectionService : BackgroundService
                 if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0)
                     break;
 
-                var hasNextPeek = response.TryGetProperty("has_next", out var hnp) && hnp.GetBoolean();
-                _logger.LogDebug("    traffic-flows page={Page} action={Action} range={From:HH:mm}-{To:HH:mm} rows={Rows} has_next={HasNext}",
-                    page, actionFilter != null ? string.Join(",", actionFilter) : "all", start, end, data.GetArrayLength(), hasNextPeek);
-
                 var flowsToNormalize = new List<JsonElement>();
                 foreach (var flow in data.EnumerateArray())
                 {
@@ -516,15 +505,18 @@ public class ThreatCollectionService : BackgroundService
         // Try v2 system-log first
         try
         {
-            _logger.LogDebug("    system-log/all range={From:HH:mm}-{To:HH:mm} severities=[LOW,MEDIUM,HIGH,VERY_HIGH] cats=[SECURITY/IPS]", start, end);
             var v2Response = await apiClient.GetThreatLogEventsAsync(start, end, cancellationToken: cancellationToken);
             if (v2Response.ValueKind != JsonValueKind.Undefined)
             {
-                var tc = v2Response.TryGetProperty("totalCount", out var totalCount) ? totalCount.ToString() : "?";
+                if (v2Response.TryGetProperty("totalCount", out var totalCount))
+                    _logger.LogDebug("v2 IPS API returned totalCount={TotalCount}", totalCount);
+
                 events = _normalizer.NormalizeV2Events(v2Response);
-                _logger.LogDebug("    system-log/all returned totalCount={TotalCount} normalized={Normalized}", tc, events.Count);
                 if (events.Count > 0)
+                {
+                    _logger.LogDebug("Collected {Count} IPS events via v2 API", events.Count);
                     return events;
+                }
             }
         }
         catch (Exception ex)
@@ -535,9 +527,7 @@ public class ThreatCollectionService : BackgroundService
         // Fall back to v1
         try
         {
-            _logger.LogDebug("    stat/ips/event (v1 fallback) range={From:HH:mm}-{To:HH:mm} limit=3000", start, end);
             var v1Response = await apiClient.GetIpsEventsAsync(start, end, cancellationToken: cancellationToken);
-            _logger.LogDebug("    stat/ips/event returned {Count} raw events", v1Response.Count);
             if (v1Response.Count > 0)
             {
                 var json = JsonSerializer.Serialize(v1Response);
