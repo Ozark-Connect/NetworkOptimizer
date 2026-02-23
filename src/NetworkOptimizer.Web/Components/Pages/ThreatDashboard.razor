@@ -2487,6 +2487,16 @@ else
         _showFilterPanel = false;
         _showCustomRange = false;
 
+        // Null chart refs when returning to overview so chartExisted is correctly
+        // false in LoadDataAsync - stale refs from before drilldown would cause
+        // RenderAsync on a disposed chart instead of letting the new one auto-render.
+        if (_activeTab == "overview")
+        {
+            _timelineChart = null;
+            _killChainChart = null;
+            _actionChart = null;
+        }
+
         if (pushHistory)
         {
             _isNavigating = true;
