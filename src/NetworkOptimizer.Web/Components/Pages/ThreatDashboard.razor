@@ -68,7 +68,7 @@
     else
     {
         <div style="display:flex; align-items:center; gap:0.5rem;">
-            <button class="btn btn-secondary btn-sm" @onclick="ExitDrilldown">&larr; Back</button>
+            <button class="btn btn-secondary btn-sm" @onclick="() => ExitDrilldown()">&larr; Back</button>
             <span style="color:var(--text-secondary);">
                 @if (_drilldownPort != null) { <text>Port Details</text> }
                 else if (_drilldownProtocol != null) { <text>Protocol Details</text> }
@@ -1614,6 +1614,24 @@ else
 </style>
 
 @code {
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "ip")]
+    public string? IpParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "port")]
+    public string? PortParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "proto")]
+    public string? ProtoParam { get; set; }
+
+    private string? _lastTabParam;
+    private string? _lastIpParam;
+    private string? _lastPortParam;
+    private string? _lastProtoParam;
+    private bool _isNavigating;
+
     private string _activeTab = "overview";
     private string _timeRange = "24h";
     private bool _loading = true;
@@ -1712,8 +1730,119 @@ else
         }
     }
 
+    private static string ResolveTab(string? param)
+    {
+        return param?.ToLowerInvariant() switch
+        {
+            "overview" => "overview",
+            "exposure" => "exposure",
+            "geographic" => "geographic",
+            "sequences" => "sequences",
+            "drilldown" => "drilldown",
+            _ => "overview"
+        };
+    }
+
+    private string BuildTabUrl(string tab, string? ip = null, int? port = null, string? proto = null)
+    {
+        var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
+        uri = new Uri(uri).GetLeftPart(UriPartial.Path) + "?tab=" + tab;
+        if (ip != null) uri += "&ip=" + Uri.EscapeDataString(ip);
+        if (port != null) uri += "&port=" + port;
+        if (proto != null) uri += "&proto=" + Uri.EscapeDataString(proto);
+        return uri;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_isNavigating) return;
+
+        var paramsChanged = TabParam != _lastTabParam
+            || IpParam != _lastIpParam
+            || PortParam != _lastPortParam
+            || ProtoParam != _lastProtoParam;
+
+        if (paramsChanged && _lastTabParam != null)
+        {
+            var newTab = ResolveTab(TabParam);
+
+            if (newTab == "drilldown")
+            {
+                // Route to appropriate drilldown
+                if (!string.IsNullOrEmpty(IpParam))
+                    _ = DrillDownToIp(IpParam, pushHistory: false);
+                else if (!string.IsNullOrEmpty(PortParam) && int.TryParse(PortParam, out var port))
+                    _ = DrillDownToPort(port, pushHistory: false);
+                else if (!string.IsNullOrEmpty(ProtoParam))
+                    _ = DrillDownToProtocol(ProtoParam, pushHistory: false);
+                else
+                    _ = ExitDrilldown(pushHistory: false);
+            }
+            else if (_activeTab == "drilldown" && newTab != "drilldown")
+            {
+                // Leaving drilldown via back button
+                _ = ExitDrilldown(pushHistory: false);
+                if (newTab != _activeTab)
+                    _ = SetActiveTab(newTab, pushHistory: false);
+            }
+            else if (newTab != _activeTab)
+            {
+                _ = SetActiveTab(newTab, pushHistory: false);
+            }
+        }
+
+        _lastTabParam = TabParam;
+        _lastIpParam = IpParam;
+        _lastPortParam = PortParam;
+        _lastProtoParam = ProtoParam;
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        // Parse initial state from URL
+        var initialTab = ResolveTab(TabParam);
+        if (initialTab == "drilldown")
+        {
+            if (!string.IsNullOrEmpty(IpParam))
+            {
+                _activeTab = "drilldown";
+                _drilldownIp = IpParam;
+                _previousTab = "overview";
+            }
+            else if (!string.IsNullOrEmpty(PortParam) && int.TryParse(PortParam, out var port))
+            {
+                _activeTab = "drilldown";
+                _drilldownPort = port;
+                _previousTab = "overview";
+            }
+            else if (!string.IsNullOrEmpty(ProtoParam))
+            {
+                _activeTab = "drilldown";
+                _drilldownProtocol = ProtoParam;
+                _previousTab = "overview";
+            }
+            else
+            {
+                _activeTab = "overview";
+            }
+
+            // Disable filters for drilldown (same as DrillDownToIp/Port/Protocol)
+            if (_activeTab == "drilldown")
+            {
+                _filtersActiveBeforeDrilldown = _filtersActive;
+                _filtersActive = false;
+            }
+        }
+        else
+        {
+            _activeTab = initialTab;
+        }
+
+        _lastTabParam = TabParam;
+        _lastIpParam = IpParam;
+        _lastPortParam = PortParam;
+        _lastProtoParam = ProtoParam;
+
         await CheckCrowdSecStatus();
         await CheckMaxMindStatus();
         await LoadClientNamesAsync();
@@ -2020,7 +2149,7 @@ else
         }
     }
 
-    private async Task SetActiveTab(string tab)
+    private async Task SetActiveTab(string tab, bool pushHistory = true)
     {
         if (_activeTab == tab) return;
         // Null chart refs when leaving overview so chartExisted is correctly false
@@ -2035,6 +2164,19 @@ else
         _activeTab = tab;
         _showFilterPanel = false;
         _showCustomRange = false;
+
+        if (pushHistory)
+        {
+            _isNavigating = true;
+            var uri = BuildTabUrl(tab);
+            NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+            _lastTabParam = tab;
+            _lastIpParam = null;
+            _lastPortParam = null;
+            _lastProtoParam = null;
+            _isNavigating = false;
+        }
+
         await LoadDataAsync();
     }
 
@@ -2071,7 +2213,7 @@ else
         return list.Count > 0 ? list.ToArray() : null;
     }
 
-    private async Task DrillDownToIp(string ip)
+    private async Task DrillDownToIp(string ip, bool pushHistory = true)
     {
         if (_activeTab != "drilldown")
             _previousTab = _activeTab;
@@ -2102,6 +2244,18 @@ else
         _showFilterPanel = false;
         _showCustomRange = false;
         _loading = true;
+
+        if (pushHistory)
+        {
+            _isNavigating = true;
+            var uri = BuildTabUrl("drilldown", ip: ip);
+            NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+            _lastTabParam = "drilldown";
+            _lastIpParam = ip;
+            _lastPortParam = null;
+            _lastProtoParam = null;
+            _isNavigating = false;
+        }
 
         // Seed CTI cache from overview's enriched top sources if not already cached
         if (!_manualCtiCache.ContainsKey(ip) && _dashboardData?.TopSources != null)
@@ -2138,7 +2292,7 @@ else
         }
     }
 
-    private async Task DrillDownToPort(int port)
+    private async Task DrillDownToPort(int port, bool pushHistory = true)
     {
         if (_activeTab != "drilldown")
             _previousTab = _activeTab;
@@ -2166,6 +2320,19 @@ else
         _showFilterPanel = false;
         _showCustomRange = false;
         _loading = true;
+
+        if (pushHistory)
+        {
+            _isNavigating = true;
+            var uri = BuildTabUrl("drilldown", port: port);
+            NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+            _lastTabParam = "drilldown";
+            _lastIpParam = null;
+            _lastPortParam = port.ToString();
+            _lastProtoParam = null;
+            _isNavigating = false;
+        }
+
         StateHasChanged();
 
         try
@@ -2190,7 +2357,7 @@ else
         }
     }
 
-    private async Task DrillDownToProtocol(string protocol)
+    private async Task DrillDownToProtocol(string protocol, bool pushHistory = true)
     {
         if (_activeTab != "drilldown")
             _previousTab = _activeTab;
@@ -2218,6 +2385,19 @@ else
         _showFilterPanel = false;
         _showCustomRange = false;
         _loading = true;
+
+        if (pushHistory)
+        {
+            _isNavigating = true;
+            var uri = BuildTabUrl("drilldown", proto: protocol);
+            NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+            _lastTabParam = "drilldown";
+            _lastIpParam = null;
+            _lastPortParam = null;
+            _lastProtoParam = protocol;
+            _isNavigating = false;
+        }
+
         StateHasChanged();
 
         try
@@ -2242,7 +2422,7 @@ else
         }
     }
 
-    private async Task ExitDrilldown()
+    private async Task ExitDrilldown(bool pushHistory = true)
     {
         _drilldownIp = null;
         _drilldownPort = null;
@@ -2266,6 +2446,19 @@ else
         _activeTab = _previousTab;
         _showFilterPanel = false;
         _showCustomRange = false;
+
+        if (pushHistory)
+        {
+            _isNavigating = true;
+            var uri = BuildTabUrl(_activeTab);
+            NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+            _lastTabParam = _activeTab;
+            _lastIpParam = null;
+            _lastPortParam = null;
+            _lastProtoParam = null;
+            _isNavigating = false;
+        }
+
         await LoadDataAsync();
     }
 

@@ -1112,6 +1112,12 @@
 </style>
 
 @code {
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    private string? _lastTabParam;
+    private bool _isNavigating;
+
     private string _activeTab = FeatureFlags.SchedulingEnabled ? "schedule" : "active";
     private bool _loading = true;
 
@@ -1174,15 +1180,39 @@
     // Auto-refresh
     private System.Threading.Timer? _refreshTimer;
 
+    private static string ResolveTab(string? param)
+    {
+        return param?.ToLowerInvariant() switch
+        {
+            "schedule" when FeatureFlags.SchedulingEnabled => "schedule",
+            "active" => "active",
+            "history" => "history",
+            "rules" => "rules",
+            "incidents" => "incidents",
+            _ => FeatureFlags.SchedulingEnabled ? "schedule" : "active"
+        };
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        if (FeatureFlags.SchedulingEnabled)
+        _activeTab = ResolveTab(TabParam);
+        _lastTabParam = TabParam;
+
+        if (_activeTab == "schedule" && FeatureFlags.SchedulingEnabled)
         {
             await LoadSchedules();
             await LoadScheduleOptions();
         }
         else
-            await LoadActiveAlerts();
+        {
+            switch (_activeTab)
+            {
+                case "active": await LoadActiveAlerts(); break;
+                case "history": await LoadHistory(); break;
+                case "rules": await LoadRules(); break;
+                case "incidents": await LoadIncidents(); break;
+            }
+        }
         _loading = false;
 
         _refreshTimer = new System.Threading.Timer(async _ =>
@@ -1202,9 +1232,30 @@
         }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
-    private async Task SetActiveTab(string tab)
+    protected override void OnParametersSet()
+    {
+        if (!_isNavigating && TabParam != _lastTabParam && _lastTabParam != null)
+        {
+            var newTab = ResolveTab(TabParam);
+            if (newTab != _activeTab)
+                _ = SetActiveTab(newTab, pushHistory: false);
+        }
+        _lastTabParam = TabParam;
+    }
+
+    private async Task SetActiveTab(string tab, bool pushHistory = true)
     {
         _activeTab = tab;
+
+        if (pushHistory)
+        {
+            _isNavigating = true;
+            var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
+            NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+            _lastTabParam = tab;
+            _isNavigating = false;
+        }
+
         _loading = true;
         StateHasChanged();
 
