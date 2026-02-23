@@ -210,7 +210,12 @@ public class ThreatDashboardService
         try
         {
             await ApplyNoiseFiltersToRepository(cancellationToken);
-            return await _repository.GetTimelineAsync(from, to, cancellationToken);
+            // Timeline returns per-severity columns; chart toggles visibility client-side.
+            // Fetch without severity filter so all hourly buckets are present (preserves X-axis range).
+            _repository.SetSeverityFilter(null);
+            var result = await _repository.GetTimelineAsync(from, to, cancellationToken);
+            _repository.SetSeverityFilter(SeverityFilter);
+            return result;
         }
         catch (Exception ex)
         {
