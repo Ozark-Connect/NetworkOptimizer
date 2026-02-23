@@ -5,6 +5,8 @@
 @using NetworkOptimizer.Core
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.Storage.Models
+@using System.Text.Json
+@using NetworkOptimizer.Web.Services.Ssh
 @inject IAlertRepository AlertRepository
 @inject IScheduleRepository ScheduleRepository
 @inject ScheduleService ScheduleService
@@ -12,6 +14,7 @@
 @inject NavigationManager NavigationManager
 @inject SqmService SqmService
 @inject Iperf3SpeedTestService SpeedTestService
+@inject IGatewaySshService GatewaySshService
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -144,47 +147,64 @@
                 @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
                 @if (wanTasks.Count == 0)
                 {
-                    @if (_wanInterfaces.Count > 0)
-                    {
-                        <div class="schedule-card">
-                            <div class="schedule-card-body">
-                                <div class="schedule-config" style="align-items:flex-end;">
+                    <div class="schedule-card">
+                        <div class="schedule-card-body">
+                            <div class="schedule-config" style="align-items:flex-end;">
+                                <div class="form-group schedule-field">
+                                    <label>Test Type</label>
+                                    <select class="form-control" @bind="_newWanTestType">
+                                        @if (_gatewayAvailable)
+                                        {
+                                            <option value="gateway">Gateway (Direct)</option>
+                                        }
+                                        <option value="server">Server</option>
+                                    </select>
+                                </div>
+                                @if (_newWanTestType == "gateway" && _wanSelectorOptions.Count > 0)
+                                {
                                     <div class="form-group schedule-field">
-                                        <label>WAN Interface</label>
-                                        <select class="form-control" @bind="_newWanInterface">
-                                            <option value="">Select interface...</option>
-                                            @foreach (var wan in _wanInterfaces)
+                                        <label>WAN</label>
+                                        <select class="form-control" @bind="_newWanSelection">
+                                            @foreach (var opt in _wanSelectorOptions)
                                             {
-                                                <option value="@wan.Interface">@wan.Name (@wan.Interface)</option>
+                                                if (opt.IsSeparator)
+                                                {
+                                                    <option disabled value="">──────────</option>
+                                                }
+                                                else
+                                                {
+                                                    <option value="@opt.Value">@opt.Label</option>
+                                                }
                                             }
                                         </select>
                                     </div>
-                                    <div class="form-group schedule-field">
-                                        <label>Frequency</label>
-                                        <select class="form-control" @bind="_newWanFrequency">
-                                            <option value="360">Every 6 hours</option>
-                                            <option value="720">Every 12 hours</option>
-                                            <option value="1440">Every 24 hours</option>
-                                            <option value="2880">Every 48 hours</option>
-                                            <option value="10080">Every 7 days</option>
-                                        </select>
-                                    </div>
-                                    <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
-                                            disabled="@(string.IsNullOrEmpty(_newWanInterface) || _creatingSchedule)">
-                                        Create Schedule
-                                    </button>
+                                }
+                                <div class="form-group schedule-field">
+                                    <label>Frequency</label>
+                                    <select class="form-control" @bind="_newWanFrequency">
+                                        <option value="360">Every 6 hours</option>
+                                        <option value="720">Every 12 hours</option>
+                                        <option value="1440">Every 24 hours</option>
+                                        <option value="2880">Every 48 hours</option>
+                                        <option value="10080">Every 7 days</option>
+                                    </select>
                                 </div>
+                                <label class="toggle-switch schedule-toggle" data-tooltip="Normal: 4 servers, 16 streams. Max Load: more servers and streams for saturating multi-gig links.">
+                                    <input type="checkbox" @bind="_newWanMaxMode" />
+                                    <span class="toggle-slider"></span>
+                                    <span class="toggle-label">Max Load</span>
+                                </label>
+                                <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
+                                        disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
+                                    Create Schedule
+                                </button>
                             </div>
+                            @if (!_gatewayAvailable && _newWanTestType != "server")
+                            {
+                                <p class="form-help" style="margin-top:0.5rem;">Gateway SSH not configured. <a href="/settings">Configure in Settings</a> to enable gateway tests.</p>
+                            }
                         </div>
-                    }
-                    else
-                    {
-                        <div class="empty-state">
-                            <h3>No WAN Interfaces Available</h3>
-                            <p>Configure gateway SSH in Settings to schedule WAN speed tests.</p>
-                            <a href="/settings" class="btn btn-sm btn-primary">Go to Settings</a>
-                        </div>
-                    }
+                    </div>
                 }
                 else
                 {
@@ -957,6 +977,14 @@
         margin-bottom: 0;
         font-size: 0.8125rem;
     }
+    .schedule-toggle {
+        width: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        height: auto;
+        white-space: nowrap;
+    }
     .status-success {
         background: rgba(36, 188, 112, 0.2);
         color: var(--success-color);
@@ -996,11 +1024,24 @@
     private List<ScheduledTask> _scheduledTasks = [];
     private List<WanInterfaceInfo> _wanInterfaces = [];
     private List<DeviceSshConfiguration> _lanDevices = [];
-    private string? _newWanInterface;
+    private List<WanSelectorOption> _wanSelectorOptions = [];
+    private bool _gatewayAvailable;
+    private string _newWanTestType = "gateway";
+    private string _newWanSelection = "0";
+    private bool _newWanMaxMode;
     private string? _newLanDevice;
     private int _newWanFrequency = 1440;
     private int _newLanFrequency = 1440;
     private bool _creatingSchedule;
+    private bool CanCreateWanSchedule => _newWanTestType == "server" || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
+
+    private class WanSelectorOption
+    {
+        public string Value { get; set; } = "";
+        public string Label { get; set; } = "";
+        public bool IsSeparator { get; set; }
+        public int[] Indices { get; set; } = [];
+    }
 
     // Active alerts
     private List<AlertHistoryEntry> _activeAlerts = [];
@@ -1123,12 +1164,87 @@
 
         try
         {
+            var gwSettings = await GatewaySshService.GetSettingsAsync();
+            _gatewayAvailable = !string.IsNullOrEmpty(gwSettings.Host) && gwSettings.HasCredentials && gwSettings.Enabled;
+        }
+        catch
+        {
+            _gatewayAvailable = false;
+        }
+
+        if (!_gatewayAvailable)
+            _newWanTestType = "server";
+
+        BuildWanSelectorOptions();
+
+        try
+        {
             _lanDevices = await SpeedTestService.GetDevicesAsync();
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Could not load LAN devices");
             _lanDevices = [];
+        }
+    }
+
+    private void BuildWanSelectorOptions()
+    {
+        _wanSelectorOptions.Clear();
+        if (_wanInterfaces.Count == 0) return;
+
+        for (var i = 0; i < _wanInterfaces.Count; i++)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = i.ToString(),
+                Label = $"{_wanInterfaces[i].Name} ({_wanInterfaces[i].Interface})",
+                Indices = [i]
+            });
+        }
+
+        if (_wanInterfaces.Count < 2) return;
+
+        _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+
+        for (var size = 2; size < _wanInterfaces.Count; size++)
+        {
+            foreach (var combo in GetCombinations(Enumerable.Range(0, _wanInterfaces.Count).ToArray(), size))
+            {
+                var indices = combo.ToArray();
+                var value = string.Join("+", indices);
+                var label = string.Join(" + ", indices.Select(idx => _wanInterfaces[idx].Name));
+                _wanSelectorOptions.Add(new WanSelectorOption
+                {
+                    Value = value,
+                    Label = label,
+                    Indices = indices
+                });
+            }
+        }
+
+        if (_wanInterfaces.Count >= 3)
+        {
+            _wanSelectorOptions.Add(new WanSelectorOption { IsSeparator = true });
+            _wanSelectorOptions.Add(new WanSelectorOption
+            {
+                Value = "all",
+                Label = "All WAN Links",
+                Indices = Enumerable.Range(0, _wanInterfaces.Count).ToArray()
+            });
+        }
+    }
+
+    private static IEnumerable<List<int>> GetCombinations(int[] items, int size)
+    {
+        if (size == 0) { yield return new List<int>(); yield break; }
+        for (var i = 0; i <= items.Length - size; i++)
+        {
+            foreach (var tail in GetCombinations(items[(i + 1)..], size - 1))
+            {
+                tail.Insert(0, items[i]);
+                yield return tail;
+            }
         }
     }
 
@@ -1402,26 +1518,74 @@
 
     private async Task CreateWanSchedule()
     {
-        if (string.IsNullOrEmpty(_newWanInterface) || _creatingSchedule) return;
+        if (!CanCreateWanSchedule || _creatingSchedule) return;
         _creatingSchedule = true;
 
         try
         {
-            var wan = _wanInterfaces.FirstOrDefault(w => w.Interface == _newWanInterface);
-            var name = wan != null ? $"WAN Speed Test ({wan.Name})" : $"WAN Speed Test ({_newWanInterface})";
+            string taskName;
+            string? targetId = null;
+            var config = new Dictionary<string, object>();
+            config["testType"] = _newWanTestType;
+            if (_newWanMaxMode)
+                config["maxMode"] = true;
+
+            if (_newWanTestType == "server")
+            {
+                taskName = _newWanMaxMode ? "WAN Speed Test (Server, Max Load)" : "WAN Speed Test (Server)";
+            }
+            else
+            {
+                // Gateway test - resolve selected WAN option
+                var selected = _wanSelectorOptions.FirstOrDefault(o => o.Value == _newWanSelection);
+                if (selected == null || selected.IsSeparator) return;
+
+                var selectedInterfaces = selected.Indices.Select(i => _wanInterfaces[i]).ToList();
+
+                if (selectedInterfaces.Count == 1)
+                {
+                    targetId = selectedInterfaces[0].Interface;
+                    var wanGroup = selectedInterfaces[0].NetworkGroup;
+                    var wanName = selectedInterfaces[0].Name;
+                    config["wanGroup"] = wanGroup ?? "WAN";
+                    config["wanName"] = wanName ?? "WAN";
+                    var suffix = _newWanMaxMode ? ", Max Load" : "";
+                    taskName = $"WAN Speed Test ({wanName ?? wanGroup ?? "Gateway"}{suffix})";
+                }
+                else
+                {
+                    // Multi-WAN combo
+                    targetId = "";
+                    var groups = selectedInterfaces
+                        .Select(w => w.NetworkGroup ?? "WAN")
+                        .Distinct().OrderBy(g => g);
+                    var wanGroup = string.Join("+", groups);
+                    var wanName = string.Join(" + ", selectedInterfaces
+                        .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
+                        .Distinct().OrderBy(n => n));
+
+                    config["wanGroup"] = wanGroup;
+                    config["wanName"] = wanName;
+                    config["interfaces"] = selectedInterfaces.Select(w => w.Interface).ToArray();
+                    var suffix = _newWanMaxMode ? ", Max Load" : "";
+                    taskName = $"WAN Speed Test ({wanName}{suffix})";
+                }
+            }
 
             var task = new ScheduledTask
             {
                 TaskType = "wan_speedtest",
-                Name = name,
-                TargetId = _newWanInterface,
+                Name = taskName,
+                TargetId = targetId,
+                TargetConfig = JsonSerializer.Serialize(config),
                 FrequencyMinutes = _newWanFrequency,
                 Enabled = true,
                 NextRunAt = DateTime.UtcNow.AddMinutes(_newWanFrequency)
             };
 
             await ScheduleRepository.SaveAsync(task);
-            _newWanInterface = null;
+            _newWanSelection = "0";
+            _newWanMaxMode = false;
             _newWanFrequency = 1440;
             await LoadSchedules();
         }

@@ -560,15 +560,69 @@ if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
         }
     };
 
-    scheduleService.WanSpeedTestExecutor = async (targetId, _, ct) =>
+    scheduleService.WanSpeedTestExecutor = async (targetId, targetConfig, ct) =>
     {
-        var wanService = app.Services.GetRequiredService<GatewayWanSpeedTestService>();
-        if (wanService.IsRunning)
-            return (false, null, "WAN speed test is already running");
-
         try
         {
-            var result = await wanService.RunTestAsync(targetId ?? "eth4", null, null, cancellationToken: ct);
+            // Parse config for test type, max mode, multi-WAN
+            var testType = "gateway";
+            var maxMode = false;
+            string? wanGroup = null;
+            string? wanName = null;
+            string[]? multiInterfaces = null;
+
+            if (!string.IsNullOrEmpty(targetConfig))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(targetConfig);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("testType", out var tt))
+                    testType = tt.GetString() ?? "gateway";
+                if (root.TryGetProperty("maxMode", out var mm))
+                    maxMode = mm.GetBoolean();
+                if (root.TryGetProperty("wanGroup", out var wg))
+                    wanGroup = wg.GetString();
+                if (root.TryGetProperty("wanName", out var wn))
+                    wanName = wn.GetString();
+                if (root.TryGetProperty("interfaces", out var ifaces) && ifaces.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    multiInterfaces = ifaces.EnumerateArray().Select(e => e.GetString()!).ToArray();
+            }
+
+            Iperf3Result? result;
+
+            if (testType == "server")
+            {
+                var serverService = app.Services.GetRequiredService<UwnSpeedTestService>();
+                if (serverService.IsRunning)
+                    return (false, null, "WAN speed test is already running");
+                result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);
+            }
+            else
+            {
+                var gatewayService = app.Services.GetRequiredService<GatewayWanSpeedTestService>();
+                if (gatewayService.IsRunning)
+                    return (false, null, "WAN speed test is already running");
+
+                if (multiInterfaces is { Length: > 1 })
+                {
+                    // Multi-WAN: resolve interface info for parallel test
+                    var sqmService = app.Services.GetRequiredService<SqmService>();
+                    var allWans = await sqmService.GetWanInterfacesFromControllerAsync();
+                    var selectedWans = allWans.Where(w => multiInterfaces.Contains(w.Interface)).ToList();
+                    result = await gatewayService.RunTestAsync(
+                        "", wanGroup, wanName,
+                        allInterfaces: selectedWans,
+                        maxMode: maxMode,
+                        cancellationToken: ct);
+                }
+                else
+                {
+                    result = await gatewayService.RunTestAsync(
+                        targetId ?? "eth4", wanGroup, wanName,
+                        maxMode: maxMode,
+                        cancellationToken: ct);
+                }
+            }
+
             if (result == null)
                 return (false, null, "WAN speed test returned no result");
 

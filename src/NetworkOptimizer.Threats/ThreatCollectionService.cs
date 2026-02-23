@@ -189,22 +189,24 @@ public class ThreatCollectionService : BackgroundService
             _logger.LogInformation("Collected {Count} threat events", totalRecentEvents);
 
         // === PHASE 2: Gradual backfill (>24h ago) - page-limited to stay gentle ===
+        // Backfill 30 days (data retention is separate at _retentionDays)
+        const int backfillDays = 30;
         var backfillCursorStr = await settings.GetSettingAsync("threats.backfill_cursor", cancellationToken);
-        var retentionLimit = DateTimeOffset.UtcNow.AddDays(-_retentionDays);
+        var backfillLimit = DateTimeOffset.UtcNow.AddDays(-backfillDays);
 
         // Initialize cursor to 24h ago on first run (Phase 1 covers recent 24h)
         var cursor = backfillCursorStr != null ? DateTimeOffset.Parse(backfillCursorStr) : recentStart;
 
-        if (cursor > retentionLimit)
+        if (cursor > backfillLimit)
         {
             // Work backwards in 6-hour chunks, 20 pages per cycle
             // When chunks return 0 events, accelerate through sparse periods (up to 48h per cycle)
             var maxChunksPerCycle = 8;
-            for (var chunk = 0; chunk < maxChunksPerCycle && cursor > retentionLimit; chunk++)
+            for (var chunk = 0; chunk < maxChunksPerCycle && cursor > backfillLimit; chunk++)
             {
                 var chunkEnd = cursor;
                 var chunkStart = cursor.AddHours(-6);
-                if (chunkStart < retentionLimit) chunkStart = retentionLimit;
+                if (chunkStart < backfillLimit) chunkStart = backfillLimit;
 
                 var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
                 await ProcessAndSaveAsync(backfillEvents, repository, cancellationToken);
@@ -225,7 +227,7 @@ public class ThreatCollectionService : BackgroundService
         else
         {
             BackfillCursor = null; // Backfill complete
-            _logger.LogDebug("Backfill complete - coverage back to retention limit ({Days}d)", _retentionDays);
+            _logger.LogDebug("Backfill complete - coverage back to {Days}d", backfillDays);
         }
 
         // Periodic geo database staleness check (every 24h, triggered by dashboard loading)
