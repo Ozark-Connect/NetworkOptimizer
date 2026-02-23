@@ -1826,12 +1826,6 @@ else
                 _activeTab = "overview";
             }
 
-            // Disable filters for drilldown (same as DrillDownToIp/Port/Protocol)
-            if (_activeTab == "drilldown")
-            {
-                _filtersActiveBeforeDrilldown = _filtersActive;
-                _filtersActive = false;
-            }
         }
         else
         {
@@ -1849,6 +1843,15 @@ else
         await LoadNoiseFiltersAsync();
         var filtersSetting = await SettingsAccessor.GetSettingAsync("threats.filters_active");
         if (filtersSetting != null) _filtersActive = filtersSetting != "false";
+
+        // Disable filters for drilldown AFTER loading the persisted setting,
+        // so we can save/restore the user's preference when exiting drilldown.
+        if (_activeTab == "drilldown")
+        {
+            _filtersActiveBeforeDrilldown = _filtersActive;
+            _filtersActive = false;
+        }
+
         await LoadDataAsync();
 
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
