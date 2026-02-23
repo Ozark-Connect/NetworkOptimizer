@@ -4,6 +4,8 @@
 @inject DashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
 @inject Iperf3SpeedTestService SpeedTestService
+@inject UwnSpeedTestService WanSpeedTestService
+@inject GatewayWanSpeedTestService GatewayWanTestService
 @inject IAdminAuthService AdminAuthService
 @inject ThreatDashboardService ThreatService
 @inject NavigationManager NavigationManager
@@ -143,11 +145,7 @@
         </a>
 
         <a href="/threats" class="stat-card stat-card-link">
-            <div class="stat-icon" style="color: #ef4444;">
-                <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </div>
+            <img src="/icons/threats.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value">
                     @if (_threatLoading)
@@ -230,13 +228,50 @@
             </div>
         </div>
 
-        <!-- SQM Status Panel -->
-        <div class="card">
-            <div class="card-header">
-                <a href="/sqm" class="card-title-link"><h2 class="card-title">Adaptive SQM</h2></a>
+        <!-- SQM Status + Threat Trends (stacked) -->
+        <div class="card-stack">
+            <div class="card">
+                <div class="card-header">
+                    <a href="/sqm" class="card-title-link"><h2 class="card-title">Adaptive SQM</h2></a>
+                </div>
+                <div class="card-body">
+                    <SqmStatusPanel @key="_sqmPanelKey" />
+                </div>
             </div>
-            <div class="card-body">
-                <SqmStatusPanel @key="_sqmPanelKey" />
+            <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/threats"))">
+                <div class="card-header">
+                    <a href="/threats" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Threat Trends</h2></a>
+                    <a href="/threats" class="card-action" @onclick:stopPropagation>View All →</a>
+                </div>
+                <div class="card-body">
+                    @if (_threatLoading)
+                    {
+                        <div class="loading-state">
+                            <span class="spinner-sm"></span>
+                            <span>Loading...</span>
+                        </div>
+                    }
+                    else if (_threatTrend.Count == 0)
+                    {
+                        <div class="empty-state">
+                            <p>No threat data yet</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <ApexChart TItem="ThreatTrendPoint"
+                                   Options="_threatSparklineOptions"
+                                   Height="@("120px")">
+                            <ApexPointSeries TItem="ThreatTrendPoint"
+                                             Items="_threatTrend"
+                                             Name="Events"
+                                             SeriesType="SeriesType.Area"
+                                             XValue="e => e.Hour"
+                                             YValue="e => (decimal)e.Count"
+                                             OrderBy="e => e.X" />
+                        </ApexChart>
+                    }
+                </div>
             </div>
         </div>
 
@@ -250,86 +285,88 @@
             </div>
         </div>
 
-        <!-- LAN Speed Test Stats -->
-        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest#test-history"))">
-            <div class="card-header">
-                <a href="/speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">LAN Speed Test</h2></a>
-                <a href="/speedtest#test-history" class="card-action" @onclick:stopPropagation>View All →</a>
+        <!-- WAN + LAN Speed Tests (stacked 50/50) -->
+        <div class="card-stack card-stack-even">
+            <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/wan-speedtest"))">
+                <div class="card-header">
+                    <a href="/wan-speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">WAN Speed Test</h2></a>
+                    <a href="/wan-speedtest" class="card-action" @onclick:stopPropagation>View All →</a>
+                </div>
+                <div class="card-body">
+                    @if (_wanTestLoading)
+                    {
+                        <div class="loading-state">
+                            <span class="spinner-sm"></span>
+                            <span>Loading...</span>
+                        </div>
+                    }
+                    else if (_recentWanTests.Count == 0)
+                    {
+                        <div class="empty-state">
+                            <p>No WAN speed tests yet</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="speed-test-list">
+                            @foreach (var test in _recentWanTests)
+                            {
+                                <div class="speed-test-row">
+                                    <span class="speed-test-device">@(test.WanName ?? test.WanNetworkGroup ?? "WAN")</span>
+                                    <span class="speed-test-speeds">
+                                        <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
+                                        <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
+                                    </span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
-            <div class="card-body">
-                @if (_speedTestLoading)
-                {
-                    <div class="loading-state">
-                        <span class="spinner-sm"></span>
-                        <span>Loading...</span>
-                    </div>
-                }
-                else if (_recentSpeedTests.Count == 0)
-                {
-                    <div class="empty-state">
-                        <p>No speed tests yet</p>
-                    </div>
-                }
-                else
-                {
-                    <div class="speed-test-list">
-                        @foreach (var test in _recentSpeedTests)
-                        {
-                            <div class="speed-test-row">
-                                <span class="speed-test-device">@(test.DeviceName ?? "Unknown")</span>
-                                <span class="speed-test-speeds">
-                                    <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
-                                    <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
-                                </span>
-                                <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
-                            </div>
-                        }
-                    </div>
-                }
+            <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest#test-history"))">
+                <div class="card-header">
+                    <a href="/speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">LAN Speed Test</h2></a>
+                    <a href="/speedtest#test-history" class="card-action" @onclick:stopPropagation>View All →</a>
+                </div>
+                <div class="card-body">
+                    @if (_speedTestLoading)
+                    {
+                        <div class="loading-state">
+                            <span class="spinner-sm"></span>
+                            <span>Loading...</span>
+                        </div>
+                    }
+                    else if (_recentSpeedTests.Count == 0)
+                    {
+                        <div class="empty-state">
+                            <p>No speed tests yet</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="speed-test-list">
+                            @foreach (var test in _recentSpeedTests)
+                            {
+                                <div class="speed-test-row">
+                                    <span class="speed-test-device">@(test.DeviceName ?? "Unknown")</span>
+                                    <span class="speed-test-speeds">
+                                        <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
+                                        <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
+                                    </span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
         </div>
 
-        <!-- Threat Trends -->
-        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/threats"))">
-            <div class="card-header">
-                <a href="/threats" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Threat Trends</h2></a>
-                <a href="/threats" class="card-action" @onclick:stopPropagation>View All →</a>
-            </div>
-            <div class="card-body">
-                @if (_threatLoading)
-                {
-                    <div class="loading-state">
-                        <span class="spinner-sm"></span>
-                        <span>Loading...</span>
-                    </div>
-                }
-                else if (_threatTrend.Count == 0)
-                {
-                    <div class="empty-state">
-                        <p>No threat data yet</p>
-                    </div>
-                }
-                else
-                {
-                    <ApexChart TItem="ThreatTrendPoint"
-                               Options="_threatSparklineOptions"
-                               Height="@("120px")">
-                        <ApexPointSeries TItem="ThreatTrendPoint"
-                                         Items="_threatTrend"
-                                         Name="Events"
-                                         SeriesType="SeriesType.Area"
-                                         XValue="e => e.Hour"
-                                         YValue="e => (decimal)e.Count"
-                                         OrderBy="e => e.X" />
-                    </ApexChart>
-                }
-            </div>
-        </div>
-
-        <!-- Recent Alerts -->
+        <!-- Recent Audit Issues -->
         <div class="card card-span-2" id="recent-alerts">
             <div class="card-header">
-                <a href="/audit" class="card-title-link"><h2 class="card-title">Recent Alerts</h2></a>
+                <a href="/audit" class="card-title-link"><h2 class="card-title">Recent Audit Issues</h2></a>
                 <a href="/audit" class="card-action">View All →</a>
             </div>
             <div class="card-body">
@@ -374,6 +411,7 @@
 @code {
     private bool _loading = true;
     private bool _speedTestLoading = true;
+    private bool _wanTestLoading = true;
     private bool _threatLoading = true;
     private int deviceCount = 0;
     private int securityScore = 0;
@@ -386,6 +424,7 @@
     private List<ThreatTrendPoint> _threatTrend = [];
     private List<Services.DeviceInfo> devices = new();
     private List<Iperf3Result> _recentSpeedTests = new();
+    private List<Iperf3Result> _recentWanTests = new();
     private int _sqmPanelKey = 0;
     private int _alertsListKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
@@ -408,6 +447,7 @@
         await Task.WhenAll(
             LoadDashboardData(),
             LoadSpeedTestData(),
+            LoadWanTestData(),
             LoadThreatData()
         );
         await InvokeAsync(StateHasChanged);
@@ -432,6 +472,7 @@
         await Task.WhenAll(
             LoadDashboardData(),
             LoadSpeedTestData(),
+            LoadWanTestData(),
             LoadThreatData()
         );
 
@@ -475,6 +516,29 @@
         finally
         {
             _speedTestLoading = false;
+        }
+    }
+
+    private async Task LoadWanTestData()
+    {
+        _wanTestLoading = true;
+        try
+        {
+            var serverResults = await WanSpeedTestService.GetResultsAsync(count: 5);
+            var gatewayResults = await GatewayWanTestService.GetResultsAsync(count: 5);
+            _recentWanTests = serverResults.Concat(gatewayResults)
+                .Where(r => r.Success)
+                .OrderByDescending(r => r.TestTime)
+                .Take(5)
+                .ToList();
+        }
+        catch
+        {
+            // Ignore errors - just show empty state
+        }
+        finally
+        {
+            _wanTestLoading = false;
         }
     }
 

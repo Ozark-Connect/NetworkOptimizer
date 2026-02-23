@@ -713,8 +713,19 @@ a.stat-card-link:active {
 }
 
 /* Main dashboard cards - fixed height to prevent flash during load */
-.content-grid > .card:nth-child(-n+4) {
+.content-grid > .card:first-child {
     min-height: 37vh;
+}
+
+/* Card stacking - two cards in one grid cell */
+.card-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.card-stack-even > .card {
+    flex: 1;
 }
 
 /* Dashboard Grid */

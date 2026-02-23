@@ -145,76 +145,7 @@
             <div class="schedule-section">
                 <h2 class="schedule-section-title">WAN Speed Tests</h2>
                 @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
-                @if (wanTasks.Count == 0)
-                {
-                    <div class="schedule-card">
-                        <div class="schedule-card-body">
-                            <div class="schedule-config">
-                                <div class="form-group schedule-field">
-                                    <label>Test Type</label>
-                                    <select class="form-control" @bind="_newWanTestType">
-                                        @if (_gatewayAvailable)
-                                        {
-                                            <option value="gateway">Gateway (Direct)</option>
-                                        }
-                                        <option value="server">Server</option>
-                                    </select>
-                                </div>
-                                @if (_newWanTestType == "gateway" && _wanSelectorOptions.Count > 0)
-                                {
-                                    <div class="form-group schedule-field">
-                                        <label>WAN</label>
-                                        <select class="form-control" @bind="_newWanSelection">
-                                            @foreach (var opt in _wanSelectorOptions)
-                                            {
-                                                if (opt.IsSeparator)
-                                                {
-                                                    <option disabled value="">──────────</option>
-                                                }
-                                                else
-                                                {
-                                                    <option value="@opt.Value">@opt.Label</option>
-                                                }
-                                            }
-                                        </select>
-                                    </div>
-                                }
-                                <div class="form-group schedule-field">
-                                    <label>Frequency</label>
-                                    <select class="form-control" @bind="_newWanFrequency">
-                                        <option value="360">Every 6 hours</option>
-                                        <option value="720">Every 12 hours</option>
-                                        <option value="1440">Every 24 hours</option>
-                                        <option value="2880">Every 48 hours</option>
-                                        <option value="10080">Every 7 days</option>
-                                    </select>
-                                </div>
-                                <div class="form-group schedule-field">
-                                    <label>Start Time (@_serverTzAbbrev)</label>
-                                    <input type="time" class="form-control" @bind="_newWanStartTime" />
-                                </div>
-                                <div class="schedule-inline-controls">
-                                    <label class="toggle-switch schedule-toggle" data-tooltip="Normal: 4 servers, 16 streams. Max Load: more servers and streams for saturating multi-gig links.">
-                                        <input type="checkbox" @bind="_newWanMaxMode" />
-                                        <span class="toggle-slider"></span>
-                                        <span class="toggle-label">Max Load</span>
-                                    </label>
-                                    <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
-                                            disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
-                                        Create Schedule
-                                    </button>
-                                </div>
-                            </div>
-                            @if (!_gatewayAvailable && _newWanTestType != "server")
-                            {
-                                <p class="form-help" style="margin-top:0.5rem;">Gateway SSH not configured. <a href="/settings">Configure in Settings</a> to enable gateway tests.</p>
-                            }
-                        </div>
-                    </div>
-                }
-                else
-                {
-                    @foreach (var task in wanTasks)
+                @foreach (var task in wanTasks)
                     {
                         <div class="schedule-card">
                             <div class="schedule-card-header">
@@ -293,137 +224,194 @@
                             </div>
                         </div>
                     }
-                }
+                <div class="schedule-card">
+                    <div class="schedule-card-body">
+                        <div class="schedule-config">
+                            <div class="form-group schedule-field">
+                                <label>Test Type</label>
+                                <select class="form-control" @bind="_newWanTestType">
+                                    @if (_gatewayAvailable)
+                                    {
+                                        <option value="gateway">Gateway (Direct)</option>
+                                    }
+                                    <option value="server">Server</option>
+                                </select>
+                            </div>
+                            @if (_newWanTestType == "gateway" && _wanSelectorOptions.Count > 0)
+                            {
+                                <div class="form-group schedule-field">
+                                    <label>WAN</label>
+                                    <select class="form-control" @bind="_newWanSelection">
+                                        @foreach (var opt in _wanSelectorOptions)
+                                        {
+                                            if (opt.IsSeparator)
+                                            {
+                                                <option disabled value="">──────────</option>
+                                            }
+                                            else
+                                            {
+                                                <option value="@opt.Value">@opt.Label</option>
+                                            }
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            <div class="form-group schedule-field">
+                                <label>Frequency</label>
+                                <select class="form-control" @bind="_newWanFrequency">
+                                    <option value="360">Every 6 hours</option>
+                                    <option value="720">Every 12 hours</option>
+                                    <option value="1440">Every 24 hours</option>
+                                    <option value="2880">Every 48 hours</option>
+                                    <option value="10080">Every 7 days</option>
+                                </select>
+                            </div>
+                            <div class="form-group schedule-field">
+                                <label>Start Time (@_serverTzAbbrev)</label>
+                                <input type="time" class="form-control" @bind="_newWanStartTime" />
+                            </div>
+                            <div class="schedule-inline-controls">
+                                <label class="toggle-switch schedule-toggle" data-tooltip="Normal: 4 servers, 16 streams. Max Load: more servers and streams for saturating multi-gig links.">
+                                    <input type="checkbox" @bind="_newWanMaxMode" />
+                                    <span class="toggle-slider"></span>
+                                    <span class="toggle-label">Max Load</span>
+                                </label>
+                                <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
+                                        disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
+                                    Add Schedule
+                                </button>
+                            </div>
+                        </div>
+                        @if (!_gatewayAvailable && _newWanTestType != "server")
+                        {
+                            <p class="form-help" style="margin-top:0.5rem;">Gateway SSH not configured. <a href="/settings">Configure in Settings</a> to enable gateway tests.</p>
+                        }
+                    </div>
+                </div>
             </div>
 
             <div class="schedule-section">
                 <h2 class="schedule-section-title">LAN Speed Tests</h2>
                 @{ var lanTasks = _scheduledTasks.Where(t => t.TaskType == "lan_speedtest").ToList(); }
-                @if (lanTasks.Count == 0)
+                @foreach (var task in lanTasks)
                 {
-                    @if (_lanDevices.Count > 0)
-                    {
-                        <div class="schedule-card">
-                            <div class="schedule-card-body">
-                                <div class="schedule-config">
-                                    <div class="form-group schedule-field">
-                                        <label>Device</label>
-                                        <select class="form-control" @bind="_newLanDevice">
-                                            <option value="">Select device...</option>
-                                            @foreach (var dev in _lanDevices)
-                                            {
-                                                <option value="@dev.Host">@(!string.IsNullOrEmpty(dev.Name) ? $"{dev.Name} ({dev.Host})" : dev.Host)</option>
-                                            }
-                                        </select>
-                                    </div>
-                                    <div class="form-group schedule-field">
-                                        <label>Frequency</label>
-                                        <select class="form-control" @bind="_newLanFrequency">
-                                            <option value="360">Every 6 hours</option>
-                                            <option value="720">Every 12 hours</option>
-                                            <option value="1440">Every 24 hours</option>
-                                            <option value="2880">Every 48 hours</option>
-                                            <option value="10080">Every 7 days</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group schedule-field">
-                                        <label>Start Time (@_serverTzAbbrev)</label>
-                                        <input type="time" class="form-control" @bind="_newLanStartTime" />
-                                    </div>
-                                    <div class="schedule-inline-controls">
-                                        <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
-                                                disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
-                                            Create Schedule
-                                        </button>
-                                    </div>
-                                </div>
+                    <div class="schedule-card">
+                        <div class="schedule-card-header">
+                            <div class="schedule-card-title">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>@task.Name</span>
+                            </div>
+                            <div class="schedule-card-actions">
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => RunScheduleNow(task)"
+                                        disabled="@(ScheduleService.IsTaskRunning(task.Id))">
+                                    @if (ScheduleService.IsTaskRunning(task.Id))
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <text>Running...</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Run Now</text>
+                                    }
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
                             </div>
                         </div>
-                    }
-                    else
-                    {
-                        <div class="empty-state">
-                            <h3>No Devices Configured</h3>
-                            <p>Add devices on the LAN Speed Test page first.</p>
-                            <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
-                        </div>
-                    }
-                }
-                else
-                {
-                    @foreach (var task in lanTasks)
-                    {
-                        <div class="schedule-card">
-                            <div class="schedule-card-header">
-                                <div class="schedule-card-title">
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                    <span>@task.Name</span>
-                                </div>
-                                <div class="schedule-card-actions">
-                                    <button class="btn btn-sm btn-secondary"
-                                            @onclick="() => RunScheduleNow(task)"
-                                            disabled="@(ScheduleService.IsTaskRunning(task.Id))">
-                                        @if (ScheduleService.IsTaskRunning(task.Id))
-                                        {
-                                            <span class="spinner spinner-sm"></span>
-                                            <text>Running...</text>
-                                        }
-                                        else
-                                        {
-                                            <text>Run Now</text>
-                                        }
-                                    </button>
-                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
-                                </div>
-                            </div>
-                            <div class="schedule-card-body">
-                                <div class="schedule-detail-row">
-                                    <span class="schedule-detail-tag tag-muted">@FormatFrequency(task.FrequencyMinutes)</span>
-                                    @if (task.CustomMorningHour.HasValue)
-                                    {
-                                        <span class="schedule-detail-tag tag-muted">@FormatStartTime(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)</span>
-                                    }
-                                    @if (!string.IsNullOrEmpty(task.TargetId))
-                                    {
-                                        <span class="schedule-detail-tag">@task.TargetId</span>
-                                    }
-                                </div>
-                                @if (task.LastRunAt.HasValue)
+                        <div class="schedule-card-body">
+                            <div class="schedule-detail-row">
+                                <span class="schedule-detail-tag tag-muted">@FormatFrequency(task.FrequencyMinutes)</span>
+                                @if (task.CustomMorningHour.HasValue)
                                 {
-                                    <div class="schedule-status">
+                                    <span class="schedule-detail-tag tag-muted">@FormatStartTime(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)</span>
+                                }
+                                @if (!string.IsNullOrEmpty(task.TargetId))
+                                {
+                                    <span class="schedule-detail-tag">@task.TargetId</span>
+                                }
+                            </div>
+                            @if (task.LastRunAt.HasValue)
+                            {
+                                <div class="schedule-status">
+                                    <span class="schedule-status-item">
+                                        <span class="detail-label">Last run:</span>
+                                        <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
+                                        @if (!string.IsNullOrEmpty(task.LastStatus))
+                                        {
+                                            <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
+                                        }
+                                    </span>
+                                    @if (!string.IsNullOrEmpty(task.LastResultSummary))
+                                    {
                                         <span class="schedule-status-item">
-                                            <span class="detail-label">Last run:</span>
-                                            <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
-                                            @if (!string.IsNullOrEmpty(task.LastStatus))
-                                            {
-                                                <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
-                                            }
+                                            <span class="detail-value">@task.LastResultSummary</span>
                                         </span>
-                                        @if (!string.IsNullOrEmpty(task.LastResultSummary))
+                                    }
+                                    @if (task.NextRunAt.HasValue && task.Enabled)
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Next run:</span>
+                                            <span class="detail-value">@FormatTime(task.NextRunAt.Value)</span>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(task.LastErrorMessage))
+                            {
+                                <div class="alert alert-danger schedule-error">@task.LastErrorMessage</div>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (_lanDevices.Count > 0)
+                {
+                    <div class="schedule-card">
+                        <div class="schedule-card-body">
+                            <div class="schedule-config">
+                                <div class="form-group schedule-field">
+                                    <label>Device</label>
+                                    <select class="form-control" @bind="_newLanDevice">
+                                        <option value="">Select device...</option>
+                                        @foreach (var dev in _lanDevices)
                                         {
-                                            <span class="schedule-status-item">
-                                                <span class="detail-value">@task.LastResultSummary</span>
-                                            </span>
+                                            <option value="@dev.Host">@(!string.IsNullOrEmpty(dev.Name) ? $"{dev.Name} ({dev.Host})" : dev.Host)</option>
                                         }
-                                        @if (task.NextRunAt.HasValue && task.Enabled)
-                                        {
-                                            <span class="schedule-status-item">
-                                                <span class="detail-label">Next run:</span>
-                                                <span class="detail-value">@FormatTime(task.NextRunAt.Value)</span>
-                                            </span>
-                                        }
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(task.LastErrorMessage))
-                                {
-                                    <div class="alert alert-danger schedule-error">@task.LastErrorMessage</div>
-                                }
+                                    </select>
+                                </div>
+                                <div class="form-group schedule-field">
+                                    <label>Frequency</label>
+                                    <select class="form-control" @bind="_newLanFrequency">
+                                        <option value="360">Every 6 hours</option>
+                                        <option value="720">Every 12 hours</option>
+                                        <option value="1440">Every 24 hours</option>
+                                        <option value="2880">Every 48 hours</option>
+                                        <option value="10080">Every 7 days</option>
+                                    </select>
+                                </div>
+                                <div class="form-group schedule-field">
+                                    <label>Start Time (@_serverTzAbbrev)</label>
+                                    <input type="time" class="form-control" @bind="_newLanStartTime" />
+                                </div>
+                                <div class="schedule-inline-controls">
+                                    <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
+                                            disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
+                                        Add Schedule
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    }
+                    </div>
+                }
+                else if (lanTasks.Count == 0)
+                {
+                    <div class="empty-state">
+                        <h3>No Devices Configured</h3>
+                        <p>Add devices on the LAN Speed Test page first.</p>
+                        <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
+                    </div>
                 }
             </div>
         }
