@@ -293,7 +293,7 @@
 
                                 @if (isClickableClient)
                                 {
-                                    <a href="./wifi-optimizer?tab=client&client=@clientLinkMac" class="@hopClasses hop-clickable"
+                                    <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(clientLinkMac)" class="@hopClasses hop-clickable"
                                        data-tooltip="@deviceTooltip"
                                        data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
@@ -827,7 +827,7 @@
                 if (isBottleneck)
                     mloTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
                 if (!string.IsNullOrEmpty(clientMac))
-                    mloTooltip += "<div class='wifi-tooltip-client-link'><a href='./wifi-optimizer?tab=client&client=" + clientMac + "'>View in Wi-Fi Optimizer</a></div>";
+                    mloTooltip += "<div class='wifi-tooltip-client-link'><a href='./wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(clientMac) + "'>View in Wi-Fi Optimizer</a></div>";
                 return mloTooltip;
             }
 
@@ -875,7 +875,7 @@
             if (isBottleneck)
                 clientTooltip += "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
             if (!string.IsNullOrEmpty(clientMac))
-                clientTooltip += "<div class='wifi-tooltip-client-link'><a href='./wifi-optimizer?tab=client&client=" + clientMac + "'>View in Wi-Fi Optimizer</a></div>";
+                clientTooltip += "<div class='wifi-tooltip-client-link'><a href='./wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(clientMac) + "'>View in Wi-Fi Optimizer</a></div>";
             return clientTooltip;
         }
 
