@@ -68,7 +68,7 @@
     else
     {
         <div style="display:flex; align-items:center; gap:0.5rem;">
-            <button class="btn btn-secondary btn-sm" @onclick="() => ExitDrilldown()">&larr; Back</button>
+            <button class="btn btn-secondary btn-sm" @onclick="GoBack" style="display:inline-flex; align-items:center; gap:0.3rem;"><span style="font-size:1.1em; line-height:1;">&larr;</span> Back</button>
             <span style="color:var(--text-secondary);">
                 @if (_drilldownPort != null) { <text>Port Details</text> }
                 else if (_drilldownProtocol != null) { <text>Protocol Details</text> }
@@ -2420,6 +2420,11 @@ else
             StateHasChanged();
             await JS.InvokeVoidAsync("eval", "document.querySelector('.page-content')?.scrollTo(0, 0)");
         }
+    }
+
+    private async Task GoBack()
+    {
+        await JS.InvokeVoidAsync("history.back");
     }
 
     private async Task ExitDrilldown(bool pushHistory = true)
