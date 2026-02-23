@@ -853,6 +853,7 @@ else
                 var hasDrilldownCti = _manualCtiCache.TryGetValue(_drilldownData.Ip, out var drilldownCti);
                 var drilldownBadge = drilldownCti?.Badge;
                 var drilldownBehaviors = drilldownCti?.Behaviors;
+                <span style="display:inline-flex; align-items:center; gap:0.5rem;">
                 @if (drilldownBadge != null)
                 {
                     <span class="reputation-badge reputation-@drilldownBadge"
@@ -882,6 +883,7 @@ else
                         Look up
                     </button>
                 }
+                </span>
             }
             @if (_drilldownData.FirstSeen.HasValue)
             {
