@@ -565,16 +565,40 @@
     [SupplyParameterFromQuery(Name = "client")]
     public string? ClientQueryParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    private string? _lastTabParam;
+
     private bool _loading = true;
     private bool _refreshing = false;
     private string _activeTab = "overview";
     private string? _initialClientMac;
+
+    private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "overview", "metrics", "spectrum", "channels", "client", "coverage",
+        "floorplan", "roaming", "power", "loadbalance", "connectivity",
+        "bandsteering", "airtime", "environment"
+    };
+
+    private static string ResolveTab(string? param)
+    {
+        if (param != null && ValidTabs.Contains(param))
+            return param.ToLowerInvariant();
+        return "overview";
+    }
 
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
         // Clear client filter when manually switching tabs
         _initialClientMac = null;
+
+        // Build clean URL - drop client param when leaving client tab
+        var uri = "/wifi-optimizer?tab=" + tab;
+        NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+        _lastTabParam = tab;
     }
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
@@ -591,6 +615,16 @@
         {
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
+            _lastTabParam = "client";
+        }
+        else if (!string.IsNullOrEmpty(TabParam))
+        {
+            _activeTab = ResolveTab(TabParam);
+            _lastTabParam = TabParam;
+        }
+        else
+        {
+            _lastTabParam = TabParam;
         }
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
@@ -627,6 +661,17 @@
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
         }
+        else if (TabParam != _lastTabParam && _lastTabParam != null)
+        {
+            var newTab = ResolveTab(TabParam);
+            if (newTab != _activeTab)
+            {
+                _activeTab = newTab;
+                _initialClientMac = null;
+                StateHasChanged();
+            }
+        }
+        _lastTabParam = TabParam;
     }
 
     private async void OnConnectionChanged()
@@ -741,7 +786,8 @@
     {
         _activeTab = "client";
         _initialClientMac = mac;
-        StateHasChanged();
+        NavigationManager.NavigateTo("/wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(mac), forceLoad: false, replace: false);
+        _lastTabParam = "client";
     }
 
     public void Dispose()
