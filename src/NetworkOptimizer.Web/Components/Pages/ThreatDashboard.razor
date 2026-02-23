@@ -118,89 +118,90 @@
 </div>
 
 @* Noise Filter Panel *@
-@if (_showFilterPanel)
-{
-    <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--accent-color);">
-        <div class="card-body" style="padding:1rem;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-                <h4 style="margin:0; font-size:0.95rem; font-weight:600;">Noise Filters</h4>
-                <span style="color:var(--text-muted); font-size:0.8rem;">Hide noisy traffic from all dashboard views</span>
-            </div>
+<div class="expand-wrapper @(_showFilterPanel ? "expanded" : "")">
+    <div class="expand-content">
+        <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--accent-color);">
+            <div class="card-body" style="padding:1rem;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+                    <h4 style="margin:0; font-size:0.95rem; font-weight:600;">Noise Filters</h4>
+                    <span style="color:var(--text-muted); font-size:0.8rem;">Hide noisy traffic from all dashboard views</span>
+                </div>
 
-            @* Add new filter form *@
-            <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:0.75rem;">
-                <div>
-                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Source IP</label>
-                    <input type="text" @bind="_newFilterSourceIp" placeholder="IP or CIDR"
-                           style="width:150px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                @* Add new filter form *@
+                <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:0.75rem;">
+                    <div>
+                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Source IP</label>
+                        <input type="text" @bind="_newFilterSourceIp" placeholder="IP or CIDR"
+                               style="width:150px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest IP</label>
+                        <input type="text" @bind="_newFilterDestIp" placeholder="IP or CIDR"
+                               style="width:150px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest Port</label>
+                        <input type="text" @bind="_newFilterDestPort" placeholder="any"
+                               style="width:80px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Description</label>
+                        <input type="text" @bind="_newFilterDescription" placeholder="optional"
+                               style="width:200px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                    </div>
+                    <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
+                    @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription))
+                    {
+                        <button class="btn btn-sm btn-secondary" @onclick="ClearFilterForm">Clear</button>
+                    }
                 </div>
-                <div>
-                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest IP</label>
-                    <input type="text" @bind="_newFilterDestIp" placeholder="IP or CIDR"
-                           style="width:150px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest Port</label>
-                    <input type="text" @bind="_newFilterDestPort" placeholder="any"
-                           style="width:80px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Description</label>
-                    <input type="text" @bind="_newFilterDescription" placeholder="optional"
-                           style="width:200px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
-                </div>
-                <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
-                @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription))
+
+                @* Existing filters *@
+                @if (_noiseFilters.Count > 0)
                 {
-                    <button class="btn btn-sm btn-secondary" @onclick="ClearFilterForm">Clear</button>
+                    <div class="table-responsive">
+                        <table class="data-table" style="font-size:0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th>Source IP</th>
+                                    <th>Dest IP</th>
+                                    <th>Dest Port</th>
+                                    <th>Description</th>
+                                    <th style="width:100px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var filter in _noiseFilters)
+                                {
+                                    <tr style="@(filter.Enabled ? "" : "opacity:0.5;")">
+                                        <td><code>@(filter.SourceIp ?? "*")</code></td>
+                                        <td><code>@(filter.DestIp ?? "*")</code></td>
+                                        <td><code>@(filter.DestPort?.ToString() ?? "*")</code></td>
+                                        <td>@filter.Description</td>
+                                        <td>
+                                            <div style="display:flex; gap:0.25rem;">
+                                                <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
+                                                        data-tooltip="@(filter.Enabled ? "Disable" : "Enable")" data-tooltip-hover-only>
+                                                    @(filter.Enabled ? "On" : "Off")
+                                                </button>
+                                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
+                                                        data-tooltip="Delete filter" data-tooltip-hover-only>X</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div style="color:var(--text-muted); font-size:0.85rem;">No filters configured. Add one above to hide noisy traffic.</div>
                 }
             </div>
-
-            @* Existing filters *@
-            @if (_noiseFilters.Count > 0)
-            {
-                <div class="table-responsive">
-                    <table class="data-table" style="font-size:0.85rem;">
-                        <thead>
-                            <tr>
-                                <th>Source IP</th>
-                                <th>Dest IP</th>
-                                <th>Dest Port</th>
-                                <th>Description</th>
-                                <th style="width:100px;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var filter in _noiseFilters)
-                            {
-                                <tr style="@(filter.Enabled ? "" : "opacity:0.5;")">
-                                    <td><code>@(filter.SourceIp ?? "*")</code></td>
-                                    <td><code>@(filter.DestIp ?? "*")</code></td>
-                                    <td><code>@(filter.DestPort?.ToString() ?? "*")</code></td>
-                                    <td>@filter.Description</td>
-                                    <td>
-                                        <div style="display:flex; gap:0.25rem;">
-                                            <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
-                                                    data-tooltip="@(filter.Enabled ? "Disable" : "Enable")" data-tooltip-hover-only>
-                                                @(filter.Enabled ? "On" : "Off")
-                                            </button>
-                                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
-                                                    data-tooltip="Delete filter" data-tooltip-hover-only>X</button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-            else
-            {
-                <div style="color:var(--text-muted); font-size:0.85rem;">No filters configured. Add one above to hide noisy traffic.</div>
-            }
         </div>
     </div>
-}
+</div>
 
 @if (CollectionService.BackfillCursor != null)
 {
