@@ -225,9 +225,7 @@ public class ThreatDashboardService
                 _ => 60       // 24h+: hourly buckets
             };
 
-            var result = await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
-            _repository.SetSeverityFilter(SeverityFilter);
-            return result;
+            return await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
         }
         catch (Exception ex)
         {
