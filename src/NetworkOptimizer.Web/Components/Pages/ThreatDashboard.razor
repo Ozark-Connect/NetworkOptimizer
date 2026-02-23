@@ -1764,6 +1764,13 @@ else
         {
             var (from, to) = GetTimeRange();
 
+            // Pin the X-axis to the full time filter range so toggling severity
+            // filters doesn't shrink/shift the visible date range.
+            var fromEpoch = new DateTimeOffset(DateTime.SpecifyKind(from, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+            var toEpoch = new DateTimeOffset(DateTime.SpecifyKind(to, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+            _timelineChartOptions.Xaxis.Min = fromEpoch;
+            _timelineChartOptions.Xaxis.Max = toEpoch;
+
             if (_activeTab == "overview")
             {
                 var chartExisted = _timelineChart != null;
