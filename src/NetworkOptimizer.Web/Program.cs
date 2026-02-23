@@ -628,7 +628,7 @@ if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
 
             var dl = result.DownloadBitsPerSecond / 1_000_000.0;
             var ul = result.UploadBitsPerSecond / 1_000_000.0;
-            return (true, $"{dl:F0}/{ul:F0} Mbps", null);
+            return (true, $"{dl:F0} / {ul:F0} Mbps", null);
         }
         catch (Exception ex)
         {
@@ -655,7 +655,7 @@ if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
 
             var dl = result.DownloadBitsPerSecond / 1_000_000.0;
             var ul = result.UploadBitsPerSecond / 1_000_000.0;
-            return (true, $"{dl:F0}/{ul:F0} Mbps", null);
+            return (true, $"{dl:F0} / {ul:F0} Mbps", null);
         }
         catch (Exception ex)
         {

@@ -63,6 +63,13 @@
         @* ========== Schedule Tab ========== *@
         @if (_activeTab == "schedule")
         {
+            @if (!string.IsNullOrEmpty(_scheduleMessage))
+            {
+                <div class="alert alert-@_scheduleMessageClass" style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span>@_scheduleMessage</span>
+                    <button class="btn btn-sm btn-secondary" @onclick="() => _scheduleMessage = null">Dismiss</button>
+                </div>
+            }
             <div class="schedule-section">
                 <h2 class="schedule-section-title">Security Audit</h2>
                 @{ var auditTask = _scheduledTasks.FirstOrDefault(t => t.TaskType == "audit"); }
@@ -1109,6 +1116,8 @@
     private int _newWanFrequency = 1440;
     private int _newLanFrequency = 1440;
     private bool _creatingSchedule;
+    private string? _scheduleMessage;
+    private string _scheduleMessageClass = "info";
     private bool CanCreateWanSchedule => _newWanTestType == "server" || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
     private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
 
@@ -1584,12 +1593,46 @@
     {
         try
         {
-            await ScheduleService.RunNowAsync(task.Id);
+            var started = await ScheduleService.RunNowAsync(task.Id);
+            if (!started)
+            {
+                _scheduleMessage = "Task is already running.";
+                _scheduleMessageClass = "warning";
+                StateHasChanged();
+                return;
+            }
+
+            StateHasChanged();
+
+            // Poll until the task finishes, then reload to show results
+            for (var i = 0; i < 120; i++) // up to 2 minutes
+            {
+                await Task.Delay(1000);
+                if (!ScheduleService.IsTaskRunning(task.Id))
+                    break;
+                StateHasChanged(); // keep spinner visible
+            }
+
+            await LoadSchedules();
+            var updated = _scheduledTasks.FirstOrDefault(t => t.Id == task.Id);
+            if (updated?.LastStatus == "success")
+            {
+                _scheduleMessage = $"{task.Name}: {updated.LastResultSummary ?? "completed successfully"}";
+                _scheduleMessageClass = "success";
+            }
+            else if (updated?.LastStatus == "failed")
+            {
+                _scheduleMessage = $"{task.Name} failed: {updated.LastErrorMessage ?? "unknown error"}";
+                _scheduleMessageClass = "danger";
+            }
             StateHasChanged();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error running schedule {Id} now", task.Id);
+            _scheduleMessage = $"Error: {ex.Message}";
+            _scheduleMessageClass = "danger";
+            StateHasChanged();
         }
     }
 
