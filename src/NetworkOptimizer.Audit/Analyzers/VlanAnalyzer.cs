@@ -791,8 +791,8 @@ public class VlanAnalyzer
                     RuleId = "NET-ISO-002",
                     ScoreImpact = 15,
                     RecommendedAction = network.VlanId == 1
-                        ? "Add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure. If needed, set a different Purpose for the network in Network Reference below."
-                        : "Enable Isolate Network or add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure. If needed, set a different Purpose for the network in Network Reference below."
+                        ? "Add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure. If incorrect, set a different Purpose for the network in Network Reference below."
+                        : "Enable Isolate Network or add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
 
