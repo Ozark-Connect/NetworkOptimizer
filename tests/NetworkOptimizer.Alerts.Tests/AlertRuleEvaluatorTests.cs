@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
@@ -13,7 +14,7 @@ public class AlertRuleEvaluatorTests
 
     public AlertRuleEvaluatorTests()
     {
-        _evaluator = new AlertRuleEvaluator(_cooldownTracker);
+        _evaluator = new AlertRuleEvaluator(_cooldownTracker, NullLogger<AlertRuleEvaluator>.Instance);
     }
 
     private static AlertEvent CreateTestEvent(

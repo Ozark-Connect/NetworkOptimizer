@@ -126,9 +126,9 @@ public class DigestService : BackgroundService
                 int.TryParse(parts[2], out var hour) &&
                 int.TryParse(parts[3], out var minute))
             {
-                // Find the most recent target day
-                var daysUntilTarget = ((int)day - (int)now.DayOfWeek + 7) % 7;
-                var targetDate = now.Date.AddDays(-daysUntilTarget);
+                // Find the most recent occurrence of the target day
+                var daysSinceTarget = ((int)now.DayOfWeek - (int)day + 7) % 7;
+                var targetDate = now.Date.AddDays(-daysSinceTarget);
                 var targetTime = new DateTime(targetDate.Year, targetDate.Month, targetDate.Day, hour, minute, 0, DateTimeKind.Utc);
 
                 if (now.DayOfWeek == day && now >= targetTime && lastSent < targetTime)

@@ -103,8 +103,8 @@ public class AlertProcessingService : BackgroundService
         {
             try
             {
-                await ProcessRuleMatchAsync(alertEvent, rule, repository, cancellationToken);
                 _ruleEvaluator.RecordFired(rule, alertEvent);
+                await ProcessRuleMatchAsync(alertEvent, rule, repository, cancellationToken);
             }
             catch (Exception ex)
             {

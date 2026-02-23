@@ -310,6 +310,7 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             var from = DateTime.UtcNow.AddHours(-hours);
             var to = DateTime.UtcNow;
             var timeline = await _repository.GetTimelineAsync(from, to, cancellationToken: cancellationToken);

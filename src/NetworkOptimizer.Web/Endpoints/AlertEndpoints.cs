@@ -35,6 +35,7 @@ public static class AlertEndpoints
             existing.EscalationSeverity = rule.EscalationSeverity;
             existing.DigestOnly = rule.DigestOnly;
             existing.TargetDevices = rule.TargetDevices;
+            existing.ThresholdPercent = rule.ThresholdPercent;
 
             await repo.UpdateRuleAsync(existing);
             return Results.Ok(existing);

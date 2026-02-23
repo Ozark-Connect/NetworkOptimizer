@@ -26,6 +26,15 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            Name = "Security Audit: Completed",
+            IsEnabled = false,
+            EventTypePattern = "audit.completed",
+            Source = "audit",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 3600 // 1 hour
+        },
+        new AlertRule
+        {
             Name = "Security Audit: Critical Finding",
             IsEnabled = true,
             EventTypePattern = "audit.critical_findings",

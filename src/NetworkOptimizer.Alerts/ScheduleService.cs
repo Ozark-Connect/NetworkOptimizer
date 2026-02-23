@@ -294,6 +294,9 @@ public class ScheduleService : BackgroundService
 
         // Walk forward from anchor by frequency until we find a time in the future
         // (with 1-minute buffer to avoid re-triggering immediately)
+        if (frequencyMinutes <= 0)
+            return now.AddMinutes(60);
+
         var candidate = anchor;
         while (candidate <= now.AddMinutes(1))
         {
