@@ -767,7 +767,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-ISO-001",
                     ScoreImpact = 15,
-                    RecommendedAction = "Enable network isolation to prevent cameras from accessing other network segments."
+                    RecommendedAction = "Enable network isolation to prevent cameras from accessing other network segments. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
 
@@ -815,7 +815,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-ISO-003",
                     ScoreImpact = 10,
-                    RecommendedAction = "Enable network isolation to contain potentially insecure IoT devices."
+                    RecommendedAction = "Enable network isolation to contain potentially insecure IoT devices. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
         }
@@ -1012,7 +1012,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-INT-001",
                     ScoreImpact = 15,
-                    RecommendedAction = "Disable internet access to prevent cameras from phoning home to unknown servers."
+                    RecommendedAction = "Disable internet access to prevent cameras from phoning home to unknown servers. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
 
@@ -1035,7 +1035,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-INT-002",
                     ScoreImpact = 5,
-                    RecommendedAction = "Consider disabling internet access and using firewall rules to allow specific traffic (UniFi cloud, AFC, etc.)."
+                    RecommendedAction = "Consider disabling internet access and using firewall rules to allow specific traffic (UniFi cloud, AFC, etc.). If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
         }
