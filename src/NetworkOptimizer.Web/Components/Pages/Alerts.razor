@@ -149,7 +149,7 @@
                 {
                     <div class="schedule-card">
                         <div class="schedule-card-body">
-                            <div class="schedule-config" style="align-items:flex-end;">
+                            <div class="schedule-config">
                                 <div class="form-group schedule-field">
                                     <label>Test Type</label>
                                     <select class="form-control" @bind="_newWanTestType">
@@ -295,7 +295,7 @@
                     {
                         <div class="schedule-card">
                             <div class="schedule-card-body">
-                                <div class="schedule-config" style="align-items:flex-end;">
+                                <div class="schedule-config">
                                     <div class="form-group schedule-field">
                                         <label>Device</label>
                                         <select class="form-control" @bind="_newLanDevice">
@@ -948,6 +948,7 @@
         display: flex;
         gap: 1rem;
         flex-wrap: wrap;
+        align-items: flex-end;
     }
     .schedule-field {
         margin-bottom: 0;
@@ -977,13 +978,54 @@
         margin-bottom: 0;
         font-size: 0.8125rem;
     }
-    .schedule-toggle {
+    .schedule-config .schedule-toggle {
         width: auto;
+        height: auto;
         display: inline-flex;
         align-items: center;
         gap: 0.5rem;
-        height: auto;
+        cursor: pointer;
+        user-select: none;
         white-space: nowrap;
+    }
+    .schedule-config .schedule-toggle input {
+        display: none;
+    }
+    .schedule-config .schedule-toggle .toggle-slider {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        background: var(--bg-secondary);
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        transition: background 0.15s ease-out;
+        flex-shrink: 0;
+    }
+    .schedule-config .schedule-toggle .toggle-slider::before {
+        display: none;
+    }
+    .schedule-config .schedule-toggle .toggle-slider::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        background: var(--text-secondary);
+        border-radius: 50%;
+        transition: transform 0.2s, background 0.2s;
+    }
+    .schedule-config .schedule-toggle input:checked + .toggle-slider {
+        background: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+    .schedule-config .schedule-toggle input:checked + .toggle-slider::after {
+        transform: translateX(16px);
+        background: white;
+    }
+    .schedule-config .schedule-toggle .toggle-label {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
     }
     .status-success {
         background: rgba(36, 188, 112, 0.2);
