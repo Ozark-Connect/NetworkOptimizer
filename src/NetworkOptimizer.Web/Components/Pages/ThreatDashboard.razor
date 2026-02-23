@@ -1614,6 +1614,9 @@ else
     private List<ThreatNoiseFilter> _noiseFilters = [];
     private bool _filtersActive = true;
     private bool? _filtersActiveBeforeDrilldown;
+    private string? _timeRangeBeforeDrilldown;
+    private DateTime? _customFromBeforeDrilldown;
+    private DateTime? _customToBeforeDrilldown;
     private bool _showFilterPanel;
     private string _newFilterSourceIp = "";
     private string _newFilterDestIp = "";
@@ -2025,7 +2028,12 @@ else
         _sourcesVisible = DrilldownPageSize;
         _portRangesVisible = DrilldownPageSize;
         if (_filtersActiveBeforeDrilldown == null)
+        {
             _filtersActiveBeforeDrilldown = _filtersActive;
+            _timeRangeBeforeDrilldown = _timeRange;
+            _customFromBeforeDrilldown = _customFrom;
+            _customToBeforeDrilldown = _customTo;
+        }
         _filtersActive = false;
         DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
@@ -2050,6 +2058,10 @@ else
         {
             var (from, to) = GetTimeRange();
             _drilldownData = await DashboardService.GetIpDrilldownAsync(ip, from, to);
+            if (_drilldownData.TotalEvents == 0)
+                _drilldownData = await AutoExpandTimeRangeAsync(
+                    (f, t) => DashboardService.GetIpDrilldownAsync(ip, f, t),
+                    d => d.TotalEvents > 0) ?? _drilldownData;
         }
         catch (Exception ex)
         {
@@ -2080,7 +2092,12 @@ else
         _drilldownData = null;
         _protocolDrilldownData = null;
         if (_filtersActiveBeforeDrilldown == null)
+        {
             _filtersActiveBeforeDrilldown = _filtersActive;
+            _timeRangeBeforeDrilldown = _timeRange;
+            _customFromBeforeDrilldown = _customFrom;
+            _customToBeforeDrilldown = _customTo;
+        }
         _filtersActive = false;
         DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
@@ -2093,6 +2110,10 @@ else
         {
             var (from, to) = GetTimeRange();
             _portDrilldownData = await DashboardService.GetPortDrilldownAsync(port, from, to);
+            if (_portDrilldownData.TotalEvents == 0)
+                _portDrilldownData = await AutoExpandTimeRangeAsync(
+                    (f, t) => DashboardService.GetPortDrilldownAsync(port, f, t),
+                    d => d.TotalEvents > 0) ?? _portDrilldownData;
         }
         catch (Exception ex)
         {
@@ -2123,7 +2144,12 @@ else
         _drilldownData = null;
         _portDrilldownData = null;
         if (_filtersActiveBeforeDrilldown == null)
+        {
             _filtersActiveBeforeDrilldown = _filtersActive;
+            _timeRangeBeforeDrilldown = _timeRange;
+            _customFromBeforeDrilldown = _customFrom;
+            _customToBeforeDrilldown = _customTo;
+        }
         _filtersActive = false;
         DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
@@ -2136,6 +2162,10 @@ else
         {
             var (from, to) = GetTimeRange();
             _protocolDrilldownData = await DashboardService.GetProtocolDrilldownAsync(protocol, from, to);
+            if (_protocolDrilldownData.TotalEvents == 0)
+                _protocolDrilldownData = await AutoExpandTimeRangeAsync(
+                    (f, t) => DashboardService.GetProtocolDrilldownAsync(protocol, f, t),
+                    d => d.TotalEvents > 0) ?? _protocolDrilldownData;
         }
         catch (Exception ex)
         {
@@ -2163,6 +2193,13 @@ else
             _filtersActive = _filtersActiveBeforeDrilldown.Value;
             DashboardService.FiltersDisabled = !_filtersActive;
             _filtersActiveBeforeDrilldown = null;
+        }
+        if (_timeRangeBeforeDrilldown != null)
+        {
+            _timeRange = _timeRangeBeforeDrilldown;
+            _customFrom = _customFromBeforeDrilldown;
+            _customTo = _customToBeforeDrilldown;
+            _timeRangeBeforeDrilldown = null;
         }
         _activeTab = _previousTab;
         _showFilterPanel = false;
@@ -2192,6 +2229,38 @@ else
             _ => to.AddDays(-1) // 24h default
         };
         return (from, to);
+    }
+
+    private static readonly string[] TimeRangeEscalation = ["1h", "4h", "24h", "7d", "30d", "90d"];
+
+    private async Task<T?> AutoExpandTimeRangeAsync<T>(Func<DateTime, DateTime, Task<T>> query, Func<T, bool> hasData) where T : class
+    {
+        // Find the current range's position in escalation order
+        var currentIdx = Array.IndexOf(TimeRangeEscalation, _timeRange);
+        var startIdx = currentIdx >= 0 ? currentIdx + 1 : 0;
+
+        var to = DateTime.UtcNow;
+        for (var i = startIdx; i < TimeRangeEscalation.Length; i++)
+        {
+            var from = TimeRangeEscalation[i] switch
+            {
+                "1h" => to.AddHours(-1),
+                "4h" => to.AddHours(-4),
+                "7d" => to.AddDays(-7),
+                "30d" => to.AddDays(-30),
+                "90d" => to.AddDays(-90),
+                _ => to.AddDays(-1)
+            };
+
+            var result = await query(from, to);
+            if (hasData(result))
+            {
+                _timeRange = TimeRangeEscalation[i];
+                return result;
+            }
+        }
+
+        return null;
     }
 
     private DotNetObjectReference<ThreatDashboard>? _dotNetRef;
