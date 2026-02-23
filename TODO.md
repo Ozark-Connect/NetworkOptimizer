@@ -7,17 +7,13 @@
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
 
-### Scheduled LAN Speed Test
-- Allow users to schedule recurring LAN speed tests (e.g., hourly, daily, weekly)
-- Automatically run iperf3 tests against configured devices on a schedule
-- Store results for trend analysis and historical comparison
-- Useful for detecting intermittent performance degradation over time
+### ✅ ~~Scheduled LAN Speed Test~~ (done - Alerts & Scheduling feature)
 
-### Scheduled WAN Speed Test
-- Allow users to schedule recurring WAN speed tests
-- Automatically test WAN throughput on a configurable schedule
-- Track ISP performance over time with historical data
-- Alert on significant speed drops compared to provisioned/expected speeds
+### ✅ ~~Scheduled WAN Speed Test~~ (done - Alerts & Scheduling feature)
+
+## Alerts & Scheduling
+
+### ✅ ~~LAN Speed Test Schedule: UniFi Device Targets~~ (done)
 
 ## Security Audit / PDF Report
 

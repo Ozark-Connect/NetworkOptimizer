@@ -14,6 +14,7 @@
 @inject NavigationManager NavigationManager
 @inject SqmService SqmService
 @inject Iperf3SpeedTestService SpeedTestService
+@inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @implements IDisposable
 @rendermode InteractiveServer
@@ -373,7 +374,7 @@
                         </div>
                     </div>
                 }
-                @if (_lanDevices.Count > 0)
+                @if (_lanDeviceOptions.Count > 0)
                 {
                     <div class="schedule-card">
                         <div class="schedule-card-body">
@@ -382,9 +383,9 @@
                                     <label>Device</label>
                                     <select class="form-control" @bind="_newLanDevice">
                                         <option value="">Select device...</option>
-                                        @foreach (var dev in _lanDevices)
+                                        @foreach (var opt in _lanDeviceOptions)
                                         {
-                                            <option value="@dev.Host">@(!string.IsNullOrEmpty(dev.Name) ? $"{dev.Name} ({dev.Host})" : dev.Host)</option>
+                                            <option value="@opt.Host">@opt.Label</option>
                                         }
                                     </select>
                                 </div>
@@ -415,8 +416,8 @@
                 else if (lanTasks.Count == 0)
                 {
                     <div class="empty-state">
-                        <h3>No Devices Configured</h3>
-                        <p>Add devices on the LAN Speed Test page first.</p>
+                        <h3>No Devices Available</h3>
+                        <p>Connect to your UniFi controller or add devices on the LAN Speed Test page.</p>
                         <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
                     </div>
                 }
@@ -1105,6 +1106,7 @@
     private List<ScheduledTask> _scheduledTasks = [];
     private List<WanInterfaceInfo> _wanInterfaces = [];
     private List<DeviceSshConfiguration> _lanDevices = [];
+    private List<(string Host, string Label, bool IsUniFi)> _lanDeviceOptions = [];
     private List<WanSelectorOption> _wanSelectorOptions = [];
     private bool _gatewayAvailable;
     private string _newWanTestType = "gateway";
@@ -1271,6 +1273,29 @@
         {
             Logger.LogWarning(ex, "Could not load LAN devices");
             _lanDevices = [];
+        }
+
+        // Build unified device options: manual devices + UniFi-discovered devices
+        _lanDeviceOptions.Clear();
+        var manualHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dev in _lanDevices)
+        {
+            var label = !string.IsNullOrEmpty(dev.Name) ? $"{dev.Name} ({dev.Host})" : dev.Host;
+            _lanDeviceOptions.Add((dev.Host, label, false));
+            manualHosts.Add(dev.Host);
+        }
+        try
+        {
+            var discovered = await ConnectionService.GetDiscoveredDevicesAsync();
+            foreach (var dev in discovered.Where(d => d.Type != DeviceType.Gateway && d.CanRunIperf3))
+            {
+                if (!manualHosts.Contains(dev.IpAddress))
+                    _lanDeviceOptions.Add((dev.IpAddress, $"{dev.Name} ({dev.IpAddress})", true));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load UniFi devices for schedule dropdown");
         }
     }
 
@@ -1731,8 +1756,8 @@
 
         try
         {
-            var dev = _lanDevices.FirstOrDefault(d => d.Host == _newLanDevice);
-            var label = dev != null && !string.IsNullOrEmpty(dev.Name) ? dev.Name : _newLanDevice;
+            var opt = _lanDeviceOptions.FirstOrDefault(o => o.Host == _newLanDevice);
+            var label = opt.Host != null ? opt.Label.Split(" (")[0] : _newLanDevice;
             var name = $"LAN Speed Test ({label})";
 
             var (startHour, startMinute) = ParseTimeInput(_newLanStartTime);

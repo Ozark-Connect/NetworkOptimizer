@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -644,6 +645,31 @@ if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
         var lanService = app.Services.GetRequiredService<Iperf3SpeedTestService>();
         var devices = await lanService.GetDevicesAsync();
         var device = devices.FirstOrDefault(d => d.Host == targetId);
+
+        // Fall back to UniFi-discovered devices if not found in manual config
+        if (device == null)
+        {
+            var connService = app.Services.GetRequiredService<UniFiConnectionService>();
+            try
+            {
+                var discovered = await connService.GetDiscoveredDevicesAsync(ct);
+                var unifiDevice = discovered.FirstOrDefault(d =>
+                    d.IpAddress == targetId && d.Type != DeviceType.Gateway && d.CanRunIperf3);
+                if (unifiDevice != null)
+                {
+                    device = new DeviceSshConfiguration
+                    {
+                        Name = unifiDevice.Name ?? "Unknown Device",
+                        Host = unifiDevice.IpAddress,
+                        DeviceType = unifiDevice.Type,
+                        Enabled = true,
+                        StartIperf3Server = true
+                    };
+                }
+            }
+            catch { /* UniFi unavailable - fall through to error */ }
+        }
+
         if (device == null)
             return (false, null, $"Device not found: {targetId}");
 

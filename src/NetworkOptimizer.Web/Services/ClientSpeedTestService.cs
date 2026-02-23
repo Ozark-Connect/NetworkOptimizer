@@ -507,7 +507,8 @@ public class ClientSpeedTestService
                 var recent = await db.Iperf3Results
                     .AsNoTracking()
                     .Where(r => r.DeviceHost == result.DeviceHost && r.Id != result.Id && r.Success
-                        && r.Direction == result.Direction)
+                        && r.Direction == result.Direction
+                        && r.DownloadBitsPerSecond > 0)
                     .OrderByDescending(r => r.TestTime)
                     .Take(5)
                     .ToListAsync();

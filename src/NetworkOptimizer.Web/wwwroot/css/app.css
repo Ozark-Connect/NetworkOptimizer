@@ -2719,7 +2719,11 @@ select.form-control {
 
 .banner-icon-info {
     background: var(--info-color);
+    color: var(--text-primary);
     font-size: 1rem;
+    font-weight: 600;
+    width: 24px;
+    height: 24px;
 }
 
 .banner-text {

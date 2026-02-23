@@ -13,6 +13,22 @@
 
 > **Notice:** This project is under rapid development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Releases and main are stable, but be careful testing any new feature branches you might find.
 
+## New: Threat Intelligence
+
+Your UniFi gateway's IPS is blocking threats all day long, but the controller buries this data in a flat event log with no context. Threat Intelligence pulls those IPS events and actually analyzes them: who's attacking you, where they're coming from, what they're after, and whether it's random noise or a coordinated effort.
+
+The exposure analysis is where it gets useful. It cross-references your port forwards with actual threat data, so you can see which of your exposed services are getting hammered and from where. Attack sequence detection watches for the same source IP progressing through kill chain stages (reconnaissance to exploitation to post-exploitation) and flags the ones that look like real campaigns rather than drive-by scanning. Geographic and ASN breakdowns show you which countries and networks are generating the most traffic against your infrastructure.
+
+CrowdSec CTI integration adds reputation scoring and MITRE ATT&CK classification to each source IP, so you're not just looking at raw events - you know whether that IP has a history of malicious activity across the broader internet.
+
+## New: Alerts & Scheduling
+
+Set up automated speed tests and security audits on a schedule, and get notified when something goes wrong. The scheduling engine handles recurring WAN and LAN speed tests with configurable frequency and time windows, plus periodic security audits that track your score over time.
+
+Alert rules watch for the things that matter: audit score drops, WAN speed degradation, LAN speed regression against recent baselines, IPS attack chains reaching active exploitation, and scheduled task failures. Each rule has configurable severity thresholds and cooldown periods so you're not drowning in noise. Threshold-based rules (like "alert me when WAN speed drops 40% below the recent average") let you tune sensitivity to your environment.
+
+Delivery channels support email (SMTP with STARTTLS), Discord, Slack, Microsoft Teams, and generic webhooks. Low-priority alerts can be set to digest-only mode so they get bundled into a daily summary instead of pinging you every time your neighbor microwaves lunch and your 2.4 GHz channel gets congested.
+
 ## New: Client Performance
 
 A per-device analytics dashboard for any client on your network. Pick a device and get live signal monitoring, speed test history with download/upload trends, latency and jitter charts, network path visualization showing every hop and bottleneck link, and a connection timeline tracking AP roams and disconnects. Walk around with the page open on your phone (over HTTPS) and it builds a GPS-based signal heatmap of your actual coverage. Three tabs - Speed, Signal, and Connection - give you everything you need to troubleshoot why a device is slow or unstable.
@@ -111,7 +127,7 @@ The UPnP Inspector puts it all in one place: every dynamic UPnP mapping and stat
 
 ### Coming Soon
 
-Time-series metrics with historical trending and alerting. Cable modem stats (signal levels, uncorrectables, T3/T4 timeouts) for those of you fighting with your ISP about line quality.
+Cable modem stats (signal levels, uncorrectables, T3/T4 timeouts) for those of you fighting with your ISP about line quality.
 
 ## Requirements
 
@@ -125,6 +141,8 @@ Most features work with just API access. SSH is only needed for speed testing an
 | Security Audit | No |
 | Config Optimizer | No, but Gateway SSH required for upcoming features |
 | Wi-Fi Optimizer | No |
+| Threat Intelligence | No |
+| Alerts & Scheduling | No (schedules speed tests that may require SSH) |
 | Client Speed Test | No |
 | WAN Speed Test | No, but gateway-based requires Gateway SSH |
 | LAN Speed Test | Yes - Gateway SSH and/or Device SSH |
@@ -197,6 +215,7 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOp
 ```
 src/
 ├── NetworkOptimizer.Web         # Blazor web UI
+├── NetworkOptimizer.Alerts      # Alerts & Scheduling engine
 ├── NetworkOptimizer.Audit       # Security Audit
 ├── NetworkOptimizer.Core        # Shared helpers and utilities
 ├── NetworkOptimizer.Diagnostics # Config Optimizer
@@ -204,6 +223,7 @@ src/
 ├── NetworkOptimizer.Reports     # PDF/Markdown report generation
 ├── NetworkOptimizer.Sqm         # Adaptive SQM
 ├── NetworkOptimizer.Storage     # SQLite database
+├── NetworkOptimizer.Threats     # Threat Intelligence
 ├── NetworkOptimizer.UniFi       # UniFi API client
 ├── NetworkOptimizer.WiFi        # Wi-Fi Optimizer
 ├── cfspeedtest/                 # WAN Speed Test (binary for gateway)
