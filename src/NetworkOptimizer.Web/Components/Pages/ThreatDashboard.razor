@@ -2165,28 +2165,34 @@ else
 
     private async Task SetupClickOutsideHandler()
     {
-        if (_showCustomRange)
+        try
         {
-            _dotNetRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("eval",
-                "window.__threatPopoverHandler && document.removeEventListener('mousedown', window.__threatPopoverHandler);" +
-                "window.__threatPopoverHandler = function(e) {" +
-                "  if (!e.target.closest('.custom-range-popover') && !e.target.closest('.time-btn')) {" +
-                "    document.removeEventListener('mousedown', window.__threatPopoverHandler);" +
-                "    window.__threatPopoverHandler = null;" +
-                "    window.__threatDotNetRef.invokeMethodAsync('CloseCustomRange');" +
-                "  }" +
-                "};" +
-                "window.__threatDotNetRef = arguments[0];" +
-                "setTimeout(function() { document.addEventListener('mousedown', window.__threatPopoverHandler); }, 0);",
-                _dotNetRef);
+            if (_showCustomRange)
+            {
+                _dotNetRef ??= DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("eval",
+                    "window.__teardownThreatPopover = function() {" +
+                    "  if (window.__threatPopoverHandler) { document.removeEventListener('mousedown', window.__threatPopoverHandler); window.__threatPopoverHandler = null; }" +
+                    "};" +
+                    "window.__setupThreatPopover = function(ref) {" +
+                    "  window.__teardownThreatPopover();" +
+                    "  window.__threatPopoverHandler = function(e) {" +
+                    "    if (!e.target.closest('.custom-range-popover') && !e.target.closest('.time-btn')) {" +
+                    "      window.__teardownThreatPopover();" +
+                    "      ref.invokeMethodAsync('CloseCustomRange');" +
+                    "    }" +
+                    "  };" +
+                    "  setTimeout(function() { document.addEventListener('mousedown', window.__threatPopoverHandler); }, 0);" +
+                    "};");
+                await JS.InvokeVoidAsync("__setupThreatPopover", _dotNetRef);
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("eval",
+                    "window.__teardownThreatPopover && window.__teardownThreatPopover();");
+            }
         }
-        else
-        {
-            await JS.InvokeVoidAsync("eval",
-                "window.__threatPopoverHandler && document.removeEventListener('mousedown', window.__threatPopoverHandler);" +
-                "window.__threatPopoverHandler = null;");
-        }
+        catch { /* JS interop can fail during dispose/prerender */ }
     }
 
     private void SetCustomFrom(string? value)
