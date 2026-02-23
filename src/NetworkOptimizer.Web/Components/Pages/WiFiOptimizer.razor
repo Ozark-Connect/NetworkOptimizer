@@ -786,7 +786,8 @@
     {
         _activeTab = "client";
         _initialClientMac = mac;
-        StateHasChanged();
+        NavigationManager.NavigateTo("/wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(mac), forceLoad: false, replace: false);
+        _lastTabParam = "client";
     }
 
     public void Dispose()
