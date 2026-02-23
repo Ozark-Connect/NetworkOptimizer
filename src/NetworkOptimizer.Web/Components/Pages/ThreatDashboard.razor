@@ -1215,10 +1215,10 @@ else
     @if (_activeTab == "drilldown" && _protocolDrilldownData != null)
     {
         <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
-            <h2 style="margin:0; font-size:1.5rem; font-weight:700;">
+            <h2 style="margin:0; font-size:1.5rem; font-weight:700; display:flex; align-items:baseline; gap:0.5rem;">
                 <code style="font-size:1.3rem;">@FormatServiceToken(_protocolDrilldownData.Protocol)</code>
+                <span style="color:var(--text-secondary); font-size:1rem; font-weight:400;">Protocol</span>
             </h2>
-            <span style="color:var(--text-secondary); font-size:1rem;">Protocol</span>
             @if (_protocolDrilldownData.FirstSeen.HasValue)
             {
                 <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
