@@ -15,6 +15,7 @@
 @inject INetworkPathAnalyzer PathAnalyzer
 @inject UniFiConnectionService ConnectionService
 @inject IJSRuntime JS
+@inject SystemSettingsService SettingsService
 
 <PageTitle>WAN Speed Test - Network Optimizer</PageTitle>
 
@@ -22,6 +23,14 @@
     <div class="page-header">
         <h1>WAN Speed Test</h1>
     </div>
+
+    @if (!_wanScheduleBannerDismissed)
+    {
+        <div class="alert alert-info" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <span>Schedule recurring WAN speed tests to track performance over time. <a href="/alerts">Set up schedule</a></span>
+            <button class="btn btn-sm" style="padding:0.25rem 0.5rem; font-size:1.1rem; line-height:1;" @onclick="DismissWanScheduleBanner">&times;</button>
+        </div>
+    }
 
     @* Run Test Card *@
     <div class="card">
@@ -477,6 +486,9 @@
     private Dictionary<int, PathAnalysisResult?> _historyPathAnalysis = new();
     private int? _analyzingResultId;
 
+    // Schedule banner
+    private bool _wanScheduleBannerDismissed = true; // default hidden until loaded
+
     // Poll timer for tracking in-progress test state
     private System.Threading.Timer? _pollTimer;
 
@@ -558,6 +570,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _wanScheduleBannerDismissed = await SettingsService.GetAsync("banner.wan_schedule_dismissed") != null;
         InitializeChartOptions();
 
         // Load WAN list, gateway status, and history in parallel
@@ -697,6 +710,12 @@
                 yield return tail;
             }
         }
+    }
+
+    private async Task DismissWanScheduleBanner()
+    {
+        _wanScheduleBannerDismissed = true;
+        await SettingsService.SetAsync("banner.wan_schedule_dismissed", "true");
     }
 
     private void InitializeChartOptions()

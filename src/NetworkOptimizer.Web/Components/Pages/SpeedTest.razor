@@ -33,6 +33,14 @@
     }
 </div>
 
+@if (!_lanScheduleBannerDismissed)
+{
+    <div class="alert alert-info" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <span>Schedule recurring LAN speed tests to track performance over time. <a href="/alerts">Set up schedule</a></span>
+        <button class="btn btn-sm" style="padding:0.25rem 0.5rem; font-size:1.1rem; line-height:1;" @onclick="DismissLanScheduleBanner">&times;</button>
+    </div>
+}
+
 <!-- Client Speed Test Promotion -->
 <div class="card client-speedtest-card">
     <div class="card-body">
@@ -1178,6 +1186,9 @@
     private LocalIperf3Status? localIperf3Status;
     private bool recheckingIperf3 = false;
 
+    // Schedule banner
+    private bool _lanScheduleBannerDismissed = true; // default hidden until loaded
+
     private List<DeviceSshConfiguration> devices = new();
     private DeviceSshConfiguration editingDevice = new() { DeviceType = DeviceType.Server, Enabled = true };
     private List<Iperf3Result> testHistory = new();
@@ -1248,7 +1259,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Check local iperf3 availability first (before any other operations)
+        // Check schedule banner dismissal and local iperf3 availability
+        _lanScheduleBannerDismissed = await SettingsService.GetAsync("banner.lan_schedule_dismissed") != null;
         localIperf3Status = await SettingsService.CheckLocalIperf3Async();
 
         // Wait for UniFi controller connection (auto-connect happens in background on startup)
@@ -1260,6 +1272,12 @@
         await LoadHistory();
         await LoadDiscoveredDevices();
         await LoadApMarkers();
+    }
+
+    private async Task DismissLanScheduleBanner()
+    {
+        _lanScheduleBannerDismissed = true;
+        await SettingsService.SetAsync("banner.lan_schedule_dismissed", "true");
     }
 
     private async Task RecheckLocalIperf3()

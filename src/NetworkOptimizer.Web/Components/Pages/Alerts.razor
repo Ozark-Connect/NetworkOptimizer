@@ -4,10 +4,14 @@
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Core
 @using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Storage.Models
 @inject IAlertRepository AlertRepository
 @inject IScheduleRepository ScheduleRepository
 @inject ScheduleService ScheduleService
 @inject ILogger<Alerts> Logger
+@inject NavigationManager NavigationManager
+@inject SqmService SqmService
+@inject Iperf3SpeedTestService SpeedTestService
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -19,21 +23,29 @@
 </div>
 
 <div class="alerts-page">
-    <div class="dashboard-controls">
-        <div class="tab-bar">
-            @if (FeatureFlags.SchedulingEnabled)
-            {
-                <button class="tab-btn @(_activeTab == "schedule" ? "active" : "")"
-                        @onclick='() => SetActiveTab("schedule")'>Schedule</button>
-            }
-            <button class="tab-btn @(_activeTab == "active" ? "active" : "")"
-                    @onclick='() => SetActiveTab("active")'>Active Alerts</button>
-            <button class="tab-btn @(_activeTab == "history" ? "active" : "")"
-                    @onclick='() => SetActiveTab("history")'>History</button>
-            <button class="tab-btn @(_activeTab == "rules" ? "active" : "")"
-                    @onclick='() => SetActiveTab("rules")'>Rules</button>
-            <button class="tab-btn @(_activeTab == "incidents" ? "active" : "")"
-                    @onclick='() => SetActiveTab("incidents")'>Incidents</button>
+    <div class="alerts-header-bar">
+        <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left"
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+            <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
+                @if (FeatureFlags.SchedulingEnabled)
+                {
+                    <button class="wifi-view-tab @(_activeTab == "schedule" ? "active" : "")"
+                            @onclick='() => SetActiveTab("schedule")'>Schedule</button>
+                }
+                <button class="wifi-view-tab @(_activeTab == "active" ? "active" : "")"
+                        @onclick='() => SetActiveTab("active")'>Active Alerts</button>
+                <button class="wifi-view-tab @(_activeTab == "history" ? "active" : "")"
+                        @onclick='() => SetActiveTab("history")'>History</button>
+                <button class="wifi-view-tab @(_activeTab == "rules" ? "active" : "")"
+                        @onclick='() => SetActiveTab("rules")'>Rules</button>
+                <button class="wifi-view-tab @(_activeTab == "incidents" ? "active" : "")"
+                        @onclick='() => SetActiveTab("incidents")'>Incidents</button>
+                <button class="wifi-view-tab"
+                        @onclick='() => NavigationManager.NavigateTo("/settings#alert-channels")'>Channels</button>
+            </div>
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right"
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
         </div>
     </div>
 
@@ -132,11 +144,47 @@
                 @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
                 @if (wanTasks.Count == 0)
                 {
-                    <div class="empty-state">
-                        <h3>No WAN Speed Test Schedules</h3>
-                        <p>WAN speed test schedules will be created automatically when gateway SSH is configured.</p>
-                        <a href="/settings" class="btn btn-sm btn-primary">Go to Settings</a>
-                    </div>
+                    @if (_wanInterfaces.Count > 0)
+                    {
+                        <div class="schedule-card">
+                            <div class="schedule-card-body">
+                                <div class="schedule-config" style="align-items:flex-end;">
+                                    <div class="form-group schedule-field">
+                                        <label>WAN Interface</label>
+                                        <select class="form-control" @bind="_newWanInterface">
+                                            <option value="">Select interface...</option>
+                                            @foreach (var wan in _wanInterfaces)
+                                            {
+                                                <option value="@wan.Interface">@wan.Name (@wan.Interface)</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="form-group schedule-field">
+                                        <label>Frequency</label>
+                                        <select class="form-control" @bind="_newWanFrequency">
+                                            <option value="360">Every 6 hours</option>
+                                            <option value="720">Every 12 hours</option>
+                                            <option value="1440">Every 24 hours</option>
+                                            <option value="2880">Every 48 hours</option>
+                                            <option value="10080">Every 7 days</option>
+                                        </select>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
+                                            disabled="@(string.IsNullOrEmpty(_newWanInterface) || _creatingSchedule)">
+                                        Create Schedule
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <h3>No WAN Interfaces Available</h3>
+                            <p>Configure gateway SSH in Settings to schedule WAN speed tests.</p>
+                            <a href="/settings" class="btn btn-sm btn-primary">Go to Settings</a>
+                        </div>
+                    }
                 }
                 else
                 {
@@ -165,6 +213,7 @@
                                             <text>Run Now</text>
                                         }
                                     </button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
                                 </div>
                             </div>
                             <div class="schedule-card-body">
@@ -222,11 +271,47 @@
                 @{ var lanTasks = _scheduledTasks.Where(t => t.TaskType == "lan_speedtest").ToList(); }
                 @if (lanTasks.Count == 0)
                 {
-                    <div class="empty-state">
-                        <h3>No LAN Speed Test Schedules</h3>
-                        <p>LAN speed test schedules will be created when devices are added on the LAN Speed Test page.</p>
-                        <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
-                    </div>
+                    @if (_lanDevices.Count > 0)
+                    {
+                        <div class="schedule-card">
+                            <div class="schedule-card-body">
+                                <div class="schedule-config" style="align-items:flex-end;">
+                                    <div class="form-group schedule-field">
+                                        <label>Device</label>
+                                        <select class="form-control" @bind="_newLanDevice">
+                                            <option value="">Select device...</option>
+                                            @foreach (var dev in _lanDevices)
+                                            {
+                                                <option value="@dev.Host">@(!string.IsNullOrEmpty(dev.Name) ? $"{dev.Name} ({dev.Host})" : dev.Host)</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="form-group schedule-field">
+                                        <label>Frequency</label>
+                                        <select class="form-control" @bind="_newLanFrequency">
+                                            <option value="360">Every 6 hours</option>
+                                            <option value="720">Every 12 hours</option>
+                                            <option value="1440">Every 24 hours</option>
+                                            <option value="2880">Every 48 hours</option>
+                                            <option value="10080">Every 7 days</option>
+                                        </select>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
+                                            disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
+                                        Create Schedule
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <h3>No Devices Configured</h3>
+                            <p>Add devices on the LAN Speed Test page first.</p>
+                            <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
+                        </div>
+                    }
                 }
                 else
                 {
@@ -255,6 +340,7 @@
                                             <text>Run Now</text>
                                         }
                                     </button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
                                 </div>
                             </div>
                             <div class="schedule-card-body">
@@ -664,38 +750,20 @@
         flex-direction: column;
         gap: 1rem;
     }
-    .dashboard-controls {
+    .alerts-header-bar {
         display: flex;
-        gap: 12px;
-        margin-bottom: 0;
-        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
     }
-    .tab-bar {
-        display: flex;
-        gap: 0.25rem;
-        background: var(--bg-primary);
-        border-radius: 6px;
-        padding: 0.25rem;
+    .alerts-header-bar > .wifi-view-tabs-wrapper {
+        flex: 1;
+        min-width: 0;
     }
-    .tab-btn {
-        padding: 0.625rem 1.25rem;
-        border: none;
-        background: transparent;
-        color: var(--text-secondary);
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 0.875rem;
-        font-weight: 500;
-        min-height: 44px;
-        transition: all 0.15s ease;
-    }
-    .tab-btn:hover {
-        color: var(--text-primary);
-        background: var(--bg-tertiary);
-    }
-    .tab-btn.active {
-        background: var(--primary-color);
-        color: white;
+    .alerts-header-bar .wifi-tabs-scroll-btn {
+        border-bottom: none;
+        margin-top: 0.35rem;
     }
     .alert-list {
         display: flex;
@@ -899,15 +967,6 @@
     }
 
     @@media (max-width: 768px) {
-        .tab-bar {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-        }
-        .tab-btn {
-            padding: 0.5rem 0.875rem;
-            font-size: 0.8125rem;
-            white-space: nowrap;
-        }
         .form-row {
             grid-template-columns: 1fr;
         }
@@ -935,6 +994,13 @@
 
     // Schedule
     private List<ScheduledTask> _scheduledTasks = [];
+    private List<WanInterfaceInfo> _wanInterfaces = [];
+    private List<DeviceSshConfiguration> _lanDevices = [];
+    private string? _newWanInterface;
+    private string? _newLanDevice;
+    private int _newWanFrequency = 1440;
+    private int _newLanFrequency = 1440;
+    private bool _creatingSchedule;
 
     // Active alerts
     private List<AlertHistoryEntry> _activeAlerts = [];
@@ -968,7 +1034,10 @@
     protected override async Task OnInitializedAsync()
     {
         if (FeatureFlags.SchedulingEnabled)
+        {
             await LoadSchedules();
+            await LoadScheduleOptions();
+        }
         else
             await LoadActiveAlerts();
         _loading = false;
@@ -1037,6 +1106,29 @@
         {
             Logger.LogError(ex, "Error loading scheduled tasks");
             _scheduledTasks = [];
+        }
+    }
+
+    private async Task LoadScheduleOptions()
+    {
+        try
+        {
+            _wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load WAN interfaces");
+            _wanInterfaces = [];
+        }
+
+        try
+        {
+            _lanDevices = await SpeedTestService.GetDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load LAN devices");
+            _lanDevices = [];
         }
     }
 
@@ -1305,6 +1397,90 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error running schedule {Id} now", task.Id);
+        }
+    }
+
+    private async Task CreateWanSchedule()
+    {
+        if (string.IsNullOrEmpty(_newWanInterface) || _creatingSchedule) return;
+        _creatingSchedule = true;
+
+        try
+        {
+            var wan = _wanInterfaces.FirstOrDefault(w => w.Interface == _newWanInterface);
+            var name = wan != null ? $"WAN Speed Test ({wan.Name})" : $"WAN Speed Test ({_newWanInterface})";
+
+            var task = new ScheduledTask
+            {
+                TaskType = "wan_speedtest",
+                Name = name,
+                TargetId = _newWanInterface,
+                FrequencyMinutes = _newWanFrequency,
+                Enabled = true,
+                NextRunAt = DateTime.UtcNow.AddMinutes(_newWanFrequency)
+            };
+
+            await ScheduleRepository.SaveAsync(task);
+            _newWanInterface = null;
+            _newWanFrequency = 1440;
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating WAN speed test schedule");
+        }
+        finally
+        {
+            _creatingSchedule = false;
+        }
+    }
+
+    private async Task CreateLanSchedule()
+    {
+        if (string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule) return;
+        _creatingSchedule = true;
+
+        try
+        {
+            var dev = _lanDevices.FirstOrDefault(d => d.Host == _newLanDevice);
+            var label = dev != null && !string.IsNullOrEmpty(dev.Name) ? dev.Name : _newLanDevice;
+            var name = $"LAN Speed Test ({label})";
+
+            var task = new ScheduledTask
+            {
+                TaskType = "lan_speedtest",
+                Name = name,
+                TargetId = _newLanDevice,
+                FrequencyMinutes = _newLanFrequency,
+                Enabled = true,
+                NextRunAt = DateTime.UtcNow.AddMinutes(_newLanFrequency)
+            };
+
+            await ScheduleRepository.SaveAsync(task);
+            _newLanDevice = null;
+            _newLanFrequency = 1440;
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating LAN speed test schedule");
+        }
+        finally
+        {
+            _creatingSchedule = false;
+        }
+    }
+
+    private async Task DeleteSchedule(ScheduledTask task)
+    {
+        try
+        {
+            await ScheduleRepository.DeleteAsync(task.Id);
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting schedule {Id}", task.Id);
         }
     }
 
