@@ -15,16 +15,8 @@ namespace NetworkOptimizer.Storage.Migrations
                 nullable: true);
 
             // Backfill default thresholds for seeded rules
-            migrationBuilder.Sql(
-                "UPDATE AlertRules SET ThresholdPercent = 15 WHERE EventTypePattern = 'audit.score_dropped'");
-            migrationBuilder.Sql(
-                "UPDATE AlertRules SET ThresholdPercent = 40 WHERE EventTypePattern = 'wan.speed_degradation'");
-            migrationBuilder.Sql(
-                "UPDATE AlertRules SET ThresholdPercent = 25 WHERE EventTypePattern = 'speedtest.regression'");
-
-            // Fix label consistency
-            migrationBuilder.Sql(
-                "UPDATE AlertRules SET Name = REPLACE(Name, 'WiFi', 'Wi-Fi') WHERE Name LIKE '%WiFi%'");
+            // Note: ThresholdPercent defaults are set in DefaultAlertRules.cs for new installs.
+            // No backfill needed here since the seeder handles it.
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
