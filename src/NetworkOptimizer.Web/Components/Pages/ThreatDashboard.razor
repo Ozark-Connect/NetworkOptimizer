@@ -1909,8 +1909,15 @@ else
 
     private void BuildDerivedChartData()
     {
-        // Kill chain items
-        _killChainItems = Enum.GetValues<KillChainStage>()
+        // Kill chain items - ordered as escalating progression (Monitored → Post-Exploitation)
+        KillChainStage[] stageOrder = [
+            KillChainStage.Monitored,
+            KillChainStage.Reconnaissance,
+            KillChainStage.AttemptedExploitation,
+            KillChainStage.ActiveExploitation,
+            KillChainStage.PostExploitation
+        ];
+        _killChainItems = stageOrder
             .Select(stage => new KillChainItem
             {
                 Stage = stage,
@@ -2454,7 +2461,7 @@ else
                 Toolbar = new Toolbar { Show = false },
                 Animations = new Animations { Enabled = true, Speed = 300 }
             },
-            Colors = new List<string> { "#3b82f6", "#f59e0b", "#ef4444", "#a78bfa", "#64748b" },
+            Colors = new List<string> { "#64748b", "#3b82f6", "#f59e0b", "#ef4444", "#a78bfa" },
             PlotOptions = new PlotOptions
             {
                 Bar = new PlotOptionsBar
