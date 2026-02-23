@@ -1745,8 +1745,7 @@ else
 
     private string BuildTabUrl(string tab, string? ip = null, int? port = null, string? proto = null)
     {
-        var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
-        uri = new Uri(uri).GetLeftPart(UriPartial.Path) + "?tab=" + tab;
+        var uri = new Uri(NavigationManager.Uri).GetLeftPart(UriPartial.Path) + "?tab=" + tab;
         if (ip != null) uri += "&ip=" + Uri.EscapeDataString(ip);
         if (port != null) uri += "&port=" + port;
         if (proto != null) uri += "&proto=" + Uri.EscapeDataString(proto);
