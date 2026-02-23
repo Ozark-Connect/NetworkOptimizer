@@ -1797,8 +1797,6 @@ else
                 {
                     var minHour = _timeline[0].Hour;
                     var maxHour = _timeline[^1].Hour;
-                    // Pad single-bucket ranges so the axis has width
-                    if (minHour == maxHour) { minHour = minHour.AddMinutes(-30); maxHour = maxHour.AddMinutes(30); }
                     _timelineChartOptions.Xaxis.Min = new DateTimeOffset(DateTime.SpecifyKind(minHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                     _timelineChartOptions.Xaxis.Max = new DateTimeOffset(DateTime.SpecifyKind(maxHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                 }

@@ -213,7 +213,17 @@ public class ThreatDashboardService
             // Timeline returns per-severity columns; chart toggles visibility client-side.
             // Fetch without severity filter so all hourly buckets are present (preserves X-axis range).
             _repository.SetSeverityFilter(null);
-            var result = await _repository.GetTimelineAsync(from, to, cancellationToken);
+
+            // Adaptive bucket granularity based on time range
+            var span = to - from;
+            var bucketMinutes = span.TotalHours switch
+            {
+                <= 2 => 5,    // 1hr: 5-minute buckets
+                <= 6 => 15,   // 4hr: 15-minute buckets
+                _ => 60       // 24h+: hourly buckets
+            };
+
+            var result = await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
             _repository.SetSeverityFilter(SeverityFilter);
             return result;
         }
@@ -302,7 +312,7 @@ public class ThreatDashboardService
         {
             var from = DateTime.UtcNow.AddHours(-hours);
             var to = DateTime.UtcNow;
-            var timeline = await _repository.GetTimelineAsync(from, to, cancellationToken);
+            var timeline = await _repository.GetTimelineAsync(from, to, cancellationToken: cancellationToken);
             var total = timeline.Sum(b => b.Total);
             var points = timeline.Select(b => new ThreatTrendPoint
             {

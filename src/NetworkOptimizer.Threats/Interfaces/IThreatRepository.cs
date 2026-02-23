@@ -28,7 +28,7 @@ public interface IThreatRepository
     Task<List<SourceIpSummary>> GetTopSourcesAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);
     Task<List<TargetPortSummary>> GetTopTargetedPortsAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);
     Task<Dictionary<string, int>> GetCountryDistributionAsync(DateTime from, DateTime to, ThreatAction? actionFilter = null, CancellationToken cancellationToken = default);
-    Task<List<TimelineBucket>> GetTimelineAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+    Task<List<TimelineBucket>> GetTimelineAsync(DateTime from, DateTime to, int bucketMinutes = 60, CancellationToken cancellationToken = default);
     Task<Dictionary<KillChainStage, int>> GetKillChainDistributionAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsByIpAsync(string ip, DateTime from, DateTime to, int limit = 5000, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsByPortAsync(int port, DateTime from, DateTime to, int limit = 5000, CancellationToken cancellationToken = default);

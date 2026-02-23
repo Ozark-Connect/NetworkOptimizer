@@ -359,11 +359,11 @@ public class ThreatRepository : IThreatRepository
     }
 
     public async Task<List<TimelineBucket>> GetTimelineAsync(DateTime from, DateTime to,
-        CancellationToken cancellationToken = default)
+        int bucketMinutes = 60, CancellationToken cancellationToken = default)
     {
         try
         {
-            // Use raw SQL with strftime for server-side hour truncation (avoids loading all events into memory)
+            // Use raw SQL with strftime for server-side time truncation (avoids loading all events into memory)
             var noiseFilterSql = BuildNoiseFilterSql(out var extraParams);
             var severityFilterSql = BuildSeverityFilterSql();
             var allParams = new List<object> { from, to };
@@ -374,12 +374,19 @@ public class ThreatRepository : IThreatRepository
                 offsetFilterSql = offsetFilterSql.Replace($"{{{i}}}", $"{{{i + 2}}}");
             allParams.AddRange(extraParams);
 
+            // Bucket expression: for 60min use hour truncation, otherwise use integer division
+            // to snap minutes to the nearest bucket boundary.
+            // bucketMinutes is a compile-time constant (not user input) so safe to interpolate.
+            var bucketExpr = bucketMinutes >= 60
+                ? "strftime('%Y-%m-%d %H:00:00', Timestamp)"
+                : $"strftime('%Y-%m-%d %H:', Timestamp) || printf('%02d', (CAST(strftime('%M', Timestamp) AS INTEGER) / {bucketMinutes}) * {bucketMinutes}) || ':00'";
+
             // All dynamic values use parameterized {N} placeholders - safe from injection
 #pragma warning disable EF1002
             var buckets = await _context.Database
                 .SqlQueryRaw<TimelineBucketRaw>(
                     $$"""
-                    SELECT strftime('%Y-%m-%d %H:00:00', Timestamp) AS HourStr,
+                    SELECT {{bucketExpr}} AS HourStr,
                            SUM(CASE WHEN Severity = 1 THEN 1 ELSE 0 END) AS Severity1,
                            SUM(CASE WHEN Severity = 2 THEN 1 ELSE 0 END) AS Severity2,
                            SUM(CASE WHEN Severity = 3 THEN 1 ELSE 0 END) AS Severity3,
@@ -388,7 +395,7 @@ public class ThreatRepository : IThreatRepository
                            COUNT(*) AS Total
                     FROM ThreatEvents
                     WHERE Timestamp >= {0} AND Timestamp <= {1}{{offsetFilterSql}}{{severityFilterSql}}
-                    GROUP BY strftime('%Y-%m-%d %H:00:00', Timestamp)
+                    GROUP BY {{bucketExpr}}
                     ORDER BY HourStr
                     """, allParams.ToArray())
                 .ToListAsync(cancellationToken);
