@@ -322,7 +322,9 @@ public class SqmService : ISqmService
 
             foreach (var device in devices.EnumerateArray())
             {
-                // Only look at gateways
+                // Only consider gateway-capable device types (ugw, udm, uxg).
+                // Note: UDMs adopted as APs (e.g., UX7 in AP-only mode) still report type="udm"
+                // but won't have active WAN interfaces - we handle that below by checking wan1-wan4.
                 var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
                 if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
                 {
@@ -330,6 +332,11 @@ public class SqmService : ISqmService
                     _logger.LogDebug("Skipping non-gateway device type={Type} model={Model}", deviceType, deviceModel);
                     continue;
                 }
+
+                var deviceName = device.TryGetProperty("name", out var devNameProp) ? devNameProp.GetString() : null;
+                var deviceModel2 = device.TryGetProperty("model", out var devModelProp) ? devModelProp.GetString() : null;
+                _logger.LogInformation("Examining gateway-capable device: type={DeviceType}, model={Model}, name={Name}",
+                    deviceType, deviceModel2, deviceName ?? "(unnamed)");
 
                 // Build ifname -> networkgroup lookup from ethernet_overrides
                 var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -481,15 +488,24 @@ public class SqmService : ISqmService
                     }
                 }
 
-                // Found a gateway - log results and stop (only one gateway expected)
-                _logger.LogInformation("Gateway found (type={DeviceType}): {Count} WAN interface(s) accepted",
-                    deviceType, result.Count);
-                if (result.Count == 0)
+                if (result.Count > 0)
                 {
-                    _logger.LogWarning("Gateway had wan1-wan4 entries but none were accepted. " +
-                        "Check above logs for skip reasons (disabled network group, missing uplink_ifname)");
+                    _logger.LogInformation("Gateway identified (type={DeviceType}, name={Name}): {Count} WAN interface(s) accepted",
+                        deviceType, deviceName ?? "(unnamed)", result.Count);
+                    break;
                 }
-                break;
+
+                // This gateway-capable device had no accepted WANs.
+                // Could be a UDM adopted as an AP, or all WANs are disabled/inactive.
+                // Continue checking other devices.
+                _logger.LogInformation("Device type={DeviceType}, name={Name} had no accepted WAN interfaces (may be adopted as AP). " +
+                    "Checking remaining devices...", deviceType, deviceName ?? "(unnamed)");
+            }
+
+            if (result.Count == 0)
+            {
+                _logger.LogWarning("No WAN interfaces found on any device. " +
+                    "Check above logs for skip reasons (disabled network group, missing uplink_ifname, UDM adopted as AP)");
             }
         }
         catch (Exception ex)
