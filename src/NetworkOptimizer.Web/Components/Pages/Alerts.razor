@@ -190,7 +190,7 @@
                                     </select>
                                 </div>
                                 <div class="form-group schedule-field">
-                                    <label>Start Time (UTC)</label>
+                                    <label>Start Time (@_serverTzAbbrev)</label>
                                     <input type="time" class="form-control" @bind="_newWanStartTime" />
                                 </div>
                                 <div class="schedule-inline-controls">
@@ -243,18 +243,22 @@
                                 </div>
                             </div>
                             <div class="schedule-card-body">
-                                <div class="schedule-config">
-                                    <div class="form-group schedule-field">
-                                        <label>Frequency</label>
-                                        <select class="form-control" value="@task.FrequencyMinutes"
-                                                @onchange="e => UpdateFrequency(task, e)">
-                                            <option value="360">Every 6 hours</option>
-                                            <option value="720">Every 12 hours</option>
-                                            <option value="1440">Every 24 hours</option>
-                                            <option value="2880">Every 48 hours</option>
-                                            <option value="10080">Every 7 days</option>
-                                        </select>
-                                    </div>
+                                <div class="schedule-detail-row">
+                                    @{ var wanConfig = ParseTargetConfig(task.TargetConfig); }
+                                    <span class="schedule-detail-tag">@(GetConfigValue(wanConfig, "testType") == "server" ? "Server" : "Gateway")</span>
+                                    @if (GetConfigValue(wanConfig, "wanName") is string wanName && !string.IsNullOrEmpty(wanName))
+                                    {
+                                        <span class="schedule-detail-tag">@wanName</span>
+                                    }
+                                    @if (GetConfigBool(wanConfig, "maxMode"))
+                                    {
+                                        <span class="schedule-detail-tag tag-accent">Max Load</span>
+                                    }
+                                    <span class="schedule-detail-tag tag-muted">@FormatFrequency(task.FrequencyMinutes)</span>
+                                    @if (task.CustomMorningHour.HasValue)
+                                    {
+                                        <span class="schedule-detail-tag tag-muted">@FormatStartTime(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)</span>
+                                    }
                                 </div>
                                 @if (task.LastRunAt.HasValue)
                                 {
@@ -323,13 +327,15 @@
                                         </select>
                                     </div>
                                     <div class="form-group schedule-field">
-                                        <label>Start Time (UTC)</label>
+                                        <label>Start Time (@_serverTzAbbrev)</label>
                                         <input type="time" class="form-control" @bind="_newLanStartTime" />
                                     </div>
-                                    <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
-                                            disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
-                                        Create Schedule
-                                    </button>
+                                    <div class="schedule-inline-controls">
+                                        <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
+                                                disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
+                                            Create Schedule
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -374,18 +380,16 @@
                                 </div>
                             </div>
                             <div class="schedule-card-body">
-                                <div class="schedule-config">
-                                    <div class="form-group schedule-field">
-                                        <label>Frequency</label>
-                                        <select class="form-control" value="@task.FrequencyMinutes"
-                                                @onchange="e => UpdateFrequency(task, e)">
-                                            <option value="360">Every 6 hours</option>
-                                            <option value="720">Every 12 hours</option>
-                                            <option value="1440">Every 24 hours</option>
-                                            <option value="2880">Every 48 hours</option>
-                                            <option value="10080">Every 7 days</option>
-                                        </select>
-                                    </div>
+                                <div class="schedule-detail-row">
+                                    <span class="schedule-detail-tag tag-muted">@FormatFrequency(task.FrequencyMinutes)</span>
+                                    @if (task.CustomMorningHour.HasValue)
+                                    {
+                                        <span class="schedule-detail-tag tag-muted">@FormatStartTime(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(task.TargetId))
+                                    {
+                                        <span class="schedule-detail-tag">@task.TargetId</span>
+                                    }
                                 </div>
                                 @if (task.LastRunAt.HasValue)
                                 {
@@ -1037,11 +1041,35 @@
         font-size: 0.85rem;
         color: var(--text-secondary);
     }
+    .schedule-detail-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.5rem;
+    }
+    .schedule-detail-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--border-radius-lg);
+        font-size: 0.75rem;
+        font-weight: 500;
+        background: rgba(59, 130, 246, 0.15);
+        color: var(--info-color);
+    }
+    .schedule-detail-tag.tag-accent {
+        background: rgba(249, 115, 22, 0.15);
+        color: var(--accent-color);
+    }
+    .schedule-detail-tag.tag-muted {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
     .schedule-inline-controls {
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        padding-bottom: 2px;
+        padding-bottom: 0.25rem;
     }
     .status-success {
         background: rgba(36, 188, 112, 0.2);
@@ -1094,6 +1122,7 @@
     private int _newLanFrequency = 1440;
     private bool _creatingSchedule;
     private bool CanCreateWanSchedule => _newWanTestType == "server" || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
+    private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
 
     private class WanSelectorOption
     {
@@ -1705,7 +1734,23 @@
         }
     }
 
-    private static (int hour, int minute) ParseTimeInput(TimeOnly time) => (time.Hour, time.Minute);
+    private static (int hour, int minute) ParseTimeInput(TimeOnly localTime)
+    {
+        // Convert server-local time to UTC for storage
+        var today = DateTime.Today; // local date
+        var localDt = today.Add(localTime.ToTimeSpan());
+        var utcDt = localDt.ToUniversalTime();
+        return (utcDt.Hour, utcDt.Minute);
+    }
+
+    private static string GetServerTimezoneAbbrev()
+    {
+        var tz = TimeZoneInfo.Local;
+        var now = DateTime.Now;
+        var name = tz.IsDaylightSavingTime(now) ? tz.DaylightName : tz.StandardName;
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
+    }
 
     private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute)
     {
@@ -1728,6 +1773,43 @@
         {
             Logger.LogError(ex, "Error deleting schedule {Id}", task.Id);
         }
+    }
+
+    private static Dictionary<string, JsonElement>? ParseTargetConfig(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json); }
+        catch { return null; }
+    }
+
+    private static string? GetConfigValue(Dictionary<string, JsonElement>? config, string key)
+    {
+        if (config == null || !config.TryGetValue(key, out var el)) return null;
+        return el.ValueKind == JsonValueKind.String ? el.GetString() : el.ToString();
+    }
+
+    private static bool GetConfigBool(Dictionary<string, JsonElement>? config, string key)
+    {
+        if (config == null || !config.TryGetValue(key, out var el)) return false;
+        return el.ValueKind == JsonValueKind.True;
+    }
+
+    private static string FormatFrequency(int minutes) => minutes switch
+    {
+        360 => "Every 6h",
+        720 => "Every 12h",
+        1440 => "Every 24h",
+        2880 => "Every 48h",
+        10080 => "Every 7d",
+        _ => $"Every {minutes}m"
+    };
+
+    private static string FormatStartTime(int utcHour, int utcMinute)
+    {
+        // Convert stored UTC hour/minute to server-local for display
+        var utcDt = DateTime.UtcNow.Date.AddHours(utcHour).AddMinutes(utcMinute);
+        var localDt = utcDt.ToLocalTime();
+        return localDt.ToString("h:mm tt");
     }
 
     private static string GetScheduleStatusClass(string status) => status switch

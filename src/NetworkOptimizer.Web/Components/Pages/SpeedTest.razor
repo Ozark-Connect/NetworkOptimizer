@@ -35,9 +35,17 @@
 
 @if (!_lanScheduleBannerDismissed)
 {
-    <div class="alert alert-info" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-        <span>Schedule recurring LAN speed tests to track performance over time. <a href="/alerts">Set up schedule</a></span>
-        <button class="btn btn-sm" style="padding:0.25rem 0.5rem; font-size:1.1rem; line-height:1;" @onclick="DismissLanScheduleBanner">&times;</button>
+    <div class="alert alert-info" style="margin-bottom:1rem;">
+        <div class="banner-content">
+            <span class="banner-icon" style="background:var(--info-color);">i</span>
+            <div class="banner-text" style="flex:1;">
+                Schedule recurring LAN speed tests to track performance over time.
+            </div>
+            <div class="banner-actions">
+                <a href="/alerts" class="btn btn-sm btn-primary">Set up schedule</a>
+                <button class="btn btn-sm btn-secondary" @onclick="DismissLanScheduleBanner">Dismiss</button>
+            </div>
+        </div>
     </div>
 }
 
