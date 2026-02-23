@@ -63,8 +63,12 @@
     else
     {
         <div style="display:flex; align-items:center; gap:0.5rem;">
-            <button class="btn btn-secondary btn-sm" @onclick="ExitDrilldown">Back</button>
-            <span style="color:var(--text-secondary);">IP Drill-Down</span>
+            <button class="btn btn-secondary btn-sm" @onclick="ExitDrilldown">&larr; Back</button>
+            <span style="color:var(--text-secondary);">
+                @if (_drilldownPort != null) { <text>Port Details</text> }
+                else if (_drilldownProtocol != null) { <text>Protocol Details</text> }
+                else { <text>IP Details</text> }
+            </span>
         </div>
     }
     <div style="display:flex; align-items:center; gap:0.5rem;">
@@ -441,7 +445,7 @@ else
                                                     }
                                                     else
                                                     {
-                                                        <button class="btn btn-sm btn-outline-primary"
+                                                        <button class="btn btn-sm btn-primary"
                                                                 @onclick="() => LookUpReputationAsync(source)">
                                                             Look up
                                                         </button>
@@ -819,7 +823,7 @@ else
                 }
                 else
                 {
-                    <button class="btn btn-sm btn-outline-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)">
+                    <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)">
                         Look up
                     </button>
                 }
@@ -1052,20 +1056,19 @@ else
     @* ========== Port Drill-Down ========== *@
     @if (_activeTab == "drilldown" && _portDrilldownData != null)
     {
-        <div style="margin-bottom:1rem;">
-            <a href="javascript:void(0)" class="back-link" @onclick="ExitDrilldown">&larr; Back</a>
-            <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.5rem;">
+        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:1.5rem; font-weight:700;">
                 <code style="font-size:1.3rem;">Port @_portDrilldownData.Port</code>
-                @if (!string.IsNullOrEmpty(_portDrilldownData.ServiceName))
-                {
-                    <span style="color:var(--text-secondary); font-size:1rem;">@_portDrilldownData.ServiceName</span>
-                }
-            </div>
+            </h2>
+            @if (!string.IsNullOrEmpty(_portDrilldownData.ServiceName))
+            {
+                <span style="color:var(--text-secondary); font-size:1rem;">@_portDrilldownData.ServiceName</span>
+            }
             @if (_portDrilldownData.FirstSeen.HasValue)
             {
-                <div style="color:var(--text-muted); font-size:0.85rem; margin-top:0.25rem;">
+                <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
                     @_portDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_portDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
-                </div>
+                </span>
             }
         </div>
 
@@ -1202,17 +1205,16 @@ else
     @* ========== Protocol Drill-Down ========== *@
     @if (_activeTab == "drilldown" && _protocolDrilldownData != null)
     {
-        <div style="margin-bottom:1rem;">
-            <a href="javascript:void(0)" class="back-link" @onclick="ExitDrilldown">&larr; Back</a>
-            <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.5rem;">
+        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:1.5rem; font-weight:700;">
                 <code style="font-size:1.3rem;">@FormatServiceToken(_protocolDrilldownData.Protocol)</code>
-                <span style="color:var(--text-secondary); font-size:1rem;">Protocol</span>
-            </div>
+            </h2>
+            <span style="color:var(--text-secondary); font-size:1rem;">Protocol</span>
             @if (_protocolDrilldownData.FirstSeen.HasValue)
             {
-                <div style="color:var(--text-muted); font-size:0.85rem; margin-top:0.25rem;">
+                <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
                     @_protocolDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_protocolDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
-                </div>
+                </span>
             }
         </div>
 
