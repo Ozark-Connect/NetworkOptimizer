@@ -569,7 +569,6 @@
     public string? TabParam { get; set; }
 
     private string? _lastTabParam;
-    private bool _isNavigating;
 
     private bool _loading = true;
     private bool _refreshing = false;
@@ -596,11 +595,10 @@
         // Clear client filter when manually switching tabs
         _initialClientMac = null;
 
-        _isNavigating = true;
-        var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
+        // Build clean URL - drop client param when leaving client tab
+        var uri = "/wifi-optimizer?tab=" + tab;
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
-        _isNavigating = false;
     }
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
@@ -617,12 +615,21 @@
         {
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
+            _lastTabParam = "client";
+            // Normalize URL to include tab param for consistent history
+            NavigationManager.NavigateTo(
+                "/wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(ClientQueryParam),
+                forceLoad: false, replace: true);
         }
         else if (!string.IsNullOrEmpty(TabParam))
         {
             _activeTab = ResolveTab(TabParam);
+            _lastTabParam = TabParam;
         }
-        _lastTabParam = TabParam;
+        else
+        {
+            _lastTabParam = TabParam;
+        }
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         _ = LoadDataAsync();
@@ -658,7 +665,7 @@
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
         }
-        else if (!_isNavigating && TabParam != _lastTabParam && _lastTabParam != null)
+        else if (TabParam != _lastTabParam && _lastTabParam != null)
         {
             var newTab = ResolveTab(TabParam);
             if (newTab != _activeTab)
