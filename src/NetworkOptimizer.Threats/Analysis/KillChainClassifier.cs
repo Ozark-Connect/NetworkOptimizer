@@ -24,6 +24,10 @@ public class KillChainClassifier
     /// </summary>
     public KillChainStage Classify(ThreatEvent evt)
     {
+        // Info-level events are informational only (e.g. allowed flows) - never exploitation
+        if (evt.Severity <= 1)
+            return KillChainStage.Reconnaissance;
+
         return evt.EventSource == EventSource.TrafficFlow
             ? ClassifyFlow(evt)
             : ClassifyIps(evt);
