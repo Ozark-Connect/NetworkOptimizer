@@ -586,36 +586,42 @@ public class AuditService
 
         try
         {
+            // Filter out dismissed issues so we only alert on active findings
+            await EnsureDismissedIssuesLoadedAsync();
+            var activeIssues = result.Issues.Where(i => !IsIssueDismissed(i)).ToList();
+            var activeCritical = activeIssues.Count(i => i.Severity == Audit.Models.AuditSeverity.Critical);
+            var activeWarning = activeIssues.Count(i => i.Severity == Audit.Models.AuditSeverity.Recommended);
+
             // Publish completed event
             await _alertEventBus.PublishAsync(new AlertEvent
             {
                 EventType = "audit.completed",
-                Severity = result.CriticalCount > 0 ? AlertSeverity.Error : AlertSeverity.Info,
+                Severity = activeCritical > 0 ? AlertSeverity.Error : AlertSeverity.Info,
                 Source = "audit",
                 Title = $"Security audit completed - Score: {result.Score}",
-                Message = $"{result.CriticalCount} critical, {result.WarningCount} recommended findings",
+                Message = $"{activeCritical} critical, {activeWarning} recommended findings",
                 MetricValue = result.Score,
                 Context = new Dictionary<string, string>
                 {
-                    ["criticalCount"] = result.CriticalCount.ToString(),
-                    ["warningCount"] = result.WarningCount.ToString()
+                    ["criticalCount"] = activeCritical.ToString(),
+                    ["warningCount"] = activeWarning.ToString()
                 }
             });
 
-            // Publish if critical findings exist
-            if (result.CriticalCount > 0)
+            // Publish if active (non-dismissed) critical findings exist
+            if (activeCritical > 0)
             {
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
                     EventType = "audit.critical_findings",
                     Severity = AlertSeverity.Critical,
                     Source = "audit",
-                    Title = $"{result.CriticalCount} critical security findings detected",
-                    Message = string.Join("; ", result.Issues
+                    Title = $"{activeCritical} critical security findings detected",
+                    Message = string.Join("; ", activeIssues
                         .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical)
                         .Take(5)
                         .Select(i => i.Title)),
-                    MetricValue = result.CriticalCount,
+                    MetricValue = activeCritical,
                     Context = new Dictionary<string, string>
                     {
                         ["score"] = result.Score.ToString()
