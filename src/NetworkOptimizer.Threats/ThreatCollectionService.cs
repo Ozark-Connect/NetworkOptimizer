@@ -149,16 +149,29 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        // === PHASE 1: Recent 24h sweep - 1-hour chunks for complete coverage ===
-        // The UniFi traffic-flows API caps results per query (~1000), so a single 24h
-        // query misses events. We chunk into 1-hour windows to stay well under the cap.
-        // Dedup via InnerAlertId keeps subsequent cycles cheap.
+        // === PHASE 1: Incremental collection from last sync ===
+        // On first run (or after >24h gap), sweep the full 24 hours in 1-hour chunks
+        // to avoid hitting the ~1000-result pagination cap. On subsequent runs, only
+        // query from last sync (with 2-min overlap for API eventual consistency).
         var now = DateTimeOffset.UtcNow;
-        var recentStart = now.AddHours(-24);
+        var lastSyncStr = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
+        DateTimeOffset recentStart;
+
+        if (lastSyncStr != null && DateTimeOffset.TryParse(lastSyncStr, out var lastSync) && lastSync > now.AddHours(-24))
+        {
+            // Small overlap to catch any events delayed in the API
+            recentStart = lastSync.AddMinutes(-2);
+        }
+        else
+        {
+            // First run or stale - full 24h sweep
+            recentStart = now.AddHours(-24);
+        }
+
         var totalRecentEvents = 0;
 
-        _logger.LogDebug("=== Collection cycle: poll={PollMin}min, 24h sweep {From:HH:mm} -> {To:HH:mm} UTC ===",
-            _pollIntervalMinutes, recentStart, now);
+        _logger.LogDebug("=== Collection cycle: poll={PollMin}min, range {From:HH:mm} -> {To:HH:mm} UTC ({Span}) ===",
+            _pollIntervalMinutes, recentStart, now, now - recentStart);
 
         var chunkCursor = recentStart;
         while (chunkCursor < now)
