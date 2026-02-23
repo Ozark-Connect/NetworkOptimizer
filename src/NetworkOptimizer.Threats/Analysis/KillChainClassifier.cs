@@ -40,11 +40,12 @@ public class KillChainClassifier
             return KillChainStage.PostExploitation;
 
         // Exploitation: Check action to distinguish attempted vs active
+        // Low/Info severity (1-2) can't be Active Exploitation - downgrade to Attempted
         if (MatchesAny(combined, ExploitKeywords))
         {
-            return evt.Action == ThreatAction.Blocked
-                ? KillChainStage.AttemptedExploitation
-                : KillChainStage.ActiveExploitation;
+            if (evt.Action == ThreatAction.Blocked || evt.Severity <= 2)
+                return KillChainStage.AttemptedExploitation;
+            return KillChainStage.ActiveExploitation;
         }
 
         // Reconnaissance: Scans, policy violations, info gathering
@@ -73,9 +74,9 @@ public class KillChainClassifier
         if (isOutgoing && isHighRisk)
             return KillChainStage.PostExploitation;
 
-        // Incoming + allowed + sensitive port -> active exploitation
+        // Incoming + allowed + sensitive port -> active exploitation (severity 3+ only)
         if (isIncoming && !isBlocked && isSensitivePort)
-            return KillChainStage.ActiveExploitation;
+            return evt.Severity <= 2 ? KillChainStage.AttemptedExploitation : KillChainStage.ActiveExploitation;
 
         // Incoming + blocked + sensitive port -> attempted exploitation
         if (isIncoming && isBlocked && isSensitivePort)
