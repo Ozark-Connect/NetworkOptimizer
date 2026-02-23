@@ -2041,7 +2041,20 @@ else
             else if (_activeTab == "drilldown")
             {
                 if (_drilldownIp != null)
+                {
                     _drilldownData = await DashboardService.GetIpDrilldownAsync(_drilldownIp, from, to);
+
+                    // Seed CTI cache from DB if not already present (handles fresh nav / refresh)
+                    if (!_manualCtiCache.ContainsKey(_drilldownIp) && !NetworkUtilities.IsPrivateIpAddress(_drilldownIp))
+                    {
+                        var cached = await DashboardService.GetCachedCtiAsync(_drilldownIp);
+                        if (cached?.CrowdSecReputation != null)
+                        {
+                            _manualCtiCache[_drilldownIp] = new CtiLookupResult(
+                                cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors);
+                        }
+                    }
+                }
                 else if (_drilldownPort != null)
                     _portDrilldownData = await DashboardService.GetPortDrilldownAsync(_drilldownPort.Value, from, to);
                 else if (_drilldownProtocol != null)
