@@ -3,6 +3,7 @@ using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Threats.Analysis;
 using NetworkOptimizer.Threats.CrowdSec;
+using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
 using NetworkOptimizer.UniFi.Models;
@@ -17,6 +18,7 @@ public class ThreatDashboardService
     private readonly IThreatRepository _repository;
     private readonly ExposureValidator _exposureValidator;
     private readonly CrowdSecEnrichmentService _crowdSecService;
+    private readonly GeoEnrichmentService _geoService;
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
     private readonly IThreatSettingsAccessor _settingsAccessor;
     private readonly ICredentialProtectionService _credentialService;
@@ -39,6 +41,7 @@ public class ThreatDashboardService
         IThreatRepository repository,
         ExposureValidator exposureValidator,
         CrowdSecEnrichmentService crowdSecService,
+        GeoEnrichmentService geoService,
         IUniFiClientAccessor uniFiClientAccessor,
         IThreatSettingsAccessor settingsAccessor,
         ICredentialProtectionService credentialService,
@@ -47,6 +50,7 @@ public class ThreatDashboardService
         _repository = repository;
         _exposureValidator = exposureValidator;
         _crowdSecService = crowdSecService;
+        _geoService = geoService;
         _uniFiClientAccessor = uniFiClientAccessor;
         _settingsAccessor = settingsAccessor;
         _credentialService = credentialService;
@@ -401,12 +405,10 @@ public class ThreatDashboardService
                 .Take(20)
                 .ToList();
 
-            // Country code: take from the most common country across events for this IP
-            var countryCode = events
-                .Where(e => !string.IsNullOrEmpty(e.CountryCode))
-                .GroupBy(e => e.CountryCode)
-                .OrderByDescending(g => g.Count())
-                .FirstOrDefault()?.Key;
+            // Country code: direct GeoIP lookup on the drilled-into IP
+            // (event CountryCode is enriched on the source/attacker IP, not this IP)
+            var geoInfo = _geoService.Enrich(ip);
+            var countryCode = geoInfo.CountryCode;
 
             return new IpDrilldownData
             {
