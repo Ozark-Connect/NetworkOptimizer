@@ -948,7 +948,7 @@ else
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var src in _drilldownData.Sources)
+                                @foreach (var src in _drilldownData.Sources.Take(_sourcesVisible))
                                 {
                                     <tr>
                                         <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a>@if (srcPeerName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcPeerName</span> }</td>
@@ -963,6 +963,14 @@ else
                             </tbody>
                         </table>
                     </div>
+                    @if (_drilldownData.Sources.Count > _sourcesVisible)
+                    {
+                        <div style="text-align:center; padding:0.75rem;">
+                            <button class="btn btn-sm btn-secondary" @onclick="() => _sourcesVisible += DrilldownPageSize">
+                                Show more (@(_drilldownData.Sources.Count - _sourcesVisible) remaining)
+                            </button>
+                        </div>
+                    }
                 </div>
             </div>
         }
@@ -987,7 +995,7 @@ else
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var pr in _drilldownData.PortRanges)
+                                @foreach (var pr in _drilldownData.PortRanges.Take(_portRangesVisible))
                                 {
                                     <tr>
                                         <td>@if (pr.PortEnd == 0 || pr.PortEnd == pr.Port) { <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(pr.Port)"><code>@pr.RangeLabel</code></a> } else { <code>@pr.RangeLabel</code> }</td>
@@ -1000,6 +1008,14 @@ else
                             </tbody>
                         </table>
                     </div>
+                    @if (_drilldownData.PortRanges.Count > _portRangesVisible)
+                    {
+                        <div style="text-align:center; padding:0.75rem;">
+                            <button class="btn btn-sm btn-secondary" @onclick="() => _portRangesVisible += DrilldownPageSize">
+                                Show more (@(_drilldownData.PortRanges.Count - _portRangesVisible) remaining)
+                            </button>
+                        </div>
+                    }
                 </div>
             </div>
         }
@@ -1102,12 +1118,12 @@ else
 
         @if (_portDrilldownData.Protocols.Count > 0)
         {
-            <div style="margin-bottom:0.5rem;">
-                <span style="color:var(--text-muted); font-size:0.85rem;">Protocols: </span>
+            <div style="display:flex; align-items:baseline; gap:0.5rem; margin-bottom:0.5rem; flex-wrap:wrap;">
+                <span style="color:var(--text-muted); font-size:0.85rem;">Protocols:</span>
                 @foreach (var proto in _portDrilldownData.Protocols)
                 {
-                    <a href="javascript:void(0)" class="ip-link" style="margin-right:0.5rem;" @onclick="() => DrillDownToProtocol(proto.Protocol)">
-                        <code>@FormatServiceToken(proto.Protocol)</code> <span style="color:var(--text-muted);">(@proto.EventCount)</span>
+                    <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToProtocol(proto.Protocol)">
+                        <code>@FormatServiceToken(proto.Protocol)</code> <span style="color:var(--text-muted); font-size:0.75rem;">(@proto.EventCount)</span>
                     </a>
                 }
             </div>
@@ -1497,6 +1513,9 @@ else
     private IpDrilldownData? _drilldownData;
     private PortDrilldownData? _portDrilldownData;
     private ProtocolDrilldownData? _protocolDrilldownData;
+    private const int DrilldownPageSize = 20;
+    private int _sourcesVisible = DrilldownPageSize;
+    private int _portRangesVisible = DrilldownPageSize;
 
     // Noise filter state
     private List<ThreatNoiseFilter> _noiseFilters = [];
@@ -1852,6 +1871,8 @@ else
         _drilldownProtocol = null;
         _portDrilldownData = null;
         _protocolDrilldownData = null;
+        _sourcesVisible = DrilldownPageSize;
+        _portRangesVisible = DrilldownPageSize;
         _activeTab = "drilldown";
         _showFilterPanel = false;
         _loading = true;
