@@ -18,9 +18,10 @@ public static class DefaultAlertRules
         {
             Name = "Security Audit: Score Drop",
             IsEnabled = true,
-            EventTypePattern = "audit.completed",
+            EventTypePattern = "audit.score_dropped",
             Source = "audit",
             MinSeverity = AlertSeverity.Warning,
+            ThresholdPercent = 15,
             CooldownSeconds = 3600 // 1 hour
         },
         new AlertRule
@@ -86,6 +87,7 @@ public static class DefaultAlertRules
             EventTypePattern = "wan.speed_degradation",
             Source = "wan",
             MinSeverity = AlertSeverity.Warning,
+            ThresholdPercent = 40,
             CooldownSeconds = 1800 // 30 minutes
         },
 
@@ -97,6 +99,7 @@ public static class DefaultAlertRules
             EventTypePattern = "speedtest.regression",
             Source = "speedtest",
             MinSeverity = AlertSeverity.Warning,
+            ThresholdPercent = 25,
             CooldownSeconds = 3600 // 1 hour
         },
 

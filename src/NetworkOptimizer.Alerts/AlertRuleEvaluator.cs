@@ -40,6 +40,9 @@ public class AlertRuleEvaluator
             if (!MatchesTargetDevice(alertEvent.DeviceId, alertEvent.DeviceIp, rule.TargetDevices))
                 continue;
 
+            if (!MeetsThreshold(alertEvent, rule))
+                continue;
+
             var cooldownKey = $"{rule.Id}:{alertEvent.DeviceId ?? alertEvent.DeviceIp ?? "global"}";
             if (_cooldownTracker.IsInCooldown(cooldownKey, rule.CooldownSeconds))
                 continue;
@@ -75,6 +78,26 @@ public class AlertRuleEvaluator
         }
 
         return string.Equals(eventType, pattern, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Check if the event meets the rule's degradation threshold.
+    /// If the rule has a ThresholdPercent, the event must have a "drop_percent" context value >= threshold.
+    /// </summary>
+    private static bool MeetsThreshold(AlertEvent alertEvent, AlertRule rule)
+    {
+        if (rule.ThresholdPercent == null)
+            return true;
+
+        if (alertEvent.Context.TryGetValue("drop_percent", out var dropStr) ||
+            alertEvent.Context.TryGetValue("drop", out dropStr))
+        {
+            if (double.TryParse(dropStr, out var dropValue))
+                return dropValue >= rule.ThresholdPercent.Value;
+        }
+
+        // No drop context = not a threshold event, let it through
+        return true;
     }
 
     /// <summary>

@@ -60,6 +60,13 @@ public class AlertRule
     public string? TargetDevices { get; set; }
 
     /// <summary>
+    /// Percent degradation threshold for threshold-based rules (e.g., speed regression, score drop).
+    /// The event's Context["drop_percent"] must meet or exceed this value for the rule to fire.
+    /// Null means no threshold check (rule fires on any matching event).
+    /// </summary>
+    public double? ThresholdPercent { get; set; }
+
+    /// <summary>
     /// When this rule was created.
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
