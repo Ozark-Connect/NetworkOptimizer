@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Models;
 
@@ -9,10 +10,12 @@ namespace NetworkOptimizer.Alerts;
 public class AlertRuleEvaluator
 {
     private readonly AlertCooldownTracker _cooldownTracker;
+    private readonly ILogger<AlertRuleEvaluator> _logger;
 
-    public AlertRuleEvaluator(AlertCooldownTracker cooldownTracker)
+    public AlertRuleEvaluator(AlertCooldownTracker cooldownTracker, ILogger<AlertRuleEvaluator> logger)
     {
         _cooldownTracker = cooldownTracker;
+        _logger = logger;
     }
 
     /// <summary>
@@ -41,11 +44,19 @@ public class AlertRuleEvaluator
                 continue;
 
             if (!MeetsThreshold(alertEvent, rule))
+            {
+                _logger.LogDebug("Rule '{RuleName}' matched event {EventType} but below threshold ({ThresholdPercent}%)",
+                    rule.Name, alertEvent.EventType, rule.ThresholdPercent);
                 continue;
+            }
 
             var cooldownKey = $"{rule.Id}:{alertEvent.DeviceId ?? alertEvent.DeviceIp ?? "global"}";
             if (_cooldownTracker.IsInCooldown(cooldownKey, rule.CooldownSeconds))
+            {
+                _logger.LogDebug("Rule '{RuleName}' matched event {EventType} but in cooldown",
+                    rule.Name, alertEvent.EventType);
                 continue;
+            }
 
             matches.Add(rule);
         }

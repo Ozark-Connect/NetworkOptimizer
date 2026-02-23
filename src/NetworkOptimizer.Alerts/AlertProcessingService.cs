@@ -95,7 +95,7 @@ public class AlertProcessingService : BackgroundService
         var matchingRules = _ruleEvaluator.Evaluate(alertEvent, _cachedRules);
         if (matchingRules.Count == 0)
         {
-            _logger.LogDebug("No matching rules for event {EventType}", alertEvent.EventType);
+            _logger.LogWarning("No matching rules for event {EventType}", alertEvent.EventType);
             return;
         }
 
