@@ -616,10 +616,6 @@
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
             _lastTabParam = "client";
-            // Normalize URL to include tab param for consistent history
-            NavigationManager.NavigateTo(
-                "/wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(ClientQueryParam),
-                forceLoad: false, replace: true);
         }
         else if (!string.IsNullOrEmpty(TabParam))
         {

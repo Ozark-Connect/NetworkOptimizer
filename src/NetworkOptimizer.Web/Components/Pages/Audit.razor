@@ -710,7 +710,7 @@
                                         var statusText = hasIssue ? clientIssue!.Title : "OK";
                                         var networkDisplay = DisplayFormatters.FormatNetworkWithVlan(client.NetworkName, client.VlanId);
                                         <tr class="@statusClass">
-                                            <td><a href="./wifi-optimizer?client=@client.Mac" class="client-link">@client.DisplayName</a></td>
+                                            <td><a href="./wifi-optimizer?tab=client&client=@client.Mac" class="client-link">@client.DisplayName</a></td>
                                             <td>@client.DeviceCategory</td>
                                             <td>@networkDisplay</td>
                                             <td>@statusText</td>
@@ -769,7 +769,7 @@
                                             client.LastNetwork?.Name, client.LastNetwork?.VlanId);
                                         var recentBadge = client.IsRecentlyActive ? "" : " (stale)";
                                         <tr class="@statusClass">
-                                            <td><a href="./wifi-optimizer?client=@client.Mac" class="client-link">@client.DisplayName</a></td>
+                                            <td><a href="./wifi-optimizer?tab=client&client=@client.Mac" class="client-link">@client.DisplayName</a></td>
                                             <td>@client.Detection.CategoryName</td>
                                             <td>@networkDisplay</td>
                                             <td>@client.LastSeenDisplay@recentBadge</td>
