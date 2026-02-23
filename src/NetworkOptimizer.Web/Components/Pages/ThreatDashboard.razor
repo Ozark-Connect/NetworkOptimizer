@@ -1023,7 +1023,7 @@ else
                                             {
                                                 foreach (var part in SplitCategory(sig.Category))
                                                 {
-                                                    <span class="category-badge category-@part.CssClass">@part.Label</span>
+                                                    <span class="category-badge @part.CssClass">@part.Label</span>
                                                 }
                                             }
                                         </td>
@@ -2418,10 +2418,10 @@ else
         {
             if (!lower.StartsWith(prefix)) continue;
             var label = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(prefix);
-            var cssClass = prefix.Contains("high") ? "high" :
-                prefix.Contains("not suspicious") ? "safe" :
-                prefix.Contains("low") ? "low" :
-                prefix.Contains("medium") || prefix.Contains("potentially") ? "medium" : "neutral";
+            var cssClass = prefix.Contains("high") ? "category-high" :
+                prefix.Contains("not suspicious") ? "category-safe" :
+                prefix.Contains("low") ? "category-low" :
+                prefix.Contains("medium") || prefix.Contains("potentially") ? "category-medium" : "category-neutral";
             parts.Add(new CategoryPart(label, cssClass));
             remainder = lower[prefix.Length..].Trim();
             break;
@@ -2431,7 +2431,7 @@ else
         foreach (var dir in DirectionTokens)
         {
             if (!remainder.StartsWith(dir)) continue;
-            parts.Add(new CategoryPart(System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(dir), "direction"));
+            parts.Add(new CategoryPart(System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(dir), "category-direction"));
             remainder = remainder[dir.Length..].Trim();
             break;
         }
@@ -2440,12 +2440,12 @@ else
         if (remainder.Length > 0)
         {
             var label = FormatServiceToken(remainder);
-            parts.Add(new CategoryPart(label, "type"));
+            parts.Add(new CategoryPart(label, "category-type"));
         }
 
         // Fallback: if no parts matched, return the whole thing
         if (parts.Count == 0)
-            parts.Add(new CategoryPart(TitleCaseWithProtocols(lower), "neutral"));
+            parts.Add(new CategoryPart(TitleCaseWithProtocols(lower), "category-neutral"));
 
         return parts;
     }
