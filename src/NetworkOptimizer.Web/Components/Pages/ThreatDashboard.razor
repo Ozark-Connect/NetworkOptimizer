@@ -1557,6 +1557,14 @@ else
     {
         if (_chartNeedsUpdate)
         {
+            // If chart refs aren't available yet (first data arrival, DOM just added them),
+            // re-trigger so the next render pass can pick them up
+            if (_timelineChart == null && _timeline.Count > 0)
+            {
+                await Task.Yield();
+                StateHasChanged();
+                return;
+            }
             _chartNeedsUpdate = false;
             try { if (_timelineChart != null) await _timelineChart.RenderAsync(); } catch { }
             try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
