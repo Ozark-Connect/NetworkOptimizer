@@ -24,6 +24,17 @@ public class AuditService
     private const string CacheKeyLastAuditId = "AuditService_LastAuditId";
     private const string CacheKeyDismissedIssues = "AuditService_DismissedIssues";
     private const string CacheKeyDismissedIssuesLoaded = "AuditService_DismissedIssuesLoaded";
+    private const string CacheKeyIsRunning = "AuditService_IsRunning";
+
+    /// <summary>
+    /// Whether an audit is currently running. Uses IMemoryCache so it's visible
+    /// across scoped instances (ScheduleService checks this before starting a new audit).
+    /// </summary>
+    public bool IsRunning
+    {
+        get => _cache.Get<bool>(CacheKeyIsRunning);
+        private set => _cache.Set(CacheKeyIsRunning, value);
+    }
 
     private readonly ILogger<AuditService> _logger;
     private readonly UniFiConnectionService _connectionService;
@@ -1044,6 +1055,19 @@ public class AuditService
     };
 
     public async Task<AuditResult> RunAuditAsync(AuditOptions options)
+    {
+        IsRunning = true;
+        try
+        {
+            return await RunAuditCoreAsync(options);
+        }
+        finally
+        {
+            IsRunning = false;
+        }
+    }
+
+    private async Task<AuditResult> RunAuditCoreAsync(AuditOptions options)
     {
         _logger.LogInformation("Running security audit with options: {@Options}", options);
 

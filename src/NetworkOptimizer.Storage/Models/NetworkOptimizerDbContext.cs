@@ -43,6 +43,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ThreatPattern> ThreatPatterns { get; set; }
     public DbSet<CrowdSecReputation> CrowdSecReputations { get; set; }
     public DbSet<ThreatNoiseFilter> ThreatNoiseFilters { get; set; }
+    public DbSet<ScheduledTask> ScheduledTasks { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -294,6 +295,15 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<ThreatNoiseFilter>(entity =>
         {
             entity.ToTable("ThreatNoiseFilters");
+        });
+
+        // ScheduledTask configuration
+        modelBuilder.Entity<ScheduledTask>(entity =>
+        {
+            entity.ToTable("ScheduledTasks");
+            entity.HasIndex(e => e.TaskType);
+            entity.HasIndex(e => e.Enabled);
+            entity.HasIndex(e => e.NextRunAt);
         });
     }
 }

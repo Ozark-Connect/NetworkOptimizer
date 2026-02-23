@@ -1,19 +1,5 @@
 # Alerts & Schedule
 
-**Branch:** `feature/alerts-schedule` (create from main)
-**Worktree:** `C:\Users\tjvc4\OneDrive\StartupProjects\NetworkOptimizer\feature-alerts-schedule`
-**Deploy:** Normal git push flow - `git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose build network-optimizer && docker compose up -d network-optimizer"`
-
-## Setup
-
-```bash
-cd C:\Users\tjvc4\OneDrive\StartupProjects\NetworkOptimizer\main-work
-git worktree add ../feature-alerts-schedule -b feature/alerts-schedule
-pwsh ./scripts/local-dev/copy-untracked.ps1 ../feature-alerts-schedule -IncludeIgnored
-```
-
-## Spec
-
 Rename the Alerts page (`/alerts`) to **Alerts & Schedule**. Add a **Schedule** tab as the first tab, moving existing tabs (Active Alerts, History, Rules, Incidents) after it.
 
 ## Current State

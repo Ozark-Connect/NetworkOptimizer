@@ -259,6 +259,11 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatDashboardService>
 builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IThreatSettingsAccessor, NetworkOptimizer.Web.Services.ThreatSettingsAccessor>();
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor, NetworkOptimizer.Web.Services.UniFiClientAccessor>();
 
+// Register Schedule services (scheduling engine for periodic audits, speed tests)
+builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IScheduleRepository, NetworkOptimizer.Storage.Repositories.ScheduleRepository>();
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.ScheduleService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>());
+
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredService<SystemSettingsService>());
@@ -492,6 +497,21 @@ using (var scope = app.Services.CreateScope())
         db.SaveChanges();
         app.Logger.LogInformation("Seeded {Count} default alert rules", defaults.Count);
     }
+
+    // Seed default scheduled tasks if none exist
+    if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !db.ScheduledTasks.Any())
+    {
+        db.ScheduledTasks.Add(new NetworkOptimizer.Alerts.Models.ScheduledTask
+        {
+            TaskType = "audit",
+            Name = "Security Audit",
+            Enabled = true,
+            FrequencyMinutes = 720, // 12 hours
+            CreatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+        app.Logger.LogInformation("Seeded default scheduled tasks");
+    }
 }
 
 // Pre-generate the credential encryption key (resolves singleton, triggering key creation)
@@ -510,6 +530,79 @@ app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmen
         dailyLimit = q;
     app.Services.GetRequiredService<NetworkOptimizer.Threats.CrowdSec.CrowdSecClient>()
         .LoadRateLimitState(0, DateOnly.FromDateTime(DateTime.UtcNow), dailyLimit);
+}
+
+// Register schedule executor delegates (bridges Alerts project to Web project services)
+if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
+{
+    var scheduleService = app.Services.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>();
+
+    scheduleService.AuditExecutor = async (ct) =>
+    {
+        using var scope = app.Services.CreateScope();
+        var auditService = scope.ServiceProvider.GetRequiredService<AuditService>();
+        if (auditService.IsRunning)
+            return (false, null, "Audit is already running");
+
+        try
+        {
+            var result = await auditService.RunAuditAsync(new AuditOptions());
+            return (true, $"Score: {result.Score}", null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
+    };
+
+    scheduleService.WanSpeedTestExecutor = async (targetId, _, ct) =>
+    {
+        var wanService = app.Services.GetRequiredService<GatewayWanSpeedTestService>();
+        if (wanService.IsRunning)
+            return (false, null, "WAN speed test is already running");
+
+        try
+        {
+            var result = await wanService.RunTestAsync(targetId ?? "eth4", null, null, cancellationToken: ct);
+            if (result == null)
+                return (false, null, "WAN speed test returned no result");
+
+            var dl = result.DownloadBitsPerSecond / 1_000_000.0;
+            var ul = result.UploadBitsPerSecond / 1_000_000.0;
+            return (true, $"{dl:F0}/{ul:F0} Mbps", null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
+    };
+
+    scheduleService.LanSpeedTestExecutor = async (targetId, _, ct) =>
+    {
+        if (string.IsNullOrEmpty(targetId))
+            return (false, null, "No target device specified");
+
+        var lanService = app.Services.GetRequiredService<Iperf3SpeedTestService>();
+        var devices = await lanService.GetDevicesAsync();
+        var device = devices.FirstOrDefault(d => d.Host == targetId);
+        if (device == null)
+            return (false, null, $"Device not found: {targetId}");
+
+        try
+        {
+            var result = await lanService.RunSpeedTestAsync(device);
+            if (result.ErrorMessage != null)
+                return (false, null, result.ErrorMessage);
+
+            var dl = result.DownloadBitsPerSecond / 1_000_000.0;
+            var ul = result.UploadBitsPerSecond / 1_000_000.0;
+            return (true, $"{dl:F0}/{ul:F0} Mbps", null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
+    };
 }
 
 // Clean up any leftover config transfer temp files from previous sessions

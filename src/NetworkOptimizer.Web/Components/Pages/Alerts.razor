@@ -1,22 +1,31 @@
 @page "/alerts"
+@using NetworkOptimizer.Alerts
 @using NetworkOptimizer.Alerts.Interfaces
 @using NetworkOptimizer.Alerts.Models
+@using NetworkOptimizer.Core
 @using NetworkOptimizer.Core.Enums
 @inject IAlertRepository AlertRepository
+@inject IScheduleRepository ScheduleRepository
+@inject ScheduleService ScheduleService
 @inject ILogger<Alerts> Logger
 @implements IDisposable
 @rendermode InteractiveServer
 
-<PageTitle>Alerts - Network Optimizer</PageTitle>
+<PageTitle>Alerts & Schedule - Network Optimizer</PageTitle>
 
 <div class="page-header">
-    <h1>Alerts</h1>
-    <p class="page-description">Monitor and manage alert notifications</p>
+    <h1>Alerts & Schedule</h1>
+    <p class="page-description">Monitor alerts and manage scheduled tasks</p>
 </div>
 
 <div class="alerts-page">
     <div class="dashboard-controls">
         <div class="tab-bar">
+            @if (FeatureFlags.SchedulingEnabled)
+            {
+                <button class="tab-btn @(_activeTab == "schedule" ? "active" : "")"
+                        @onclick='() => SetActiveTab("schedule")'>Schedule</button>
+            }
             <button class="tab-btn @(_activeTab == "active" ? "active" : "")"
                     @onclick='() => SetActiveTab("active")'>Active Alerts</button>
             <button class="tab-btn @(_activeTab == "history" ? "active" : "")"
@@ -36,6 +45,269 @@
     }
     else
     {
+        @* ========== Schedule Tab ========== *@
+        @if (_activeTab == "schedule")
+        {
+            <div class="schedule-section">
+                <h2 class="schedule-section-title">Security Audit</h2>
+                @{ var auditTask = _scheduledTasks.FirstOrDefault(t => t.TaskType == "audit"); }
+                @if (auditTask != null)
+                {
+                    <div class="schedule-card">
+                        <div class="schedule-card-header">
+                            <div class="schedule-card-title">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" checked="@auditTask.Enabled" @onchange="() => ToggleSchedule(auditTask)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>@auditTask.Name</span>
+                            </div>
+                            <div class="schedule-card-actions">
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => RunScheduleNow(auditTask)"
+                                        disabled="@(ScheduleService.IsTaskRunning(auditTask.Id))">
+                                    @if (ScheduleService.IsTaskRunning(auditTask.Id))
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <text>Running...</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Run Now</text>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                        <div class="schedule-card-body">
+                            <div class="schedule-config">
+                                <div class="form-group schedule-field">
+                                    <label>Frequency</label>
+                                    <select class="form-control" value="@auditTask.FrequencyMinutes"
+                                            @onchange="e => UpdateFrequency(auditTask, e)">
+                                        <option value="360">Every 6 hours</option>
+                                        <option value="720">Every 12 hours</option>
+                                        <option value="1440">Every 24 hours</option>
+                                        <option value="2880">Every 48 hours</option>
+                                        <option value="10080">Every 7 days</option>
+                                    </select>
+                                </div>
+                            </div>
+                            @if (auditTask.LastRunAt.HasValue)
+                            {
+                                <div class="schedule-status">
+                                    <span class="schedule-status-item">
+                                        <span class="detail-label">Last run:</span>
+                                        <span class="detail-value">@FormatTime(auditTask.LastRunAt.Value)</span>
+                                        @if (!string.IsNullOrEmpty(auditTask.LastStatus))
+                                        {
+                                            <span class="status-badge @GetScheduleStatusClass(auditTask.LastStatus)">@auditTask.LastStatus</span>
+                                        }
+                                    </span>
+                                    @if (!string.IsNullOrEmpty(auditTask.LastResultSummary))
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-value">@auditTask.LastResultSummary</span>
+                                        </span>
+                                    }
+                                    @if (auditTask.NextRunAt.HasValue && auditTask.Enabled)
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Next run:</span>
+                                            <span class="detail-value">@FormatTime(auditTask.NextRunAt.Value)</span>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(auditTask.LastErrorMessage))
+                            {
+                                <div class="alert alert-danger schedule-error">@auditTask.LastErrorMessage</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="schedule-section">
+                <h2 class="schedule-section-title">WAN Speed Tests</h2>
+                @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
+                @if (wanTasks.Count == 0)
+                {
+                    <div class="empty-state">
+                        <h3>No WAN Speed Test Schedules</h3>
+                        <p>WAN speed test schedules will be created automatically when gateway SSH is configured.</p>
+                        <a href="/settings" class="btn btn-sm btn-primary">Go to Settings</a>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var task in wanTasks)
+                    {
+                        <div class="schedule-card">
+                            <div class="schedule-card-header">
+                                <div class="schedule-card-title">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>@task.Name</span>
+                                </div>
+                                <div class="schedule-card-actions">
+                                    <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => RunScheduleNow(task)"
+                                            disabled="@(ScheduleService.IsTaskRunning(task.Id))">
+                                        @if (ScheduleService.IsTaskRunning(task.Id))
+                                        {
+                                            <span class="spinner spinner-sm"></span>
+                                            <text>Running...</text>
+                                        }
+                                        else
+                                        {
+                                            <text>Run Now</text>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="schedule-card-body">
+                                <div class="schedule-config">
+                                    <div class="form-group schedule-field">
+                                        <label>Frequency</label>
+                                        <select class="form-control" value="@task.FrequencyMinutes"
+                                                @onchange="e => UpdateFrequency(task, e)">
+                                            <option value="360">Every 6 hours</option>
+                                            <option value="720">Every 12 hours</option>
+                                            <option value="1440">Every 24 hours</option>
+                                            <option value="2880">Every 48 hours</option>
+                                            <option value="10080">Every 7 days</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                @if (task.LastRunAt.HasValue)
+                                {
+                                    <div class="schedule-status">
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Last run:</span>
+                                            <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
+                                            @if (!string.IsNullOrEmpty(task.LastStatus))
+                                            {
+                                                <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
+                                            }
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(task.LastResultSummary))
+                                        {
+                                            <span class="schedule-status-item">
+                                                <span class="detail-value">@task.LastResultSummary</span>
+                                            </span>
+                                        }
+                                        @if (task.NextRunAt.HasValue && task.Enabled)
+                                        {
+                                            <span class="schedule-status-item">
+                                                <span class="detail-label">Next run:</span>
+                                                <span class="detail-value">@FormatTime(task.NextRunAt.Value)</span>
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(task.LastErrorMessage))
+                                {
+                                    <div class="alert alert-danger schedule-error">@task.LastErrorMessage</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="schedule-section">
+                <h2 class="schedule-section-title">LAN Speed Tests</h2>
+                @{ var lanTasks = _scheduledTasks.Where(t => t.TaskType == "lan_speedtest").ToList(); }
+                @if (lanTasks.Count == 0)
+                {
+                    <div class="empty-state">
+                        <h3>No LAN Speed Test Schedules</h3>
+                        <p>LAN speed test schedules will be created when devices are added on the LAN Speed Test page.</p>
+                        <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var task in lanTasks)
+                    {
+                        <div class="schedule-card">
+                            <div class="schedule-card-header">
+                                <div class="schedule-card-title">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>@task.Name</span>
+                                </div>
+                                <div class="schedule-card-actions">
+                                    <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => RunScheduleNow(task)"
+                                            disabled="@(ScheduleService.IsTaskRunning(task.Id))">
+                                        @if (ScheduleService.IsTaskRunning(task.Id))
+                                        {
+                                            <span class="spinner spinner-sm"></span>
+                                            <text>Running...</text>
+                                        }
+                                        else
+                                        {
+                                            <text>Run Now</text>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="schedule-card-body">
+                                <div class="schedule-config">
+                                    <div class="form-group schedule-field">
+                                        <label>Frequency</label>
+                                        <select class="form-control" value="@task.FrequencyMinutes"
+                                                @onchange="e => UpdateFrequency(task, e)">
+                                            <option value="360">Every 6 hours</option>
+                                            <option value="720">Every 12 hours</option>
+                                            <option value="1440">Every 24 hours</option>
+                                            <option value="2880">Every 48 hours</option>
+                                            <option value="10080">Every 7 days</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                @if (task.LastRunAt.HasValue)
+                                {
+                                    <div class="schedule-status">
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Last run:</span>
+                                            <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
+                                            @if (!string.IsNullOrEmpty(task.LastStatus))
+                                            {
+                                                <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
+                                            }
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(task.LastResultSummary))
+                                        {
+                                            <span class="schedule-status-item">
+                                                <span class="detail-value">@task.LastResultSummary</span>
+                                            </span>
+                                        }
+                                        @if (task.NextRunAt.HasValue && task.Enabled)
+                                        {
+                                            <span class="schedule-status-item">
+                                                <span class="detail-label">Next run:</span>
+                                                <span class="detail-value">@FormatTime(task.NextRunAt.Value)</span>
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(task.LastErrorMessage))
+                                {
+                                    <div class="alert alert-danger schedule-error">@task.LastErrorMessage</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
         @* ========== Active Alerts Tab ========== *@
         @if (_activeTab == "active")
         {
@@ -545,6 +817,87 @@
         transform: translateX(16px);
     }
 
+    /* Schedule tab */
+    .schedule-section {
+        margin-bottom: 1.5rem;
+    }
+    .schedule-section-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .schedule-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        margin-bottom: 0.75rem;
+    }
+    .schedule-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.875rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .schedule-card-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+    .schedule-card-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .schedule-card-body {
+        padding: 0.875rem 1rem;
+    }
+    .schedule-config {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .schedule-field {
+        margin-bottom: 0;
+        min-width: 180px;
+    }
+    .schedule-field label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+    .schedule-status {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+        font-size: 0.8125rem;
+    }
+    .schedule-status-item {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    .schedule-error {
+        margin-top: 0.75rem;
+        margin-bottom: 0;
+        font-size: 0.8125rem;
+    }
+    .status-success {
+        background: rgba(36, 188, 112, 0.2);
+        color: var(--success-color);
+    }
+    .status-failed {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--danger-color);
+    }
+
     @@media (max-width: 768px) {
         .tab-bar {
             overflow-x: auto;
@@ -565,12 +918,23 @@
             flex-direction: row;
             align-items: center;
         }
+        .schedule-card-header {
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .schedule-status {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
     }
 </style>
 
 @code {
-    private string _activeTab = "active";
+    private string _activeTab = FeatureFlags.SchedulingEnabled ? "schedule" : "active";
     private bool _loading = true;
+
+    // Schedule
+    private List<ScheduledTask> _scheduledTasks = [];
 
     // Active alerts
     private List<AlertHistoryEntry> _activeAlerts = [];
@@ -603,7 +967,10 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadActiveAlerts();
+        if (FeatureFlags.SchedulingEnabled)
+            await LoadSchedules();
+        else
+            await LoadActiveAlerts();
         _loading = false;
 
         _refreshTimer = new System.Threading.Timer(async _ =>
@@ -614,6 +981,8 @@
                 {
                     if (_activeTab == "active")
                         await LoadActiveAlerts();
+                    else if (_activeTab == "schedule")
+                        await LoadSchedules();
                     StateHasChanged();
                 });
             }
@@ -631,6 +1000,9 @@
         {
             switch (tab)
             {
+                case "schedule":
+                    await LoadSchedules();
+                    break;
                 case "active":
                     await LoadActiveAlerts();
                     break;
@@ -654,6 +1026,19 @@
     }
 
     // ========== Data Loading ==========
+
+    private async Task LoadSchedules()
+    {
+        try
+        {
+            _scheduledTasks = await ScheduleRepository.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading scheduled tasks");
+            _scheduledTasks = [];
+        }
+    }
 
     private async Task LoadActiveAlerts()
     {
@@ -872,6 +1257,63 @@
             Logger.LogError(ex, "Error deleting rule {Id}", rule.Id);
         }
     }
+
+    // ========== Schedule Actions ==========
+
+    private async Task ToggleSchedule(ScheduledTask task)
+    {
+        try
+        {
+            task.Enabled = !task.Enabled;
+            await ScheduleRepository.UpdateAsync(task);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling schedule {Id}", task.Id);
+            task.Enabled = !task.Enabled; // Revert on failure
+        }
+    }
+
+    private async Task UpdateFrequency(ScheduledTask task, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var minutes))
+        {
+            try
+            {
+                task.FrequencyMinutes = minutes;
+                // Recalculate next run if currently enabled and has a last run
+                if (task.Enabled && task.LastRunAt.HasValue)
+                {
+                    task.NextRunAt = task.LastRunAt.Value.AddMinutes(minutes);
+                }
+                await ScheduleRepository.UpdateAsync(task);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error updating frequency for schedule {Id}", task.Id);
+            }
+        }
+    }
+
+    private async Task RunScheduleNow(ScheduledTask task)
+    {
+        try
+        {
+            await ScheduleService.RunNowAsync(task.Id);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error running schedule {Id} now", task.Id);
+        }
+    }
+
+    private static string GetScheduleStatusClass(string status) => status switch
+    {
+        "success" => "status-success",
+        "failed" => "status-failed",
+        _ => "status-badge"
+    };
 
     // ========== Formatters ==========
 

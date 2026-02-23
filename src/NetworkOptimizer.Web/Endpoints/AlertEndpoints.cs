@@ -1,3 +1,4 @@
+using NetworkOptimizer.Alerts;
 using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
@@ -122,5 +123,34 @@ public static class AlertEndpoints
         // --- Incidents ---
         app.MapGet("/api/alerts/incidents", async (IAlertRepository repo, int limit = 50) =>
             Results.Ok(await repo.GetIncidentsAsync(limit)));
+
+        // --- Schedules ---
+        app.MapGet("/api/alerts/schedules", async (IScheduleRepository repo) =>
+            Results.Ok(await repo.GetAllAsync()));
+
+        app.MapPut("/api/alerts/schedules/{id:int}", async (int id, ScheduledTask updated, IScheduleRepository repo) =>
+        {
+            var existing = await repo.GetByIdAsync(id);
+            if (existing == null) return Results.NotFound();
+
+            existing.Enabled = updated.Enabled;
+            existing.FrequencyMinutes = updated.FrequencyMinutes;
+            existing.Name = updated.Name;
+
+            // Recalculate next run if frequency changed and task has been run before
+            if (existing.LastRunAt.HasValue)
+            {
+                existing.NextRunAt = existing.LastRunAt.Value.AddMinutes(existing.FrequencyMinutes);
+            }
+
+            await repo.UpdateAsync(existing);
+            return Results.Ok(existing);
+        });
+
+        app.MapPost("/api/alerts/schedules/{id:int}/run", async (int id, ScheduleService scheduleService) =>
+        {
+            var started = await scheduleService.RunNowAsync(id);
+            return started ? Results.Ok(new { started = true }) : Results.Conflict(new { error = "Task is already running or not found" });
+        });
     }
 }
