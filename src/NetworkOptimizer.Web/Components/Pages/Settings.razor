@@ -1001,38 +1001,8 @@
         </div>
         <div class="card-body">
             <div class="form-group">
-                <label class="form-label">Monitoring Interval (seconds)</label>
-                <input type="number" class="form-control" @bind="monitoringInterval" min="30" max="3600" />
-                <small class="form-help">How often to poll devices for metrics</small>
-            </div>
-
-            <div class="form-group">
                 <label class="form-label">Alert Retention (days)</label>
                 <input type="number" class="form-control" @bind="alertRetention" min="1" max="365" />
-            </div>
-
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" @bind="enableNotifications" />
-                    <span>Enable email notifications for critical issues</span>
-                </label>
-            </div>
-
-            @if (enableNotifications)
-            {
-                <div class="form-group">
-                    <label class="form-label">Notification Email</label>
-                    <input type="email" class="form-control" @bind="notificationEmail" />
-                </div>
-            }
-
-            <div class="form-group">
-                <label class="form-label">Theme</label>
-                <select class="form-control" @bind="theme">
-                    <option value="dark">Dark (Default)</option>
-                    <option value="light">Light</option>
-                    <option value="auto">Auto (System)</option>
-                </select>
             </div>
 
             <div class="action-buttons">
@@ -1792,11 +1762,7 @@
     private string adminPasswordMessageClass = "";
 
     // Application Settings
-    private int monitoringInterval = 300;
     private int alertRetention = 30;
-    private bool enableNotifications = false;
-    private string notificationEmail = "";
-    private string theme = "dark";
 
     // Security Audit Settings
     private bool allowAppleStreamingOnMainNetwork = false;
