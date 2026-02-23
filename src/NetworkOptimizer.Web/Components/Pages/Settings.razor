@@ -1273,12 +1273,30 @@
                     @if (channelDigestEnabled)
                     {
                         <div class="form-group">
-                            <label class="form-label">Digest Schedule</label>
-                            <select class="form-control" @bind="channelDigestSchedule">
-                                <option value="daily:08:00">Daily at 08:00 UTC</option>
-                                <option value="daily:18:00">Daily at 18:00 UTC</option>
-                                <option value="weekly:monday:08:00">Weekly on Monday</option>
+                            <label class="form-label">Digest Frequency</label>
+                            <select class="form-control" @bind="channelDigestFrequency">
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
                             </select>
+                        </div>
+                        @if (channelDigestFrequency == "weekly")
+                        {
+                            <div class="form-group">
+                                <label class="form-label">Day of Week</label>
+                                <select class="form-control" @bind="channelDigestDay">
+                                    <option value="monday">Monday</option>
+                                    <option value="tuesday">Tuesday</option>
+                                    <option value="wednesday">Wednesday</option>
+                                    <option value="thursday">Thursday</option>
+                                    <option value="friday">Friday</option>
+                                    <option value="saturday">Saturday</option>
+                                    <option value="sunday">Sunday</option>
+                                </select>
+                            </div>
+                        }
+                        <div class="form-group">
+                            <label class="form-label">Time (@_serverTzAbbrev)</label>
+                            <input type="time" class="form-control" @bind="channelDigestTime" />
                         </div>
                     }
 
@@ -1799,6 +1817,10 @@
     private bool channelEnabled = true;
     private bool channelDigestEnabled = false;
     private string channelDigestSchedule = "daily:08:00";
+    private string channelDigestFrequency = "daily";
+    private string channelDigestDay = "monday";
+    private TimeOnly channelDigestTime = new(8, 0);
+    private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
     private bool savingAlertChannel = false;
     private bool testingAlertChannel = false;
     private int testingAlertChannelId = 0;
@@ -3243,6 +3265,9 @@
         channelEnabled = true;
         channelDigestEnabled = false;
         channelDigestSchedule = "daily:08:00";
+        channelDigestFrequency = "daily";
+        channelDigestDay = "monday";
+        channelDigestTime = new TimeOnly(8, 0);
         showChannelForm = true;
         alertChannelMessage = "";
     }
@@ -3256,6 +3281,7 @@
         channelEnabled = ch.IsEnabled;
         channelDigestEnabled = ch.DigestEnabled;
         channelDigestSchedule = ch.DigestSchedule ?? "daily:08:00";
+        ParseDigestScheduleToLocal(channelDigestSchedule);
 
         // Parse config JSON based on type
         try
@@ -3294,6 +3320,59 @@
         showChannelForm = false;
         editingChannelId = null;
         alertChannelMessage = "";
+    }
+
+    /// <summary>
+    /// Parse a stored UTC digest schedule string into the local-time form fields.
+    /// </summary>
+    private void ParseDigestScheduleToLocal(string schedule)
+    {
+        var parts = schedule.Split(':');
+        if (parts[0] == "weekly" && parts.Length >= 4 &&
+            int.TryParse(parts[2], out var wh) && int.TryParse(parts[3], out var wm))
+        {
+            channelDigestFrequency = "weekly";
+            channelDigestDay = parts[1].ToLowerInvariant();
+            var utcDt = DateTime.UtcNow.Date.AddHours(wh).AddMinutes(wm);
+            var localDt = utcDt.ToLocalTime();
+            channelDigestTime = new TimeOnly(localDt.Hour, localDt.Minute);
+        }
+        else if (parts.Length >= 3 && int.TryParse(parts[1], out var dh) && int.TryParse(parts[2], out var dm))
+        {
+            channelDigestFrequency = "daily";
+            var utcDt = DateTime.UtcNow.Date.AddHours(dh).AddMinutes(dm);
+            var localDt = utcDt.ToLocalTime();
+            channelDigestTime = new TimeOnly(localDt.Hour, localDt.Minute);
+        }
+        else
+        {
+            channelDigestFrequency = "daily";
+            channelDigestTime = new TimeOnly(8, 0);
+        }
+    }
+
+    /// <summary>
+    /// Build a UTC digest schedule string from the local-time form fields.
+    /// </summary>
+    private string BuildDigestScheduleUtc()
+    {
+        var localDt = DateTime.Today.Add(channelDigestTime.ToTimeSpan());
+        var utcDt = localDt.ToUniversalTime();
+        var hh = utcDt.Hour.ToString("D2");
+        var mm = utcDt.Minute.ToString("D2");
+
+        return channelDigestFrequency == "weekly"
+            ? $"weekly:{channelDigestDay}:{hh}:{mm}"
+            : $"daily:{hh}:{mm}";
+    }
+
+    private static string GetServerTimezoneAbbrev()
+    {
+        var tz = TimeZoneInfo.Local;
+        var now = DateTime.Now;
+        var name = tz.IsDaylightSavingTime(now) ? tz.DaylightName : tz.StandardName;
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
     }
 
     private async Task SaveAlertChannel()
@@ -3348,6 +3427,10 @@
 
             var severity = Enum.Parse<NetworkOptimizer.Core.Enums.AlertSeverity>(channelMinSeverity);
             var configJson = BuildChannelConfigJson(channelType);
+
+            // Build digest schedule string from local time fields (convert to UTC for storage)
+            if (channelDigestEnabled)
+                channelDigestSchedule = BuildDigestScheduleUtc();
 
             if (editingChannelId.HasValue)
             {
