@@ -767,7 +767,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-ISO-001",
                     ScoreImpact = 15,
-                    RecommendedAction = "Enable network isolation to prevent cameras from accessing other network segments."
+                    RecommendedAction = "Enable network isolation to prevent cameras from accessing other network segments. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
 
@@ -790,7 +790,9 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-ISO-002",
                     ScoreImpact = 15,
-                    RecommendedAction = "Enable Isolate Network or add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure."
+                    RecommendedAction = network.VlanId == 1
+                        ? "Add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure. If incorrect, set a different Purpose for the network in Network Reference below."
+                        : "Enable Isolate Network or add inbound/outbound inter-VLAN blocking Firewall Rules to protect management infrastructure. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
 
@@ -813,7 +815,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-ISO-003",
                     ScoreImpact = 10,
-                    RecommendedAction = "Enable network isolation to contain potentially insecure IoT devices."
+                    RecommendedAction = "Enable network isolation to contain potentially insecure IoT devices. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
         }

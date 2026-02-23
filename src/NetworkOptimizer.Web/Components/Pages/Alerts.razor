@@ -48,7 +48,7 @@
                 <button class="wifi-view-tab @(_activeTab == "incidents" ? "active" : "")"
                         @onclick='() => SetActiveTab("incidents")'>Incidents</button>
                 <button class="wifi-view-tab"
-                        @onclick='() => NavigationManager.NavigateTo("/settings#alert-channels")'>Channels</button>
+                        @onclick='() => NavigationManager.NavigateTo("/settings#alert-channels")'>Notification Channels</button>
             </div>
             <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right"
                     onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>

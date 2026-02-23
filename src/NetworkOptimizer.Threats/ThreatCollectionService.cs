@@ -41,6 +41,7 @@ public class ThreatCollectionService : BackgroundService
 
     // Track source IPs we've already alerted on for attack chains (reset periodically)
     private readonly HashSet<string> _alertedChainIps = new();
+    private readonly HashSet<string> _alertedChainAttemptIps = new();
     private DateTime _lastChainAlertReset = DateTime.UtcNow;
 
     public ThreatCollectionService(
@@ -317,6 +318,7 @@ public class ThreatCollectionService : BackgroundService
             if ((DateTime.UtcNow - _lastChainAlertReset).TotalHours >= 6)
             {
                 _alertedChainIps.Clear();
+                _alertedChainAttemptIps.Clear();
                 _lastChainAlertReset = DateTime.UtcNow;
             }
 
@@ -365,6 +367,42 @@ public class ThreatCollectionService : BackgroundService
                 }, cancellationToken);
 
                 _logger.LogInformation("Attack chain detected: {Ip} ({Country}) - {Stages}",
+                    seq.SourceIp, seq.CountryCode, stageNames);
+            }
+
+            // Second pass: early-stage chains (e.g. Recon -> AttemptedExploitation) that didn't meet
+            // the end-state filter above. These are lower confidence but useful for security-minded users.
+            foreach (var seq in sequences)
+            {
+                if (seq.Stages.Count < 2) continue;
+
+                // Skip if already alerted as a full chain or as an attempt
+                if (_alertedChainIps.Contains(seq.SourceIp)) continue;
+                if (!_alertedChainAttemptIps.Add(seq.SourceIp)) continue;
+
+                var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage));
+                var totalEvents = seq.Stages.Sum(s => s.EventCount);
+
+                await _alertEventBus.PublishAsync(new AlertEvent
+                {
+                    EventType = "threats.attack_chain_attempt",
+                    Source = "threats",
+                    Severity = AlertSeverity.Info,
+                    Title = $"Early-stage attack chain: {stageNames}",
+                    Message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} early kill chain stages with {totalEvents} events. " +
+                              "This may indicate a blocked attack or reconnaissance activity that did not reach exploitation.",
+                    DeviceIp = seq.SourceIp,
+                    Context = new Dictionary<string, string>
+                    {
+                        ["stages"] = stageNames,
+                        ["stage_count"] = seq.Stages.Count.ToString(),
+                        ["total_events"] = totalEvents.ToString(),
+                        ["country"] = seq.CountryCode ?? "unknown",
+                        ["asn"] = seq.AsnOrg ?? "unknown"
+                    }
+                }, cancellationToken);
+
+                _logger.LogDebug("Early-stage attack chain detected: {Ip} ({Country}) - {Stages}",
                     seq.SourceIp, seq.CountryCode, stageNames);
             }
         }
