@@ -1958,6 +1958,15 @@ else
     private async Task SetActiveTab(string tab)
     {
         if (_activeTab == tab) return;
+        // Null chart refs when leaving overview so chartExisted is correctly false
+        // when returning (stale refs to destroyed components would cause RenderAsync
+        // to fire on a disposed chart instead of letting the new one auto-render).
+        if (_activeTab == "overview")
+        {
+            _timelineChart = null;
+            _killChainChart = null;
+            _actionChart = null;
+        }
         _activeTab = tab;
         _showFilterPanel = false;
         _showCustomRange = false;
