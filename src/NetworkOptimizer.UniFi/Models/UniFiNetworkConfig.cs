@@ -67,7 +67,7 @@ public class UniFiNetworkConfig
     public string Purpose { get; set; } = string.Empty; // "corporate", "guest", "wan", "vlan-only", "remote-user-vpn"
 
     [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; }
+    public bool Enabled { get; set; } = true;
 
     [JsonPropertyName("is_nat")]
     public bool IsNat { get; set; }
