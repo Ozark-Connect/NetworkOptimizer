@@ -6689,12 +6689,6 @@ a.path-hop.hop-clickable:hover {
     padding: 0.25rem;
 }
 
-.popover-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 49;
-}
-
 .custom-range-popover {
     position: absolute;
     top: calc(100% + 0.5rem);
