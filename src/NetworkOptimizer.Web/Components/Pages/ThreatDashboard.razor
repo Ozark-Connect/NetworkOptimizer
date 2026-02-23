@@ -1724,20 +1724,40 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        Console.WriteLine($"[TIMELINE-DBG] OnAfterRenderAsync firstRender={firstRender} chartRef={_timelineChart != null} needsUpdate={_chartNeedsUpdate} newlyCreated={_timelineChartNewlyCreated} timelineCount={_timeline?.Count}");
         if (_chartNeedsUpdate)
         {
             _chartNeedsUpdate = false;
-            Console.WriteLine("[TIMELINE-DBG] Calling RenderAsync (chartNeedsUpdate path)");
-            try { if (_timelineChart != null) await _timelineChart.RenderAsync(); } catch (Exception ex) { Console.WriteLine($"[TIMELINE-DBG] RenderAsync failed: {ex.Message}"); }
+            await RenderTimelineChartWithRetry();
             try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
             try { if (_actionChart != null) await _actionChart.UpdateSeriesAsync(true); } catch { }
         }
         else if (_timelineChartNewlyCreated && _timelineChart != null)
         {
             _timelineChartNewlyCreated = false;
-            Console.WriteLine("[TIMELINE-DBG] Calling RenderAsync (newlyCreated path)");
-            try { await _timelineChart.RenderAsync(); } catch (Exception ex) { Console.WriteLine($"[TIMELINE-DBG] RenderAsync failed: {ex.Message}"); }
+            await RenderTimelineChartWithRetry();
+        }
+    }
+
+    /// <summary>
+    /// ApexCharts JS initializes asynchronously after the component is mounted.
+    /// RenderAsync can fail with NRE if called before JS is ready.
+    /// Retry briefly to let JS catch up.
+    /// </summary>
+    private async Task RenderTimelineChartWithRetry()
+    {
+        if (_timelineChart == null) return;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                await _timelineChart.RenderAsync();
+                return;
+            }
+            catch (NullReferenceException)
+            {
+                await Task.Delay(150);
+            }
+            catch { return; }
         }
     }
 
@@ -1791,7 +1811,6 @@ else
             else if (_activeTab == "drilldown" && newTab != "drilldown")
             {
                 // Leaving drilldown via back button
-                Console.WriteLine($"[TIMELINE-DBG] OnParametersSet: leaving drilldown -> {newTab}, _previousTab={_previousTab}");
                 _ = ExitDrilldown(pushHistory: false);
                 if (newTab != _activeTab)
                     _ = SetActiveTab(newTab, pushHistory: false);
@@ -2022,11 +2041,9 @@ else
             if (_activeTab == "overview")
             {
                 var chartExisted = _timelineChart != null;
-                Console.WriteLine($"[TIMELINE-DBG] LoadDataAsync: overview, chartExisted={chartExisted}");
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
-                Console.WriteLine($"[TIMELINE-DBG] LoadDataAsync: data loaded, timeline={_timeline.Count} items, chartRef={_timelineChart != null}");
 
                 // Pin X-axis to the actual data extent (all severities) so toggling
                 // severity filters doesn't shrink/shift the visible date range.
@@ -2043,15 +2060,9 @@ else
                 // the multi-series timeline does not - flag it for a deferred
                 // RenderAsync once Blazor has mounted the component.
                 if (chartExisted)
-                {
-                    Console.WriteLine("[TIMELINE-DBG] LoadDataAsync: setting _chartNeedsUpdate=true");
                     _chartNeedsUpdate = true;
-                }
                 else
-                {
-                    Console.WriteLine("[TIMELINE-DBG] LoadDataAsync: setting _timelineChartNewlyCreated=true");
                     _timelineChartNewlyCreated = true;
-                }
             }
             else if (_activeTab == "exposure")
             {
