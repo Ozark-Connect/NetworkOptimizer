@@ -2129,13 +2129,8 @@ else
             },
             Fill = new Fill
             {
-                Type = new List<FillType> { FillType.Gradient },
-                Gradient = new FillGradient
-                {
-                    ShadeIntensity = 0.3,
-                    OpacityFrom = 0.5,
-                    OpacityTo = 0.05
-                }
+                Type = new List<FillType> { FillType.Solid },
+                Opacity = new List<double> { 0.15 }
             }
         };
     }
