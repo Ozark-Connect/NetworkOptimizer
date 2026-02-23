@@ -59,11 +59,13 @@ public class ThreatDashboardService
         try
         {
             await ApplyNoiseFiltersToRepository(cancellationToken);
+            _repository.SetSeverityFilter(SeverityFilter);
             var summary = await _repository.GetThreatSummaryAsync(from, to, cancellationToken);
             var killChain = await _repository.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topSources = await _repository.GetTopSourcesAsync(from, to, 10, cancellationToken);
             var topPorts = await _repository.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
             var patterns = await _repository.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
+            _repository.SetSeverityFilter(null);
 
             // Enrich top sources with CrowdSec CTI reputation (cached 24h, ~10 API calls max)
             await EnrichTopSourcesWithCtiAsync(topSources, cancellationToken);
@@ -676,7 +678,9 @@ public class ThreatDashboardService
             _repository.SetNoiseFilters(filters);
         }
 
-        _repository.SetSeverityFilter(SeverityFilter);
+        // Severity filter is only applied by overview methods that explicitly opt in.
+        // Clear it here so non-overview tabs (geographic, exposure, sequences, drilldowns) see all severities.
+        _repository.SetSeverityFilter(null);
     }
 
     // --- Noise Filter Management ---
