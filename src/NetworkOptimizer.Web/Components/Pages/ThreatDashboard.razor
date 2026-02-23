@@ -2010,6 +2010,12 @@ else
     {
         if (_activeTab != "drilldown")
             _previousTab = _activeTab;
+        if (_activeTab == "overview")
+        {
+            _timelineChart = null;
+            _killChainChart = null;
+            _actionChart = null;
+        }
         _drilldownIp = ip;
         _drilldownPort = null;
         _drilldownProtocol = null;
@@ -2057,6 +2063,12 @@ else
     {
         if (_activeTab != "drilldown")
             _previousTab = _activeTab;
+        if (_activeTab == "overview")
+        {
+            _timelineChart = null;
+            _killChainChart = null;
+            _actionChart = null;
+        }
         _drilldownPort = port;
         _drilldownIp = null;
         _drilldownProtocol = null;
@@ -2090,6 +2102,12 @@ else
     {
         if (_activeTab != "drilldown")
             _previousTab = _activeTab;
+        if (_activeTab == "overview")
+        {
+            _timelineChart = null;
+            _killChainChart = null;
+            _actionChart = null;
+        }
         _drilldownProtocol = protocol;
         _drilldownIp = null;
         _drilldownPort = null;
