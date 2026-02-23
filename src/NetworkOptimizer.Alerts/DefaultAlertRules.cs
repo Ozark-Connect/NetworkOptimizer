@@ -67,11 +67,11 @@ public static class DefaultAlertRules
             CooldownSeconds = 60 // 1 minute
         },
 
-        // --- Threat Intelligence: Attack Chain (disabled - can be noisy on active networks) ---
+        // --- Threat Intelligence: Attack Chain (enabled - multi-stage attacks are high signal) ---
         new AlertRule
         {
             Name = "Threat Intelligence: Attack Chain",
-            IsEnabled = false,
+            IsEnabled = true,
             EventTypePattern = "threats.attack_chain",
             Source = "threats",
             MinSeverity = AlertSeverity.Warning,
