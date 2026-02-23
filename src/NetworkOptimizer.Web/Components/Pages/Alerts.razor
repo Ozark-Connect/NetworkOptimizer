@@ -600,6 +600,7 @@
                                         <th class="hide-mobile">Source</th>
                                         <th class="hide-mobile">Min Severity</th>
                                         <th class="hide-mobile">Cooldown</th>
+                                        <th class="hide-mobile">Threshold</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -622,6 +623,7 @@
                                                 </span>
                                             </td>
                                             <td class="hide-mobile">@FormatCooldown(rule.CooldownSeconds)</td>
+                                            <td class="hide-mobile">@(rule.ThresholdPercent.HasValue ? $"{rule.ThresholdPercent:F0}%" : "-")</td>
                                             <td>
                                                 <div class="action-buttons">
                                                     <button class="btn btn-sm btn-secondary" @onclick="() => StartEditRule(rule)">Edit</button>
@@ -649,10 +651,17 @@
                             <label>Name</label>
                             <input type="text" class="form-control" @bind="_ruleName" placeholder="e.g., Device Offline Alert" />
                         </div>
-                        <div class="form-group">
-                            <label>Event Type Pattern</label>
-                            <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., device.offline, audit.*" />
-                            <small class="form-text">Use * for wildcard. Examples: device.offline, audit.*, speedtest.regression</small>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Event Type Pattern</label>
+                                <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., device.offline, audit.*" />
+                                <small class="form-text">Use * for wildcard. Examples: device.offline, audit.*, speedtest.regression</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Threshold %</label>
+                                <input type="number" class="form-control" @bind="_ruleThresholdPercent" min="0" max="100" step="1" placeholder="Optional" />
+                                <small class="form-text">For degradation/regression rules: minimum % drop to trigger</small>
+                            </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
@@ -661,9 +670,11 @@
                                     <option value="">All Sources</option>
                                     <option value="audit">Audit</option>
                                     <option value="device">Device</option>
+                                    <option value="schedule">Schedule</option>
                                     <option value="speedtest">Speed Test</option>
+                                    <option value="threats">Threats</option>
                                     <option value="wan">WAN</option>
-                                    <option value="wifi">WiFi</option>
+                                    <option value="wifi">Wi-Fi</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -1150,6 +1161,7 @@
     private int _ruleCooldown = 300;
     private int _ruleEscalationMinutes;
     private bool _ruleDigestOnly;
+    private double? _ruleThresholdPercent;
     private string _ruleTargetDevices = "";
     private bool _savingRule;
     private string? _ruleError;
@@ -1460,6 +1472,7 @@
         _ruleCooldown = 300;
         _ruleEscalationMinutes = 0;
         _ruleDigestOnly = false;
+        _ruleThresholdPercent = null;
         _ruleTargetDevices = "";
         _ruleError = null;
         _showRuleForm = true;
@@ -1475,6 +1488,7 @@
         _ruleCooldown = rule.CooldownSeconds;
         _ruleEscalationMinutes = rule.EscalationMinutes;
         _ruleDigestOnly = rule.DigestOnly;
+        _ruleThresholdPercent = rule.ThresholdPercent;
         _ruleTargetDevices = rule.TargetDevices ?? "";
         _ruleError = null;
         _showRuleForm = true;
@@ -1514,6 +1528,7 @@
                     rule.CooldownSeconds = _ruleCooldown;
                     rule.EscalationMinutes = _ruleEscalationMinutes;
                     rule.DigestOnly = _ruleDigestOnly;
+                    rule.ThresholdPercent = _ruleThresholdPercent;
                     rule.TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim();
                     rule.UpdatedAt = DateTime.UtcNow;
                     await AlertRepository.UpdateRuleAsync(rule);
@@ -1530,6 +1545,7 @@
                     CooldownSeconds = _ruleCooldown,
                     EscalationMinutes = _ruleEscalationMinutes,
                     DigestOnly = _ruleDigestOnly,
+                    ThresholdPercent = _ruleThresholdPercent,
                     TargetDevices = string.IsNullOrEmpty(_ruleTargetDevices) ? null : _ruleTargetDevices.Trim()
                 };
                 await AlertRepository.SaveRuleAsync(rule);
