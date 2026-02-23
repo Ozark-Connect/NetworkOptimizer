@@ -30,6 +30,11 @@ public class ThreatDashboardService
     /// </summary>
     public bool FiltersDisabled { get; set; }
 
+    /// <summary>
+    /// When non-null, only events with matching severity levels are included in query results.
+    /// </summary>
+    public int[]? SeverityFilter { get; set; }
+
     public ThreatDashboardService(
         IThreatRepository repository,
         ExposureValidator exposureValidator,
@@ -649,10 +654,14 @@ public class ThreatDashboardService
         if (FiltersDisabled)
         {
             _repository.SetNoiseFilters([]);
-            return;
         }
-        var filters = await GetActiveFiltersAsync(cancellationToken);
-        _repository.SetNoiseFilters(filters);
+        else
+        {
+            var filters = await GetActiveFiltersAsync(cancellationToken);
+            _repository.SetNoiseFilters(filters);
+        }
+
+        _repository.SetSeverityFilter(SeverityFilter);
     }
 
     // --- Noise Filter Management ---

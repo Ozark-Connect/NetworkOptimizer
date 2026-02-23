@@ -14,6 +14,13 @@ public interface IThreatRepository
     /// </summary>
     void SetNoiseFilters(List<ThreatNoiseFilter> filters);
 
+    // --- Severity Filtering ---
+    /// <summary>
+    /// Set active severity filter. When non-null, only events with matching severity levels
+    /// are included in query results. Null means all severities.
+    /// </summary>
+    void SetSeverityFilter(int[]? severities);
+
     // --- Threat Events ---
     Task SaveEventsAsync(List<ThreatEvent> events, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsAsync(DateTime from, DateTime to, string? sourceIp = null, int? destPort = null, KillChainStage? stage = null, int limit = 1000, CancellationToken cancellationToken = default);

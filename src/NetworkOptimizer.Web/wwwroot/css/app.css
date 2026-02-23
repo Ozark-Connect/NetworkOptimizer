@@ -8256,6 +8256,53 @@ a.path-hop.hop-clickable:hover {
 }
 
 
+/* Severity filter tabs (threat dashboard) - same pattern as band-tab */
+.sev-tab {
+    padding: 0.35rem 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.15s ease-out;
+}
+
+.sev-tab:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.sev-tab.active.sev-critical {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: white;
+}
+
+.sev-tab.active.sev-high {
+    background: #f97316;
+    border-color: #f97316;
+    color: white;
+}
+
+.sev-tab.active.sev-medium {
+    background: #eab308;
+    border-color: #eab308;
+    color: var(--text-dark);
+}
+
+.sev-tab.active.sev-low {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
+.sev-tab.active.sev-info {
+    background: #10b981;
+    border-color: #10b981;
+    color: white;
+}
+
 .band-tab .issue-indicator {
     display: inline-flex;
     align-items: center;

@@ -15,6 +15,7 @@ public class ThreatRepository : IThreatRepository
     private readonly NetworkOptimizerDbContext _context;
     private readonly ILogger<ThreatRepository> _logger;
     private List<ThreatNoiseFilter> _noiseFilters = [];
+    private int[]? _severityFilter;
 
     public ThreatRepository(NetworkOptimizerDbContext context, ILogger<ThreatRepository> logger)
     {
@@ -27,8 +28,13 @@ public class ThreatRepository : IThreatRepository
         _noiseFilters = filters;
     }
 
+    public void SetSeverityFilter(int[]? severities)
+    {
+        _severityFilter = severities;
+    }
+
     /// <summary>
-    /// Build a base query for the time range with noise filters applied.
+    /// Build a base query for the time range with noise and severity filters applied.
     /// </summary>
     private IQueryable<ThreatEvent> BaseQuery(DateTime from, DateTime to)
     {
@@ -36,7 +42,12 @@ public class ThreatRepository : IThreatRepository
             .AsNoTracking()
             .Where(e => e.Timestamp >= from && e.Timestamp <= to);
 
-        return ApplyNoiseFilters(query);
+        query = ApplyNoiseFilters(query);
+
+        if (_severityFilter is { Length: > 0 })
+            query = query.Where(e => _severityFilter.Contains(e.Severity));
+
+        return query;
     }
 
     /// <summary>
@@ -167,6 +178,17 @@ public class ThreatRepository : IThreatRepository
     }
 
     private static string? ToCidrPrefix(string? value) => NetworkUtilities.GetCidrLikePrefix(value);
+
+    /// <summary>
+    /// Build a SQL severity filter clause for raw SQL queries.
+    /// Uses literal integers (safe - no user input, only internal int values).
+    /// </summary>
+    private string BuildSeverityFilterSql()
+    {
+        if (_severityFilter is not { Length: > 0 }) return "";
+        var values = string.Join(",", _severityFilter);
+        return $" AND Severity IN ({values})";
+    }
 
     #region Threat Events
 
@@ -343,6 +365,7 @@ public class ThreatRepository : IThreatRepository
         {
             // Use raw SQL with strftime for server-side hour truncation (avoids loading all events into memory)
             var noiseFilterSql = BuildNoiseFilterSql(out var extraParams);
+            var severityFilterSql = BuildSeverityFilterSql();
             var allParams = new List<object> { from, to };
             // Offset parameter indices in the noise filter SQL by 2 (for from/to)
             // Iterate backwards so {1} doesn't match inside {10}, {11}, etc.
@@ -364,7 +387,7 @@ public class ThreatRepository : IThreatRepository
                            SUM(CASE WHEN Severity = 5 THEN 1 ELSE 0 END) AS Severity5,
                            COUNT(*) AS Total
                     FROM ThreatEvents
-                    WHERE Timestamp >= {0} AND Timestamp <= {1}{{offsetFilterSql}}
+                    WHERE Timestamp >= {0} AND Timestamp <= {1}{{offsetFilterSql}}{{severityFilterSql}}
                     GROUP BY strftime('%Y-%m-%d %H:00:00', Timestamp)
                     ORDER BY HourStr
                     """, allParams.ToArray())

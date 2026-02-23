@@ -261,8 +261,15 @@ else
 
         @* Threat Timeline *@
         <div class="chart-card" style="margin-bottom:1.5rem;">
-            <div class="chart-header">
-                <h3 class="chart-title">Threat Timeline</h3>
+            <div class="chart-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+                <h3 class="chart-title" style="margin:0;">Threat Timeline</h3>
+                <div class="filter-tabs" style="gap:0.35rem;">
+                    <button class="sev-tab @(ShowSev5 && !SevShowAll ? "active" : "") sev-critical" @onclick="() => ToggleSeverity(5)">Critical</button>
+                    <button class="sev-tab @(ShowSev4 && !SevShowAll ? "active" : "") sev-high" @onclick="() => ToggleSeverity(4)">High</button>
+                    <button class="sev-tab @(ShowSev3 && !SevShowAll ? "active" : "") sev-medium" @onclick="() => ToggleSeverity(3)">Medium</button>
+                    <button class="sev-tab @(ShowSev2 && !SevShowAll ? "active" : "") sev-low" @onclick="() => ToggleSeverity(2)">Low</button>
+                    <button class="sev-tab @(ShowSev1 && !SevShowAll ? "active" : "") sev-info" @onclick="() => ToggleSeverity(1)">Info</button>
+                </div>
             </div>
             <div class="card-body">
                 @if (_timeline.Count > 0)
@@ -272,35 +279,35 @@ else
                                Height="@("280px")">
 
                         <ApexPointSeries TItem="TimelineBucket"
-                                         Items="_timeline"
+                                         Items="@(ShowSev5 ? _timeline : _emptyTimeline)"
                                          Name="Critical"
                                          SeriesType="SeriesType.Area"
                                          XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
                                          YValue="e => (decimal)e.Severity5"
                                          OrderBy="e => e.X" />
                         <ApexPointSeries TItem="TimelineBucket"
-                                         Items="_timeline"
+                                         Items="@(ShowSev4 ? _timeline : _emptyTimeline)"
                                          Name="High"
                                          SeriesType="SeriesType.Area"
                                          XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
                                          YValue="e => (decimal)e.Severity4"
                                          OrderBy="e => e.X" />
                         <ApexPointSeries TItem="TimelineBucket"
-                                         Items="_timeline"
+                                         Items="@(ShowSev3 ? _timeline : _emptyTimeline)"
                                          Name="Medium"
                                          SeriesType="SeriesType.Area"
                                          XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
                                          YValue="e => (decimal)e.Severity3"
                                          OrderBy="e => e.X" />
                         <ApexPointSeries TItem="TimelineBucket"
-                                         Items="_timeline"
+                                         Items="@(ShowSev2 ? _timeline : _emptyTimeline)"
                                          Name="Low"
                                          SeriesType="SeriesType.Area"
                                          XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
                                          YValue="e => (decimal)e.Severity2"
                                          OrderBy="e => e.X" />
                         <ApexPointSeries TItem="TimelineBucket"
-                                         Items="_timeline"
+                                         Items="@(ShowSev1 ? _timeline : _emptyTimeline)"
                                          Name="Info"
                                          SeriesType="SeriesType.Area"
                                          XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
@@ -1518,6 +1525,23 @@ else
     private int _sourcesVisible = DrilldownPageSize;
     private int _portRangesVisible = DrilldownPageSize;
 
+    // Severity filter state (all OFF = show everything, all ON = show everything)
+    private bool _showSev5; // Critical
+    private bool _showSev4; // High
+    private bool _showSev3; // Medium
+    private bool _showSev2; // Low
+    private bool _showSev1; // Info
+    private static readonly List<TimelineBucket> _emptyTimeline = [];
+
+    private bool SevNoneSelected => !_showSev5 && !_showSev4 && !_showSev3 && !_showSev2 && !_showSev1;
+    private bool SevAllSelected => _showSev5 && _showSev4 && _showSev3 && _showSev2 && _showSev1;
+    private bool SevShowAll => SevNoneSelected || SevAllSelected;
+    private bool ShowSev5 => SevShowAll || _showSev5;
+    private bool ShowSev4 => SevShowAll || _showSev4;
+    private bool ShowSev3 => SevShowAll || _showSev3;
+    private bool ShowSev2 => SevShowAll || _showSev2;
+    private bool ShowSev1 => SevShowAll || _showSev1;
+
     // Noise filter state
     private List<ThreatNoiseFilter> _noiseFilters = [];
     private bool _filtersActive = true;
@@ -1557,14 +1581,6 @@ else
     {
         if (_chartNeedsUpdate)
         {
-            // If chart refs aren't available yet (first data arrival, DOM just added them),
-            // re-trigger so the next render pass can pick them up
-            if (_timelineChart == null && _timeline.Count > 0)
-            {
-                await Task.Yield();
-                StateHasChanged();
-                return;
-            }
             _chartNeedsUpdate = false;
             try { if (_timelineChart != null) await _timelineChart.RenderAsync(); } catch { }
             try { if (_killChainChart != null) await _killChainChart.UpdateSeriesAsync(true); } catch { }
@@ -1736,10 +1752,13 @@ else
 
             if (_activeTab == "overview")
             {
+                var chartExisted = _timelineChart != null;
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
-                _chartNeedsUpdate = true;
+                // Only force-update charts that already exist in the DOM.
+                // New charts auto-render on creation; calling RenderAsync() too early breaks them.
+                if (chartExisted) _chartNeedsUpdate = true;
             }
             else if (_activeTab == "exposure")
             {
@@ -1869,6 +1888,33 @@ else
         if (_timeRange == range) return;
         _timeRange = range;
         await LoadDataAsync();
+    }
+
+    private async Task ToggleSeverity(int level)
+    {
+        switch (level)
+        {
+            case 5: _showSev5 = !_showSev5; break;
+            case 4: _showSev4 = !_showSev4; break;
+            case 3: _showSev3 = !_showSev3; break;
+            case 2: _showSev2 = !_showSev2; break;
+            case 1: _showSev1 = !_showSev1; break;
+        }
+
+        // Update service filter and re-query all overview data
+        DashboardService.SeverityFilter = SevShowAll ? null : GetActiveSeverities();
+        await LoadDataAsync();
+    }
+
+    private int[]? GetActiveSeverities()
+    {
+        var list = new List<int>();
+        if (ShowSev5) list.Add(5);
+        if (ShowSev4) list.Add(4);
+        if (ShowSev3) list.Add(3);
+        if (ShowSev2) list.Add(2);
+        if (ShowSev1) list.Add(1);
+        return list.Count > 0 ? list.ToArray() : null;
     }
 
     private async Task DrillDownToIp(string ip)
