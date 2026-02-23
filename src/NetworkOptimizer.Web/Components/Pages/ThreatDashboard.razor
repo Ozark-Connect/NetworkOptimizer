@@ -812,6 +812,12 @@ else
                           data-tooltip="@(drilldownBehaviors ?? "No behaviors identified")">
                         @drilldownBadge
                     </span>
+                    @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)">
+                            Look up
+                        </button>
+                    }
                 }
                 else if (hasDrilldownCti)
                 {
@@ -1057,13 +1063,13 @@ else
     @if (_activeTab == "drilldown" && _portDrilldownData != null)
     {
         <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
-            <h2 style="margin:0; font-size:1.5rem; font-weight:700;">
+            <h2 style="margin:0; font-size:1.5rem; font-weight:700; display:flex; align-items:baseline; gap:0.5rem;">
                 <code style="font-size:1.3rem;">Port @_portDrilldownData.Port</code>
+                @if (!string.IsNullOrEmpty(_portDrilldownData.ServiceName))
+                {
+                    <span style="color:var(--text-secondary); font-size:1rem; font-weight:400;">@_portDrilldownData.ServiceName</span>
+                }
             </h2>
-            @if (!string.IsNullOrEmpty(_portDrilldownData.ServiceName))
-            {
-                <span style="color:var(--text-secondary); font-size:1rem;">@_portDrilldownData.ServiceName</span>
-            }
             @if (_portDrilldownData.FirstSeen.HasValue)
             {
                 <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
