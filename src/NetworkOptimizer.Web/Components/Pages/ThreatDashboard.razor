@@ -181,11 +181,11 @@
                                     <td>
                                         <div style="display:flex; gap:0.25rem;">
                                             <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
-                                                    data-tooltip="@(filter.Enabled ? "Disable" : "Enable")">
+                                                    data-tooltip="@(filter.Enabled ? "Disable" : "Enable")" data-tooltip-hover-only>
                                                 @(filter.Enabled ? "On" : "Off")
                                             </button>
                                             <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
-                                                    data-tooltip="Delete filter">X</button>
+                                                    data-tooltip="Delete filter" data-tooltip-hover-only>X</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -916,7 +916,7 @@ else
                                         <td class="hide-mobile">@FormatServices(dest.Services)</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
                                         <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair">Filter</button></td>
+                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
                                     </tr>
                                 }
                             </tbody>
@@ -957,7 +957,7 @@ else
                                         <td class="hide-mobile">@FormatServices(src.Services)</td>
                                         <td>@FormatNumber(src.EventCount)</td>
                                         <td>@(src.BlockedCount > 0 ? FormatNumber(src.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair">Filter</button></td>
+                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
                                     </tr>
                                 }
                             </tbody>
