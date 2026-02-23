@@ -380,9 +380,7 @@ else
                                              Name="Events"
                                              SeriesType="SeriesType.Bar"
                                              XValue="e => GetKillChainLabel(e.Stage)"
-                                             YValue="e => (decimal)e.Count"
-                                             PointColor="e => GetStageColor(e.Stage)"
-                                             OrderBy="e => e.X" />
+                                             YValue="e => (decimal)e.Count" />
                         </ApexChart>
                     }
                     else
@@ -2456,7 +2454,7 @@ else
                 Toolbar = new Toolbar { Show = false },
                 Animations = new Animations { Enabled = true, Speed = 300 }
             },
-            Colors = new List<string> { "#64748b" }, // Fallback; PointColor handles per-bar colors
+            Colors = new List<string> { "#3b82f6", "#f59e0b", "#ef4444", "#a78bfa", "#64748b" },
             PlotOptions = new PlotOptions
             {
                 Bar = new PlotOptionsBar
