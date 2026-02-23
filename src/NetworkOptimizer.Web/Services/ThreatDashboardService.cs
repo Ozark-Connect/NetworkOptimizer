@@ -131,28 +131,48 @@ public class ThreatDashboardService
             if (source.CrowdSecReputation != null) continue;
             if (NetworkUtilities.IsPrivateIpAddress(source.SourceIp)) continue;
 
-            try
+            var cached = await GetCachedCtiAsync(source.SourceIp, cancellationToken);
+            if (cached == null) continue;
+
+            source.CrowdSecReputation = cached.CrowdSecReputation;
+            source.ThreatScore = cached.ThreatScore;
+            source.TopBehaviors = cached.TopBehaviors;
+        }
+    }
+
+    /// <summary>
+    /// Check the DB cache for a single IP's CrowdSec reputation without making any API calls.
+    /// Returns a pre-enriched SourceIpSummary if cached, or null if not in cache.
+    /// </summary>
+    public async Task<SourceIpSummary?> GetCachedCtiAsync(string ip,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var cached = await _repository.GetCrowdSecCacheAsync(ip, cancellationToken);
+            if (cached == null) return null;
+
+            CrowdSecIpInfo? info = null;
+            if (cached.ReputationJson != "null")
             {
-                var cached = await _repository.GetCrowdSecCacheAsync(source.SourceIp, cancellationToken);
-                if (cached == null) continue;
+                try { info = JsonSerializer.Deserialize<CrowdSecIpInfo>(cached.ReputationJson); }
+                catch { return null; }
+            }
 
-                CrowdSecIpInfo? info = null;
-                if (cached.ReputationJson != "null")
-                {
-                    try { info = JsonSerializer.Deserialize<CrowdSecIpInfo>(cached.ReputationJson); }
-                    catch { /* corrupted cache entry, treat as unknown */ }
-                }
-
-                source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
-                source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
-                source.TopBehaviors = info?.Behaviors.Count > 0
+            return new SourceIpSummary
+            {
+                SourceIp = ip,
+                CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info),
+                ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info),
+                TopBehaviors = info?.Behaviors.Count > 0
                     ? string.Join(", ", info.Behaviors.Take(3).Select(b => b.Label))
-                    : null;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to check cache for {Ip}", source.SourceIp);
-            }
+                    : null
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to check CTI cache for {Ip}", ip);
+            return null;
         }
     }
 
@@ -442,22 +462,7 @@ public class ThreatDashboardService
             await ApplyNoiseFiltersToRepository(cancellationToken);
             var events = await _repository.GetEventsByPortAsync(port, from, to, cancellationToken: cancellationToken);
 
-            // Top source IPs targeting this port
-            var topSources = events
-                .GroupBy(e => e.SourceIp)
-                .Select(g => new PortDrilldownSource
-                {
-                    Ip = g.Key,
-                    CountryCode = g.First().CountryCode,
-                    AsnOrg = g.First().AsnOrg,
-                    EventCount = g.Count(),
-                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
-                    FirstSeen = g.Min(e => e.Timestamp),
-                    LastSeen = g.Max(e => e.Timestamp)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(50)
-                .ToList();
+            var topSources = BuildTopSources(events);
 
             // Top destination IPs (what's being targeted on this port)
             var topDestinations = events
@@ -527,22 +532,7 @@ public class ThreatDashboardService
             await ApplyNoiseFiltersToRepository(cancellationToken);
             var events = await _repository.GetEventsByProtocolAsync(protocol, from, to, cancellationToken: cancellationToken);
 
-            // Top source IPs
-            var topSources = events
-                .GroupBy(e => e.SourceIp)
-                .Select(g => new PortDrilldownSource
-                {
-                    Ip = g.Key,
-                    CountryCode = g.First().CountryCode,
-                    AsnOrg = g.First().AsnOrg,
-                    EventCount = g.Count(),
-                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
-                    FirstSeen = g.Min(e => e.Timestamp),
-                    LastSeen = g.Max(e => e.Timestamp)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(50)
-                .ToList();
+            var topSources = BuildTopSources(events);
 
             // Top targeted ports
             var topPorts = events
@@ -593,6 +583,33 @@ public class ThreatDashboardService
             _logger.LogError(ex, "Failed to get protocol drilldown for {Protocol}", protocol);
             return new ProtocolDrilldownData { Protocol = protocol };
         }
+    }
+
+    /// <summary>
+    /// Build top source IP list with direct GeoIP lookup on the source IP.
+    /// Event-level CountryCode/AsnOrg may reflect the destination for flow events with private sources.
+    /// </summary>
+    private List<PortDrilldownSource> BuildTopSources(List<ThreatEvent> events, int limit = 50)
+    {
+        return events
+            .GroupBy(e => e.SourceIp)
+            .Select(g =>
+            {
+                var geo = _geoService.Enrich(g.Key);
+                return new PortDrilldownSource
+                {
+                    Ip = g.Key,
+                    CountryCode = geo.CountryCode,
+                    AsnOrg = geo.AsnOrg,
+                    EventCount = g.Count(),
+                    BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
+                    FirstSeen = g.Min(e => e.Timestamp),
+                    LastSeen = g.Max(e => e.Timestamp)
+                };
+            })
+            .OrderByDescending(s => s.EventCount)
+            .Take(limit)
+            .ToList();
     }
 
     private IpPeerGroup BuildPeerGroup(string peerIp, List<ThreatEvent> events)

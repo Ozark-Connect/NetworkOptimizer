@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Threats.Models
 @using NetworkOptimizer.Threats.Interfaces
+@using NetworkOptimizer.Core.Helpers
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
@@ -1656,6 +1657,7 @@ else
     private int? _drilldownPort;
     private string? _drilldownProtocol;
     private string _previousTab = "overview";
+    private bool _hasInAppHistory; // true when drilldown was entered via in-app navigation
     private IpDrilldownData? _drilldownData;
     private PortDrilldownData? _portDrilldownData;
     private ProtocolDrilldownData? _protocolDrilldownData;
@@ -1825,12 +1827,6 @@ else
                 _activeTab = "overview";
             }
 
-            // Disable filters for drilldown (same as DrillDownToIp/Port/Protocol)
-            if (_activeTab == "drilldown")
-            {
-                _filtersActiveBeforeDrilldown = _filtersActive;
-                _filtersActive = false;
-            }
         }
         else
         {
@@ -1848,11 +1844,21 @@ else
         await LoadNoiseFiltersAsync();
         var filtersSetting = await SettingsAccessor.GetSettingAsync("threats.filters_active");
         if (filtersSetting != null) _filtersActive = filtersSetting != "false";
+
+        // Disable filters for drilldown AFTER loading the persisted setting,
+        // so we can save/restore the user's preference when exiting drilldown.
+        if (_activeTab == "drilldown")
+        {
+            _filtersActiveBeforeDrilldown = _filtersActive;
+            _filtersActive = false;
+        }
+
         await LoadDataAsync();
 
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
-        // and reload once it completes
-        if (_dashboardData.Summary.TotalEvents == 0 && !CollectionService.HasCollectedOnce)
+        // and reload once it completes. Skip when on drilldown - overview data wasn't loaded
+        // but we already have drilldown data from the DB.
+        if (_activeTab != "drilldown" && _dashboardData.Summary.TotalEvents == 0 && !CollectionService.HasCollectedOnce)
         {
             CollectionService.TriggerCollection();
             _collectingFirstData = true;
@@ -2040,7 +2046,20 @@ else
             else if (_activeTab == "drilldown")
             {
                 if (_drilldownIp != null)
+                {
                     _drilldownData = await DashboardService.GetIpDrilldownAsync(_drilldownIp, from, to);
+
+                    // Seed CTI cache from DB if not already present (handles fresh nav / refresh)
+                    if (!_manualCtiCache.ContainsKey(_drilldownIp) && !NetworkUtilities.IsPrivateIpAddress(_drilldownIp))
+                    {
+                        var cached = await DashboardService.GetCachedCtiAsync(_drilldownIp);
+                        if (cached?.CrowdSecReputation != null)
+                        {
+                            _manualCtiCache[_drilldownIp] = new CtiLookupResult(
+                                cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors);
+                        }
+                    }
+                }
                 else if (_drilldownPort != null)
                     _portDrilldownData = await DashboardService.GetPortDrilldownAsync(_drilldownPort.Value, from, to);
                 else if (_drilldownProtocol != null)
@@ -2222,6 +2241,7 @@ else
             _killChainChart = null;
             _actionChart = null;
         }
+        _hasInAppHistory = true;
         _drilldownIp = ip;
         _drilldownCtiLookedUp = false;
         _drilldownPort = null;
@@ -2267,6 +2287,17 @@ else
             }
         }
 
+        // Fallback: check DB cache directly (handles fresh nav / refresh where overview wasn't loaded)
+        if (!_manualCtiCache.ContainsKey(ip) && !NetworkUtilities.IsPrivateIpAddress(ip))
+        {
+            var cached = await DashboardService.GetCachedCtiAsync(ip);
+            if (cached?.CrowdSecReputation != null)
+            {
+                _manualCtiCache[ip] = new CtiLookupResult(
+                    cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors);
+            }
+        }
+
         StateHasChanged();
 
         try
@@ -2301,6 +2332,7 @@ else
             _killChainChart = null;
             _actionChart = null;
         }
+        _hasInAppHistory = true;
         _drilldownPort = port;
         _drilldownIp = null;
         _drilldownProtocol = null;
@@ -2366,6 +2398,7 @@ else
             _killChainChart = null;
             _actionChart = null;
         }
+        _hasInAppHistory = true;
         _drilldownProtocol = protocol;
         _drilldownIp = null;
         _drilldownPort = null;
@@ -2423,7 +2456,10 @@ else
 
     private async Task GoBack()
     {
-        await JS.InvokeVoidAsync("history.back");
+        if (_hasInAppHistory)
+            await JS.InvokeVoidAsync("history.back");
+        else
+            await ExitDrilldown();
     }
 
     private async Task ExitDrilldown(bool pushHistory = true)
