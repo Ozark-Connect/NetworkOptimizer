@@ -39,6 +39,10 @@ public class ThreatCollectionService : BackgroundService
     private DateTimeOffset _lastGeoCheck = DateTimeOffset.MinValue;
     private bool _geoBackfillComplete;
 
+    // Track source IPs we've already alerted on for attack chains (reset periodically)
+    private readonly HashSet<string> _alertedChainIps = new();
+    private DateTime _lastChainAlertReset = DateTime.UtcNow;
+
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
         ILogger<ThreatCollectionService> logger,
@@ -289,6 +293,69 @@ public class ThreatCollectionService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Pattern analysis failed");
+        }
+
+        // Check for multi-stage attack chains (2+ kill chain stages from same source)
+        try
+        {
+            // Reset alerted IPs every 6 hours to allow re-alerting on continued chains
+            if ((DateTime.UtcNow - _lastChainAlertReset).TotalHours >= 6)
+            {
+                _alertedChainIps.Clear();
+                _lastChainAlertReset = DateTime.UtcNow;
+            }
+
+            var sequences = await repository.GetAttackSequencesAsync(
+                DateTime.UtcNow.AddHours(-6), DateTime.UtcNow, limit: 20, cancellationToken);
+
+            // Alert on chains with 2+ stages ending in ActiveExploitation, PostExploitation, or Monitored
+            var alertableEndings = new[] { KillChainStage.ActiveExploitation, KillChainStage.PostExploitation, KillChainStage.Monitored };
+            foreach (var seq in sequences)
+            {
+                if (seq.Stages.Count < 2) continue;
+
+                var lastStage = seq.Stages[^1].Stage;
+                if (!alertableEndings.Contains(lastStage)) continue;
+
+                // Skip if already alerted for this IP in this window
+                if (!_alertedChainIps.Add(seq.SourceIp)) continue;
+
+                var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage));
+                var totalEvents = seq.Stages.Sum(s => s.EventCount);
+                var severity = lastStage is KillChainStage.ActiveExploitation or KillChainStage.PostExploitation
+                    ? AlertSeverity.Critical : AlertSeverity.Warning;
+
+                // 2-stage chains ending in Monitored are likely normal admin/scanning traffic
+                var isLowConfidence = seq.Stages.Count == 2 && lastStage == KillChainStage.Monitored;
+                var message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} kill chain stages with {totalEvents} events";
+                if (isLowConfidence)
+                    message += ". Note: 2-stage chains ending in Monitored may be typical administration or scanning traffic rather than a real attack.";
+
+                await _alertEventBus.PublishAsync(new AlertEvent
+                {
+                    EventType = "threats.attack_chain",
+                    Source = "threats",
+                    Severity = severity,
+                    Title = $"Attack chain: {stageNames}",
+                    Message = message,
+                    DeviceIp = seq.SourceIp,
+                    Context = new Dictionary<string, string>
+                    {
+                        ["stages"] = stageNames,
+                        ["stage_count"] = seq.Stages.Count.ToString(),
+                        ["total_events"] = totalEvents.ToString(),
+                        ["country"] = seq.CountryCode ?? "unknown",
+                        ["asn"] = seq.AsnOrg ?? "unknown"
+                    }
+                }, cancellationToken);
+
+                _logger.LogInformation("Attack chain detected: {Ip} ({Country}) - {Stages}",
+                    seq.SourceIp, seq.CountryCode, stageNames);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Attack chain detection failed");
         }
 
         // Publish high-severity events to alert bus

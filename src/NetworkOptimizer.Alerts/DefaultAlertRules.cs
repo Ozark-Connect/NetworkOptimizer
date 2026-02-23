@@ -67,6 +67,17 @@ public static class DefaultAlertRules
             CooldownSeconds = 60 // 1 minute
         },
 
+        // --- Threat Intelligence: Attack Chain (disabled - can be noisy on active networks) ---
+        new AlertRule
+        {
+            Name = "Threat Intelligence: Attack Chain",
+            IsEnabled = false,
+            EventTypePattern = "threats.attack_chain",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
+
         // --- WAN Speed Test (disabled - needs gateway SSH configured) ---
         new AlertRule
         {
