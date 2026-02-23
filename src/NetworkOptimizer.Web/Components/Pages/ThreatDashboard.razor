@@ -2455,14 +2455,15 @@ else
                 Toolbar = new Toolbar { Show = false },
                 Animations = new Animations { Enabled = true, Speed = 300 }
             },
-            Colors = new List<string> { "#3b82f6", "#f59e0b", "#ef4444", "#a78bfa" },
+            Colors = new List<string> { "#3b82f6", "#f59e0b", "#ef4444", "#a78bfa", "#64748b" },
             PlotOptions = new PlotOptions
             {
                 Bar = new PlotOptionsBar
                 {
                     Horizontal = true,
                     BorderRadius = 4,
-                    BarHeight = "60%"
+                    BarHeight = "60%",
+                    Distributed = true
                 }
             },
             Xaxis = new XAxis
@@ -2562,6 +2563,7 @@ else
     {
         return stage switch
         {
+            KillChainStage.Monitored => "Monitored",
             KillChainStage.Reconnaissance => "Reconnaissance",
             KillChainStage.AttemptedExploitation => "Attempted Exploit",
             KillChainStage.ActiveExploitation => "Active Exploit",
@@ -2857,6 +2859,7 @@ else
     {
         return stage switch
         {
+            KillChainStage.Monitored => "#64748b",
             KillChainStage.Reconnaissance => "#3b82f6",
             KillChainStage.AttemptedExploitation => "#f59e0b",
             KillChainStage.ActiveExploitation => "#ef4444",
@@ -2869,6 +2872,7 @@ else
     {
         return stage switch
         {
+            KillChainStage.Monitored => "Mon",
             KillChainStage.Reconnaissance => "Recon",
             KillChainStage.AttemptedExploitation => "Attempt",
             KillChainStage.ActiveExploitation => "Active",

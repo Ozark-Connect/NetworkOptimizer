@@ -253,11 +253,11 @@ public class KillChainClassifierTests
     }
 
     [Fact]
-    public void Classify_FlowLowRiskOutgoing_ReturnsReconnaissance()
+    public void Classify_FlowLowRiskOutgoing_ReturnsMonitored()
     {
         var evt = CreateFlowEvent(direction: "outgoing", riskLevel: "low", severity: 1, destPort: 443);
         var result = _classifier.Classify(evt);
-        Assert.Equal(KillChainStage.Reconnaissance, result);
+        Assert.Equal(KillChainStage.Monitored, result);
     }
 
     [Fact]
@@ -268,5 +268,23 @@ public class KillChainClassifierTests
         evt.EventSource = EventSource.Ips;
         var result = _classifier.Classify(evt);
         Assert.Equal(KillChainStage.Reconnaissance, result);
+    }
+
+    // --- Monitored (severity 1 / Info) ---
+
+    [Fact]
+    public void Classify_InfoSeverityIps_ReturnsMonitored()
+    {
+        var evt = CreateEvent(category: "SCAN Activity", severity: 1);
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.Monitored, result);
+    }
+
+    [Fact]
+    public void Classify_InfoSeverityFlow_ReturnsMonitored()
+    {
+        var evt = CreateFlowEvent(direction: "incoming", severity: 1, destPort: 22);
+        var result = _classifier.Classify(evt);
+        Assert.Equal(KillChainStage.Monitored, result);
     }
 }

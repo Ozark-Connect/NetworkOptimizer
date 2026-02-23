@@ -19,7 +19,7 @@ public class ScanSweepDetector
         // Group by source IP - include both recon and attempted exploitation (blocked probes to
         // sensitive ports are still scanning)
         var bySource = events
-            .Where(e => e.KillChainStage is KillChainStage.Reconnaissance or KillChainStage.AttemptedExploitation)
+            .Where(e => e.KillChainStage is KillChainStage.Monitored or KillChainStage.Reconnaissance or KillChainStage.AttemptedExploitation)
             .GroupBy(e => e.SourceIp);
 
         foreach (var group in bySource)
