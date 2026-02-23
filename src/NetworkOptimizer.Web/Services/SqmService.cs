@@ -228,9 +228,20 @@ public class SqmService : ISqmService
             }
 
             // Get WAN network configs for friendly names and SmartQ status (exclude disabled WANs)
-            var wanConfigs = (await _connectionService.Client.GetWanConfigsAsync())
-                .Where(w => w.Enabled)
-                .ToList();
+            var allWanConfigs = await _connectionService.Client.GetWanConfigsAsync();
+            var wanConfigs = allWanConfigs.Where(w => w.Enabled).ToList();
+
+            if (allWanConfigs.Count > 0 && wanConfigs.Count == 0)
+            {
+                _logger.LogWarning("Found {Total} WAN network configs but all are disabled. " +
+                    "WAN names: {Names}",
+                    allWanConfigs.Count,
+                    string.Join(", ", allWanConfigs.Select(w => $"{w.Name} (enabled={w.Enabled})")));
+            }
+            else if (allWanConfigs.Count == 0)
+            {
+                _logger.LogWarning("No WAN network configs found from controller (no networks with purpose=wan)");
+            }
 
             // Build lookup by IP (for WANs with static IPs)
             var ipToName = wanConfigs
