@@ -480,22 +480,73 @@ public class ClientSpeedTestService
 
         try
         {
+            var downloadMbps = result.DownloadMbps;
+            var uploadMbps = result.UploadMbps;
+
             await _alertEventBus.PublishAsync(new AlertEvent
             {
-                EventType = "speedtest.completed",
+                EventType = "speedtest.client_completed",
                 Severity = AlertSeverity.Info,
                 Source = "speedtest",
-                Title = $"Speed test: {result.DownloadMbps:F0}/{result.UploadMbps:F0} Mbps",
-                Message = $"Client {result.DeviceHost}: Download {result.DownloadMbps:F1} Mbps, Upload {result.UploadMbps:F1} Mbps",
+                Title = $"Speed test: {downloadMbps:F0} / {uploadMbps:F0} Mbps",
+                Message = $"Client {result.DeviceHost}: Download {downloadMbps:F1} Mbps, Upload {uploadMbps:F1} Mbps",
                 DeviceIp = result.DeviceHost,
                 DeviceName = result.DeviceName,
-                MetricValue = result.DownloadMbps,
+                MetricValue = downloadMbps,
                 Context = new Dictionary<string, string>
                 {
-                    ["downloadMbps"] = result.DownloadMbps.ToString("F1"),
-                    ["uploadMbps"] = result.UploadMbps.ToString("F1")
+                    ["downloadMbps"] = downloadMbps.ToString("F1"),
+                    ["uploadMbps"] = uploadMbps.ToString("F1")
                 }
             });
+
+            // Check for regression vs recent average for same device
+            try
+            {
+                await using var db = _dbFactory.CreateDbContext();
+                var recent = await db.Iperf3Results
+                    .AsNoTracking()
+                    .Where(r => r.DeviceHost == result.DeviceHost && r.Id != result.Id && r.Success
+                        && r.Direction == result.Direction)
+                    .OrderByDescending(r => r.TestTime)
+                    .Take(5)
+                    .ToListAsync();
+
+                if (recent.Count >= 3)
+                {
+                    var avgDownload = recent.Average(r => r.DownloadMbps);
+                    var dropPercent = avgDownload > 0 ? (avgDownload - downloadMbps) / avgDownload * 100 : 0;
+
+                    if (dropPercent > 0)
+                    {
+                        var deviceLabel = result.DeviceName ?? result.DeviceHost;
+                        await _alertEventBus.PublishAsync(new AlertEvent
+                        {
+                            EventType = "speedtest.client_regression",
+                            Severity = dropPercent >= 50 ? AlertSeverity.Error
+                                : dropPercent >= 25 ? AlertSeverity.Warning : AlertSeverity.Info,
+                            Source = "speedtest",
+                            Title = $"Speed regression: {deviceLabel} at {downloadMbps:F0} Mbps ({dropPercent:F0}% below average)",
+                            Message = $"{deviceLabel} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
+                            DeviceIp = result.DeviceHost,
+                            DeviceName = result.DeviceName,
+                            MetricValue = downloadMbps,
+                            ThresholdValue = avgDownload,
+                            Context = new Dictionary<string, string>
+                            {
+                                ["current_mbps"] = downloadMbps.ToString("F1"),
+                                ["average_mbps"] = avgDownload.ToString("F1"),
+                                ["drop_percent"] = dropPercent.ToString("F0"),
+                                ["sample_count"] = recent.Count.ToString()
+                            }
+                        });
+                    }
+                }
+            }
+            catch (Exception regressEx)
+            {
+                _logger.LogDebug(regressEx, "Failed to check speed test regression");
+            }
         }
         catch (Exception ex)
         {

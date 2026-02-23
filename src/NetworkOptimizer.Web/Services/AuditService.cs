@@ -608,6 +608,41 @@ public class AuditService
                 }
             });
 
+            // Check for score drop vs previous audit
+            try
+            {
+                var history = await _auditRepository.GetAuditHistoryAsync(limit: 2);
+                var previousScore = history.Count > 1 ? (int)history[1].ComplianceScore : (int?)null;
+                if (previousScore.HasValue && result.Score < previousScore.Value)
+                {
+                    var drop = previousScore.Value - result.Score;
+                    var dropPercent = previousScore.Value > 0
+                        ? (double)drop / previousScore.Value * 100 : 0;
+
+                    await _alertEventBus.PublishAsync(new AlertEvent
+                    {
+                        EventType = "audit.score_dropped",
+                        Severity = dropPercent >= 25 ? AlertSeverity.Critical : AlertSeverity.Warning,
+                        Source = "audit",
+                        Title = $"Audit score dropped {drop} points ({previousScore.Value} → {result.Score})",
+                        Message = $"Security audit score decreased from {previousScore.Value} to {result.Score}",
+                        MetricValue = result.Score,
+                        ThresholdValue = previousScore.Value,
+                        Context = new Dictionary<string, string>
+                        {
+                            ["previousScore"] = previousScore.Value.ToString(),
+                            ["currentScore"] = result.Score.ToString(),
+                            ["drop"] = drop.ToString(),
+                            ["drop_percent"] = dropPercent.ToString("F0")
+                        }
+                    });
+                }
+            }
+            catch (Exception scoreEx)
+            {
+                _logger.LogDebug(scoreEx, "Failed to check audit score drop");
+            }
+
             // Publish if active (non-dismissed) critical findings exist
             if (activeCritical > 0)
             {
