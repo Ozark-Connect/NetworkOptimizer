@@ -489,13 +489,17 @@ using (var scope = app.Services.CreateScope())
     // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
     db.Database.Migrate();
 
-    // Seed default alert rules if none exist
-    if (!db.AlertRules.Any())
+    // Seed default alert rules - insert any missing rules by EventTypePattern
     {
         var defaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults();
-        db.AlertRules.AddRange(defaults);
-        db.SaveChanges();
-        app.Logger.LogInformation("Seeded {Count} default alert rules", defaults.Count);
+        var existingPatterns = db.AlertRules.Select(r => r.EventTypePattern).ToHashSet();
+        var missing = defaults.Where(d => !existingPatterns.Contains(d.EventTypePattern)).ToList();
+        if (missing.Count > 0)
+        {
+            db.AlertRules.AddRange(missing);
+            db.SaveChanges();
+            app.Logger.LogInformation("Seeded {Count} new alert rules", missing.Count);
+        }
     }
 
     // Seed default scheduled tasks if none exist

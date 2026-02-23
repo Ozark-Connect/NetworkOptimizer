@@ -33,11 +33,11 @@ public static class DefaultAlertRules
             CooldownSeconds = 0
         },
 
-        // --- Device monitoring (enabled - works automatically) ---
+        // --- Device monitoring (disabled - can be noisy until user configures which devices matter) ---
         new AlertRule
         {
             Name = "Device Offline",
-            IsEnabled = true,
+            IsEnabled = false,
             EventTypePattern = "device.offline",
             Source = "device",
             MinSeverity = AlertSeverity.Error,
