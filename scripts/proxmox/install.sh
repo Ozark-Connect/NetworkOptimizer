@@ -658,7 +658,8 @@ deploy_application() {
     image: ghcr.io/ozark-connect/speedtest:latest
     container_name: network-optimizer-speedtest
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "${OPENSPEEDTEST_PORT:-3005}:3000"
     environment:
       - TZ=${TZ:-America/Chicago}
       - HOST_IP=${HOST_IP:-}
@@ -669,7 +670,7 @@ deploy_application() {
       - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
       - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${OPENSPEEDTEST_PORT:-3005}/"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
