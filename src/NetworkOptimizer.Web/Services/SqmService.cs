@@ -354,8 +354,8 @@ public class SqmService : ISqmService
                     }
                 }
 
-                // Check for wan1, wan2, wan3, etc.
-                for (int i = 1; i <= 4; i++)
+                // Check for wan1 through wan6 (UDMs support as many WANs as available ports)
+                for (int i = 1; i <= 6; i++)
                 {
                     var wanKey = $"wan{i}";
                     if (device.TryGetProperty(wanKey, out var wanObj))
