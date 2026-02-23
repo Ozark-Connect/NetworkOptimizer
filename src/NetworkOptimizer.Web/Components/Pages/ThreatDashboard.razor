@@ -1613,6 +1613,7 @@ else
     // Noise filter state
     private List<ThreatNoiseFilter> _noiseFilters = [];
     private bool _filtersActive = true;
+    private bool? _filtersActiveBeforeDrilldown;
     private bool _showFilterPanel;
     private string _newFilterSourceIp = "";
     private string _newFilterDestIp = "";
@@ -2023,6 +2024,10 @@ else
         _protocolDrilldownData = null;
         _sourcesVisible = DrilldownPageSize;
         _portRangesVisible = DrilldownPageSize;
+        if (_filtersActiveBeforeDrilldown == null)
+            _filtersActiveBeforeDrilldown = _filtersActive;
+        _filtersActive = false;
+        DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
         _showFilterPanel = false;
         _showCustomRange = false;
@@ -2074,6 +2079,10 @@ else
         _drilldownProtocol = null;
         _drilldownData = null;
         _protocolDrilldownData = null;
+        if (_filtersActiveBeforeDrilldown == null)
+            _filtersActiveBeforeDrilldown = _filtersActive;
+        _filtersActive = false;
+        DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
         _showFilterPanel = false;
         _showCustomRange = false;
@@ -2113,6 +2122,10 @@ else
         _drilldownPort = null;
         _drilldownData = null;
         _portDrilldownData = null;
+        if (_filtersActiveBeforeDrilldown == null)
+            _filtersActiveBeforeDrilldown = _filtersActive;
+        _filtersActive = false;
+        DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
         _showFilterPanel = false;
         _showCustomRange = false;
@@ -2145,6 +2158,12 @@ else
         _drilldownData = null;
         _portDrilldownData = null;
         _protocolDrilldownData = null;
+        if (_filtersActiveBeforeDrilldown.HasValue)
+        {
+            _filtersActive = _filtersActiveBeforeDrilldown.Value;
+            DashboardService.FiltersDisabled = !_filtersActive;
+            _filtersActiveBeforeDrilldown = null;
+        }
         _activeTab = _previousTab;
         _showFilterPanel = false;
         _showCustomRange = false;
