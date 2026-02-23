@@ -446,7 +446,8 @@ else
                                                     else
                                                     {
                                                         <button class="btn btn-sm btn-primary"
-                                                                @onclick="() => LookUpReputationAsync(source)">
+                                                                @onclick="() => LookUpReputationAsync(source)"
+                                                                data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
                                                             Look up
                                                         </button>
                                                     }
@@ -814,7 +815,8 @@ else
                     </span>
                     @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase))
                     {
-                        <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)">
+                        <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
+                                data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
                             Look up
                         </button>
                     }
@@ -829,7 +831,8 @@ else
                 }
                 else
                 {
-                    <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)">
+                    <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
+                            data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
                         Look up
                     </button>
                 }
