@@ -2145,10 +2145,12 @@ else
     private async Task ToggleCustomRange()
     {
         _showCustomRange = !_showCustomRange;
-        if (_showCustomRange && _customFrom == null)
+        if (_showCustomRange && _timeRange != "custom")
         {
-            _customTo = DateTime.UtcNow;
-            _customFrom = _customTo.Value.AddDays(-1);
+            // Seed the picker with the current time window so users can adjust from there
+            var (from, to) = GetTimeRange();
+            _customFrom = from;
+            _customTo = to;
         }
         await SetupClickOutsideHandler();
     }
