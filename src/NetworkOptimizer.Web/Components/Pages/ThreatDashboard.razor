@@ -266,29 +266,21 @@ else
     {
         @* Summary stat cards *@
         <div class="threat-summary-grid">
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_dashboardData.Summary.TotalEvents)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Total Events</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:var(--text-primary);">@FormatNumber(_dashboardData.Summary.TotalEvents)</div>
+                <div class="threat-stat-label">Total Events</div>
             </div>
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_dashboardData.Summary.BlockedCount)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Blocked</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#ef4444;">@FormatNumber(_dashboardData.Summary.BlockedCount)</div>
+                <div class="threat-stat-label">Blocked</div>
             </div>
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@FormatNumber(_dashboardData.Summary.DetectedCount)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Detected</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#f59e0b;">@FormatNumber(_dashboardData.Summary.DetectedCount)</div>
+                <div class="threat-stat-label">Detected</div>
             </div>
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_dashboardData.Summary.UniqueSourceIps)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Unique Sources</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#3b82f6;">@FormatNumber(_dashboardData.Summary.UniqueSourceIps)</div>
+                <div class="threat-stat-label">Unique Sources</div>
             </div>
         </div>
 
@@ -652,24 +644,18 @@ else
             }
 
             @* Summary row *@
-            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; margin-bottom:1.5rem;">
-                <div class="card">
-                    <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                        <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@_exposureReport.TotalExposedPorts</div>
-                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Exposed Ports</div>
-                    </div>
+            <div class="threat-summary-grid" style="grid-template-columns:repeat(3, 1fr); margin-bottom:1.5rem;">
+                <div class="card threat-stat-card">
+                    <div class="threat-stat-value" style="color:var(--text-primary);">@_exposureReport.TotalExposedPorts</div>
+                    <div class="threat-stat-label">Exposed Ports</div>
                 </div>
-                <div class="card">
-                    <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                        <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_exposureReport.TotalThreatsTargetingExposed)</div>
-                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Threats Targeting Exposed</div>
-                    </div>
+                <div class="card threat-stat-card">
+                    <div class="threat-stat-value" style="color:#ef4444;">@FormatNumber(_exposureReport.TotalThreatsTargetingExposed)</div>
+                    <div class="threat-stat-label">Threats Targeting Exposed</div>
                 </div>
-                <div class="card">
-                    <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                        <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@_exposureReport.ExposedServices.Count</div>
-                        <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Port Forward Rules</div>
-                    </div>
+                <div class="card threat-stat-card">
+                    <div class="threat-stat-value" style="color:#f59e0b;">@_exposureReport.ExposedServices.Count</div>
+                    <div class="threat-stat-label">Port Forward Rules</div>
                 </div>
             </div>
 
@@ -913,29 +899,21 @@ else
 
         @* 4 stat cards *@
         <div class="threat-summary-grid">
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_drilldownData.TotalEvents)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Total Events</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:var(--text-primary);">@FormatNumber(_drilldownData.TotalEvents)</div>
+                <div class="threat-stat-label">Total Events</div>
             </div>
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_drilldownData.AsSourceCount)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">As Source</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#3b82f6;">@FormatNumber(_drilldownData.AsSourceCount)</div>
+                <div class="threat-stat-label">As Source</div>
             </div>
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:#a78bfa;">@FormatNumber(_drilldownData.AsDestCount)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">As Destination</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#a78bfa;">@FormatNumber(_drilldownData.AsDestCount)</div>
+                <div class="threat-stat-label">As Destination</div>
             </div>
-            <div class="card">
-                <div class="card-body" style="text-align:center; padding:1.25rem 1rem;">
-                    <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_drilldownData.BlockedCount)</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Blocked</div>
-                </div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#ef4444;">@FormatNumber(_drilldownData.BlockedCount)</div>
+                <div class="threat-stat-label">Blocked</div>
             </div>
         </div>
 
@@ -1151,22 +1129,22 @@ else
             }
         </div>
 
-        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.75rem; margin-bottom:1.5rem;">
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_portDrilldownData.TotalEvents)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Total Events</div>
+        <div class="threat-summary-grid">
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:var(--text-primary);">@FormatNumber(_portDrilldownData.TotalEvents)</div>
+                <div class="threat-stat-label">Total Events</div>
             </div>
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_portDrilldownData.UniqueSourceIps)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Unique Sources</div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#3b82f6;">@FormatNumber(_portDrilldownData.UniqueSourceIps)</div>
+                <div class="threat-stat-label">Unique Sources</div>
             </div>
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_portDrilldownData.BlockedCount)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Blocked</div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#ef4444;">@FormatNumber(_portDrilldownData.BlockedCount)</div>
+                <div class="threat-stat-label">Blocked</div>
             </div>
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@FormatNumber(_portDrilldownData.DetectedCount)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Detected</div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#f59e0b;">@FormatNumber(_portDrilldownData.DetectedCount)</div>
+                <div class="threat-stat-label">Detected</div>
             </div>
         </div>
 
@@ -1297,22 +1275,22 @@ else
             }
         </div>
 
-        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.75rem; margin-bottom:1.5rem;">
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:var(--text-primary);">@FormatNumber(_protocolDrilldownData.TotalEvents)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Total Events</div>
+        <div class="threat-summary-grid">
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:var(--text-primary);">@FormatNumber(_protocolDrilldownData.TotalEvents)</div>
+                <div class="threat-stat-label">Total Events</div>
             </div>
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:#3b82f6;">@FormatNumber(_protocolDrilldownData.UniqueSourceIps)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Unique Sources</div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#3b82f6;">@FormatNumber(_protocolDrilldownData.UniqueSourceIps)</div>
+                <div class="threat-stat-label">Unique Sources</div>
             </div>
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:#a78bfa;">@FormatNumber(_protocolDrilldownData.UniqueDestPorts)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Unique Ports</div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#a78bfa;">@FormatNumber(_protocolDrilldownData.UniqueDestPorts)</div>
+                <div class="threat-stat-label">Unique Ports</div>
             </div>
-            <div class="card" style="padding:1rem; text-align:center;">
-                <div style="font-size:2rem; font-weight:700; color:#ef4444;">@FormatNumber(_protocolDrilldownData.BlockedCount)</div>
-                <div style="color:var(--text-muted); font-size:0.8rem;">Blocked</div>
+            <div class="card threat-stat-card">
+                <div class="threat-stat-value" style="color:#ef4444;">@FormatNumber(_protocolDrilldownData.BlockedCount)</div>
+                <div class="threat-stat-label">Blocked</div>
             </div>
         </div>
 
@@ -1432,6 +1410,27 @@ else
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 1rem;
+    }
+
+    .threat-summary-grid .card {
+        margin-bottom: 0.75rem;
+    }
+
+    .threat-stat-card {
+        text-align: center;
+        padding: 1.25rem 1rem;
+    }
+
+    .threat-stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1.3;
+    }
+
+    .threat-stat-label {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-top: 0.25rem;
     }
 
     .threat-two-chart-row {
