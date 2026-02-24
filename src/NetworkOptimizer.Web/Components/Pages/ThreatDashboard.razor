@@ -852,7 +852,7 @@ else
             }
             @if (!string.IsNullOrEmpty(_drilldownData.AsnOrg))
             {
-                <span class="hide-mobile" style="color:var(--text-muted);">@_drilldownData.AsnOrg</span>
+                <span class="hide-mobile drilldown-asn text-truncate-300">@_drilldownData.AsnOrg</span>
             }
             @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
             {
@@ -1749,6 +1749,10 @@ else
     /* Banner/description text */
     .threat-desc-text {
         color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+    .drilldown-asn {
+        color: var(--text-muted);
         font-size: 0.9rem;
     }
 
