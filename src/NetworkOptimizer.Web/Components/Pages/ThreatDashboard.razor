@@ -2014,20 +2014,20 @@ else
             var apiClient = UniFiClientAccessor.Client;
             if (apiClient == null) return;
 
-            var clients = await apiClient.GetClientsAsync();
+            var clients = await apiClient.GetAllKnownClientsAsync();
             if (clients == null) return;
 
             var names = new Dictionary<string, string>();
             foreach (var c in clients)
             {
-                var ip = c.Ip;
+                var ip = c.BestIp;
                 if (string.IsNullOrEmpty(ip)) continue;
 
                 var name = !string.IsNullOrEmpty(c.Name) ? c.Name
                     : !string.IsNullOrEmpty(c.Hostname) ? c.Hostname
                     : null;
                 if (name != null)
-                    names[ip] = name;
+                    names.TryAdd(ip, name);
             }
 
             lock (_clientNamesCacheLock)
