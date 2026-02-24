@@ -673,6 +673,37 @@ public class PortSecurityAnalyzerTests
         result.UnprotectedActivePorts.Should().Be(1);
     }
 
+    [Fact]
+    public void CalculateStatistics_Dot1xPorts_ExcludedFromUnprotected()
+    {
+        // Create a port profile with dot1x_ctrl = "auto"
+        var dot1xProfile = new UniFiPortProfile
+        {
+            Id = "profile-dot1x",
+            Name = "RADIUS Auth",
+            Dot1xCtrl = "auto"
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch1"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""up"": true, ""forward"": ""native"", ""portconf_id"": ""profile-dot1x"" },
+                    { ""port_idx"": 2, ""up"": true, ""forward"": ""native"" }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+        var portProfiles = new List<UniFiPortProfile> { dot1xProfile };
+        var switches = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        var result = _engine.CalculateStatistics(switches);
+
+        // Port 1 is 802.1X secured, port 2 is unprotected
+        result.UnprotectedActivePorts.Should().Be(1);
+    }
+
     #endregion
 
     #region ExtractAccessPointLookup Tests

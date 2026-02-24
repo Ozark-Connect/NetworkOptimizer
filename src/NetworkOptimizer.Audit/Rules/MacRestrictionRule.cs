@@ -48,6 +48,10 @@ public class MacRestrictionRule : AuditRuleBase
         if (port.PortSecurityEnabled || (port.AllowedMacAddresses?.Any() ?? false))
             return null; // Already has restrictions
 
+        // Skip ports secured via 802.1X/RADIUS authentication
+        if (port.IsDot1xSecured)
+            return null; // Already secured via RADIUS
+
         // Check if port has an intentional unrestricted profile assigned
         // (user has created an access port profile with MAC restriction explicitly disabled)
         if (HasIntentionalUnrestrictedProfile(port))

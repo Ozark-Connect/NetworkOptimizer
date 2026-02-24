@@ -302,6 +302,35 @@ public class MacRestrictionRuleTests
 
     #endregion
 
+    #region 802.1X / RADIUS Authentication
+
+    [Theory]
+    [InlineData("auto")]      // 802.1X authentication
+    [InlineData("mac_based")] // RADIUS MAC authentication
+    public void Evaluate_Dot1xSecuredPort_ReturnsNull(string dot1xCtrl)
+    {
+        var port = CreatePort(isUp: true, forwardMode: "native", dot1xCtrl: dot1xCtrl);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull("port is secured via 802.1X/RADIUS authentication");
+    }
+
+    [Theory]
+    [InlineData("force_authorized")]  // Bypass - not secured
+    [InlineData("force_unauthorized")] // Block - different concern
+    [InlineData(null)]                 // No 802.1X configured
+    public void Evaluate_NonSecuredDot1xMode_ReturnsIssue(string? dot1xCtrl)
+    {
+        var port = CreatePort(isUp: true, forwardMode: "native", dot1xCtrl: dot1xCtrl);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull("port is not secured via 802.1X");
+    }
+
+    #endregion
+
     #region Intentional Unrestricted Profile Detection
 
     [Fact]
@@ -430,7 +459,8 @@ public class MacRestrictionRuleTests
         string switchName = "Test Switch",
         string? nativeNetworkId = null,
         string? connectedDeviceType = null,
-        UniFiPortProfile? assignedProfile = null)
+        UniFiPortProfile? assignedProfile = null,
+        string? dot1xCtrl = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -453,6 +483,7 @@ public class MacRestrictionRuleTests
             AllowedMacAddresses = allowedMacs,
             NativeNetworkId = nativeNetworkId,
             ConnectedDeviceType = connectedDeviceType,
+            Dot1xCtrl = dot1xCtrl,
             Switch = switchInfo,
             AssignedPortProfile = assignedProfile
         };

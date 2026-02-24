@@ -781,7 +781,8 @@ public class AuditService
                     PortSecurityEnabled = p.PortSecurityEnabled,
                     PortSecurityMacs = p.PortSecurityMacs.ToList(),
                     Isolation = p.Isolation,
-                    ConnectedDeviceType = p.ConnectedDeviceType
+                    ConnectedDeviceType = p.ConnectedDeviceType,
+                    Dot1xCtrl = p.Dot1xCtrl
                 }).ToList()
             }).ToList(),
 
@@ -1745,7 +1746,8 @@ public class AuditService
             PoeEnabled = port.PoeEnabled,
             PoePower = port.PoePower,
             PoeMode = port.PoeMode,
-            ConnectedDeviceType = port.ConnectedDeviceType
+            ConnectedDeviceType = port.ConnectedDeviceType,
+            Dot1xCtrl = port.Dot1xCtrl
         };
     }
 
@@ -2217,6 +2219,11 @@ public class PortReference
     /// Type of UniFi device connected to this port (e.g., "uap", "usw"). Null for regular clients.
     /// </summary>
     public string? ConnectedDeviceType { get; set; }
+
+    /// <summary>
+    /// 802.1X control mode: "auto", "mac_based", "force_authorized", "force_unauthorized", or null.
+    /// </summary>
+    public string? Dot1xCtrl { get; set; }
 }
 
 public class WirelessClientReference
