@@ -19,7 +19,7 @@
 
 <div class="threat-page">
 <div class="page-header">
-    <h1>Threat Intelligence</h1>
+    <h1><a href="/threats" class="unstyled-link">Threat Intelligence</a></h1>
     <p class="page-description">IPS / IDS event analysis, attack patterns, and exposure mapping</p>
 </div>
 
@@ -850,6 +850,10 @@ else
                 </span>
                 <span class="threat-desc-text">@(CountryNames.TryGetValue(_drilldownData.CountryCode, out var cn) ? cn : _drilldownData.CountryCode.ToUpperInvariant())</span>
             }
+            @if (!string.IsNullOrEmpty(_drilldownData.AsnOrg))
+            {
+                <span class="hide-mobile" style="color:var(--text-muted);">@_drilldownData.AsnOrg</span>
+            }
             @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
             {
                 var hasDrilldownCti = _manualCtiCache.TryGetValue(_drilldownData.Ip, out var drilldownCti);
@@ -1218,7 +1222,7 @@ else
                                     <tr>
                                         <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
                                         <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(src.CountryCode)">@CountryFlag(src.CountryCode)</span> }</td>
-                                        <td class="hide-mobile"><span class="text-truncate-200" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
+                                        <td class="hide-mobile"><span class="text-truncate-300" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
                                         <td>@src.BlockedCount</td>
                                         <td class="hide-mobile">@src.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
@@ -1376,7 +1380,7 @@ else
                                     <tr>
                                         <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
                                         <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(src.CountryCode)">@CountryFlag(src.CountryCode)</span> }</td>
-                                        <td class="hide-mobile"><span class="text-truncate-200" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
+                                        <td class="hide-mobile"><span class="text-truncate-300" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
                                         <td>@src.BlockedCount</td>
                                         <td class="hide-mobile">@src.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
@@ -1642,7 +1646,7 @@ else
         display: flex;
         align-items: center;
         gap: 1rem;
-        min-height: 28px;
+        min-height: 33px;
         margin-bottom: 1rem;
         flex-wrap: wrap;
     }
@@ -1727,7 +1731,7 @@ else
     }
 
     .reputation-cell-inner {
-        min-height: 28px;
+        min-height: 33px;
         display: flex;
         align-items: center;
     }

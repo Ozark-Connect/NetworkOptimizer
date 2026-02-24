@@ -458,6 +458,7 @@ public class ThreatDashboardService
             {
                 Ip = ip,
                 CountryCode = countryCode,
+                AsnOrg = geoInfo.AsnOrg,
                 TotalEvents = events.Count,
                 BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked),
                 DetectedCount = events.Count(e => e.Action != ThreatAction.Blocked),
@@ -850,6 +851,7 @@ public class IpDrilldownData
 {
     public string Ip { get; set; } = string.Empty;
     public string? CountryCode { get; set; }
+    public string? AsnOrg { get; set; }
     public int TotalEvents { get; set; }
     public int BlockedCount { get; set; }
     public int DetectedCount { get; set; }
