@@ -460,6 +460,7 @@ else
                                         @if (_crowdSecEnabled)
                                         {
                                             <td class="hide-mobile">
+                                                <div class="reputation-cell-inner">
                                                 @{
                                                     // Check manual cache first (persists across auto-refresh)
                                                     var hasCachedCti = _manualCtiCache.TryGetValue(source.SourceIp, out var cachedCti);
@@ -501,6 +502,7 @@ else
                                                 {
                                                     <span style="color:var(--text-muted);">-</span>
                                                 }
+                                                </div>
                                             </td>
                                         }
                                     </tr>
@@ -1719,6 +1721,12 @@ else
     .quick-filter-btn {
         font-size: 0.7rem;
         padding: 0.15rem 0.4rem;
+    }
+
+    .reputation-cell-inner {
+        min-height: 53px;
+        display: flex;
+        align-items: center;
     }
 
     /* Card spacing: section cards (1.5rem) and sub-cards (1rem) */
