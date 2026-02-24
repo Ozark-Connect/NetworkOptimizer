@@ -2372,12 +2372,16 @@ else
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
         // and reload once it completes. Skip when on drilldown - overview data wasn't loaded
         // but we already have drilldown data from the DB.
-        if (_activeTab == "overview" && _dashboardData.Summary.TotalEvents == 0 && !CollectionService.HasCollectedOnce)
+        if (!CollectionService.HasCollectedOnce)
         {
             CollectionService.TriggerCollection();
-            _collectingFirstData = true;
-            StateHasChanged();
-            _ = WaitForFirstCollectionAsync();
+            // Only show blocking "collecting first data" UI on overview
+            if (_activeTab == "overview" && _dashboardData.Summary.TotalEvents == 0)
+            {
+                _collectingFirstData = true;
+                StateHasChanged();
+                _ = WaitForFirstCollectionAsync();
+            }
         }
 
         // Auto-refresh every 30 seconds while the dashboard is open
