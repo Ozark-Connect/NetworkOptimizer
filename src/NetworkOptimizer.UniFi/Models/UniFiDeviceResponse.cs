@@ -380,6 +380,21 @@ public class SwitchPort
     public long RxPackets { get; set; }
 
     /// <summary>
+    /// Parent port index if this port is a LAG (Link Aggregation Group) child member.
+    /// When set, this port's traffic is aggregated under the parent port.
+    /// The UniFi API sends false (boolean) when not aggregated, or an integer (parent port index) when aggregated.
+    /// </summary>
+    [JsonPropertyName("aggregated_by")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? AggregatedBy { get; set; }
+
+    /// <summary>
+    /// LAG group identifier. Present on both parent and child ports of a LAG.
+    /// </summary>
+    [JsonPropertyName("lag_idx")]
+    public int? LagIdx { get; set; }
+
+    /// <summary>
     /// Whether this port is an uplink (WAN) port.
     /// Present on gateway devices to identify WAN interfaces.
     /// </summary>
