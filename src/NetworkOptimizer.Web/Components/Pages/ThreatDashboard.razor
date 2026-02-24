@@ -593,7 +593,7 @@ else
                                         <td>@RenderPatternDescription(pattern)</td>
                                         <td class="hide-mobile">@($"{pattern.Confidence:P0}")</td>
                                         <td>@FormatNumber(pattern.EventCount)</td>
-                                        <td class="hide-mobile">@pattern.DetectedAt.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                        <td class="hide-mobile">@pattern.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                     </tr>
                                 }
                             </tbody>
