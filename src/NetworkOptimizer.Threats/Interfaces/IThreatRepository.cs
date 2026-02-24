@@ -91,6 +91,7 @@ public record SourceIpSummary
     public string? CrowdSecReputation { get; set; }
     public int? ThreatScore { get; set; }
     public string? TopBehaviors { get; set; }
+    public List<(string Name, string Label, string? Description)>? MitreTechniques { get; set; }
 }
 
 /// <summary>

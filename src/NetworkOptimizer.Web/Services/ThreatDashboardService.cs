@@ -137,6 +137,7 @@ public class ThreatDashboardService
             source.CrowdSecReputation = cached.CrowdSecReputation;
             source.ThreatScore = cached.ThreatScore;
             source.TopBehaviors = cached.TopBehaviors;
+            source.MitreTechniques = cached.MitreTechniques;
         }
     }
 
@@ -166,6 +167,9 @@ public class ThreatDashboardService
                 ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info),
                 TopBehaviors = info?.Behaviors.Count > 0
                     ? string.Join(", ", info.Behaviors.Take(3).Select(b => b.Label))
+                    : null,
+                MitreTechniques = info?.MitreTechniques.Count > 0
+                    ? info.MitreTechniques.Select(t => (t.Name, t.Label, t.Description)).ToList()
                     : null
             };
         }
@@ -220,6 +224,9 @@ public class ThreatDashboardService
                 source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
                 source.TopBehaviors = info?.Behaviors.Count > 0
                     ? string.Join(", ", info.Behaviors.Take(3).Select(b => b.Label))
+                    : null;
+                source.MitreTechniques = info?.MitreTechniques.Count > 0
+                    ? info.MitreTechniques.Select(t => (t.Name, t.Label, t.Description)).ToList()
                     : null;
             }
             catch (Exception ex)
