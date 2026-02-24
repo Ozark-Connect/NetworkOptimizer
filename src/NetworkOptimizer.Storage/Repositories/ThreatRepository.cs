@@ -473,8 +473,10 @@ public class ThreatRepository : IThreatRepository
             }
             else if (asnOrgLike != null)
             {
-                srcQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.Contains(asnOrgLike));
-                dstQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.Contains(asnOrgLike));
+                // SQLite's instr() (used by Contains) is case-sensitive; use lower() for case-insensitive match
+                var lowerOrg = asnOrgLike.ToLowerInvariant();
+                srcQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.ToLower().Contains(lowerOrg));
+                dstQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.ToLower().Contains(lowerOrg));
             }
             else
             {

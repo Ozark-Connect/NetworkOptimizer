@@ -3788,14 +3788,15 @@ else
             return new ThreatSearchQuery { Cidr = trimmed };
         }
 
-        // 2. Exact IP
-        if (System.Net.IPAddress.TryParse(trimmed, out _))
+        // 2. Exact IP - full IPv4 (3 dots) or IPv6 (contains colon)
+        // IPAddress.TryParse accepts partial IPs like "192.168" (as 192.0.0.168), so check dot count for IPv4
+        if ((trimmed.Contains(':') || trimmed.Count(c => c == '.') == 3) && System.Net.IPAddress.TryParse(trimmed, out _))
         {
             _searchClassification = $"Exact IP: {trimmed}";
             return new ThreatSearchQuery { IpExact = trimmed };
         }
 
-        // 3. Partial IP (e.g. "192.168." or "10.0")
+        // 3. Partial IP (e.g. "192.168." or "10.0" or "162.158")
         if (PartialIpRegex.IsMatch(trimmed))
         {
             var prefix = trimmed.EndsWith('.') ? trimmed : trimmed + ".";
