@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Interfaces;
+using NetworkOptimizer.Alerts.Models;
 
 namespace NetworkOptimizer.Alerts;
 
@@ -17,8 +18,14 @@ public class DigestService : BackgroundService
     private readonly IEnumerable<IAlertDeliveryChannel> _deliveryChannels;
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(15);
 
-    // Track last digest sent per channel (in-memory; also persisted via SystemSettings for durability)
+    // In-memory cache backed by persistent store via IDigestStateStore
     private readonly Dictionary<int, DateTime> _lastDigestSent = new();
+    private bool _stateLoaded;
+
+    /// <summary>
+    /// Maximum number of individually listed alerts per source group before collapsing.
+    /// </summary>
+    private const int CollapseThreshold = 10;
 
     public DigestService(
         ILogger<DigestService> logger,
@@ -58,6 +65,14 @@ public class DigestService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
+        var stateStore = scope.ServiceProvider.GetRequiredService<IDigestStateStore>();
+
+        // Load persisted state on first run (survives restarts)
+        if (!_stateLoaded)
+        {
+            await LoadPersistedStateAsync(repository, stateStore, cancellationToken);
+            _stateLoaded = true;
+        }
 
         var channels = await repository.GetEnabledChannelsAsync(cancellationToken);
         var digestChannels = channels.Where(c => c.DigestEnabled && !string.IsNullOrEmpty(c.DigestSchedule)).ToList();
@@ -75,25 +90,64 @@ public class DigestService : BackgroundService
                 if (alerts.Count == 0)
                 {
                     _logger.LogDebug("No alerts for digest on channel {ChannelId}", channel.Id);
-                    _lastDigestSent[channel.Id] = DateTime.UtcNow;
+                    await MarkSentAsync(stateStore, channel.Id, cancellationToken);
                     continue;
                 }
 
                 var handler = _deliveryChannels.FirstOrDefault(d => d.ChannelType == channel.ChannelType);
                 if (handler == null) continue;
 
-                var success = await handler.SendDigestAsync(alerts, channel, cancellationToken);
+                // Collapse duplicate alerts when a source group exceeds the threshold
+                var collapsedAlerts = CollapseAlerts(alerts);
+
+                var success = await handler.SendDigestAsync(collapsedAlerts, channel, cancellationToken);
                 if (success)
                 {
-                    _lastDigestSent[channel.Id] = DateTime.UtcNow;
-                    _logger.LogInformation("Sent digest with {Count} alerts to channel {ChannelId} ({Name})",
-                        alerts.Count, channel.Id, channel.Name);
+                    await MarkSentAsync(stateStore, channel.Id, cancellationToken);
+                    _logger.LogInformation("Sent digest with {Count} alerts ({Collapsed} after collapsing) to channel {ChannelId} ({Name})",
+                        alerts.Count, collapsedAlerts.Count, channel.Id, channel.Name);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send digest to channel {ChannelId}", channel.Id);
             }
+        }
+    }
+
+    /// <summary>
+    /// Load last-sent timestamps from the persistent store into the in-memory cache.
+    /// </summary>
+    private async Task LoadPersistedStateAsync(IAlertRepository repository, IDigestStateStore stateStore, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var channels = await repository.GetEnabledChannelsAsync(cancellationToken);
+            foreach (var channel in channels.Where(c => c.DigestEnabled))
+            {
+                var lastSent = await stateStore.GetLastSentAsync(channel.Id, cancellationToken);
+                if (lastSent.HasValue)
+                    _lastDigestSent[channel.Id] = lastSent.Value;
+            }
+            _logger.LogDebug("Loaded persisted digest state for {Count} channels", _lastDigestSent.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load persisted digest state, will use defaults");
+        }
+    }
+
+    private async Task MarkSentAsync(IDigestStateStore stateStore, int channelId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        _lastDigestSent[channelId] = now;
+        try
+        {
+            await stateStore.SetLastSentAsync(channelId, now, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist digest sent time for channel {ChannelId}", channelId);
         }
     }
 
@@ -137,6 +191,63 @@ public class DigestService : BackgroundService
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Collapse identical alerts within each source group when count exceeds the threshold.
+    /// Groups alerts by (Source, Title, Severity), and if a group has more than CollapseThreshold
+    /// entries, replaces them with a single summary entry showing the count.
+    /// </summary>
+    private static IReadOnlyList<AlertHistoryEntry> CollapseAlerts(List<AlertHistoryEntry> alerts)
+    {
+        var result = new List<AlertHistoryEntry>();
+
+        foreach (var sourceGroup in alerts.GroupBy(a => a.Source))
+        {
+            if (sourceGroup.Count() <= CollapseThreshold)
+            {
+                // Small group - include all individually
+                result.AddRange(sourceGroup);
+                continue;
+            }
+
+            // Group by identical title+severity within this source
+            var titleGroups = sourceGroup.GroupBy(a => (a.Title, a.Severity)).ToList();
+
+            foreach (var titleGroup in titleGroups)
+            {
+                var count = titleGroup.Count();
+                if (count <= 1)
+                {
+                    // Unique alert - include as-is
+                    result.Add(titleGroup.First());
+                }
+                else
+                {
+                    // Multiple identical alerts - collapse to one entry with count in title
+                    var representative = titleGroup.OrderByDescending(a => a.TriggeredAt).First();
+                    result.Add(new AlertHistoryEntry
+                    {
+                        Id = representative.Id,
+                        EventType = representative.EventType,
+                        Severity = representative.Severity,
+                        Status = representative.Status,
+                        Source = representative.Source,
+                        Title = $"{representative.Title} ({count}x)",
+                        Message = representative.Message,
+                        TriggeredAt = representative.TriggeredAt,
+                        DeviceId = representative.DeviceId,
+                        DeviceName = representative.DeviceName,
+                        DeviceIp = representative.DeviceIp,
+                        RuleId = representative.RuleId,
+                        IncidentId = representative.IncidentId,
+                        ContextJson = representative.ContextJson
+                    });
+                }
+            }
+        }
+
+        return result;
     }
 
     private DateTime GetDigestWindowStart(Models.DeliveryChannel channel)
