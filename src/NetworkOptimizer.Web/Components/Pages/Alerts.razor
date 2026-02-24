@@ -1960,10 +1960,13 @@
 
     private static (string BaseName, string? Detail) SplitTaskName(string name)
     {
-        var idx = name.IndexOf('(');
-        if (idx <= 0) return (name, null);
-        var baseName = name[..idx].TrimEnd();
-        var detail = name[(idx + 1)..].TrimEnd(')');
+        // Names are "WAN Speed Test (...)" or "LAN Speed Test (...)"
+        // Split after the first "Test " to handle device names with parentheses
+        var marker = "Test (";
+        var idx = name.IndexOf(marker);
+        if (idx < 0) return (name, null);
+        var baseName = name[..(idx + 4)]; // "... Test"
+        var detail = name[(idx + marker.Length)..].TrimEnd(')');
         return (baseName, detail);
     }
 
