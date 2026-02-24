@@ -383,7 +383,9 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
+            // Search is unfiltered - show all data regardless of noise/severity filters
+            _repository.SetNoiseFilters([]);
+            _repository.SetSeverityFilter(null);
 
             // For CIDR searches, determine if we can use SQL prefix matching or need post-filtering
             string? ipPrefix = null;

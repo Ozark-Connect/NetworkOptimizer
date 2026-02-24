@@ -43,7 +43,8 @@ public class ExposureValidatorTests
         string sourceIp,
         int destPort,
         string signatureName = "ET Test Signature",
-        int severity = 3)
+        int severity = 3,
+        string? direction = null)
     {
         return new ThreatEvent
         {
@@ -56,7 +57,8 @@ public class ExposureValidatorTests
             Category = "Misc",
             SignatureName = signatureName,
             Action = ThreatAction.Blocked,
-            Severity = severity
+            Severity = severity,
+            Direction = direction
         };
     }
 
@@ -68,10 +70,7 @@ public class ExposureValidatorTests
             CreatePortForwardRule("443", name: "Web Server")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int> { { 443, 15 } });
-
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 500, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 5000, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ThreatEvent>
             {
                 CreateThreatEvent("192.0.2.10", 443, "ET EXPLOIT TLS vuln"),
@@ -88,9 +87,9 @@ public class ExposureValidatorTests
         var svc = report.ExposedServices[0];
         Assert.Equal(443, svc.Port);
         Assert.Equal("Web Server", svc.ServiceName);
-        Assert.Equal(15, svc.ThreatCount);
+        Assert.Equal(3, svc.ThreatCount);
         Assert.Equal(3, svc.UniqueSourceIps);
-        Assert.Equal(15, report.TotalThreatsTargetingExposed);
+        Assert.Equal(3, report.TotalThreatsTargetingExposed);
     }
 
     [Fact]
@@ -101,8 +100,8 @@ public class ExposureValidatorTests
             CreatePortForwardRule("8080", name: "Dev Server")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int>()); // No threats on any port
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 8080, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ThreatEvent>());
 
         _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
@@ -122,10 +121,7 @@ public class ExposureValidatorTests
             CreatePortForwardRule("22", name: "SSH")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int> { { 22, 50 } });
-
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 500, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 5000, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ThreatEvent>
             {
                 CreateThreatEvent("192.0.2.10", 22),
@@ -187,19 +183,12 @@ public class ExposureValidatorTests
             CreatePortForwardRule("3389", name: "RDP")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int>
-            {
-                { 22, 100 },
-                { 443, 50 },
-                { 3389, 25 }
-            });
-
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, It.IsAny<int>(), null, 500, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<ThreatEvent>
-            {
-                CreateThreatEvent("192.0.2.10", 22)
-            });
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Enumerable.Range(0, 5).Select(i => CreateThreatEvent($"192.0.2.{i}", 22)).ToList());
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Enumerable.Range(0, 3).Select(i => CreateThreatEvent($"203.0.113.{i}", 443)).ToList());
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 3389, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Enumerable.Range(0, 2).Select(i => CreateThreatEvent($"198.51.100.{i}", 3389)).ToList());
 
         _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
@@ -208,7 +197,7 @@ public class ExposureValidatorTests
 
         Assert.Equal(3, report.ExposedServices.Count);
         Assert.Equal(3, report.TotalExposedPorts);
-        Assert.Equal(175, report.TotalThreatsTargetingExposed); // 100 + 50 + 25
+        Assert.Equal(10, report.TotalThreatsTargetingExposed); // 5 + 3 + 2
     }
 
     [Fact]
@@ -219,19 +208,12 @@ public class ExposureValidatorTests
             CreatePortForwardRule("8080-8082", name: "Dev Ports")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int>
-            {
-                { 8080, 10 },
-                { 8081, 5 }
-                // 8082 has no threats
-            });
-
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, It.IsAny<int>(), null, 500, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<ThreatEvent>
-            {
-                CreateThreatEvent("192.0.2.10", 8080)
-            });
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 8080, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Enumerable.Range(0, 3).Select(i => CreateThreatEvent($"192.0.2.{i}", 8080)).ToList());
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 8081, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Enumerable.Range(0, 2).Select(i => CreateThreatEvent($"203.0.113.{i}", 8081)).ToList());
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 8082, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ThreatEvent>()); // No threats on 8082
 
         _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
@@ -240,7 +222,7 @@ public class ExposureValidatorTests
 
         // Only ports with threats are included as exposed services
         Assert.Equal(2, report.ExposedServices.Count);
-        Assert.Equal(15, report.TotalThreatsTargetingExposed);
+        Assert.Equal(5, report.TotalThreatsTargetingExposed); // 3 + 2
     }
 
     [Fact]
@@ -251,9 +233,6 @@ public class ExposureValidatorTests
             CreatePortForwardRule("22", name: "SSH")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int> { { 22, 100 } });
-
         var events = new List<ThreatEvent>();
         for (var i = 0; i < 7; i++)
         {
@@ -263,7 +242,7 @@ public class ExposureValidatorTests
             }
         }
 
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 500, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 5000, It.IsAny<CancellationToken>()))
             .ReturnsAsync(events);
 
         _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
@@ -283,10 +262,7 @@ public class ExposureValidatorTests
             CreatePortForwardRule("22", name: "SSH")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int> { { 22, 5 } });
-
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 500, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 5000, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ThreatEvent>());
 
         // Less than 10 total threats in country distribution
@@ -311,11 +287,11 @@ public class ExposureValidatorTests
             CreatePortForwardRule("443", fwd: "198.51.100.20", fwdPort: "8443", name: "Internal Server")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int> { { 443, 10 } });
-
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 500, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<ThreatEvent>());
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ThreatEvent>
+            {
+                CreateThreatEvent("192.0.2.10", 443)
+            });
 
         _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, int>());
@@ -333,10 +309,7 @@ public class ExposureValidatorTests
             CreatePortForwardRule("22", name: "SSH")
         };
 
-        _mockRepo.Setup(r => r.GetThreatCountsByPortAsync(_from, _to, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<int, int> { { 22, 30 } });
-
-        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 500, It.IsAny<CancellationToken>()))
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 22, null, 5000, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ThreatEvent>
             {
                 CreateThreatEvent("192.0.2.10", 22, severity: 5),
@@ -354,5 +327,32 @@ public class ExposureValidatorTests
         Assert.Equal(2, breakdown[5]);
         Assert.Equal(1, breakdown[3]);
         Assert.Equal(1, breakdown[2]);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_OnlyCountsIncomingTraffic()
+    {
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreatePortForwardRule("443", name: "Web Server")
+        };
+
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ThreatEvent>
+            {
+                CreateThreatEvent("192.0.2.10", 443, direction: null),        // IPS alert - incoming
+                CreateThreatEvent("192.0.2.11", 443, direction: "incoming"),   // Flow - incoming
+                CreateThreatEvent("192.0.2.12", 443, direction: "outgoing"),   // Flow - outgoing (excluded)
+                CreateThreatEvent("192.0.2.13", 443, direction: "local"),      // Flow - local (excluded)
+            });
+
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
+
+        Assert.Single(report.ExposedServices);
+        Assert.Equal(2, report.ExposedServices[0].ThreatCount); // Only null + incoming
+        Assert.Equal(2, report.TotalThreatsTargetingExposed);
     }
 }

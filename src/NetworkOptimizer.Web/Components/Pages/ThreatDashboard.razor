@@ -79,7 +79,7 @@
             </span>
         </div>
     }
-    <div class="threat-controls">
+    <div class="threat-controls" style="@(_activeTab == "search" ? "display:none;" : "")">
         @if (_noiseFilters.Count > 0)
         {
             <div style="display:flex; align-items:center; gap:0.25rem;">
@@ -111,7 +111,7 @@
                 Filters
             </button>
         }
-        <div class="time-range-selector" style="position:relative;@(_activeTab == "search" ? " display:none;" : "")">
+        <div class="time-range-selector" style="position:relative;">
             <button class="time-btn threat-time-preset @(_timeRange == "1h" ? "active" : "")"
                     @onclick='() => SetTimeRange("1h")'>1h</button>
             <button class="time-btn threat-time-preset @(_timeRange == "4h" ? "active" : "")"

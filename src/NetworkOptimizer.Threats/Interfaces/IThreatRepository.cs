@@ -36,7 +36,7 @@ public interface IThreatRepository
     Task<List<ThreatEvent>> GetEventsByPortAsync(int port, DateTime from, DateTime to, int limit = 5000, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsByProtocolAsync(string protocol, DateTime from, DateTime to, int limit = 5000, CancellationToken cancellationToken = default);
     Task<int> GetThreatCountByPortAsync(int port, DateTime from, DateTime to, CancellationToken cancellationToken = default);
-    Task<Dictionary<int, int>> GetThreatCountsByPortAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+    Task<Dictionary<int, int>> GetThreatCountsByPortAsync(DateTime from, DateTime to, bool incomingOnly = false, CancellationToken cancellationToken = default);
     Task PurgeOldEventsAsync(DateTime before, CancellationToken cancellationToken = default);
 
     /// <summary>

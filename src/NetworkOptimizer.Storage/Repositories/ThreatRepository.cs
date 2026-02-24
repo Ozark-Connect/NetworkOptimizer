@@ -650,11 +650,15 @@ public class ThreatRepository : IThreatRepository
     }
 
     public async Task<Dictionary<int, int>> GetThreatCountsByPortAsync(DateTime from, DateTime to,
-        CancellationToken cancellationToken = default)
+        bool incomingOnly = false, CancellationToken cancellationToken = default)
     {
         try
         {
-            var results = await BaseQuery(from, to)
+            var query = BaseQuery(from, to);
+            if (incomingOnly)
+                query = query.Where(e => e.Direction == null || e.Direction == "incoming");
+
+            var results = await query
                 .GroupBy(e => e.DestPort)
                 .Select(g => new { Port = g.Key, Count = g.Count() })
                 .ToListAsync(cancellationToken);

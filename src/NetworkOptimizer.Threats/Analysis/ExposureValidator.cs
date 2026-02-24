@@ -54,6 +54,7 @@ public class ExposureValidator
             foreach (var port in ports)
             {
                 var portEvents = await repository.GetEventsAsync(from, to, destPort: port, limit: 5000, cancellationToken: cancellationToken);
+                if (portEvents == null || portEvents.Count == 0) continue;
 
                 // Only count incoming traffic - IPS alerts (Direction=null) are inherently
                 // incoming; flow events have explicit direction. Local/outgoing traffic on

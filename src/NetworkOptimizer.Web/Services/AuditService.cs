@@ -1394,7 +1394,7 @@ public class AuditService
                 try
                 {
                     var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
-                    var threatCounts = await _threatRepository.GetThreatCountsByPortAsync(thirtyDaysAgo, DateTime.UtcNow);
+                    var threatCounts = await _threatRepository.GetThreatCountsByPortAsync(thirtyDaysAgo, DateTime.UtcNow, incomingOnly: true);
                     var summary = await _threatRepository.GetThreatSummaryAsync(thirtyDaysAgo, DateTime.UtcNow);
                     var topSources = await _threatRepository.GetTopSourcesAsync(thirtyDaysAgo, DateTime.UtcNow, 100);
 
