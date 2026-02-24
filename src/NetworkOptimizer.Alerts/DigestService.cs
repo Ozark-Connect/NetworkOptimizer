@@ -16,7 +16,7 @@ public class DigestService : BackgroundService
     private readonly ILogger<DigestService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IEnumerable<IAlertDeliveryChannel> _deliveryChannels;
-    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan CheckInterval = TimeSpan.FromSeconds(30);
 
     // In-memory cache backed by persistent store via IDigestStateStore
     private readonly Dictionary<int, DateTime> _lastDigestSent = new();
