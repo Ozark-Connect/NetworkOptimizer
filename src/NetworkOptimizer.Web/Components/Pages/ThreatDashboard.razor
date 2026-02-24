@@ -2372,7 +2372,7 @@ else
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
         // and reload once it completes. Skip when on drilldown - overview data wasn't loaded
         // but we already have drilldown data from the DB.
-        if (_activeTab != "drilldown" && _dashboardData.Summary.TotalEvents == 0 && !CollectionService.HasCollectedOnce)
+        if (_activeTab == "overview" && _dashboardData.Summary.TotalEvents == 0 && !CollectionService.HasCollectedOnce)
         {
             CollectionService.TriggerCollection();
             _collectingFirstData = true;
