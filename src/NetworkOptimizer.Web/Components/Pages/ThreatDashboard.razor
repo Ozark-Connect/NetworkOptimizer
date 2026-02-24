@@ -900,8 +900,18 @@ else
             var ctiEntry = _manualCtiCache.GetValueOrDefault(_drilldownData.Ip);
             @if (ctiEntry?.Behaviors != null)
             {
-                <div style="margin-bottom:1rem; color:var(--text-secondary); font-size:0.85rem;">
+                <div style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.85rem;">
                     <span style="color:var(--text-muted);">Known Behaviors:</span> @ctiEntry.Behaviors
+                </div>
+            }
+            @if (ctiEntry?.MitreTechniques?.Count > 0)
+            {
+                <div style="margin-bottom:1rem; color:var(--text-secondary); font-size:0.85rem;">
+                    <span style="color:var(--text-muted);">MITRE Techniques: </span>
+                    @foreach (var technique in ctiEntry.MitreTechniques)
+                    {
+                        <span class="mitre-technique" data-tooltip="@(technique.Name) - @(technique.Description)">@technique.Label</span>
+                    }
                 </div>
             }
         }
@@ -1612,6 +1622,17 @@ else
             margin-top: -1.5rem;
         }
     }
+
+    .mitre-technique {
+        display: inline-block;
+        background: rgba(168, 85, 247, 0.15);
+        color: #c4b5fd;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        margin: 0.2rem 0.25rem 0.2rem 0;
+        font-size: 0.8rem;
+        cursor: default;
+    }
 </style>
 
 @code {
@@ -1698,7 +1719,8 @@ else
     // Persist manual CTI lookups across auto-refresh cycles (fresh DB objects lose in-memory enrichment)
     private readonly Dictionary<string, CtiLookupResult> _manualCtiCache = new();
 
-    private record CtiLookupResult(string? Badge, int? ThreatScore, string? Behaviors);
+    private record CtiLookupResult(string? Badge, int? ThreatScore, string? Behaviors,
+        List<(string Name, string Label, string? Description)>? MitreTechniques = null);
 
     // Chart refs and options - each chart needs its own options instance
     // StateHasChanged alone does NOT update ApexCharts - need explicit update on @ref
@@ -2090,7 +2112,7 @@ else
                         if (cached?.CrowdSecReputation != null)
                         {
                             _manualCtiCache[_drilldownIp] = new CtiLookupResult(
-                                cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors);
+                                cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors, cached.MitreTechniques);
                         }
                     }
                 }
@@ -2149,7 +2171,7 @@ else
             {
                 // Cache for persistence across auto-refresh cycles
                 _manualCtiCache[source.SourceIp] = new CtiLookupResult(
-                    result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors);
+                    result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors, result.MitreTechniques);
             }
             else
             {
@@ -2180,7 +2202,7 @@ else
             if (result?.CrowdSecReputation != null)
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
-                    result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors);
+                    result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors, result.MitreTechniques);
                 if (string.Equals(result.CrowdSecReputation, "unknown", StringComparison.OrdinalIgnoreCase))
                     _drilldownCtiLookedUp = true;
             }
@@ -2317,7 +2339,7 @@ else
             if (source?.CrowdSecReputation != null)
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
-                    source.CrowdSecReputation, source.ThreatScore, source.TopBehaviors);
+                    source.CrowdSecReputation, source.ThreatScore, source.TopBehaviors, source.MitreTechniques);
             }
         }
 
@@ -2328,7 +2350,7 @@ else
             if (cached?.CrowdSecReputation != null)
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
-                    cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors);
+                    cached.CrowdSecReputation, cached.ThreatScore, cached.TopBehaviors, cached.MitreTechniques);
             }
         }
 
