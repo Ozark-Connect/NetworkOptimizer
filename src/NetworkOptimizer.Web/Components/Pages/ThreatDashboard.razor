@@ -907,10 +907,10 @@ else
             @if (ctiEntry?.MitreTechniques?.Count > 0)
             {
                 <div style="margin-bottom:1rem; color:var(--text-secondary); font-size:0.85rem;">
-                    <span style="color:var(--text-muted);">MITRE ATT&CK:</span>
+                    <span style="color:var(--text-muted);">MITRE Techniques: </span>
                     @foreach (var technique in ctiEntry.MitreTechniques)
                     {
-                        <span class="mitre-technique" data-tooltip="@technique.Description">@technique.Name: @technique.Label</span>
+                        <span class="mitre-technique" data-tooltip="@(technique.Name) - @(technique.Description)">@technique.Label</span>
                     }
                 </div>
             }
