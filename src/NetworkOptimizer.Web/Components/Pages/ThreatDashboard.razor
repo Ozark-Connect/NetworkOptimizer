@@ -2831,12 +2831,9 @@ else
 
         try
         {
-            var (from, to) = GetTimeRange();
+            var to = DateTime.UtcNow;
+            var from = to.AddDays(-90);
             _drilldownData = await DashboardService.GetIpDrilldownAsync(ip, from, to);
-            if (_drilldownData.TotalEvents == 0)
-                _drilldownData = await AutoExpandTimeRangeAsync(
-                    (f, t) => DashboardService.GetIpDrilldownAsync(ip, f, t),
-                    d => d.TotalEvents > 0) ?? _drilldownData;
         }
         catch (Exception ex)
         {
@@ -2897,12 +2894,9 @@ else
 
         try
         {
-            var (from, to) = GetTimeRange();
+            var to = DateTime.UtcNow;
+            var from = to.AddDays(-90);
             _portDrilldownData = await DashboardService.GetPortDrilldownAsync(port, from, to);
-            if (_portDrilldownData.TotalEvents == 0)
-                _portDrilldownData = await AutoExpandTimeRangeAsync(
-                    (f, t) => DashboardService.GetPortDrilldownAsync(port, f, t),
-                    d => d.TotalEvents > 0) ?? _portDrilldownData;
         }
         catch (Exception ex)
         {
@@ -2963,12 +2957,9 @@ else
 
         try
         {
-            var (from, to) = GetTimeRange();
+            var to = DateTime.UtcNow;
+            var from = to.AddDays(-90);
             _protocolDrilldownData = await DashboardService.GetProtocolDrilldownAsync(protocol, from, to);
-            if (_protocolDrilldownData.TotalEvents == 0)
-                _protocolDrilldownData = await AutoExpandTimeRangeAsync(
-                    (f, t) => DashboardService.GetProtocolDrilldownAsync(protocol, f, t),
-                    d => d.TotalEvents > 0) ?? _protocolDrilldownData;
         }
         catch (Exception ex)
         {
@@ -3808,8 +3799,8 @@ else
             return new ThreatSearchQuery { IpExact = trimmed };
         }
 
-        // 3. Partial IP (e.g. "192.168." or "10.0" or "162.158")
-        if (PartialIpRegex.IsMatch(trimmed))
+        // 3. Partial IP (e.g. "192.168." or "10.0" or "162.158") - must contain a dot to avoid catching plain numbers
+        if (trimmed.Contains('.') && PartialIpRegex.IsMatch(trimmed))
         {
             var prefix = trimmed.EndsWith('.') ? trimmed : trimmed + ".";
             _searchClassification = $"IP prefix: {prefix}*";

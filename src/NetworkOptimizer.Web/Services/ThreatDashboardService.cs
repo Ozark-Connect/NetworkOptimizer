@@ -395,11 +395,19 @@ public class ThreatDashboardService
                 ipPrefix = NetworkUtilities.GetCidrLikePrefix(query.Cidr);
                 if (ipPrefix == null)
                 {
-                    // Non-octet-aligned CIDR: use broader prefix + in-memory filter
+                    // Non-octet-aligned CIDR: use maximum whole-octet prefix + in-memory filter
                     var slashIdx = query.Cidr.IndexOf('/');
                     var ipPart = query.Cidr[..slashIdx];
                     var octets = ipPart.Split('.');
-                    ipPrefix = octets[0] + ".";
+                    if (int.TryParse(query.Cidr[(slashIdx + 1)..], out var bits) && bits > 0)
+                    {
+                        var wholeOctets = Math.Max(bits / 8, 1);
+                        ipPrefix = string.Join(".", octets.Take(wholeOctets)) + ".";
+                    }
+                    else
+                    {
+                        ipPrefix = octets[0] + ".";
+                    }
                     cidrForPostFilter = query.Cidr;
                 }
             }
