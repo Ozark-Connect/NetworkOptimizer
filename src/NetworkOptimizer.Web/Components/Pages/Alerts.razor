@@ -164,7 +164,12 @@
                                         <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
                                         <span class="toggle-slider"></span>
                                     </label>
-                                    <span>@task.Name</span>
+                                    @{ var (wanBaseName, wanDetail) = SplitTaskName(task.Name); }
+                                    <span>@wanBaseName</span>
+                                    @if (wanDetail != null)
+                                    {
+                                        <span class="schedule-name-detail">@wanDetail</span>
+                                    }
                                 </div>
                                 <div class="schedule-card-actions">
                                     <button class="btn btn-sm btn-secondary"
@@ -312,7 +317,12 @@
                                     <input type="checkbox" checked="@task.Enabled" @onchange="() => ToggleSchedule(task)" />
                                     <span class="toggle-slider"></span>
                                 </label>
-                                <span>@task.Name</span>
+                                @{ var (lanBaseName, lanDetail) = SplitTaskName(task.Name); }
+                                <span>@lanBaseName</span>
+                                @if (lanDetail != null)
+                                {
+                                    <span class="schedule-name-detail">@lanDetail</span>
+                                }
                             </div>
                             <div class="schedule-card-actions">
                                 <button class="btn btn-sm btn-secondary"
@@ -959,6 +969,10 @@
         gap: 0.75rem;
         font-weight: 500;
         color: var(--text-primary);
+    }
+    .schedule-name-detail {
+        color: var(--text-muted);
+        font-size: 0.9rem;
     }
     .schedule-card-actions {
         display: flex;
@@ -1943,6 +1957,15 @@
         "failed" => "status-failed",
         _ => "status-badge"
     };
+
+    private static (string BaseName, string? Detail) SplitTaskName(string name)
+    {
+        var idx = name.IndexOf('(');
+        if (idx <= 0) return (name, null);
+        var baseName = name[..idx].TrimEnd();
+        var detail = name[(idx + 1)..].TrimEnd(')');
+        return (baseName, detail);
+    }
 
     // ========== Formatters ==========
 
