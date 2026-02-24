@@ -746,7 +746,7 @@ public class VlanAnalyzer
 
             // Check if network is effectively isolated (via setting or firewall rule)
             var isEffectivelyIsolated = network.NetworkIsolationEnabled ||
-                IsIsolatedViaFirewall(network, networks, firewallRules, zoneLookup);
+                IsIsolatedViaFirewall(network, networks, firewallRules);
 
             // Check Security/Camera networks
             if (network.Purpose == NetworkPurpose.Security && !isEffectivelyIsolated)
@@ -825,137 +825,95 @@ public class VlanAnalyzer
 
     /// <summary>
     /// Check if a network is isolated via firewall rules.
-    /// A network is considered isolated if there's a firewall rule that blocks it from reaching
-    /// all other internal networks (outbound isolation).
-    /// The rule must be in the Internal zone (source and destination).
+    /// A network is considered isolated if one or more firewall rules collectively block it
+    /// from reaching all other internal networks (outbound isolation).
+    /// Supports both network-based rules and zone-based rules (e.g., custom zone → Internal zone).
     /// </summary>
     private bool IsIsolatedViaFirewall(
         NetworkInfo network,
         List<NetworkInfo> allNetworks,
-        List<FirewallRule>? firewallRules,
-        FirewallZoneLookup? zoneLookup)
+        List<FirewallRule>? firewallRules)
     {
         if (firewallRules == null || firewallRules.Count == 0)
             return false;
 
-        // Look for a rule that blocks this network from reaching other networks
+        var otherNetworks = allNetworks.Where(n => n.Id != network.Id).ToList();
+
+        // Collect all enabled block rules that apply to this network as source
+        // and block all protocols/ports (not port-specific)
+        var qualifyingBlockRules = new List<FirewallRule>();
         foreach (var rule in firewallRules)
         {
-            // Rule must be enabled
             if (!rule.Enabled)
                 continue;
-
-            // Action must be a block action
             if (!rule.ActionType.IsBlockAction())
                 continue;
-
-            // Rule must apply to Internal zone traffic (if zones are specified)
-            if (!IsInternalZoneRule(rule, zoneLookup))
-                continue;
-
-            // Source must include this network
             if (!rule.AppliesToSourceNetwork(network))
                 continue;
 
-            // Destination must be all other internal networks
-            // This can be achieved by:
-            // 1. DestinationMatchingTarget = "ANY" (blocks to everything including this network)
-            // 2. DestinationMatchOppositeNetworks = true with this network in the list (blocks to all except this network)
-            // 3. DestinationNetworkIds contains all other networks
-            if (RuleBlocksToOtherNetworks(rule, network, allNetworks))
-            {
-                _logger.LogDebug(
-                    "Network '{NetworkName}' is isolated via firewall rule '{RuleName}'",
-                    network.Name, rule.Name);
-                return true;
-            }
+            // Must block all protocols
+            if (!string.IsNullOrEmpty(rule.Protocol) &&
+                !rule.Protocol.Equals("all", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Must not be port-specific
+            if (!string.IsNullOrEmpty(rule.SourcePort) || !string.IsNullOrEmpty(rule.DestinationPort))
+                continue;
+
+            qualifyingBlockRules.Add(rule);
         }
 
-        return false;
+        if (qualifyingBlockRules.Count == 0)
+            return false;
+
+        // Check if collectively these rules block traffic to ALL other networks
+        var allBlocked = otherNetworks.All(otherNet =>
+            qualifyingBlockRules.Any(rule => RuleBlocksToNetwork(rule, otherNet)));
+
+        if (allBlocked)
+        {
+            _logger.LogDebug(
+                "Network '{NetworkName}' is isolated via {Count} firewall rule(s)",
+                network.Name, qualifyingBlockRules.Count);
+        }
+
+        return allBlocked;
     }
 
     /// <summary>
-    /// Check if a rule applies to Internal zone traffic.
-    /// A rule is considered internal if:
-    /// - No zones specified (legacy rules apply to all traffic)
-    /// - Both source and destination zones are Internal
+    /// Check if a single firewall rule blocks traffic to a specific destination network.
+    /// Considers destination zone scoping, network ID matching (with Match Opposite), and IP/CIDR coverage.
     /// </summary>
-    private static bool IsInternalZoneRule(FirewallRule rule, FirewallZoneLookup? zoneLookup)
+    private static bool RuleBlocksToNetwork(FirewallRule rule, NetworkInfo targetNetwork)
     {
-        // If no zone lookup available, can't verify zones - allow rule to match
-        if (zoneLookup == null)
-            return true;
+        // If rule specifies a destination zone and target has a zone, they must match.
+        // A zone-scoped rule only blocks traffic to networks within that zone.
+        if (!string.IsNullOrEmpty(rule.DestinationZoneId) && !string.IsNullOrEmpty(targetNetwork.FirewallZoneId))
+        {
+            if (!string.Equals(rule.DestinationZoneId, targetNetwork.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
 
-        // If no zones specified on the rule, it's a legacy rule that applies to all
-        if (string.IsNullOrEmpty(rule.SourceZoneId) && string.IsNullOrEmpty(rule.DestinationZoneId))
-            return true;
-
-        // If source zone is specified, it must be Internal
-        if (!string.IsNullOrEmpty(rule.SourceZoneId) && !zoneLookup.IsInternalZone(rule.SourceZoneId))
-            return false;
-
-        // If destination zone is specified, it must be Internal
-        if (!string.IsNullOrEmpty(rule.DestinationZoneId) && !zoneLookup.IsInternalZone(rule.DestinationZoneId))
-            return false;
-
-        return true;
-    }
-
-    /// <summary>
-    /// Check if a rule effectively blocks a network from reaching all other internal networks.
-    /// </summary>
-    private static bool RuleBlocksToOtherNetworks(FirewallRule rule, NetworkInfo network, List<NetworkInfo> allNetworks)
-    {
         var destTarget = rule.DestinationMatchingTarget?.ToUpperInvariant();
 
-        // Protocol must be "all" to block ALL traffic
-        if (!string.IsNullOrEmpty(rule.Protocol) &&
-            !rule.Protocol.Equals("all", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // No port restrictions - must block all ports
-        if (!string.IsNullOrEmpty(rule.SourcePort) || !string.IsNullOrEmpty(rule.DestinationPort))
-            return false;
-
-        // ANY destination blocks to everything (including external) - this counts as isolation
+        // ANY destination blocks to everything (within the destination zone, if specified)
         if (destTarget == "ANY" || string.IsNullOrEmpty(destTarget))
             return true;
 
-        // NETWORK destination with Match Opposite containing only this network
-        // means "block to all networks except this one" = isolation
-        if (destTarget == "NETWORK" && rule.DestinationMatchOppositeNetworks)
+        // NETWORK destination - check if target network is in the block list
+        if (destTarget == "NETWORK")
         {
-            var destNetworkIds = rule.DestinationNetworkIds ?? new List<string>();
-            // If only this network is in the "opposite" list, it blocks to all others
-            if (destNetworkIds.Count == 1 && destNetworkIds.Contains(network.Id))
-                return true;
+            var destNetworkIds = rule.DestinationNetworkIds ?? [];
+            var isInList = destNetworkIds.Contains(targetNetwork.Id, StringComparer.OrdinalIgnoreCase);
+
+            // Match Opposite: "block to all networks EXCEPT those in the list"
+            return rule.DestinationMatchOppositeNetworks ? !isInList : isInList;
         }
 
-        // NETWORK destination containing all other network IDs
-        if (destTarget == "NETWORK" && !rule.DestinationMatchOppositeNetworks)
+        // IP destination - check if CIDRs cover the target network's subnet
+        if (destTarget == "IP" && rule.DestinationIps?.Count > 0 && !string.IsNullOrEmpty(targetNetwork.Subnet))
         {
-            var destNetworkIds = rule.DestinationNetworkIds ?? new List<string>();
-            var otherNetworkIds = allNetworks
-                .Where(n => n.Id != network.Id)
-                .Select(n => n.Id)
-                .ToList();
-
-            // Check if all other networks are blocked
-            if (otherNetworkIds.All(id => destNetworkIds.Contains(id)))
-                return true;
-        }
-
-        // IP destination with CIDRs that cover all other networks' subnets
-        // This handles RFC1918-to-RFC1918 block rules (e.g., 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-        if (destTarget == "IP" && rule.DestinationIps?.Count > 0)
-        {
-            var otherNetworks = allNetworks.Where(n => n.Id != network.Id).ToList();
-            if (otherNetworks.Count > 0 && otherNetworks.All(n =>
-                !string.IsNullOrEmpty(n.Subnet) &&
-                NetworkUtilities.AnyCidrCoversSubnet(rule.DestinationIps, n.Subnet)))
-            {
-                return true;
-            }
+            return NetworkUtilities.AnyCidrCoversSubnet(rule.DestinationIps, targetNetwork.Subnet);
         }
 
         return false;

@@ -4,6 +4,7 @@ using Moq;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
@@ -386,6 +387,453 @@ public class VlanAnalyzerTests
         var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
 
         issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_CustomZoneBlockToInternalZone_NoIssue()
+    {
+        // Management network in a custom zone with a block rule to the Internal zone.
+        // All other networks are in the Internal zone, so the block covers everything.
+        var internalZoneId = "zone-internal-001";
+        var mgmtZoneId = "zone-mgmt-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: "mgmt-net", firewallZoneId: mgmtZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId),
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, vlanId: 64,
+                id: "iot-net", firewallZoneId: internalZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-to-internal",
+                Name = "Block Management to Internal",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = mgmtZoneId,
+                DestinationZoneId = internalZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = mgmtZoneId, ZoneKey = "mgmt", Name = "Management" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().NotContain(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "management network is isolated via custom zone block rule to Internal zone");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_CustomZoneMultipleBlockRulesToAllZones_NoIssue()
+    {
+        // Management network in a custom zone with separate block rules to Internal and IoT zones.
+        // All other networks are covered by the combination of rules.
+        var internalZoneId = "zone-internal-001";
+        var iotZoneId = "zone-iot-002";
+        var mgmtZoneId = "zone-mgmt-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: "mgmt-net", firewallZoneId: mgmtZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId),
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, vlanId: 64,
+                id: "iot-net", firewallZoneId: iotZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-to-internal",
+                Name = "Block Management to Internal",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = mgmtZoneId,
+                DestinationZoneId = internalZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            },
+            new()
+            {
+                Id = "block-mgmt-to-iot",
+                Name = "Block Management to IoT",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = mgmtZoneId,
+                DestinationZoneId = iotZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = iotZoneId, ZoneKey = "iot", Name = "IoT" },
+            new() { Id = mgmtZoneId, ZoneKey = "mgmt", Name = "Management" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().NotContain(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "management network is isolated via block rules to all other zones");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_CustomZonePartialBlockRules_StillFlagsIssue()
+    {
+        // Management network in custom zone, but only blocks to Internal zone.
+        // IoT network is in a separate zone with no block rule - not fully isolated.
+        var internalZoneId = "zone-internal-001";
+        var iotZoneId = "zone-iot-002";
+        var mgmtZoneId = "zone-mgmt-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: "mgmt-net", firewallZoneId: mgmtZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId),
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, vlanId: 64,
+                id: "iot-net", firewallZoneId: iotZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-to-internal",
+                Name = "Block Management to Internal",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = mgmtZoneId,
+                DestinationZoneId = internalZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+            // No rule blocking to IoT zone!
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = iotZoneId, ZoneKey = "iot", Name = "IoT" },
+            new() { Id = mgmtZoneId, ZoneKey = "mgmt", Name = "Management" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "management network is not fully isolated - IoT zone is not blocked");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_CustomZoneNoBlockRules_StillFlagsIssue()
+    {
+        // Management network in a custom zone with no block rules at all.
+        var internalZoneId = "zone-internal-001";
+        var mgmtZoneId = "zone-mgmt-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: "mgmt-net", firewallZoneId: mgmtZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>();
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = mgmtZoneId, ZoneKey = "mgmt", Name = "Management" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "management network has no block rules and is not isolated");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_BlockToExternalZoneDoesNotCountAsIsolation()
+    {
+        // A rule blocking mgmt → External (WAN) zone does NOT isolate from internal networks.
+        var internalZoneId = "zone-internal-001";
+        var externalZoneId = "zone-external-002";
+        var mgmtZoneId = "zone-mgmt-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: "mgmt-net", firewallZoneId: mgmtZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-to-wan",
+                Name = "Block Management Internet",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = mgmtZoneId,
+                DestinationZoneId = externalZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = externalZoneId, ZoneKey = "external", Name = "External" },
+            new() { Id = mgmtZoneId, ZoneKey = "mgmt", Name = "Management" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "blocking to WAN/External zone does not isolate from internal networks");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_MatchOppositeWithMultipleExclusions_StillFlagsIssue()
+    {
+        // Match Opposite with the source network AND another network in the exclusion list.
+        // The other network should NOT be blocked, so isolation is incomplete.
+        var networkId = "mgmt-net";
+        var friendNetId = "friend-net";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: networkId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1, id: "home-net"),
+            CreateNetwork("Friend Network", NetworkPurpose.Home, vlanId: 50, id: friendNetId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-except-self-and-friend",
+                Name = "Block Management (except self and friend)",
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationMatchOppositeNetworks = true,
+                DestinationNetworkIds = new List<string> { networkId, friendNetId },
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "Match Opposite excludes friend network from the block, so management is not fully isolated");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_SecurityNetworkInCustomZone_NoIssue()
+    {
+        // Security network in custom zone should also be recognized as isolated via zone rules.
+        var internalZoneId = "zone-internal-001";
+        var securityZoneId = "zone-security-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                networkIsolationEnabled: false, id: "security-net", firewallZoneId: securityZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-security-to-internal",
+                Name = "Block Security to Internal",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = securityZoneId,
+                DestinationZoneId = internalZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = securityZoneId, ZoneKey = "security", Name = "Security" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().NotContain(i => i.Type == "SECURITY_NETWORK_NOT_ISOLATED",
+            "security network is isolated via custom zone block rule");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_IoTNetworkInCustomZone_NoIssue()
+    {
+        // IoT network in custom zone should also be recognized as isolated via zone rules.
+        var internalZoneId = "zone-internal-001";
+        var iotZoneId = "zone-iot-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, vlanId: 64,
+                networkIsolationEnabled: false, id: "iot-net", firewallZoneId: iotZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-iot-to-internal",
+                Name = "Block IoT to Internal",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = iotZoneId,
+                DestinationZoneId = internalZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = iotZoneId, ZoneKey = "iot", Name = "IoT" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().NotContain(i => i.Type == "IOT_NETWORK_NOT_ISOLATED",
+            "IoT network is isolated via custom zone block rule");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_InternalToInternalZoneRule_NoIssue()
+    {
+        // Regression: a block rule with both source and destination zone = Internal should still work.
+        var internalZoneId = "zone-internal-001";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: "mgmt-net", firewallZoneId: internalZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-internal",
+                Name = "Block Management to Other Internal Networks",
+                Enabled = true,
+                Action = "drop",
+                SourceZoneId = internalZoneId,
+                DestinationZoneId = internalZoneId,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net" },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().NotContain(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "Internal-to-Internal zone rule should still work for isolation");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_DisabledCustomZoneRule_StillFlagsIssue()
+    {
+        // Regression: disabled zone-based rule should not count as isolation.
+        var internalZoneId = "zone-internal-001";
+        var mgmtZoneId = "zone-mgmt-custom";
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                networkIsolationEnabled: false, id: "mgmt-net", firewallZoneId: mgmtZoneId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1,
+                id: "home-net", firewallZoneId: internalZoneId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-to-internal",
+                Name = "Block Management to Internal",
+                Enabled = false, // Disabled!
+                Action = "drop",
+                SourceZoneId = mgmtZoneId,
+                DestinationZoneId = internalZoneId,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = internalZoneId, ZoneKey = "internal", Name = "Internal" },
+            new() { Id = mgmtZoneId, ZoneKey = "mgmt", Name = "Management" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules, zoneLookup);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED",
+            "disabled zone rule should not count as isolation");
     }
 
     #endregion
