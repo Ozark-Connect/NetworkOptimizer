@@ -253,7 +253,8 @@ public class ThreatDashboardService
 
             // Fill gaps with zero-count buckets so the chart shows continuous time progression
             // instead of stalling at the last data point when there are no new threats.
-            return FillTimelineGaps(buckets, from, to, bucketMinutes);
+            // Lag by 30s so we don't plot a false zero before the current collection cycle finishes.
+            return FillTimelineGaps(buckets, from, to.AddSeconds(-30), bucketMinutes);
         }
         catch (Exception ex)
         {
