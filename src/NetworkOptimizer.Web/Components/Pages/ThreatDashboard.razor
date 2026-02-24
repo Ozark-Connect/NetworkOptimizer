@@ -841,7 +841,8 @@ else
             </div>
             <div class="card-body">
                 <div class="search-input-row">
-                    <input type="text" @bind="_searchText" @bind:event="oninput"
+                    <input type="text" value="@_searchText"
+                           @oninput="HandleSearchInput"
                            @onkeydown="HandleSearchKeyDown"
                            placeholder="IP, CIDR, country code/name, or ASN..."
                            class="noise-filter-input search-input" />
@@ -860,7 +861,7 @@ else
                 @if (_searchClassification != null)
                 {
                     <div class="search-classification">
-                        Searching as: <strong>@_searchClassification</strong>
+                        Searching with <strong>@_searchClassification</strong>
                     </div>
                 }
             </div>
@@ -3774,6 +3775,12 @@ else
     }
 
     // --- Search Methods ---
+
+    private void HandleSearchInput(ChangeEventArgs e)
+    {
+        _searchText = e.Value?.ToString() ?? "";
+        _searchClassification = null;
+    }
 
     private async Task HandleSearchKeyDown(KeyboardEventArgs e)
     {
