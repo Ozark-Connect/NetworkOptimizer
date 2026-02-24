@@ -58,7 +58,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
         var grouped = alerts.GroupBy(a => a.Source).Select(g => new
         {
             source = g.Key,
-            count = g.Count(),
+            count = summary.SourceCounts.GetValueOrDefault(g.Key, g.Count()),
             alerts = g.OrderByDescending(a => a.Severity).ThenByDescending(a => a.TriggeredAt).Select(a => new
             {
                 title = a.Title,
