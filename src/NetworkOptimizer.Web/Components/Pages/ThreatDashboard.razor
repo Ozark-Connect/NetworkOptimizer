@@ -3427,22 +3427,21 @@ else
     {
         if (string.IsNullOrEmpty(sig)) return "-";
 
+        // Only prettify synthetic "Flow:" signatures; real IPS signatures pass through raw
+        if (!sig.StartsWith("Flow:", StringComparison.OrdinalIgnoreCase))
+            return sig;
+
         // "Flow: MICROSOFT_DS incoming blocked" → "SMB - Incoming Blocked"
-        if (sig.StartsWith("Flow:", StringComparison.OrdinalIgnoreCase))
-        {
-            var parts = sig[5..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0) return sig;
+        var parts = sig[5..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return sig;
 
-            var service = FormatServiceToken(parts[0]);
-            var rest = parts.Length > 1
-                ? string.Join(" ", parts.Skip(1).Select(p =>
-                    System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(p.ToLowerInvariant())))
-                : "";
+        var service = FormatServiceToken(parts[0]);
+        var rest = parts.Length > 1
+            ? string.Join(" ", parts.Skip(1).Select(p =>
+                System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(p.ToLowerInvariant())))
+            : "";
 
-            return rest.Length > 0 ? $"{service} - {rest}" : service;
-        }
-
-        return TitleCaseWithProtocols(sig);
+        return rest.Length > 0 ? $"{service} - {rest}" : service;
     }
 
     private static string TitleCaseWithProtocols(string text)
