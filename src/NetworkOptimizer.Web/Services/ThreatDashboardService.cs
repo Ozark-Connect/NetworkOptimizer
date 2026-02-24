@@ -377,6 +377,62 @@ public class ThreatDashboardService
         }
     }
 
+    public async Task<List<SearchResultEntry>> SearchAsync(DateTime from, DateTime to,
+        ThreatSearchQuery query, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
+
+            // For CIDR searches, determine if we can use SQL prefix matching or need post-filtering
+            string? ipPrefix = null;
+            string? cidrForPostFilter = null;
+            if (query.Cidr != null)
+            {
+                ipPrefix = NetworkUtilities.GetCidrLikePrefix(query.Cidr);
+                if (ipPrefix == null)
+                {
+                    // Non-octet-aligned CIDR: use broader prefix + in-memory filter
+                    var slashIdx = query.Cidr.IndexOf('/');
+                    var ipPart = query.Cidr[..slashIdx];
+                    var octets = ipPart.Split('.');
+                    ipPrefix = octets[0] + ".";
+                    cidrForPostFilter = query.Cidr;
+                }
+            }
+
+            var results = await _repository.SearchIpsAsync(from, to,
+                ipExact: query.IpExact,
+                ipPrefix: ipPrefix ?? query.IpPrefix,
+                countryCode: query.CountryCode,
+                asnNumber: query.AsnNumber,
+                asnOrgLike: query.AsnOrgLike,
+                cancellationToken: cancellationToken);
+
+            // Post-filter for non-octet-aligned CIDR
+            if (cidrForPostFilter != null)
+            {
+                results = results.Where(r => NetworkUtilities.IsIpInSubnet(r.Ip, cidrForPostFilter)).ToList();
+            }
+
+            // Geo-enrich each result
+            foreach (var entry in results)
+            {
+                var geo = _geoService.Enrich(entry.Ip);
+                entry.CountryCode = geo.CountryCode;
+                entry.AsnOrg = geo.AsnOrg;
+                entry.Asn = geo.Asn;
+            }
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search threat data");
+            return [];
+        }
+    }
+
     public async Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
@@ -968,4 +1024,17 @@ public class ProtocolDrilldownData
     public List<PortDrilldownSource> TopSources { get; set; } = [];
     public List<PortCount> TopPorts { get; set; } = [];
     public List<SignatureGroup> TopSignatures { get; set; } = [];
+}
+
+/// <summary>
+/// Structured search query for threat data. Exactly one field should be set.
+/// </summary>
+public record ThreatSearchQuery
+{
+    public string? IpExact { get; init; }
+    public string? IpPrefix { get; init; }
+    public string? Cidr { get; init; }
+    public string? CountryCode { get; init; }
+    public int? AsnNumber { get; init; }
+    public string? AsnOrgLike { get; init; }
 }

@@ -60,6 +60,8 @@
                         @onclick='() => SetActiveTab("geographic")'>Geographic</button>
                 <button class="wifi-view-tab @(_activeTab == "sequences" ? "active" : "")"
                         @onclick='() => SetActiveTab("sequences")'>Attack Sequences</button>
+                <button class="wifi-view-tab @(_activeTab == "search" ? "active" : "")"
+                        @onclick='() => SetActiveTab("search")'>Search</button>
                 <button class="wifi-view-tab"
                         @onclick='() => NavigationManager.NavigateTo("/settings#threat-intelligence")'>Settings</button>
             </div>
@@ -828,6 +830,97 @@ else
                 }
             </div>
         </div>
+    }
+
+    @* ========== Search Tab ========== *@
+    @if (_activeTab == "search")
+    {
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Search Threat Data</h3>
+            </div>
+            <div class="card-body">
+                <div class="search-input-row">
+                    <input type="text" @bind="_searchText" @bind:event="oninput"
+                           @onkeydown="HandleSearchKeyDown"
+                           placeholder="IP, CIDR, country code/name, or ASN..."
+                           class="noise-filter-input search-input" />
+                    <button class="btn btn-primary" @onclick="ExecuteSearchAsync"
+                            disabled="@(_searchLoading || string.IsNullOrWhiteSpace(_searchText))">
+                        @if (_searchLoading)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        else
+                        {
+                            <span>Search</span>
+                        }
+                    </button>
+                </div>
+                @if (_searchClassification != null)
+                {
+                    <div class="search-classification">
+                        Searching as: <strong>@_searchClassification</strong>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (_searchResults != null)
+        {
+            @if (_searchResults.Count > 0)
+            {
+                <div class="card card-spaced">
+                    <div class="card-header">
+                        <h3 class="card-title">Results (@_searchResults.Count@(_searchResults.Count >= 200 ? "+" : ""))</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>IP</th>
+                                        <th>Role</th>
+                                        <th>Country</th>
+                                        <th class="hide-mobile">ASN</th>
+                                        <th>Events</th>
+                                        <th>Severity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in _searchResults)
+                                    {
+                                        <tr>
+                                            <td>@{ var searchName = GetClientName(entry.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(entry.Ip)"><code>@entry.Ip</code></a>@if (searchName != null) { <span class="ip-client-name">@searchName</span> }</td>
+                                            <td>
+                                                <span class="role-badge role-@entry.Role.ToLowerInvariant()">@entry.Role</span>
+                                            </td>
+                                            <td>@if (string.IsNullOrEmpty(entry.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(entry.CountryCode)">@CountryFlag(entry.CountryCode)</span> }</td>
+                                            <td class="hide-mobile">@(entry.AsnOrg ?? (entry.Asn.HasValue ? $"AS{entry.Asn}" : "-"))</td>
+                                            <td>@FormatNumber(entry.EventCount)</td>
+                                            <td>
+                                                <span class="severity-dot" style="background:@GetSeverityColor(entry.MaxSeverity);"></span>
+                                                @GetSeverityLabel(entry.MaxSeverity)
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card card-spaced">
+                    <div class="card-body">
+                        <div class="empty-state">
+                            <p>No results found for this query in the selected time range.</p>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
     }
 
     @* ========== IP Drill-Down Tab ========== *@
@@ -1950,6 +2043,50 @@ else
         align-items: center;
         flex-wrap: wrap;
     }
+
+    /* Search tab */
+    .search-input-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .search-input {
+        flex: 1;
+        max-width: 500px;
+        font-size: 0.95rem;
+    }
+
+    .search-classification {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    /* Role badges */
+    .role-badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+
+    .role-source {
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+    }
+
+    .role-destination {
+        background: rgba(168, 85, 247, 0.15);
+        color: #a855f7;
+    }
+
+    .role-both {
+        background: rgba(249, 115, 22, 0.15);
+        color: #f59e0b;
+    }
 </style>
 
 @code {
@@ -2033,6 +2170,14 @@ else
     private string _newFilterDestPort = "";
     private string _newFilterDescription = "";
 
+    // Search state
+    private string _searchText = "";
+    private string? _searchClassification;
+    private bool _searchLoading;
+    private List<SearchResultEntry>? _searchResults;
+    private static readonly System.Text.RegularExpressions.Regex PartialIpRegex =
+        new(@"^\d{1,3}(\.\d{1,3}){0,2}\.?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     // Persist manual CTI lookups across auto-refresh cycles (fresh DB objects lose in-memory enrichment)
     private readonly Dictionary<string, CtiLookupResult> _manualCtiCache = new();
 
@@ -2108,6 +2253,7 @@ else
             "exposure" => "exposure",
             "geographic" => "geographic",
             "sequences" => "sequences",
+            "search" => "search",
             "drilldown" => "drilldown",
             _ => "overview"
         };
@@ -2415,6 +2561,10 @@ else
             else if (_activeTab == "sequences")
             {
                 _attackSequences = await DashboardService.GetAttackSequencesAsync(from, to);
+            }
+            else if (_activeTab == "search")
+            {
+                // Search is user-initiated, not auto-loaded
             }
             else if (_activeTab == "drilldown")
             {
@@ -3617,6 +3767,117 @@ else
         _newFilterDescription = "";
         _showFilterPanel = true;
         await Task.CompletedTask; // Let UI show the pre-filled form
+    }
+
+    // --- Search Methods ---
+
+    private async Task HandleSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_searchText))
+            await ExecuteSearchAsync();
+    }
+
+    private ThreatSearchQuery ClassifySearchInput(string input)
+    {
+        var trimmed = input.Trim();
+
+        // 1. CIDR - contains /
+        if (trimmed.Contains('/'))
+        {
+            _searchClassification = $"CIDR subnet: {trimmed}";
+            return new ThreatSearchQuery { Cidr = trimmed };
+        }
+
+        // 2. Exact IP
+        if (System.Net.IPAddress.TryParse(trimmed, out _))
+        {
+            _searchClassification = $"Exact IP: {trimmed}";
+            return new ThreatSearchQuery { IpExact = trimmed };
+        }
+
+        // 3. Partial IP (e.g. "192.168." or "10.0")
+        if (PartialIpRegex.IsMatch(trimmed))
+        {
+            var prefix = trimmed.EndsWith('.') ? trimmed : trimmed + ".";
+            _searchClassification = $"IP prefix: {prefix}*";
+            return new ThreatSearchQuery { IpPrefix = prefix };
+        }
+
+        // 4. Country code - exactly 2 letters, exists in dictionary
+        if (trimmed.Length == 2 && trimmed.All(char.IsLetter) &&
+            CountryNames.ContainsKey(trimmed.ToUpperInvariant()))
+        {
+            var code = trimmed.ToUpperInvariant();
+            _searchClassification = $"Country: {CountryFlag(code)} {CountryNames[code]}";
+            return new ThreatSearchQuery { CountryCode = code };
+        }
+
+        // 5. ASN number - "AS13335" or plain "13335"
+        var asnText = trimmed.StartsWith("AS", StringComparison.OrdinalIgnoreCase) ? trimmed[2..] : trimmed;
+        if (int.TryParse(asnText, out var asnNum) && trimmed.StartsWith("AS", StringComparison.OrdinalIgnoreCase))
+        {
+            _searchClassification = $"ASN: AS{asnNum}";
+            return new ThreatSearchQuery { AsnNumber = asnNum };
+        }
+
+        // Also match plain number if it looks like an ASN (> 0)
+        if (int.TryParse(trimmed, out var plainAsn) && plainAsn > 0)
+        {
+            _searchClassification = $"ASN: AS{plainAsn}";
+            return new ThreatSearchQuery { AsnNumber = plainAsn };
+        }
+
+        // 6. Country name - substring match
+        var countryMatch = CountryNames.FirstOrDefault(kv =>
+            kv.Value.Contains(trimmed, StringComparison.OrdinalIgnoreCase));
+        if (countryMatch.Key != null)
+        {
+            _searchClassification = $"Country: {CountryFlag(countryMatch.Key)} {countryMatch.Value}";
+            return new ThreatSearchQuery { CountryCode = countryMatch.Key };
+        }
+
+        // 7. Fallback - ASN org name
+        _searchClassification = $"ASN org containing: \"{trimmed}\"";
+        return new ThreatSearchQuery { AsnOrgLike = trimmed };
+    }
+
+    private async Task ExecuteSearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_searchText)) return;
+
+        _searchLoading = true;
+        _searchResults = null;
+        StateHasChanged();
+
+        try
+        {
+            var query = ClassifySearchInput(_searchText);
+            var (from, to) = GetTimeRange();
+            DashboardService.FiltersDisabled = !_filtersActive;
+            var results = await DashboardService.SearchAsync(from, to, query);
+
+            // Auto-drill-down: if exactly 1 result, go straight to IP detail
+            if (results.Count == 1)
+            {
+                _searchLoading = false;
+                _searchResults = results;
+                StateHasChanged();
+                await DrillDownToIp(results[0].Ip);
+                return;
+            }
+
+            _searchResults = results;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Search failed");
+            _searchResults = [];
+        }
+        finally
+        {
+            _searchLoading = false;
+            StateHasChanged();
+        }
     }
 
     public void Dispose()

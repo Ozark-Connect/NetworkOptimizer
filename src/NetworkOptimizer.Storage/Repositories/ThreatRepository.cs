@@ -438,6 +438,94 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
+    public async Task<List<SearchResultEntry>> SearchIpsAsync(DateTime from, DateTime to,
+        string? ipExact = null, string? ipPrefix = null, string? countryCode = null,
+        int? asnNumber = null, string? asnOrgLike = null, int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var baseQ = BaseQuery(from, to);
+
+            // --- Source IPs grouped ---
+            IQueryable<ThreatEvent> srcQuery;
+            IQueryable<ThreatEvent> dstQuery;
+
+            if (ipExact != null)
+            {
+                srcQuery = baseQ.Where(e => e.SourceIp == ipExact);
+                dstQuery = baseQ.Where(e => e.DestIp == ipExact);
+            }
+            else if (ipPrefix != null)
+            {
+                srcQuery = baseQ.Where(e => e.SourceIp.StartsWith(ipPrefix));
+                dstQuery = baseQ.Where(e => e.DestIp.StartsWith(ipPrefix));
+            }
+            else if (countryCode != null)
+            {
+                srcQuery = baseQ.Where(e => e.CountryCode == countryCode);
+                dstQuery = baseQ.Where(e => e.CountryCode == countryCode);
+            }
+            else if (asnNumber != null)
+            {
+                srcQuery = baseQ.Where(e => e.Asn == asnNumber);
+                dstQuery = baseQ.Where(e => e.Asn == asnNumber);
+            }
+            else if (asnOrgLike != null)
+            {
+                srcQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.Contains(asnOrgLike));
+                dstQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.Contains(asnOrgLike));
+            }
+            else
+            {
+                return [];
+            }
+
+            var sourceGroups = await srcQuery
+                .GroupBy(e => e.SourceIp)
+                .Select(g => new { Ip = g.Key, Count = g.Count(), MaxSev = g.Max(e => e.Severity) })
+                .OrderByDescending(g => g.Count)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+
+            var destGroups = await dstQuery
+                .GroupBy(e => e.DestIp)
+                .Select(g => new { Ip = g.Key, Count = g.Count(), MaxSev = g.Max(e => e.Severity) })
+                .OrderByDescending(g => g.Count)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+
+            // Merge into SearchResultEntry with role detection
+            var srcDict = sourceGroups.ToDictionary(g => g.Ip, g => (g.Count, g.MaxSev));
+            var dstDict = destGroups.ToDictionary(g => g.Ip, g => (g.Count, g.MaxSev));
+            var allIps = srcDict.Keys.Union(dstDict.Keys);
+
+            var results = new List<SearchResultEntry>();
+            foreach (var ip in allIps)
+            {
+                var hasSrc = srcDict.TryGetValue(ip, out var src);
+                var hasDst = dstDict.TryGetValue(ip, out var dst);
+                var role = hasSrc && hasDst ? "Both" : hasSrc ? "Source" : "Destination";
+                results.Add(new SearchResultEntry
+                {
+                    Ip = ip,
+                    AsSourceCount = hasSrc ? src.Count : 0,
+                    AsDestCount = hasDst ? dst.Count : 0,
+                    EventCount = (hasSrc ? src.Count : 0) + (hasDst ? dst.Count : 0),
+                    MaxSeverity = Math.Max(hasSrc ? src.MaxSev : 0, hasDst ? dst.MaxSev : 0),
+                    Role = role
+                });
+            }
+
+            return results.OrderByDescending(r => r.EventCount).Take(limit).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search IPs");
+            throw;
+        }
+    }
+
     public async Task<List<ThreatEvent>> GetEventsByIpAsync(string ip, DateTime from, DateTime to,
         int limit = 5000, CancellationToken cancellationToken = default)
     {
