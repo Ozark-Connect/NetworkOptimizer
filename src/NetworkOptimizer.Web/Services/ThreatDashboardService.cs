@@ -298,6 +298,7 @@ public class ThreatDashboardService
     }
 
     public async Task<ExposureReport> GetExposureReportAsync(
+        DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
         try
@@ -319,8 +320,6 @@ public class ThreatDashboardService
                 }
             }
 
-            var from = DateTime.UtcNow.AddDays(-30);
-            var to = DateTime.UtcNow;
             return await _exposureValidator.ValidateAsync(portForwardRules, _repository, from, to, cancellationToken);
         }
         catch (Exception ex)
