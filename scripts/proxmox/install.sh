@@ -512,6 +512,11 @@ create_container() {
         pct set "$CT_ID" --nameserver "$CT_DNS"
     fi
 
+    # Allow writable proc/sys inside the container (required for Docker to set sysctls
+    # like net.ipv4.ip_unprivileged_port_start). Without this, Docker containers fail
+    # with "permission denied" on newer Proxmox versions.
+    echo "lxc.mount.auto: proc:rw sys:rw" >> "/etc/pve/lxc/${CT_ID}.conf"
+
     msg_ok "Container created"
 }
 
