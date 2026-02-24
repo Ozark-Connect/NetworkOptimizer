@@ -835,11 +835,11 @@ else
     @* ========== Search Tab ========== *@
     @if (_activeTab == "search")
     {
-        <div class="card" style="min-height:80px;">
+        <div class="card">
             <div class="card-header">
                 <h3 class="card-title">Search Threat Data</h3>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="min-height:80px;">
                 <div class="search-input-row">
                     <input type="text" value="@_searchText"
                            @oninput="HandleSearchInput"
