@@ -81,10 +81,10 @@ public record SourceIpSummary
 {
     public string SourceIp { get; init; } = string.Empty;
     public int EventCount { get; init; }
-    public string? CountryCode { get; init; }
-    public string? City { get; init; }
-    public int? Asn { get; init; }
-    public string? AsnOrg { get; init; }
+    public string? CountryCode { get; set; }
+    public string? City { get; set; }
+    public int? Asn { get; set; }
+    public string? AsnOrg { get; set; }
     public int MaxSeverity { get; init; }
 
     // CrowdSec CTI enrichment (populated post-query by dashboard service)
