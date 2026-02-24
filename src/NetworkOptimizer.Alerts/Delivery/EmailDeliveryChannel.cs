@@ -41,7 +41,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             event_type = alertEvent.EventType,
             device_name = alertEvent.DeviceName,
             device_ip = alertEvent.DeviceIp,
-            timestamp = alertEvent.Timestamp.ToString("yyyy-MM-dd HH:mm:ss UTC"),
+            timestamp = TimestampFormatter.FormatLocal(alertEvent.Timestamp),
             context = alertEvent.Context,
             metric_value = alertEvent.MetricValue,
             threshold_value = alertEvent.ThresholdValue
@@ -58,13 +58,13 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
         var grouped = alerts.GroupBy(a => a.Source).Select(g => new
         {
             source = g.Key,
-            count = g.Count(),
+            count = summary.SourceCounts.GetValueOrDefault(g.Key, g.Count()),
             alerts = g.OrderByDescending(a => a.Severity).ThenByDescending(a => a.TriggeredAt).Select(a => new
             {
                 title = a.Title,
                 severity = a.Severity.ToString(),
                 severity_color = GetSeverityColor(a.Severity),
-                triggered_at = a.TriggeredAt.ToString("yyyy-MM-dd HH:mm:ss UTC")
+                triggered_at = TimestampFormatter.FormatLocal(a.TriggeredAt)
             }).ToList()
         }).ToList();
 
@@ -77,7 +77,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             warning_count = summary.WarningCount,
             info_count = summary.InfoCount,
             groups = grouped,
-            generated_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC")
+            generated_at = TimestampFormatter.FormatLocal(DateTime.UtcNow)
         });
 
         return await SendEmailAsync(config, $"Alert Digest - {summary.TotalCount} alerts", body, cancellationToken);

@@ -77,7 +77,7 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
 
         foreach (var alert in alerts.OrderByDescending(a => a.Severity).Take(10))
         {
-            description.AppendLine($"- **{alert.Title}** ({alert.Source}) - {alert.TriggeredAt:HH:mm UTC}");
+            description.AppendLine($"- **{alert.Title}** ({alert.Source}) - {TimestampFormatter.FormatLocalShort(alert.TriggeredAt)}");
         }
 
         if (alerts.Count > 10)

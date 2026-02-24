@@ -97,7 +97,7 @@ public class TeamsDeliveryChannel : IAlertDeliveryChannel
             cardBody.Add(new
             {
                 type = "TextBlock",
-                text = $"- **{alert.Title}** ({alert.Source}) - {alert.TriggeredAt:HH:mm UTC}",
+                text = $"- **{alert.Title}** ({alert.Source}) - {TimestampFormatter.FormatLocalShort(alert.TriggeredAt)}",
                 wrap = true,
                 spacing = "Small"
             });

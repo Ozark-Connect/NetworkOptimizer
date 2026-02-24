@@ -7,14 +7,16 @@ namespace NetworkOptimizer.Alerts.Delivery;
 /// <summary>
 /// Pre-collapse summary counts so digest channels can show accurate totals.
 /// </summary>
-public record DigestSummary(int TotalCount, int CriticalCount, int ErrorCount, int WarningCount, int InfoCount)
+public record DigestSummary(int TotalCount, int CriticalCount, int ErrorCount, int WarningCount, int InfoCount,
+    IReadOnlyDictionary<string, int> SourceCounts)
 {
     public static DigestSummary FromAlerts(IReadOnlyList<AlertHistoryEntry> alerts) => new(
         alerts.Count,
         alerts.Count(a => a.Severity == AlertSeverity.Critical),
         alerts.Count(a => a.Severity == AlertSeverity.Error),
         alerts.Count(a => a.Severity == AlertSeverity.Warning),
-        alerts.Count(a => a.Severity == AlertSeverity.Info));
+        alerts.Count(a => a.Severity == AlertSeverity.Info),
+        alerts.GroupBy(a => a.Source).ToDictionary(g => g.Key, g => g.Count()));
 }
 
 /// <summary>

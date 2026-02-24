@@ -85,7 +85,7 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
             blocks.Add(new
             {
                 type = "section",
-                text = new { type = "mrkdwn", text = $"{emoji} *{alert.Title}*\n_{alert.Source}_ - {alert.TriggeredAt:HH:mm UTC}" }
+                text = new { type = "mrkdwn", text = $"{emoji} *{alert.Title}*\n_{alert.Source}_ - {TimestampFormatter.FormatLocalShort(alert.TriggeredAt)}" }
             });
         }
 
