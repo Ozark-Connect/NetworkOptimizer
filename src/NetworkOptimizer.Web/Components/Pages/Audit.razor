@@ -812,7 +812,7 @@
                                 var totalPorts = sw.Ports.Count;
                                 var disabledPorts = sw.Ports.Count(p => p.Forward == "disabled");
                                 var macRestricted = sw.Ports.Count(p => p.PortSecurityMacs.Any());
-                                var dot1xCount = sw.Ports.Count(p => p.Dot1xCtrl is "auto" or "mac_based");
+                                var dot1xCount = sw.Ports.Count(p => p.Dot1xCtrl is ("auto" or "mac_based") && p.Forward == "native" && p.IsUp && !p.IsUplink);
                                 var unprotectedActive = sw.Ports.Count(p => p.Forward == "native" && p.IsUp && !p.PortSecurityMacs.Any() && !p.IsUplink && p.Dot1xCtrl is not ("auto" or "mac_based"));
                                 <tr>
                                     <td class="icon-cell"><DeviceIcon Model="@sw.ModelName" Size="md" /></td>

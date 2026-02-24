@@ -751,8 +751,9 @@ public class PortSecurityAnalyzer
             measures.Add($"MAC restrictions configured on {macRestrictedPorts} access ports");
         }
 
-        // Check for 802.1X authentication
-        var dot1xPorts = switches.Sum(s => s.Ports.Count(p => p.IsDot1xSecured));
+        // Check for 802.1X authentication (only active access ports - disabled/trunk/uplink ports are irrelevant)
+        var dot1xPorts = switches.Sum(s => s.Ports.Count(p =>
+            p.IsDot1xSecured && p.IsUp && p.ForwardMode == "native" && !p.IsUplink && !p.IsWan));
         if (dot1xPorts > 0)
         {
             measures.Add($"802.1X authentication enabled on {dot1xPorts} ports");

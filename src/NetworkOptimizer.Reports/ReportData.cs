@@ -290,7 +290,7 @@ public class SwitchDetail
     public int TotalPorts => Ports.Count;
     public int DisabledPorts => Ports.Count(p => p.Forward == "disabled");
     public int MacRestrictedPorts => Ports.Count(p => p.MacRestrictionCount > 0);
-    public int Dot1xPorts => Ports.Count(p => p.Dot1xCtrl is "auto" or "mac_based");
+    public int Dot1xPorts => Ports.Count(p => p.Dot1xCtrl is ("auto" or "mac_based") && p.Forward == "native" && p.IsUp && !p.IsUplink);
     public int UnprotectedActivePorts => Ports.Count(p =>
         p.Forward == "native" && p.IsUp && p.MacRestrictionCount == 0 && !p.IsUplink
         && p.Dot1xCtrl is not ("auto" or "mac_based"));
