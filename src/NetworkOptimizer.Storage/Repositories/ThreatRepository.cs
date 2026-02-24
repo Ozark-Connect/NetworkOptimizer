@@ -695,7 +695,7 @@ public class ThreatRepository : IThreatRepository
                 query = query.Where(p => p.PatternType == type.Value);
 
             return await query
-                .OrderByDescending(p => p.DetectedAt)
+                .OrderByDescending(p => p.LastSeen)
                 .Take(limit)
                 .ToListAsync(cancellationToken);
         }
