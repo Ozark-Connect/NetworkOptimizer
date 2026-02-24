@@ -31,10 +31,12 @@ public interface IThreatRepository
     Task<List<TimelineBucket>> GetTimelineAsync(DateTime from, DateTime to, int bucketMinutes = 60, CancellationToken cancellationToken = default);
     Task<Dictionary<KillChainStage, int>> GetKillChainDistributionAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsByIpAsync(string ip, DateTime from, DateTime to, int limit = 5000, CancellationToken cancellationToken = default);
+    Task<List<SearchResultEntry>> SearchIpsAsync(DateTime from, DateTime to, string? ipExact = null, string? ipPrefix = null, string? countryCode = null, int? asnNumber = null, string? asnOrgLike = null, int limit = 200, CancellationToken cancellationToken = default);
+    Task<List<SearchResultEntry>> GetTopDestinationIpsAsync(DateTime from, DateTime to, int limit = 500, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsByPortAsync(int port, DateTime from, DateTime to, int limit = 5000, CancellationToken cancellationToken = default);
     Task<List<ThreatEvent>> GetEventsByProtocolAsync(string protocol, DateTime from, DateTime to, int limit = 5000, CancellationToken cancellationToken = default);
     Task<int> GetThreatCountByPortAsync(int port, DateTime from, DateTime to, CancellationToken cancellationToken = default);
-    Task<Dictionary<int, int>> GetThreatCountsByPortAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
+    Task<Dictionary<int, int>> GetThreatCountsByPortAsync(DateTime from, DateTime to, bool incomingOnly = false, CancellationToken cancellationToken = default);
     Task PurgeOldEventsAsync(DateTime before, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -117,6 +119,22 @@ public record TimelineBucket
     public int Severity4 { get; init; }
     public int Severity5 { get; init; }
     public int Total { get; init; }
+}
+
+/// <summary>
+/// A single IP from a search query, with event count and role (Source/Destination/Both).
+/// </summary>
+public class SearchResultEntry
+{
+    public string Ip { get; set; } = string.Empty;
+    public int EventCount { get; set; }
+    public string Role { get; set; } = "Source"; // "Source", "Destination", or "Both"
+    public int AsSourceCount { get; set; }
+    public int AsDestCount { get; set; }
+    public string? CountryCode { get; set; }
+    public string? AsnOrg { get; set; }
+    public int? Asn { get; set; }
+    public int MaxSeverity { get; set; }
 }
 
 /// <summary>

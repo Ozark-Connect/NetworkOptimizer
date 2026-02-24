@@ -438,6 +438,142 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
+    public async Task<List<SearchResultEntry>> SearchIpsAsync(DateTime from, DateTime to,
+        string? ipExact = null, string? ipPrefix = null, string? countryCode = null,
+        int? asnNumber = null, string? asnOrgLike = null, int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var baseQ = BaseQuery(from, to);
+
+            // --- Source IPs grouped ---
+            IQueryable<ThreatEvent> srcQuery;
+            IQueryable<ThreatEvent> dstQuery;
+
+            // IP searches match on SourceIp OR DestIp - need two GROUP BYs to detect role.
+            // Country/ASN searches match on event-level geo fields (which describe the source IP),
+            // so only group by SourceIp - the dest IPs in those events are unrelated to the query.
+            var ipSearch = false;
+
+            if (ipExact != null)
+            {
+                srcQuery = baseQ.Where(e => e.SourceIp == ipExact);
+                dstQuery = baseQ.Where(e => e.DestIp == ipExact);
+                ipSearch = true;
+            }
+            else if (ipPrefix != null)
+            {
+                srcQuery = baseQ.Where(e => e.SourceIp.StartsWith(ipPrefix));
+                dstQuery = baseQ.Where(e => e.DestIp.StartsWith(ipPrefix));
+                ipSearch = true;
+            }
+            else if (countryCode != null)
+            {
+                srcQuery = baseQ.Where(e => e.CountryCode == countryCode);
+                dstQuery = srcQuery; // unused
+            }
+            else if (asnNumber != null)
+            {
+                srcQuery = baseQ.Where(e => e.Asn == asnNumber);
+                dstQuery = srcQuery;
+            }
+            else if (asnOrgLike != null)
+            {
+                // SQLite's instr() (used by Contains) is case-sensitive; use lower() for case-insensitive match
+                var lowerOrg = asnOrgLike.ToLowerInvariant();
+                srcQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.ToLower().Contains(lowerOrg));
+                dstQuery = srcQuery;
+            }
+            else
+            {
+                return [];
+            }
+
+            var sourceGroups = await srcQuery
+                .GroupBy(e => e.SourceIp)
+                .Select(g => new { Ip = g.Key, Count = g.Count(), MaxSev = g.Max(e => e.Severity) })
+                .OrderByDescending(g => g.Count)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+
+            if (!ipSearch)
+            {
+                // Country/ASN: source IPs only, all marked as "Source"
+                return sourceGroups.Select(g => new SearchResultEntry
+                {
+                    Ip = g.Ip,
+                    EventCount = g.Count,
+                    AsSourceCount = g.Count,
+                    MaxSeverity = g.MaxSev,
+                    Role = "Source"
+                }).ToList();
+            }
+
+            var destGroups = await dstQuery
+                .GroupBy(e => e.DestIp)
+                .Select(g => new { Ip = g.Key, Count = g.Count(), MaxSev = g.Max(e => e.Severity) })
+                .OrderByDescending(g => g.Count)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+
+            // Merge into SearchResultEntry with role detection
+            var srcDict = sourceGroups.ToDictionary(g => g.Ip, g => (g.Count, g.MaxSev));
+            var dstDict = destGroups.ToDictionary(g => g.Ip, g => (g.Count, g.MaxSev));
+            var allIps = srcDict.Keys.Union(dstDict.Keys);
+
+            var results = new List<SearchResultEntry>();
+            foreach (var ip in allIps)
+            {
+                var hasSrc = srcDict.TryGetValue(ip, out var src);
+                var hasDst = dstDict.TryGetValue(ip, out var dst);
+                var role = hasSrc && hasDst ? "Both" : hasSrc ? "Source" : "Destination";
+                results.Add(new SearchResultEntry
+                {
+                    Ip = ip,
+                    AsSourceCount = hasSrc ? src.Count : 0,
+                    AsDestCount = hasDst ? dst.Count : 0,
+                    EventCount = (hasSrc ? src.Count : 0) + (hasDst ? dst.Count : 0),
+                    MaxSeverity = Math.Max(hasSrc ? src.MaxSev : 0, hasDst ? dst.MaxSev : 0),
+                    Role = role
+                });
+            }
+
+            return results.OrderByDescending(r => r.EventCount).Take(limit).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search IPs");
+            throw;
+        }
+    }
+
+    public async Task<List<SearchResultEntry>> GetTopDestinationIpsAsync(DateTime from, DateTime to,
+        int limit = 500, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await BaseQuery(from, to)
+                .GroupBy(e => e.DestIp)
+                .Select(g => new SearchResultEntry
+                {
+                    Ip = g.Key,
+                    EventCount = g.Count(),
+                    AsDestCount = g.Count(),
+                    MaxSeverity = g.Max(e => e.Severity),
+                    Role = "Destination"
+                })
+                .OrderByDescending(r => r.EventCount)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get top destination IPs");
+            throw;
+        }
+    }
+
     public async Task<List<ThreatEvent>> GetEventsByIpAsync(string ip, DateTime from, DateTime to,
         int limit = 5000, CancellationToken cancellationToken = default)
     {
@@ -514,11 +650,15 @@ public class ThreatRepository : IThreatRepository
     }
 
     public async Task<Dictionary<int, int>> GetThreatCountsByPortAsync(DateTime from, DateTime to,
-        CancellationToken cancellationToken = default)
+        bool incomingOnly = false, CancellationToken cancellationToken = default)
     {
         try
         {
-            var results = await BaseQuery(from, to)
+            var query = BaseQuery(from, to);
+            if (incomingOnly)
+                query = query.Where(e => e.Direction == null || e.Direction.ToLower() == "incoming");
+
+            var results = await query
                 .GroupBy(e => e.DestPort)
                 .Select(g => new { Port = g.Key, Count = g.Count() })
                 .ToListAsync(cancellationToken);

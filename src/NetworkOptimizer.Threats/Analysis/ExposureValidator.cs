@@ -46,15 +46,6 @@ public class ExposureValidator
             return report;
         }
 
-        // Get threat counts by destination port
-        var threatsByPort = await repository.GetThreatCountsByPortAsync(from, to, cancellationToken);
-
-        // Get events for exposed ports to build per-service details
-        var exposedPorts = portForwardRules
-            .SelectMany(r => ParsePorts(r.DstPort))
-            .Distinct()
-            .ToHashSet();
-
         var totalThreats = 0;
 
         foreach (var rule in portForwardRules)
@@ -62,13 +53,20 @@ public class ExposureValidator
             var ports = ParsePorts(rule.DstPort);
             foreach (var port in ports)
             {
-                var threats = threatsByPort.GetValueOrDefault(port, 0);
-                totalThreats += threats;
+                var portEvents = await repository.GetEventsAsync(from, to, destPort: port, limit: 5000, cancellationToken: cancellationToken);
+                if (portEvents == null || portEvents.Count == 0) continue;
 
-                // Only include ports that are actively being targeted
-                if (threats == 0) continue;
+                // Only count incoming traffic - IPS alerts (Direction=null) are inherently
+                // incoming; flow events have explicit direction. Local/outgoing traffic on
+                // the same port is unrelated to the exposed service.
+                var incomingEvents = portEvents
+                    .Where(e => e.Direction == null ||
+                                e.Direction.Equals("incoming", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
-                var portEvents = await repository.GetEventsAsync(from, to, destPort: port, limit: 500, cancellationToken: cancellationToken);
+                if (incomingEvents.Count == 0) continue;
+
+                totalThreats += incomingEvents.Count;
 
                 var service = new ExposedService
                 {
@@ -77,15 +75,15 @@ public class ExposureValidator
                     ServiceName = GetServiceName(port, rule.Name),
                     ForwardTarget = $"{rule.Fwd}:{rule.FwdPort ?? port.ToString()}",
                     RuleName = rule.Name,
-                    ThreatCount = threats,
-                    UniqueSourceIps = portEvents.Select(e => e.SourceIp).Distinct().Count(),
-                    TopSignatures = portEvents
+                    ThreatCount = incomingEvents.Count,
+                    UniqueSourceIps = incomingEvents.Select(e => e.SourceIp).Distinct().Count(),
+                    TopSignatures = incomingEvents
                         .GroupBy(e => e.SignatureName)
                         .OrderByDescending(g => g.Count())
                         .Take(5)
                         .Select(g => g.Key)
                         .ToList(),
-                    SeverityBreakdown = portEvents
+                    SeverityBreakdown = incomingEvents
                         .GroupBy(e => e.Severity)
                         .ToDictionary(g => g.Key, g => g.Count())
                 };

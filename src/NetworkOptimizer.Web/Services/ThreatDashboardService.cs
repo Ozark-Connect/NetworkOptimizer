@@ -298,10 +298,13 @@ public class ThreatDashboardService
     }
 
     public async Task<ExposureReport> GetExposureReportAsync(
+        DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
+
             // Auto-fetch port forward rules from UniFi API
             List<UniFiPortForwardRule>? portForwardRules = null;
             var apiClient = _uniFiClientAccessor.Client;
@@ -317,8 +320,6 @@ public class ThreatDashboardService
                 }
             }
 
-            var from = DateTime.UtcNow.AddDays(-30);
-            var to = DateTime.UtcNow;
             return await _exposureValidator.ValidateAsync(portForwardRules, _repository, from, to, cancellationToken);
         }
         catch (Exception ex)
@@ -374,6 +375,106 @@ public class ThreatDashboardService
         {
             _logger.LogError(ex, "Failed to get threat trend");
             return (0, []);
+        }
+    }
+
+    public async Task<List<SearchResultEntry>> SearchAsync(DateTime from, DateTime to,
+        ThreatSearchQuery query, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Search is unfiltered - show all data regardless of noise/severity filters
+            _repository.SetNoiseFilters([]);
+            _repository.SetSeverityFilter(null);
+
+            // For CIDR searches, determine if we can use SQL prefix matching or need post-filtering
+            string? ipPrefix = null;
+            string? cidrForPostFilter = null;
+            if (query.Cidr != null)
+            {
+                ipPrefix = NetworkUtilities.GetCidrLikePrefix(query.Cidr);
+                if (ipPrefix == null)
+                {
+                    // Non-octet-aligned CIDR: use maximum whole-octet prefix + in-memory filter
+                    var slashIdx = query.Cidr.IndexOf('/');
+                    var ipPart = query.Cidr[..slashIdx];
+                    var octets = ipPart.Split('.');
+                    if (int.TryParse(query.Cidr[(slashIdx + 1)..], out var bits) && bits > 0)
+                    {
+                        var wholeOctets = Math.Max(bits / 8, 1);
+                        ipPrefix = string.Join(".", octets.Take(wholeOctets)) + ".";
+                    }
+                    else
+                    {
+                        ipPrefix = octets[0] + ".";
+                    }
+                    cidrForPostFilter = query.Cidr;
+                }
+            }
+
+            var results = await _repository.SearchIpsAsync(from, to,
+                ipExact: query.IpExact,
+                ipPrefix: ipPrefix ?? query.IpPrefix,
+                countryCode: query.CountryCode,
+                asnNumber: query.AsnNumber,
+                asnOrgLike: query.AsnOrgLike,
+                cancellationToken: cancellationToken);
+
+            // Post-filter for non-octet-aligned CIDR
+            if (cidrForPostFilter != null)
+            {
+                results = results.Where(r => NetworkUtilities.IsIpInSubnet(r.Ip, cidrForPostFilter)).ToList();
+            }
+
+            // For country/ASN/org searches, event-level geo only describes the source IP.
+            // Also search dest IPs by geo-enriching the top dest IPs and filtering by match.
+            var isGeoSearch = query.CountryCode != null || query.AsnNumber != null || query.AsnOrgLike != null;
+            if (isGeoSearch)
+            {
+                var topDests = await _repository.GetTopDestinationIpsAsync(from, to, 500, cancellationToken);
+                var sourceIps = results.Select(r => r.Ip).ToHashSet();
+
+                foreach (var dest in topDests)
+                {
+                    if (sourceIps.Contains(dest.Ip)) continue; // Already in results as source
+
+                    var geo = _geoService.Enrich(dest.Ip);
+                    dest.CountryCode = geo.CountryCode;
+                    dest.AsnOrg = geo.AsnOrg;
+                    dest.Asn = geo.Asn;
+
+                    var matches = false;
+                    if (query.CountryCode != null)
+                        matches = string.Equals(geo.CountryCode, query.CountryCode, StringComparison.OrdinalIgnoreCase);
+                    else if (query.AsnNumber != null)
+                        matches = geo.Asn == query.AsnNumber;
+                    else if (query.AsnOrgLike != null)
+                        matches = geo.AsnOrg?.Contains(query.AsnOrgLike, StringComparison.OrdinalIgnoreCase) == true;
+
+                    if (matches)
+                        results.Add(dest);
+                }
+
+                // Re-sort after merging
+                results = results.OrderByDescending(r => r.EventCount).Take(200).ToList();
+            }
+
+            // Geo-enrich each result (source results + IP searches don't have geo yet)
+            foreach (var entry in results)
+            {
+                if (entry.CountryCode != null) continue; // Already enriched (dest IPs from geo search)
+                var geo = _geoService.Enrich(entry.Ip);
+                entry.CountryCode = geo.CountryCode;
+                entry.AsnOrg = geo.AsnOrg;
+                entry.Asn = geo.Asn;
+            }
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search threat data");
+            return [];
         }
     }
 
@@ -435,19 +536,7 @@ public class ThreatDashboardService
             var portRanges = CollapsePortRanges(portGroups);
 
             // Top signatures
-            var signatures = events
-                .GroupBy(e => e.SignatureName)
-                .Where(g => !string.IsNullOrEmpty(g.Key))
-                .Select(g => new SignatureGroup
-                {
-                    Name = g.Key,
-                    Category = g.First().Category,
-                    EventCount = g.Count(),
-                    MaxSeverity = g.Max(e => e.Severity)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(20)
-                .ToList();
+            var signatures = BuildSignatureGroups(events);
 
             // Country code: direct GeoIP lookup on the drilled-into IP
             // (event CountryCode is enriched on the source/attacker IP, not this IP)
@@ -504,19 +593,7 @@ public class ThreatDashboardService
                 .ToList();
 
             // Top signatures
-            var signatures = events
-                .GroupBy(e => e.SignatureName)
-                .Where(g => !string.IsNullOrEmpty(g.Key))
-                .Select(g => new SignatureGroup
-                {
-                    Name = g.Key,
-                    Category = g.First().Category,
-                    EventCount = g.Count(),
-                    MaxSeverity = g.Max(e => e.Severity)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(20)
-                .ToList();
+            var signatures = BuildSignatureGroups(events);
 
             // Protocols used
             var protocols = events
@@ -574,19 +651,7 @@ public class ThreatDashboardService
                 .ToList();
 
             // Top signatures
-            var signatures = events
-                .GroupBy(e => e.SignatureName)
-                .Where(g => !string.IsNullOrEmpty(g.Key))
-                .Select(g => new SignatureGroup
-                {
-                    Name = g.Key,
-                    Category = g.First().Category,
-                    EventCount = g.Count(),
-                    MaxSeverity = g.Max(e => e.Severity)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(20)
-                .ToList();
+            var signatures = BuildSignatureGroups(events);
 
             return new ProtocolDrilldownData
             {
@@ -682,6 +747,34 @@ public class ThreatDashboardService
         ranges.Add(start == end ? start.ToString() : $"{start}-{end}");
 
         return string.Join(", ", ranges);
+    }
+
+    private static List<SignatureGroup> BuildSignatureGroups(List<ThreatEvent> events)
+    {
+        return events
+            .GroupBy(e => e.SignatureName)
+            .Where(g => !string.IsNullOrEmpty(g.Key))
+            .Select(g =>
+            {
+                var evts = g.ToList();
+                var topPort = evts.GroupBy(e => e.DestPort).OrderByDescending(pg => pg.Count()).First().Key;
+                var topDomain = evts.Where(e => !string.IsNullOrEmpty(e.Domain))
+                    .GroupBy(e => e.Domain).OrderByDescending(dg => dg.Count()).FirstOrDefault()?.Key;
+                return new SignatureGroup
+                {
+                    Name = g.Key,
+                    Category = evts[0].Category,
+                    EventCount = evts.Count,
+                    MaxSeverity = evts.Max(e => e.Severity),
+                    BlockedCount = evts.Count(e => e.Action == ThreatAction.Blocked),
+                    DetectedCount = evts.Count(e => e.Action != ThreatAction.Blocked),
+                    TopDestPort = topPort,
+                    Domain = topDomain
+                };
+            })
+            .OrderByDescending(s => s.EventCount)
+            .Take(20)
+            .ToList();
     }
 
     private static List<PortRangeGroup> CollapsePortRanges(List<PortRangeGroup> portGroups)
@@ -902,6 +995,10 @@ public class SignatureGroup
     public string Category { get; set; } = string.Empty;
     public int EventCount { get; set; }
     public int MaxSeverity { get; set; }
+    public int BlockedCount { get; set; }
+    public int DetectedCount { get; set; }
+    public int TopDestPort { get; set; }
+    public string? Domain { get; set; }
 }
 
 /// <summary>
@@ -972,4 +1069,17 @@ public class ProtocolDrilldownData
     public List<PortDrilldownSource> TopSources { get; set; } = [];
     public List<PortCount> TopPorts { get; set; } = [];
     public List<SignatureGroup> TopSignatures { get; set; } = [];
+}
+
+/// <summary>
+/// Structured search query for threat data. Exactly one field should be set.
+/// </summary>
+public record ThreatSearchQuery
+{
+    public string? IpExact { get; init; }
+    public string? IpPrefix { get; init; }
+    public string? Cidr { get; init; }
+    public string? CountryCode { get; init; }
+    public int? AsnNumber { get; init; }
+    public string? AsnOrgLike { get; init; }
 }
