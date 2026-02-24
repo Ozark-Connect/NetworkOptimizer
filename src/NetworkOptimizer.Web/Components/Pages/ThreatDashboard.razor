@@ -2873,7 +2873,6 @@ else
             _customToBeforeDrilldown = _customTo;
         }
         _filtersActive = false;
-        _timeRange = "90d";
         DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
         _showFilterPanel = false;
@@ -2896,9 +2895,12 @@ else
 
         try
         {
-            var to = DateTime.UtcNow;
-            var from = to.AddDays(-90);
+            var (from, to) = GetTimeRange();
             _portDrilldownData = await DashboardService.GetPortDrilldownAsync(port, from, to);
+            if (_portDrilldownData.TotalEvents == 0)
+                _portDrilldownData = await AutoExpandTimeRangeAsync(
+                    (f, t) => DashboardService.GetPortDrilldownAsync(port, f, t),
+                    d => d.TotalEvents > 0) ?? _portDrilldownData;
         }
         catch (Exception ex)
         {
@@ -2937,7 +2939,6 @@ else
             _customToBeforeDrilldown = _customTo;
         }
         _filtersActive = false;
-        _timeRange = "90d";
         DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
         _showFilterPanel = false;
@@ -2960,9 +2961,12 @@ else
 
         try
         {
-            var to = DateTime.UtcNow;
-            var from = to.AddDays(-90);
+            var (from, to) = GetTimeRange();
             _protocolDrilldownData = await DashboardService.GetProtocolDrilldownAsync(protocol, from, to);
+            if (_protocolDrilldownData.TotalEvents == 0)
+                _protocolDrilldownData = await AutoExpandTimeRangeAsync(
+                    (f, t) => DashboardService.GetProtocolDrilldownAsync(protocol, f, t),
+                    d => d.TotalEvents > 0) ?? _protocolDrilldownData;
         }
         catch (Exception ex)
         {
