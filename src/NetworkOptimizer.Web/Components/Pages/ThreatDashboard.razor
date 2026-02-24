@@ -2366,7 +2366,11 @@ else
         if (_activeTab == "drilldown")
         {
             _filtersActiveBeforeDrilldown = _filtersActive;
+            _timeRangeBeforeDrilldown = _timeRange;
             _filtersActive = false;
+            // IP drilldowns use 90d for investigation context (matches DrillDownToIp behavior)
+            if (_drilldownIp != null)
+                _timeRange = "90d";
         }
 
         await LoadDataAsync();
