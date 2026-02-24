@@ -3307,6 +3307,7 @@
                 if (json.RootElement.TryGetProperty("WebhookUrl", out var url) ||
                     json.RootElement.TryGetProperty("webhookUrl", out url))
                     channelWebhookUrl = url.GetString() ?? "";
+                channelWebhookSecret = ""; // Don't expose stored secret
             }
         }
         catch { /* Ignore parse errors */ }
@@ -3413,6 +3414,26 @@
                     alertChannelMessageClass = "warning";
                     return;
                 }
+                // Username set but no password: check if we have a stored password (edit) or if it's truly missing (new)
+                if (!string.IsNullOrEmpty(channelSmtpUser) && string.IsNullOrEmpty(channelSmtpPass))
+                {
+                    var hasStoredPassword = false;
+                    if (editingChannelId.HasValue)
+                    {
+                        var existingCh = await AlertRepository.GetChannelAsync(editingChannelId.Value);
+                        if (existingCh != null)
+                        {
+                            var existingCfg = System.Text.Json.JsonSerializer.Deserialize<NetworkOptimizer.Alerts.Delivery.EmailChannelConfig>(existingCh.ConfigJson);
+                            hasStoredPassword = existingCfg != null && !string.IsNullOrEmpty(existingCfg.Password);
+                        }
+                    }
+                    if (!hasStoredPassword)
+                    {
+                        alertChannelMessage = "SMTP username is set but password is empty. Set a password or clear the username for unauthenticated relay.";
+                        alertChannelMessageClass = "warning";
+                        return;
+                    }
+                }
             }
             else
             {
@@ -3426,7 +3447,6 @@
             }
 
             var severity = Enum.Parse<NetworkOptimizer.Core.Enums.AlertSeverity>(channelMinSeverity);
-            var configJson = BuildChannelConfigJson(channelType);
 
             // Build digest schedule string from local time fields (convert to UTC for storage)
             if (channelDigestEnabled)
@@ -3437,6 +3457,8 @@
                 var existing = await AlertRepository.GetChannelAsync(editingChannelId.Value);
                 if (existing != null)
                 {
+                    // Pass existing config so we can preserve encrypted secrets when fields are left blank
+                    var configJson = BuildChannelConfigJson(channelType, existing.ConfigJson);
                     existing.Name = channelFormName;
                     existing.ChannelType = channelType;
                     existing.ConfigJson = configJson;
@@ -3449,6 +3471,7 @@
             }
             else
             {
+                var configJson = BuildChannelConfigJson(channelType);
                 var channel = new DeliveryChannel
                 {
                     Name = channelFormName,
@@ -3480,10 +3503,15 @@
         }
     }
 
-    private string BuildChannelConfigJson(DeliveryChannelType type)
+    private string BuildChannelConfigJson(DeliveryChannelType type, string? existingConfigJson = null)
     {
         if (type == DeliveryChannelType.Email)
         {
+            // When editing and password field is left blank, preserve the existing encrypted password
+            var password = !string.IsNullOrEmpty(channelSmtpPass)
+                ? SecretDecryptor.Encrypt(channelSmtpPass)
+                : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.EmailChannelConfig>(existingConfigJson, c => c.Password);
+
             var cfg = new NetworkOptimizer.Alerts.Delivery.EmailChannelConfig
             {
                 SmtpHost = channelSmtpHost,
@@ -3491,7 +3519,7 @@
                 UseSsl = channelSmtpSsl,
                 UseStartTls = channelSmtpStartTls,
                 Username = channelSmtpUser,
-                Password = !string.IsNullOrEmpty(channelSmtpPass) ? SecretDecryptor.Encrypt(channelSmtpPass) : "",
+                Password = password,
                 FromAddress = channelSmtpFrom,
                 ToAddresses = channelSmtpTo
             };
@@ -3500,16 +3528,35 @@
 
         if (type == DeliveryChannelType.Webhook)
         {
+            var secret = !string.IsNullOrEmpty(channelWebhookSecret)
+                ? SecretDecryptor.Encrypt(channelWebhookSecret)
+                : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig>(existingConfigJson, c => c.Secret);
+
             var cfg = new NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig
             {
                 Url = channelWebhookUrl,
-                Secret = !string.IsNullOrEmpty(channelWebhookSecret) ? SecretDecryptor.Encrypt(channelWebhookSecret) : null
+                Secret = secret
             };
             return System.Text.Json.JsonSerializer.Serialize(cfg);
         }
 
         // Slack, Discord, Teams all use webhook URL
         return System.Text.Json.JsonSerializer.Serialize(new { WebhookUrl = channelWebhookUrl });
+    }
+
+    /// <summary>
+    /// Extract an existing encrypted secret from a stored config JSON, so we can preserve it
+    /// when the user edits other fields without re-entering the secret.
+    /// </summary>
+    private static string GetExistingSecret<T>(string? existingConfigJson, Func<T, string?> secretSelector) where T : class
+    {
+        if (string.IsNullOrEmpty(existingConfigJson)) return "";
+        try
+        {
+            var existing = System.Text.Json.JsonSerializer.Deserialize<T>(existingConfigJson);
+            return existing != null ? secretSelector(existing) ?? "" : "";
+        }
+        catch { return ""; }
     }
 
     private async Task TestAlertChannel(int channelId)

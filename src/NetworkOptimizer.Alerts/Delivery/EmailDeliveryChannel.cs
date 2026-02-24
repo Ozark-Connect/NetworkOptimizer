@@ -99,6 +99,8 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
                 return (false, "SMTP host is not configured");
             if (string.IsNullOrWhiteSpace(config.FromAddress) || string.IsNullOrWhiteSpace(config.ToAddresses))
                 return (false, "From and To addresses are required");
+            if (!string.IsNullOrEmpty(config.Username) && string.IsNullOrWhiteSpace(_secretDecryptor.Decrypt(config.Password)))
+                return (false, "SMTP username is configured but password is empty. Either set a password or clear the username for unauthenticated relay.");
 
             var body = "<html><body style='background:#1a2029;color:#f1f5f9;padding:24px;font-family:sans-serif;'>" +
                        "<h2>Network Optimizer Alert Test</h2>" +
@@ -145,6 +147,12 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
                     _logger.LogError("Failed to send email after {MaxRetries} retries: {Error}", maxRetries + 1, error);
                 }
             }
+            catch (AuthenticationException ex)
+            {
+                // Don't retry auth failures - retrying bad credentials just gets you fail2banned
+                _logger.LogError("SMTP authentication failed (not retrying): {Error}", ex.Message);
+                return false;
+            }
             catch (Exception ex) when (attempt < maxRetries)
             {
                 var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
@@ -169,6 +177,12 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
     {
         if (string.IsNullOrWhiteSpace(config.FromAddress) || string.IsNullOrWhiteSpace(config.ToAddresses))
             return (false, "Missing from/to address configuration");
+
+        // If username is set but password is empty, that's a misconfiguration - not an
+        // intentional no-auth relay. Fail before connecting to avoid hammering the server
+        // with unauthenticated attempts (which can trigger fail2ban).
+        if (!string.IsNullOrEmpty(config.Username) && string.IsNullOrWhiteSpace(_secretDecryptor.Decrypt(config.Password)))
+            return (false, "SMTP username is configured but password is empty. Either set a password or clear the username for unauthenticated relay.");
 
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(config.FromName, config.FromAddress));
