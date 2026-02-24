@@ -3233,32 +3233,30 @@ else
         };
     }
 
+    private static readonly System.Text.RegularExpressions.Regex IpPattern =
+        new(@"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private RenderFragment RenderPatternDescription(ThreatPattern pattern) => __builder =>
     {
         var desc = pattern.Description;
-        try
+        var seq = 0;
+        var lastEnd = 0;
+        foreach (System.Text.RegularExpressions.Match match in IpPattern.Matches(desc))
         {
-            var ips = System.Text.Json.JsonSerializer.Deserialize<List<string>>(pattern.SourceIpsJson) ?? [];
-            foreach (var ip in ips)
-            {
-                var idx = desc.IndexOf(ip, StringComparison.Ordinal);
-                if (idx < 0) continue;
-                var before = desc[..idx];
-                var after = desc[(idx + ip.Length)..];
-                __builder.AddContent(0, before);
-                __builder.OpenElement(1, "a");
-                __builder.AddAttribute(2, "href", "javascript:void(0)");
-                __builder.AddAttribute(3, "class", "ip-link");
-                __builder.AddAttribute(4, "onclick", EventCallback.Factory.Create(this, () => DrillDownToIp(ip)));
-                __builder.OpenElement(5, "code");
-                __builder.AddContent(6, ip);
-                __builder.CloseElement();
-                __builder.CloseElement();
-                desc = after;
-            }
+            var ip = match.Value;
+            if (match.Index > lastEnd)
+                __builder.AddContent(seq++, desc[lastEnd..match.Index]);
+            __builder.OpenElement(seq++, "a");
+            __builder.AddAttribute(seq++, "href", "javascript:void(0)");
+            __builder.AddAttribute(seq++, "class", "ip-link");
+            __builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => DrillDownToIp(ip)));
+            __builder.OpenElement(seq++, "code");
+            __builder.AddContent(seq++, ip);
+            __builder.CloseElement();
+            __builder.CloseElement();
+            lastEnd = match.Index + match.Length;
         }
-        catch { /* fall through to plain text */ }
-        __builder.AddContent(7, desc);
+        __builder.AddContent(seq, desc[lastEnd..]);
     };
 
     private static string GetPortServiceName(int port)
