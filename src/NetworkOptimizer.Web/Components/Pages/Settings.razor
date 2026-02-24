@@ -1241,7 +1241,21 @@
                         {
                             <div class="form-group">
                                 <label class="form-label">Secret (for HMAC signature)</label>
-                                <input type="password" class="form-control" @bind="channelWebhookSecret" autocomplete="new-password" placeholder="Optional" data-1p-ignore data-lpignore="true" data-bwignore />
+                                @if (clearWebhookSecret)
+                                {
+                                    <div class="alert alert-info" style="padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;">
+                                        Secret will be cleared on save.
+                                        <a href="javascript:void(0)" @onclick="() => clearWebhookSecret = false" style="margin-left: 0.5rem;">Undo</a>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input type="password" class="form-control" @bind="channelWebhookSecret" autocomplete="new-password" placeholder="@(hasWebhookSecret ? "Saved - enter new to update" : "Optional")" data-1p-ignore data-lpignore="true" data-bwignore />
+                                    @if (hasWebhookSecret && string.IsNullOrEmpty(channelWebhookSecret))
+                                    {
+                                        <a href="javascript:void(0)" @onclick="() => clearWebhookSecret = true" class="form-hint" style="cursor: pointer;">Clear existing secret</a>
+                                    }
+                                }
                             </div>
                         }
                     }
@@ -1813,6 +1827,8 @@
     private string channelSmtpTo = "";
     private string channelWebhookUrl = "";
     private string channelWebhookSecret = "";
+    private bool hasWebhookSecret = false;
+    private bool clearWebhookSecret = false;
     private string channelMinSeverity = "Warning";
     private bool channelEnabled = true;
     private bool channelDigestEnabled = false;
@@ -3261,6 +3277,8 @@
         channelSmtpTo = "";
         channelWebhookUrl = "";
         channelWebhookSecret = "";
+        hasWebhookSecret = false;
+        clearWebhookSecret = false;
         channelMinSeverity = "Warning";
         channelEnabled = true;
         channelDigestEnabled = false;
@@ -3301,13 +3319,24 @@
                     channelSmtpPass = ""; // Don't expose
                 }
             }
+            else if (ch.ChannelType == DeliveryChannelType.Webhook)
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig>(ch.ConfigJson);
+                if (cfg != null)
+                {
+                    channelWebhookUrl = cfg.Url;
+                    hasWebhookSecret = !string.IsNullOrEmpty(cfg.Secret);
+                }
+                channelWebhookSecret = ""; // Don't expose stored secret
+                clearWebhookSecret = false;
+            }
             else
             {
+                // Slack, Discord, Teams - just need the webhook URL
                 var json = System.Text.Json.JsonDocument.Parse(ch.ConfigJson);
                 if (json.RootElement.TryGetProperty("WebhookUrl", out var url) ||
                     json.RootElement.TryGetProperty("webhookUrl", out url))
                     channelWebhookUrl = url.GetString() ?? "";
-                channelWebhookSecret = ""; // Don't expose stored secret
             }
         }
         catch { /* Ignore parse errors */ }
@@ -3528,9 +3557,14 @@
 
         if (type == DeliveryChannelType.Webhook)
         {
-            var secret = !string.IsNullOrEmpty(channelWebhookSecret)
-                ? SecretDecryptor.Encrypt(channelWebhookSecret)
-                : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig>(existingConfigJson, c => c.Secret);
+            string? secret = clearWebhookSecret
+                ? null
+                : !string.IsNullOrEmpty(channelWebhookSecret)
+                    ? SecretDecryptor.Encrypt(channelWebhookSecret)
+                    : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig>(existingConfigJson, c => c.Secret);
+
+            // Normalize empty string to null for webhook secrets (optional field)
+            if (string.IsNullOrEmpty(secret)) secret = null;
 
             var cfg = new NetworkOptimizer.Alerts.Delivery.WebhookChannelConfig
             {
