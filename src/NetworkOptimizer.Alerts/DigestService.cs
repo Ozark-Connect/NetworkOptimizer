@@ -201,7 +201,7 @@ public class DigestService : BackgroundService
     /// - For Info severity: collapse by EventType regardless of title/device differences,
     ///   so noisy low-severity alerts don't dominate the digest.
     /// </summary>
-    public static IReadOnlyList<AlertHistoryEntry> CollapseAlerts(List<AlertHistoryEntry> alerts)
+    private static IReadOnlyList<AlertHistoryEntry> CollapseAlerts(List<AlertHistoryEntry> alerts)
     {
         var result = new List<AlertHistoryEntry>();
 

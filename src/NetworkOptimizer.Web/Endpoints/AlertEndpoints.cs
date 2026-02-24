@@ -153,34 +153,5 @@ public static class AlertEndpoints
             var started = await scheduleService.RunNowAsync(id);
             return started ? Results.Ok(new { started = true }) : Results.Conflict(new { error = "Task is already running or not found" });
         });
-
-        // --- Temporary: trigger digest manually for testing ---
-        app.MapGet("/api/alerts/digest/test", async (IAlertRepository repo, IEnumerable<IAlertDeliveryChannel> deliveryChannels) =>
-        {
-            var channels = await repo.GetEnabledChannelsAsync();
-            var digestChannels = channels.Where(c => c.DigestEnabled && !string.IsNullOrEmpty(c.DigestSchedule)).ToList();
-
-            if (digestChannels.Count == 0)
-                return Results.Ok(new { sent = false, reason = "No channels with digest enabled" });
-
-            var since = DateTime.UtcNow.AddDays(-1);
-            var alerts = await repo.GetAlertsForDigestAsync(since);
-
-            // Compute summary from original alerts, then collapse for display
-            var summary = DigestSummary.FromAlerts(alerts);
-            var collapsedAlerts = DigestService.CollapseAlerts(alerts);
-
-            var results = new List<object>();
-            foreach (var channel in digestChannels)
-            {
-                var handler = deliveryChannels.FirstOrDefault(d => d.ChannelType == channel.ChannelType);
-                if (handler == null) continue;
-
-                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary);
-                results.Add(new { channelId = channel.Id, name = channel.Name, success, alertCount = alerts.Count, collapsedCount = collapsedAlerts.Count });
-            }
-
-            return Results.Ok(new { sent = true, channels = results });
-        });
     }
 }
