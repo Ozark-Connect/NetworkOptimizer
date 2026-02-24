@@ -249,7 +249,11 @@ public class ThreatDashboardService
                 _ => 60       // 24h+: hourly buckets
             };
 
-            return await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
+            var buckets = await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
+
+            // Fill gaps with zero-count buckets so the chart shows continuous time progression
+            // instead of stalling at the last data point when there are no new threats.
+            return FillTimelineGaps(buckets, from, to, bucketMinutes);
         }
         catch (Exception ex)
         {
@@ -690,6 +694,28 @@ public class ThreatDashboardService
         }
         result.Add(current);
         return result.OrderByDescending(r => r.EventCount).ToList();
+    }
+
+    private static List<TimelineBucket> FillTimelineGaps(
+        List<TimelineBucket> buckets, DateTime from, DateTime to, int bucketMinutes)
+    {
+        // Snap 'from' down to the nearest bucket boundary
+        var startMinute = (from.Minute / bucketMinutes) * bucketMinutes;
+        var cursor = new DateTime(from.Year, from.Month, from.Day, from.Hour, startMinute, 0, DateTimeKind.Utc);
+
+        var existing = buckets.ToDictionary(b => b.Hour);
+        var filled = new List<TimelineBucket>();
+
+        while (cursor <= to)
+        {
+            filled.Add(existing.TryGetValue(cursor, out var bucket)
+                ? bucket
+                : new TimelineBucket { Hour = cursor });
+
+            cursor = cursor.AddMinutes(bucketMinutes);
+        }
+
+        return filled;
     }
 
     private async Task ApplyNoiseFiltersToRepository(CancellationToken cancellationToken)
