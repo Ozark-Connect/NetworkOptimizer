@@ -574,6 +574,13 @@ public class PortSecurityAnalyzer
                 isolationEnabled = profile.Isolation;
             }
 
+            // Resolve 802.1X control mode from profile
+            if (!string.IsNullOrEmpty(profile.Dot1xCtrl))
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving dot1x_ctrl from profile '{ProfileName}': {Dot1xCtrl}",
+                    switchInfo.Name, portIdx, profile.Name, profile.Dot1xCtrl);
+            }
+
             assignedProfile = profile;
         }
         else if (!string.IsNullOrEmpty(portconfId))
@@ -648,6 +655,7 @@ public class PortSecurityAnalyzer
             PortSecurityEnabled = portSecurityEnabled,
             AllowedMacAddresses = allowedMacAddresses,
             IsolationEnabled = isolationEnabled,
+            Dot1xCtrl = assignedProfile?.Dot1xCtrl,
             PoeEnabled = poeEnable || portPoe,
             PoePower = port.GetDoubleOrDefault("poe_power"),
             PoeMode = poeMode,
@@ -743,6 +751,13 @@ public class PortSecurityAnalyzer
             measures.Add($"MAC restrictions configured on {macRestrictedPorts} access ports");
         }
 
+        // Check for 802.1X authentication
+        var dot1xPorts = switches.Sum(s => s.Ports.Count(p => p.IsDot1xSecured));
+        if (dot1xPorts > 0)
+        {
+            measures.Add($"802.1X authentication enabled on {dot1xPorts} ports");
+        }
+
         // Check for cameras on Security VLAN
         var cameraPorts = switches.SelectMany(s => s.Ports)
             .Where(p => IsCameraDeviceName(p.Name) && p.IsUp)
@@ -790,14 +805,15 @@ public class PortSecurityAnalyzer
         stats.PortSecurityEnabledPorts = switches.Sum(s => s.Ports.Count(p => p.PortSecurityEnabled));
         stats.IsolatedPorts = switches.Sum(s => s.Ports.Count(p => p.IsolationEnabled));
 
-        // Calculate unprotected active ports
+        // Calculate unprotected active ports (exclude 802.1X-secured ports)
         stats.UnprotectedActivePorts = switches.Sum(s => s.Ports.Count(p =>
             p.IsUp &&
             p.ForwardMode == "native" &&
             !p.IsUplink &&
             !p.IsWan &&
             !(p.AllowedMacAddresses?.Any() ?? false) &&
-            !p.PortSecurityEnabled));
+            !p.PortSecurityEnabled &&
+            !p.IsDot1xSecured));
 
         return stats;
     }

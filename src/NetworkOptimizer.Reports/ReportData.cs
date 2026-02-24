@@ -290,8 +290,10 @@ public class SwitchDetail
     public int TotalPorts => Ports.Count;
     public int DisabledPorts => Ports.Count(p => p.Forward == "disabled");
     public int MacRestrictedPorts => Ports.Count(p => p.MacRestrictionCount > 0);
+    public int Dot1xPorts => Ports.Count(p => p.Dot1xCtrl is "auto" or "mac_based");
     public int UnprotectedActivePorts => Ports.Count(p =>
-        p.Forward == "native" && p.IsUp && p.MacRestrictionCount == 0 && !p.IsUplink);
+        p.Forward == "native" && p.IsUp && p.MacRestrictionCount == 0 && !p.IsUplink
+        && p.Dot1xCtrl is not ("auto" or "mac_based"));
 }
 
 /// <summary>
@@ -324,13 +326,18 @@ public class PortDetail
     /// </summary>
     public string? ConnectedDeviceType { get; set; }
 
+    /// <summary>
+    /// 802.1X control mode: "auto", "mac_based", "force_authorized", "force_unauthorized", or null.
+    /// </summary>
+    public string? Dot1xCtrl { get; set; }
+
     public int MacRestrictionCount => PortSecurityMacs.Count;
 
     public string GetLinkStatus() => DisplayFormatters.GetLinkStatus(IsUp, Speed);
 
     public string GetPoeStatus() => DisplayFormatters.GetPoeStatus(PoePower, PoeMode, PoeEnabled);
 
-    public string GetPortSecurityStatus() => DisplayFormatters.GetPortSecurityStatus(MacRestrictionCount, PortSecurityEnabled);
+    public string GetPortSecurityStatus() => DisplayFormatters.GetPortSecurityStatus(MacRestrictionCount, PortSecurityEnabled, Dot1xCtrl);
 
     public string GetIsolationStatus() => DisplayFormatters.GetIsolationStatus(Isolation);
 
@@ -362,8 +369,9 @@ public class PortDetail
 
         if (Forward == "native")
         {
-            // Warning if no MAC restriction and device supports it
-            if (IsUp && supportsAcls && MacRestrictionCount == 0 && !IsUplink)
+            // Warning if no MAC restriction, no 802.1X, and device supports it
+            if (IsUp && supportsAcls && MacRestrictionCount == 0 && !IsUplink
+                && Dot1xCtrl is not ("auto" or "mac_based"))
                 return ("No MAC", PortStatusType.Warning);
             return ("OK", PortStatusType.Ok);
         }

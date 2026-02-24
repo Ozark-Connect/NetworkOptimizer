@@ -129,6 +129,19 @@ public class PortInfo
     public string? ConnectedDeviceType { get; init; }
 
     /// <summary>
+    /// 802.1X control mode from the assigned port profile.
+    /// Values: "auto" (802.1X), "mac_based" (RADIUS MAC auth),
+    /// "force_authorized" (bypass), "force_unauthorized" (block), or null.
+    /// </summary>
+    public string? Dot1xCtrl { get; init; }
+
+    /// <summary>
+    /// Whether this port is secured via 802.1X/RADIUS authentication.
+    /// True when Dot1xCtrl is "auto" (802.1X) or "mac_based" (RADIUS MAC auth).
+    /// </summary>
+    public bool IsDot1xSecured => Dot1xCtrl is "auto" or "mac_based";
+
+    /// <summary>
     /// The port profile (portconf) assigned to this port, if any.
     /// Used to detect intentional configurations like unrestricted access ports.
     /// </summary>

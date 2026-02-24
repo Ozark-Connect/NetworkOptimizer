@@ -316,10 +316,11 @@ public static class DisplayFormatters
     /// <summary>
     /// Get port security status display string.
     /// </summary>
-    public static string GetPortSecurityStatus(int macCount, bool portSecurityEnabled)
+    public static string GetPortSecurityStatus(int macCount, bool portSecurityEnabled, string? dot1xCtrl = null)
     {
         if (macCount > 1) return $"{macCount} MAC";
         if (macCount == 1) return "1 MAC";
+        if (dot1xCtrl is "auto" or "mac_based") return "802.1X";
         if (portSecurityEnabled) return "Yes";
         return "-";
     }

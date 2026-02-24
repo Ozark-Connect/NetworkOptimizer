@@ -470,6 +470,33 @@ public class DisplayFormattersTests
         result.Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("auto", "802.1X")]
+    [InlineData("mac_based", "802.1X")]
+    public void GetPortSecurityStatus_Dot1xSecured_Returns8021X(string dot1xCtrl, string expected)
+    {
+        var result = DisplayFormatters.GetPortSecurityStatus(0, false, dot1xCtrl);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("force_authorized", "-")]
+    [InlineData("force_unauthorized", "-")]
+    [InlineData(null, "-")]
+    public void GetPortSecurityStatus_NonSecuredDot1x_ReturnsDash(string? dot1xCtrl, string expected)
+    {
+        var result = DisplayFormatters.GetPortSecurityStatus(0, false, dot1xCtrl);
+        result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void GetPortSecurityStatus_MacCountTakesPriorityOverDot1x()
+    {
+        // If MACs are configured, show MAC count even with 802.1X
+        var result = DisplayFormatters.GetPortSecurityStatus(3, false, "auto");
+        result.Should().Be("3 MAC");
+    }
+
     #endregion
 
     #region GetIsolationStatus Tests
