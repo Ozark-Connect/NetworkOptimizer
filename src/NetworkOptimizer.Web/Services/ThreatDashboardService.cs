@@ -302,6 +302,8 @@ public class ThreatDashboardService
     {
         try
         {
+            await ApplyNoiseFiltersToRepository(cancellationToken);
+
             // Auto-fetch port forward rules from UniFi API
             List<UniFiPortForwardRule>? portForwardRules = null;
             var apiClient = _uniFiClientAccessor.Client;
