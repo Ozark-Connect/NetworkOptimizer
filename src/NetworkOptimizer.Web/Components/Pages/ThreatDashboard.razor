@@ -2787,7 +2787,7 @@ else
             _customToBeforeDrilldown = _customTo;
         }
         _filtersActive = false;
-        _timeRange = "90d";
+        _timeRange = "90d"; // Cosmetic: sync UI button; actual query hardcodes 90d below
         DashboardService.FiltersDisabled = true;
         _activeTab = "drilldown";
         _showFilterPanel = false;
