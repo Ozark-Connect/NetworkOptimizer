@@ -699,9 +699,14 @@ public class ThreatDashboardService
     private static List<TimelineBucket> FillTimelineGaps(
         List<TimelineBucket> buckets, DateTime from, DateTime to, int bucketMinutes)
     {
-        // Snap 'from' down to the nearest bucket boundary
-        var startMinute = (from.Minute / bucketMinutes) * bucketMinutes;
-        var cursor = new DateTime(from.Year, from.Month, from.Day, from.Hour, startMinute, 0, DateTimeKind.Utc);
+        if (buckets.Count == 0)
+            return [];
+
+        // Start from the earliest real data point, not 'from' - avoids backfilling zeros
+        // before we actually have any data in the DB.
+        var earliest = buckets[0].Hour;
+        var startMinute = (earliest.Minute / bucketMinutes) * bucketMinutes;
+        var cursor = new DateTime(earliest.Year, earliest.Month, earliest.Day, earliest.Hour, startMinute, 0, DateTimeKind.Utc);
 
         var existing = buckets.ToDictionary(b => b.Hour);
         var filled = new List<TimelineBucket>();
