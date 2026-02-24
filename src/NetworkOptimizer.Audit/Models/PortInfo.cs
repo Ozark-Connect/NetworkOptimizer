@@ -33,6 +33,12 @@ public class PortInfo
     public string? ForwardMode { get; init; }
 
     /// <summary>
+    /// Tagged VLAN management mode: "custom" = trunk (allows tagged VLANs), "block_all" = access (blocks all tagged VLANs).
+    /// Used together with ForwardMode to determine if a port is truly a trunk.
+    /// </summary>
+    public string? TaggedVlanMgmt { get; init; }
+
+    /// <summary>
     /// Whether this is an uplink port
     /// </summary>
     public bool IsUplink { get; init; }

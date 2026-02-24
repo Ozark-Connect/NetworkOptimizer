@@ -513,6 +513,7 @@ public class PortSecurityAnalyzer
 
         var portName = port.GetStringOrDefault("name", $"Port {portIdx}");
         var forwardMode = port.GetStringOrDefault("forward", "all");
+        var taggedVlanMgmt = port.GetStringOrNull("tagged_vlan_mgmt");
 
         // Resolve port profile settings if a profile is assigned
         var portconfId = port.GetStringOrNull("portconf_id");
@@ -639,6 +640,7 @@ public class PortSecurityAnalyzer
             IsUp = port.GetBoolOrDefault("up"),
             Speed = port.GetIntOrDefault("speed"),
             ForwardMode = forwardMode,
+            TaggedVlanMgmt = taggedVlanMgmt,
             IsUplink = port.GetBoolOrDefault("is_uplink"),
             IsWan = isWan,
             NativeNetworkId = nativeNetworkId,
