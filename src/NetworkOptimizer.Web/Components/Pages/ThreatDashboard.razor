@@ -265,7 +265,7 @@ else
     @if (_activeTab == "overview")
     {
         @* Summary stat cards *@
-        <div class="threat-summary-grid">
+        <div class="threat-summary-grid threat-summary-grid-compact">
             <div class="card threat-stat-card">
                 <div class="threat-stat-value" style="color:var(--text-primary);">@FormatNumber(_dashboardData.Summary.TotalEvents)</div>
                 <div class="threat-stat-label">Total Events</div>
@@ -1448,6 +1448,9 @@ else
 
     .threat-summary-grid .card {
         margin-bottom: 1.5rem;
+    }
+    .threat-summary-grid-compact .card {
+        margin-bottom: 0.75rem;
     }
 
     .threat-stat-card {
