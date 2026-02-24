@@ -11,3 +11,16 @@ public enum KillChainStage
     PostExploitation = 3,
     Monitored = 4
 }
+
+public static class KillChainStageExtensions
+{
+    public static string ToDisplayString(this KillChainStage stage) => stage switch
+    {
+        KillChainStage.Reconnaissance => "Reconnaissance",
+        KillChainStage.AttemptedExploitation => "Attempted Exploitation",
+        KillChainStage.ActiveExploitation => "Active Exploitation",
+        KillChainStage.PostExploitation => "Post-Exploitation",
+        KillChainStage.Monitored => "Monitored",
+        _ => stage.ToString()
+    };
+}
