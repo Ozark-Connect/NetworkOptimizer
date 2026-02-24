@@ -23,10 +23,16 @@ internal static class TimestampFormatter
         return $"{local:HH:mm} {GetTimezoneAbbreviation(local)}";
     }
 
-    private static DateTime ToLocal(DateTime utcTime) =>
-        utcTime.Kind == DateTimeKind.Utc
-            ? TimeZoneInfo.ConvertTimeFromUtc(utcTime, TimeZoneInfo.Local)
-            : utcTime;
+    private static DateTime ToLocal(DateTime utcTime)
+    {
+        // EF Core/SQLite returns Kind=Unspecified - treat as UTC
+        var utc = utcTime.Kind == DateTimeKind.Local
+            ? utcTime
+            : DateTime.SpecifyKind(utcTime, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeFromUtc(
+            utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime(),
+            TimeZoneInfo.Local);
+    }
 
     private static string GetTimezoneAbbreviation(DateTime localTime)
     {
