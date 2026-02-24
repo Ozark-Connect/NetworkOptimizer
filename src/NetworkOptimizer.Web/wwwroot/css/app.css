@@ -1069,6 +1069,8 @@ a.stat-card-link:active {
     display: flex;
     align-items: flex-start;
     padding-top: 0.125rem;
+    width: 24px;
+    min-height: 24px;
 }
 
 .alert-item.alert-critical .alert-icon {
