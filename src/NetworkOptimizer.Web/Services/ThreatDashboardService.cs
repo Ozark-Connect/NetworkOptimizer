@@ -249,7 +249,12 @@ public class ThreatDashboardService
                 _ => 60       // 24h+: hourly buckets
             };
 
-            return await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
+            var buckets = await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
+
+            // Fill gaps with zero-count buckets so the chart shows continuous time progression
+            // instead of stalling at the last data point when there are no new threats.
+            // Lag by 30s so we don't plot a false zero before the current collection cycle finishes.
+            return FillTimelineGaps(buckets, from, to.AddSeconds(-30), bucketMinutes);
         }
         catch (Exception ex)
         {
@@ -690,6 +695,33 @@ public class ThreatDashboardService
         }
         result.Add(current);
         return result.OrderByDescending(r => r.EventCount).ToList();
+    }
+
+    private static List<TimelineBucket> FillTimelineGaps(
+        List<TimelineBucket> buckets, DateTime from, DateTime to, int bucketMinutes)
+    {
+        if (buckets.Count == 0)
+            return [];
+
+        // Start from the earliest real data point, not 'from' - avoids backfilling zeros
+        // before we actually have any data in the DB.
+        var earliest = buckets[0].Hour;
+        var startMinute = (earliest.Minute / bucketMinutes) * bucketMinutes;
+        var cursor = new DateTime(earliest.Year, earliest.Month, earliest.Day, earliest.Hour, startMinute, 0, DateTimeKind.Utc);
+
+        var existing = buckets.ToDictionary(b => b.Hour);
+        var filled = new List<TimelineBucket>();
+
+        while (cursor <= to)
+        {
+            filled.Add(existing.TryGetValue(cursor, out var bucket)
+                ? bucket
+                : new TimelineBucket { Hour = cursor });
+
+            cursor = cursor.AddMinutes(bucketMinutes);
+        }
+
+        return filled;
     }
 
     private async Task ApplyNoiseFiltersToRepository(CancellationToken cancellationToken)
