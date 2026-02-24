@@ -3337,6 +3337,9 @@
                 if (json.RootElement.TryGetProperty("WebhookUrl", out var url) ||
                     json.RootElement.TryGetProperty("webhookUrl", out url))
                     channelWebhookUrl = url.GetString() ?? "";
+                channelWebhookSecret = "";
+                hasWebhookSecret = false;
+                clearWebhookSecret = false;
             }
         }
         catch { /* Ignore parse errors */ }
