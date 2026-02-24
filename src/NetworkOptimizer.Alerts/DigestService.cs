@@ -194,60 +194,82 @@ public class DigestService : BackgroundService
     }
 
     /// <summary>
-    /// Collapse identical alerts within each source group when count exceeds the threshold.
-    /// Groups alerts by (Source, Title, Severity), and if a group has more than CollapseThreshold
-    /// entries, replaces them with a single summary entry showing the count.
+    /// Collapse duplicate alerts to keep digests concise.
+    /// - For source groups with more than CollapseThreshold entries: collapse identical
+    ///   alerts (same title + severity) into a single entry with a count suffix.
+    /// - For Info severity: collapse by EventType regardless of title/device differences,
+    ///   so noisy low-severity alerts don't dominate the digest.
     /// </summary>
-    private static IReadOnlyList<AlertHistoryEntry> CollapseAlerts(List<AlertHistoryEntry> alerts)
+    public static IReadOnlyList<AlertHistoryEntry> CollapseAlerts(List<AlertHistoryEntry> alerts)
     {
         var result = new List<AlertHistoryEntry>();
 
         foreach (var sourceGroup in alerts.GroupBy(a => a.Source))
         {
-            if (sourceGroup.Count() <= CollapseThreshold)
-            {
-                // Small group - include all individually
-                result.AddRange(sourceGroup);
-                continue;
-            }
+            // Split into Info (always collapse aggressively) and non-Info (collapse only when large)
+            var infoAlerts = sourceGroup.Where(a => a.Severity == Core.Enums.AlertSeverity.Info).ToList();
+            var nonInfoAlerts = sourceGroup.Where(a => a.Severity != Core.Enums.AlertSeverity.Info).ToList();
 
-            // Group by identical title+severity within this source
-            var titleGroups = sourceGroup.GroupBy(a => (a.Title, a.Severity)).ToList();
-
-            foreach (var titleGroup in titleGroups)
+            // Info alerts: always collapse by EventType (ignoring title/device differences)
+            foreach (var eventGroup in infoAlerts.GroupBy(a => a.EventType))
             {
-                var count = titleGroup.Count();
+                var count = eventGroup.Count();
                 if (count <= 1)
                 {
-                    // Unique alert - include as-is
-                    result.Add(titleGroup.First());
+                    result.Add(eventGroup.First());
                 }
                 else
                 {
-                    // Multiple identical alerts - collapse to one entry with count in title
-                    var representative = titleGroup.OrderByDescending(a => a.TriggeredAt).First();
-                    result.Add(new AlertHistoryEntry
+                    var representative = eventGroup.OrderByDescending(a => a.TriggeredAt).First();
+                    result.Add(CreateCollapsed(representative, count));
+                }
+            }
+
+            // Non-Info alerts: collapse by title+severity only when group is large
+            if (nonInfoAlerts.Count <= CollapseThreshold)
+            {
+                result.AddRange(nonInfoAlerts);
+            }
+            else
+            {
+                foreach (var titleGroup in nonInfoAlerts.GroupBy(a => (a.Title, a.Severity)))
+                {
+                    var count = titleGroup.Count();
+                    if (count <= 1)
                     {
-                        Id = representative.Id,
-                        EventType = representative.EventType,
-                        Severity = representative.Severity,
-                        Status = representative.Status,
-                        Source = representative.Source,
-                        Title = $"{representative.Title} ({count}x)",
-                        Message = representative.Message,
-                        TriggeredAt = representative.TriggeredAt,
-                        DeviceId = representative.DeviceId,
-                        DeviceName = representative.DeviceName,
-                        DeviceIp = representative.DeviceIp,
-                        RuleId = representative.RuleId,
-                        IncidentId = representative.IncidentId,
-                        ContextJson = representative.ContextJson
-                    });
+                        result.Add(titleGroup.First());
+                    }
+                    else
+                    {
+                        var representative = titleGroup.OrderByDescending(a => a.TriggeredAt).First();
+                        result.Add(CreateCollapsed(representative, count));
+                    }
                 }
             }
         }
 
         return result;
+    }
+
+    private static AlertHistoryEntry CreateCollapsed(AlertHistoryEntry representative, int count)
+    {
+        return new AlertHistoryEntry
+        {
+            Id = representative.Id,
+            EventType = representative.EventType,
+            Severity = representative.Severity,
+            Status = representative.Status,
+            Source = representative.Source,
+            Title = $"{representative.Title} ({count}x)",
+            Message = representative.Message,
+            TriggeredAt = representative.TriggeredAt,
+            DeviceId = representative.DeviceId,
+            DeviceName = representative.DeviceName,
+            DeviceIp = representative.DeviceIp,
+            RuleId = representative.RuleId,
+            IncidentId = representative.IncidentId,
+            ContextJson = representative.ContextJson
+        };
     }
 
     private DateTime GetDigestWindowStart(Models.DeliveryChannel channel)

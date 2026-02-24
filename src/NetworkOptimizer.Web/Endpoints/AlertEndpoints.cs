@@ -166,14 +166,17 @@ public static class AlertEndpoints
             var since = DateTime.UtcNow.AddDays(-1);
             var alerts = await repo.GetAlertsForDigestAsync(since);
 
+            // Collapse duplicates (same logic as real digest service)
+            var collapsedAlerts = DigestService.CollapseAlerts(alerts);
+
             var results = new List<object>();
             foreach (var channel in digestChannels)
             {
                 var handler = deliveryChannels.FirstOrDefault(d => d.ChannelType == channel.ChannelType);
                 if (handler == null) continue;
 
-                var success = await handler.SendDigestAsync(alerts, channel);
-                results.Add(new { channelId = channel.Id, name = channel.Name, success, alertCount = alerts.Count });
+                var success = await handler.SendDigestAsync(collapsedAlerts, channel);
+                results.Add(new { channelId = channel.Id, name = channel.Name, success, alertCount = alerts.Count, collapsedCount = collapsedAlerts.Count });
             }
 
             return Results.Ok(new { sent = true, channels = results });
