@@ -435,19 +435,7 @@ public class ThreatDashboardService
             var portRanges = CollapsePortRanges(portGroups);
 
             // Top signatures
-            var signatures = events
-                .GroupBy(e => e.SignatureName)
-                .Where(g => !string.IsNullOrEmpty(g.Key))
-                .Select(g => new SignatureGroup
-                {
-                    Name = g.Key,
-                    Category = g.First().Category,
-                    EventCount = g.Count(),
-                    MaxSeverity = g.Max(e => e.Severity)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(20)
-                .ToList();
+            var signatures = BuildSignatureGroups(events);
 
             // Country code: direct GeoIP lookup on the drilled-into IP
             // (event CountryCode is enriched on the source/attacker IP, not this IP)
@@ -504,19 +492,7 @@ public class ThreatDashboardService
                 .ToList();
 
             // Top signatures
-            var signatures = events
-                .GroupBy(e => e.SignatureName)
-                .Where(g => !string.IsNullOrEmpty(g.Key))
-                .Select(g => new SignatureGroup
-                {
-                    Name = g.Key,
-                    Category = g.First().Category,
-                    EventCount = g.Count(),
-                    MaxSeverity = g.Max(e => e.Severity)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(20)
-                .ToList();
+            var signatures = BuildSignatureGroups(events);
 
             // Protocols used
             var protocols = events
@@ -574,19 +550,7 @@ public class ThreatDashboardService
                 .ToList();
 
             // Top signatures
-            var signatures = events
-                .GroupBy(e => e.SignatureName)
-                .Where(g => !string.IsNullOrEmpty(g.Key))
-                .Select(g => new SignatureGroup
-                {
-                    Name = g.Key,
-                    Category = g.First().Category,
-                    EventCount = g.Count(),
-                    MaxSeverity = g.Max(e => e.Severity)
-                })
-                .OrderByDescending(s => s.EventCount)
-                .Take(20)
-                .ToList();
+            var signatures = BuildSignatureGroups(events);
 
             return new ProtocolDrilldownData
             {
@@ -682,6 +646,34 @@ public class ThreatDashboardService
         ranges.Add(start == end ? start.ToString() : $"{start}-{end}");
 
         return string.Join(", ", ranges);
+    }
+
+    private static List<SignatureGroup> BuildSignatureGroups(List<ThreatEvent> events)
+    {
+        return events
+            .GroupBy(e => e.SignatureName)
+            .Where(g => !string.IsNullOrEmpty(g.Key))
+            .Select(g =>
+            {
+                var evts = g.ToList();
+                var topPort = evts.GroupBy(e => e.DestPort).OrderByDescending(pg => pg.Count()).First().Key;
+                var topDomain = evts.Where(e => !string.IsNullOrEmpty(e.Domain))
+                    .GroupBy(e => e.Domain).OrderByDescending(dg => dg.Count()).FirstOrDefault()?.Key;
+                return new SignatureGroup
+                {
+                    Name = g.Key,
+                    Category = evts[0].Category,
+                    EventCount = evts.Count,
+                    MaxSeverity = evts.Max(e => e.Severity),
+                    BlockedCount = evts.Count(e => e.Action == ThreatAction.Blocked),
+                    DetectedCount = evts.Count(e => e.Action != ThreatAction.Blocked),
+                    TopDestPort = topPort,
+                    Domain = topDomain
+                };
+            })
+            .OrderByDescending(s => s.EventCount)
+            .Take(20)
+            .ToList();
     }
 
     private static List<PortRangeGroup> CollapsePortRanges(List<PortRangeGroup> portGroups)
@@ -902,6 +894,10 @@ public class SignatureGroup
     public string Category { get; set; } = string.Empty;
     public int EventCount { get; set; }
     public int MaxSeverity { get; set; }
+    public int BlockedCount { get; set; }
+    public int DetectedCount { get; set; }
+    public int TopDestPort { get; set; }
+    public string? Domain { get; set; }
 }
 
 /// <summary>

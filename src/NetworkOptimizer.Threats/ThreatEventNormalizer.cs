@@ -181,6 +181,32 @@ public class ThreatEventNormalizer
                     ? ThreatAction.Blocked
                     : ThreatAction.Detected;
 
+                // Extract real IPS signature data when available
+                long signatureId = 0;
+                var signatureName = $"Flow: {service} {direction} {action}";
+                var category = $"{risk} risk {direction} {service}";
+                if (flow.TryGetProperty("ips", out var ips) && ips.ValueKind == JsonValueKind.Object)
+                {
+                    var ipsSignature = ips.GetPropertyOrDefault("signature", "");
+                    if (!string.IsNullOrEmpty(ipsSignature))
+                    {
+                        signatureName = ipsSignature;
+                        signatureId = ips.GetPropertyOrDefault("signature_id", 0L);
+                        var ipsCategory = ips.GetPropertyOrDefault("category_name", "");
+                        if (!string.IsNullOrEmpty(ipsCategory))
+                            category = ipsCategory;
+                        // Use Suricata severity when available (inner_alert_severity maps from the ips.advanced_information)
+                        var ipsSeverityStr = ips.GetPropertyOrDefault("advanced_information", "");
+                        if (ipsSeverityStr.StartsWith("IPS Alert ", StringComparison.OrdinalIgnoreCase) &&
+                            ipsSeverityStr.Length > 10 && char.IsDigit(ipsSeverityStr[10]))
+                        {
+                            var suricataSeverity = ipsSeverityStr[10] - '0';
+                            if (suricataSeverity is >= 1 and <= 4)
+                                severity = NormalizeSeverity(suricataSeverity);
+                        }
+                    }
+                }
+
                 var threatEvent = new ThreatEvent
                 {
                     InnerAlertId = $"flow-{id}",
@@ -190,9 +216,9 @@ public class ThreatEventNormalizer
                     DestIp = destIp,
                     DestPort = destPort,
                     Protocol = protocol,
-                    SignatureId = 0,
-                    SignatureName = $"Flow: {service} {direction} {action}",
-                    Category = $"{risk} risk {direction} {service}",
+                    SignatureId = signatureId,
+                    SignatureName = signatureName,
+                    Category = category,
                     Severity = severity,
                     Action = threatAction,
                     EventSource = EventSource.TrafficFlow,

@@ -1104,7 +1104,10 @@ else
                                 <tr>
                                     <th>Signature</th>
                                     <th class="hide-mobile">Category</th>
-                                    <th>Events</th>
+                                    <th class="hide-mobile">Port</th>
+                                    <th class="hide-mobile">Domain</th>
+                                    <th>Blocked</th>
+                                    <th>Detected</th>
                                     <th>Severity</th>
                                 </tr>
                             </thead>
@@ -1126,7 +1129,33 @@ else
                                                 }
                                             }
                                         </td>
-                                        <td>@FormatNumber(sig.EventCount)</td>
+                                        <td class="hide-mobile">
+                                            @if (sig.TopDestPort > 0)
+                                            {
+                                                <span>@sig.TopDestPort</span>
+                                                var svcName = GetPortServiceName(sig.TopDestPort);
+                                                @if (svcName != sig.TopDestPort.ToString())
+                                                {
+                                                    <span class="text-muted"> (@svcName)</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td class="hide-mobile text-truncate-200">
+                                            @if (!string.IsNullOrEmpty(sig.Domain))
+                                            {
+                                                <span>@sig.Domain</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td>@FormatNumber(sig.BlockedCount)</td>
+                                        <td>@FormatNumber(sig.DetectedCount)</td>
                                         <td>
                                             <span class="severity-dot" style="background:@GetSeverityColor(sig.MaxSeverity);"></span>
                                             @GetSeverityLabel(sig.MaxSeverity)

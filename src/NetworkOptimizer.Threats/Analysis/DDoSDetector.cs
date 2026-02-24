@@ -41,11 +41,14 @@ public class DDoSDetector
                     if (uniqueSources >= MinUniqueSources)
                     {
                         var sourceIps = windowEvents.Select(e => e.SourceIp).Distinct().Take(20).ToList();
+                        // Include target IP so RenderPatternDescription can linkify it
+                        var linkableIps = new List<string> { group.Key.DestIp };
+                        linkableIps.AddRange(sourceIps);
                         patterns.Add(new ThreatPattern
                         {
                             PatternType = PatternType.DDoS,
                             DetectedAt = DateTime.UtcNow,
-                            SourceIpsJson = JsonSerializer.Serialize(sourceIps),
+                            SourceIpsJson = JsonSerializer.Serialize(linkableIps),
                             TargetPort = group.Key.DestPort,
                             EventCount = windowCount,
                             FirstSeen = windowEvents.First().Timestamp,
