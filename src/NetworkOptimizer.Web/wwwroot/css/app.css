@@ -1363,6 +1363,17 @@ a.btn-lg {
     background: var(--bg-elevated);
 }
 
+/* Tertiary - Elevated grey (for dismiss/subtle actions on tertiary backgrounds) */
+.btn-tertiary {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+}
+
+.btn-tertiary:hover:not(:disabled) {
+    background: var(--btn-map-hover);
+    color: var(--text-primary);
+}
+
 /* Danger - Red (for destructive actions) */
 .btn-danger {
     background: var(--danger-color);
@@ -2755,6 +2766,12 @@ select.form-control {
     color: rgba(255, 255, 255, 0.9);
 }
 
+.banner-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
 .connection-banner .btn-secondary {
     background: white;
     color: var(--warning-color) !important;
@@ -2773,6 +2790,21 @@ select.form-control {
 
     .connection-banner .banner-content .banner-text {
         flex-basis: calc(100% - 3.5rem);
+    }
+
+    .alert .banner-content {
+        flex-wrap: wrap;
+    }
+
+    .alert .banner-content .banner-text {
+        flex-basis: calc(100% - 3.5rem);
+    }
+
+    .alert .banner-content .banner-actions {
+        flex-basis: 100%;
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
     }
 }
 
