@@ -67,6 +67,18 @@ public class ThreatDashboardService
             var summary = await _repository.GetThreatSummaryAsync(from, to, cancellationToken);
             var killChain = await _repository.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topSources = await _repository.GetTopSourcesAsync(from, to, 10, cancellationToken);
+
+            // Re-enrich geo data directly on source IPs.
+            // Event-level CountryCode/AsnOrg may reflect the destination for flow events with private sources.
+            foreach (var source in topSources)
+            {
+                var geo = _geoService.Enrich(source.SourceIp);
+                source.CountryCode = geo.CountryCode;
+                source.City = geo.City;
+                source.Asn = geo.Asn;
+                source.AsnOrg = geo.AsnOrg;
+            }
+
             var topPorts = await _repository.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
             var patterns = await _repository.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
             _repository.SetSeverityFilter(null);
@@ -446,6 +458,7 @@ public class ThreatDashboardService
             {
                 Ip = ip,
                 CountryCode = countryCode,
+                AsnOrg = geoInfo.AsnOrg,
                 TotalEvents = events.Count,
                 BlockedCount = events.Count(e => e.Action == ThreatAction.Blocked),
                 DetectedCount = events.Count(e => e.Action != ThreatAction.Blocked),
@@ -838,6 +851,7 @@ public class IpDrilldownData
 {
     public string Ip { get; set; } = string.Empty;
     public string? CountryCode { get; set; }
+    public string? AsnOrg { get; set; }
     public int TotalEvents { get; set; }
     public int BlockedCount { get; set; }
     public int DetectedCount { get; set; }

@@ -19,17 +19,17 @@
 
 <div class="threat-page">
 <div class="page-header">
-    <h1>Threat Intelligence</h1>
+    <h1><a href="/threats" class="unstyled-link">Threat Intelligence</a></h1>
     <p class="page-description">IPS / IDS event analysis, attack patterns, and exposure mapping</p>
 </div>
 
 @* CrowdSec opt-in banner - only show when CTI is not configured *@
 @if (!_crowdSecEnabled && !_crowdSecBannerDismissed)
 {
-    <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--info-color);">
-        <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0.75rem 1rem;">
-            <span style="color:var(--text-secondary); font-size:0.9rem;">CrowdSec CTI enrichment adds reputation data and MITRE ATT&CK context to threat sources. Enable in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> to unlock this data.</span>
-            <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecBannerDismissed = true" style="flex-shrink:0;">Dismiss</button>
+    <div class="card banner-card">
+        <div class="card-body banner-card-body">
+            <span class="threat-desc-text">CrowdSec CTI enrichment adds reputation data and MITRE ATT&CK context to threat sources. Enable in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> to unlock this data.</span>
+            <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecBannerDismissed = true">Dismiss</button>
         </div>
     </div>
 }
@@ -37,10 +37,10 @@
 @* MaxMind GeoIP banner - only show when not configured *@
 @if (!_maxMindConfigured && !_maxMindBannerDismissed)
 {
-    <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--info-color);">
-        <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0.75rem 1rem;">
-            <span style="color:var(--text-secondary); font-size:0.9rem;">MaxMind GeoIP adds country, city, and ASN data to threat sources for geographic analysis. Configure in <a href="/settings#maxmind" style="color:var(--primary-color);">Settings</a>.</span>
-            <button class="btn btn-secondary btn-sm" @onclick="() => _maxMindBannerDismissed = true" style="flex-shrink:0;">Dismiss</button>
+    <div class="card banner-card">
+        <div class="card-body banner-card-body">
+            <span class="threat-desc-text">MaxMind GeoIP adds country, city, and ASN data to threat sources for geographic analysis. Configure in <a href="/settings#maxmind" style="color:var(--primary-color);">Settings</a>.</span>
+            <button class="btn btn-secondary btn-sm" @onclick="() => _maxMindBannerDismissed = true">Dismiss</button>
         </div>
     </div>
 }
@@ -68,8 +68,8 @@
     }
     else
     {
-        <div style="display:flex; align-items:center; gap:0.5rem;">
-            <button class="btn btn-secondary btn-sm" @onclick="GoBack" style="display:inline-flex; align-items:center; gap:0.35rem;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back</button>
+        <div class="drilldown-back">
+            <button class="btn btn-secondary btn-sm" @onclick="GoBack"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back</button>
             <span style="color:var(--text-secondary);">
                 @if (_drilldownPort != null) { <text>Port Details</text> }
                 else if (_drilldownProtocol != null) { <text>Protocol Details</text> }
@@ -77,7 +77,7 @@
             </span>
         </div>
     }
-    <div style="display:flex; align-items:center; gap:0.5rem;">
+    <div class="threat-controls">
         @if (_noiseFilters.Count > 0)
         {
             <div style="display:flex; align-items:center; gap:0.25rem;">
@@ -94,11 +94,10 @@
                         <span class="noise-filter-badge@(!_filtersActive ? " noise-filter-badge-off" : "")">@activeCount</span>
                     }
                 </button>
-                <button class="btn btn-sm btn-secondary"
+                <button class="btn btn-sm btn-secondary filter-gear-btn"
                         @onclick="() => _showFilterPanel = !_showFilterPanel"
                         data-tooltip="Configure noise filters"
-                        data-tooltip-hover-only
-                        style="padding:0.25rem 0.4rem; font-size:0.8rem; min-width:0; line-height:1;">&#9881;</button>
+                        data-tooltip-hover-only>&#9881;</button>
             </div>
         }
         else
@@ -123,7 +122,7 @@
                     @onclick='() => SetTimeRange("30d")'>30d</button>
             <button class="time-btn threat-time-preset hide-mobile @(_timeRange == "90d" ? "active" : "")"
                     @onclick='() => SetTimeRange("90d")'>90d</button>
-            <button class="time-btn @(_showCustomRange || _timeRange == "custom" ? "active" : "")" @onclick="ToggleCustomRange" style="display:inline-flex; align-items:center; gap:0.35rem;" data-tooltip="Custom date range" data-tooltip-hover-only>
+            <button class="time-btn custom-range-btn @(_showCustomRange || _timeRange == "custom" ? "active" : "")" @onclick="ToggleCustomRange" data-tooltip="Custom date range" data-tooltip-hover-only>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 @if (_timeRange == "custom")
                 {
@@ -131,17 +130,17 @@
                 }
             </button>
             <div class="custom-range-popover @(_showCustomRange ? "open" : "")">
-                <div style="display:flex; flex-direction:column; gap:0.75rem;">
-                    <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary);">Custom Range</div>
-                    <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                        <label style="font-size:0.75rem; color:var(--text-muted);">From</label>
+                <div class="custom-range-form">
+                    <div class="custom-range-title">Custom Range</div>
+                    <div class="custom-range-field">
+                        <label class="noise-filter-label">From</label>
                         <input type="datetime-local" value="@_customFromLocal" @onchange="e => SetCustomFrom(e.Value?.ToString())" class="custom-range-input" />
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                        <label style="font-size:0.75rem; color:var(--text-muted);">To</label>
+                    <div class="custom-range-field">
+                        <label class="noise-filter-label">To</label>
                         <input type="datetime-local" value="@_customToLocal" @onchange="e => SetCustomTo(e.Value?.ToString())" class="custom-range-input" />
                     </div>
-                    <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                    <div class="custom-range-actions">
                         <button class="btn btn-sm btn-secondary" @onclick="CancelCustomRange">Cancel</button>
                         <button class="btn btn-sm btn-primary" @onclick="ApplyCustomRange">Apply</button>
                     </div>
@@ -154,34 +153,34 @@
 @* Noise Filter Panel *@
 <div class="expand-wrapper @(_showFilterPanel ? "expanded" : "")">
     <div class="expand-content">
-        <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--accent-color);">
+        <div class="card banner-card banner-card-accent">
             <div class="card-body" style="padding:1rem;">
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-                    <h4 style="margin:0; font-size:0.95rem; font-weight:600;">Noise Filters</h4>
+                <div class="noise-filter-header">
+                    <h4>Noise Filters</h4>
                     <span style="color:var(--text-muted); font-size:0.8rem;">Hide noisy traffic from all dashboard views</span>
                 </div>
 
                 @* Add new filter form *@
-                <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:0.75rem;">
+                <div class="noise-filter-form">
                     <div>
-                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Source IP</label>
+                        <label class="noise-filter-label">Source IP</label>
                         <input type="text" @bind="_newFilterSourceIp" placeholder="IP or CIDR"
-                               style="width:150px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                               class="noise-filter-input" style="width:150px;" />
                     </div>
                     <div>
-                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest IP</label>
+                        <label class="noise-filter-label">Dest IP</label>
                         <input type="text" @bind="_newFilterDestIp" placeholder="IP or CIDR"
-                               style="width:150px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                               class="noise-filter-input" style="width:150px;" />
                     </div>
                     <div>
-                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Dest Port</label>
+                        <label class="noise-filter-label">Dest Port</label>
                         <input type="text" @bind="_newFilterDestPort" placeholder="any"
-                               style="width:80px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                               class="noise-filter-input" style="width:80px;" />
                     </div>
                     <div>
-                        <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.15rem;">Description</label>
+                        <label class="noise-filter-label">Description</label>
                         <input type="text" @bind="_newFilterDescription" placeholder="optional"
-                               style="width:200px; padding:0.3rem 0.5rem; background:var(--bg-primary); border:1px solid var(--bg-hover); border-radius:var(--border-radius); color:var(--text-primary); font-size:0.85rem;" />
+                               class="noise-filter-input" style="width:200px;" />
                     </div>
                     <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
                     @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription))
@@ -230,7 +229,7 @@
                 }
                 else
                 {
-                    <div style="color:var(--text-muted); font-size:0.85rem;">No filters configured. Add one above to hide noisy traffic.</div>
+                    <div class="text-muted-sm">No filters configured. Add one above to hide noisy traffic.</div>
                 }
             </div>
         </div>
@@ -241,7 +240,7 @@
 {
     var cursor = CollectionService.BackfillCursor.Value;
     var daysBack = (int)(DateTimeOffset.UtcNow - cursor).TotalDays;
-    <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; color:var(--text-muted); font-size:0.8rem;">
+    <div class="backfill-status">
         <span class="spinner-sm"></span>
         <span>Building historical data - coverage: @(daysBack > 0 ? $"{daysBack}d" : "< 1d") back (@cursor.ToLocalTime().ToString("MMM d") to present)</span>
     </div>
@@ -249,9 +248,9 @@
 
 @if (_collectingFirstData)
 {
-    <div class="loading-container" style="flex-direction:column; gap:1rem;">
+    <div class="loading-container first-data-loading">
         <span class="spinner"></span>
-        <p style="color:var(--text-secondary);">Collecting threat data from UniFi for the first time...</p>
+        <p class="threat-desc-text">Collecting threat data from UniFi for the first time...</p>
     </div>
 }
 else if (_loading && !_hasLoadedOnce)
@@ -266,7 +265,7 @@ else
     @if (_activeTab == "overview")
     {
         @* Summary stat cards *@
-        <div class="threat-summary-grid">
+        <div class="threat-summary-grid threat-summary-grid-compact">
             <div class="card threat-stat-card">
                 <div class="threat-stat-value" style="color:var(--text-primary);">@FormatNumber(_dashboardData.Summary.TotalEvents)</div>
                 <div class="threat-stat-label">Total Events</div>
@@ -424,7 +423,7 @@ else
         </div>
 
         @* Top Sources *@
-        <div class="card" style="margin-bottom:1.5rem;">
+        <div class="card card-spaced">
             <div class="card-header">
                 <h3 class="card-title">Top Sources</h3>
             </div>
@@ -450,17 +449,18 @@ else
                                 @foreach (var source in _dashboardData.TopSources)
                                 {
                                     <tr>
-                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)"><code>@source.SourceIp</code></a>@if (srcName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcName</span> }</td>
-                                        <td>@if (string.IsNullOrEmpty(source.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(source.CountryCode)" style="cursor:default">@CountryFlag(source.CountryCode)</span> }</td>
+                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)"><code>@source.SourceIp</code></a>@if (srcName != null) { <span class="ip-client-name">@srcName</span> }</td>
+                                        <td>@if (string.IsNullOrEmpty(source.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(source.CountryCode)">@CountryFlag(source.CountryCode)</span> }</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
                                         <td>
-                                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:@GetSeverityColor(source.MaxSeverity); margin-right:0.4rem;"></span>
+                                            <span class="severity-dot" style="background:@GetSeverityColor(source.MaxSeverity);"></span>
                                             @GetSeverityLabel(source.MaxSeverity)
                                         </td>
                                         @if (_crowdSecEnabled)
                                         {
                                             <td class="hide-mobile">
+                                                <div class="reputation-cell-inner">
                                                 @{
                                                     // Check manual cache first (persists across auto-refresh)
                                                     var hasCachedCti = _manualCtiCache.TryGetValue(source.SourceIp, out var cachedCti);
@@ -502,6 +502,7 @@ else
                                                 {
                                                     <span style="color:var(--text-muted);">-</span>
                                                 }
+                                                </div>
                                             </td>
                                         }
                                     </tr>
@@ -520,7 +521,7 @@ else
         </div>
 
         @* Top Targeted Ports *@
-        <div class="card" style="margin-bottom:1.5rem;">
+        <div class="card card-spaced">
             <div class="card-header">
                 <h3 class="card-title">Top Targeted Ports</h3>
             </div>
@@ -546,7 +547,7 @@ else
                                         <td>@GetPortServiceName(port.Port)</td>
                                         <td>@FormatNumber(port.EventCount)</td>
                                         <td class="hide-mobile">@FormatNumber(port.UniqueSourceIps)</td>
-                                        <td class="hide-mobile" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@PrettifySignature(port.TopSignature)</td>
+                                        <td class="hide-mobile text-truncate-300">@PrettifySignature(port.TopSignature)</td>
                                     </tr>
                                 }
                             </tbody>
@@ -563,7 +564,7 @@ else
         </div>
 
         @* Attack Patterns *@
-        <div class="card" style="margin-bottom:1.5rem;">
+        <div class="card card-spaced">
             <div class="card-header">
                 <h3 class="card-title">Attack Patterns</h3>
             </div>
@@ -578,7 +579,7 @@ else
                                     <th>Description</th>
                                     <th class="hide-mobile">Confidence</th>
                                     <th>Events</th>
-                                    <th class="hide-mobile">Detected</th>
+                                    <th class="hide-mobile">Last Detected</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -586,14 +587,14 @@ else
                                 {
                                     <tr>
                                         <td>
-                                            <span class="status-badge" style="background:var(--bg-hover); color:var(--text-secondary); font-size:0.8rem;">
+                                            <span class="status-badge pattern-type-badge">
                                                 @GetPatternTypeLabel(pattern.PatternType)
                                             </span>
                                         </td>
                                         <td>@RenderPatternDescription(pattern)</td>
                                         <td class="hide-mobile">@($"{pattern.Confidence:P0}")</td>
                                         <td>@FormatNumber(pattern.EventCount)</td>
-                                        <td class="hide-mobile">@pattern.DetectedAt.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                        <td class="hide-mobile">@pattern.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                     </tr>
                                 }
                             </tbody>
@@ -624,12 +625,12 @@ else
             @* Geo-block recommendation banner *@
             @if (_exposureReport.GeoBlockRecommendation is { } geoRec && geoRec.Countries.Count > 0)
             {
-                <div class="card" style="margin-bottom:1rem; border-left:3px solid var(--warning-color);">
+                <div class="card banner-card banner-card-warning">
                     <div class="card-body" style="padding:0.75rem 1rem;">
-                        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;">
+                        <div class="geo-rec-title">
                             <strong style="color:var(--warning-color);">Geo-Block Recommendation</strong>
                         </div>
-                        <div style="color:var(--text-secondary); font-size:0.9rem;">
+                        <div class="threat-desc-text">
                             Blocking
                             @foreach (var (country, idx) in geoRec.Countries.Select((c, i) => (c, i)))
                             {
@@ -644,7 +645,7 @@ else
             }
 
             @* Summary row *@
-            <div class="threat-summary-grid" style="grid-template-columns:repeat(3, 1fr); margin-bottom:1.5rem;">
+            <div class="threat-summary-grid" style="grid-template-columns:repeat(3, 1fr);">
                 <div class="card threat-stat-card">
                     <div class="threat-stat-value" style="color:var(--text-primary);">@_exposureReport.TotalExposedPorts</div>
                     <div class="threat-stat-label">Exposed Ports</div>
@@ -689,7 +690,7 @@ else
                                             <td>
                                                 @if (svc.ThreatCount > 0)
                                                 {
-                                                    <span style="color:#ef4444; font-weight:600;">@FormatNumber(svc.ThreatCount)</span>
+                                                    <span class="threat-count-danger">@FormatNumber(svc.ThreatCount)</span>
                                                 }
                                                 else
                                                 {
@@ -697,7 +698,7 @@ else
                                                 }
                                             </td>
                                             <td class="hide-mobile">@FormatNumber(svc.UniqueSourceIps)</td>
-                                            <td class="hide-mobile" style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                            <td class="hide-mobile text-truncate-300">
                                                 @(svc.TopSignatures.Count > 0 ? string.Join(", ", svc.TopSignatures.Take(2).Select(PrettifySignature)) : "-")
                                             </td>
                                         </tr>
@@ -745,7 +746,7 @@ else
                                 {
                                     var pct = geoTotal > 0 ? (double)entry.Value / geoTotal * 100 : 0;
                                     <tr>
-                                        <td><span style="cursor:default">@CountryFlag(entry.Key)</span><span style="margin-left:0.4rem;"><strong>@(CountryNames.TryGetValue(entry.Key, out var countryName) ? countryName : entry.Key)</strong></span></td>
+                                        <td><span class="flag-icon">@CountryFlag(entry.Key)</span><span style="margin-left:0.4rem;"><strong>@(CountryNames.TryGetValue(entry.Key, out var countryName) ? countryName : entry.Key)</strong></span></td>
                                         <td>@FormatNumber(entry.Value)</td>
                                         <td>@($"{pct:F1}")%</td>
                                         <td class="hide-mobile" style="width:40%;">
@@ -795,11 +796,11 @@ else
                                 @foreach (var seq in _attackSequences)
                                 {
                                     <tr>
-                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)"><code>@seq.SourceIp</code></a>@if (seqName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@seqName</span> }</td>
-                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(seq.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(seq.CountryCode)" style="cursor:default">@CountryFlag(seq.CountryCode)</span> }</td>
-                                        <td class="hide-mobile" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(seq.AsnOrg ?? "-")</td>
+                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)"><code>@seq.SourceIp</code></a>@if (seqName != null) { <span class="ip-client-name">@seqName</span> }</td>
+                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(seq.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(seq.CountryCode)">@CountryFlag(seq.CountryCode)</span> }</td>
+                                        <td class="hide-mobile text-truncate-200">@(seq.AsnOrg ?? "-")</td>
                                         <td>
-                                            <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+                                            <div class="stage-bars">
                                                 @foreach (var stage in seq.Stages)
                                                 {
                                                     <span class="stage-bar"
@@ -833,28 +834,32 @@ else
     @if (_activeTab == "drilldown" && _drilldownData != null)
     {
         @* Header: IP + client name + first/last seen *@
-        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
-            <h2 style="margin:0; font-size:1.5rem; font-weight:700; line-height:1.2;">
-                <code style="font-size:1.3rem;">@_drilldownData.Ip</code>
+        <div class="drilldown-header">
+            <h2 class="drilldown-title" style="margin-top:-4px; line-height:1.2;">
+                <code>@_drilldownData.Ip</code>
             </h2>
             @{ var drilldownName = GetClientName(_drilldownData.Ip); }
             @if (drilldownName != null)
             {
-                <span style="color:var(--text-secondary); font-size:1rem;">@drilldownName</span>
+                <span class="drilldown-subtitle">@drilldownName</span>
             }
             @if (!string.IsNullOrEmpty(_drilldownData.CountryCode))
             {
-                <span data-tooltip="@CountryTooltip(_drilldownData.CountryCode)" style="cursor:default; font-size:1.1rem;">
+                <span class="flag-icon" data-tooltip="@CountryTooltip(_drilldownData.CountryCode)" style="font-size:1.1rem;">
                     @CountryFlag(_drilldownData.CountryCode)
                 </span>
-                <span style="color:var(--text-secondary); font-size:0.9rem;">@(CountryNames.TryGetValue(_drilldownData.CountryCode, out var cn) ? cn : _drilldownData.CountryCode.ToUpperInvariant())</span>
+                <span class="threat-desc-text">@(CountryNames.TryGetValue(_drilldownData.CountryCode, out var cn) ? cn : _drilldownData.CountryCode.ToUpperInvariant())</span>
+            }
+            @if (!string.IsNullOrEmpty(_drilldownData.AsnOrg))
+            {
+                <span class="hide-mobile drilldown-asn text-truncate-300">@_drilldownData.AsnOrg</span>
             }
             @if (_crowdSecEnabled && !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(_drilldownData.Ip))
             {
                 var hasDrilldownCti = _manualCtiCache.TryGetValue(_drilldownData.Ip, out var drilldownCti);
                 var drilldownBadge = drilldownCti?.Badge;
                 var drilldownBehaviors = drilldownCti?.Behaviors;
-                <span style="display:inline-flex; align-items:center; gap:0.5rem;">
+                <span class="cti-inline-group">
                 @if (drilldownBadge != null)
                 {
                     <span class="reputation-badge reputation-@drilldownBadge"
@@ -871,7 +876,7 @@ else
                 }
                 else if (hasDrilldownCti)
                 {
-                    <span style="color:var(--text-muted); font-size:0.85rem;">Not in CrowdSec DB</span>
+                    <span class="text-muted-sm">Not in CrowdSec DB</span>
                 }
                 else if (_lookingUpIp == _drilldownData.Ip)
                 {
@@ -888,7 +893,7 @@ else
             }
             @if (_drilldownData.FirstSeen.HasValue)
             {
-                <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
+                <span class="drilldown-time">
                     @_drilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_drilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
@@ -900,14 +905,14 @@ else
             var ctiEntry = _manualCtiCache.GetValueOrDefault(_drilldownData.Ip);
             @if (ctiEntry?.Behaviors != null)
             {
-                <div style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.85rem;">
-                    <span style="color:var(--text-muted);">Known Behaviors:</span> @ctiEntry.Behaviors
+                <div class="cti-detail" style="margin-bottom:0.5rem;">
+                    <span class="cti-detail-label">Known Behaviors:</span> @ctiEntry.Behaviors
                 </div>
             }
             @if (ctiEntry?.MitreTechniques?.Count > 0)
             {
-                <div style="margin-bottom:1rem; color:var(--text-secondary); font-size:0.85rem;">
-                    <span style="color:var(--text-muted);">MITRE Techniques: </span>
+                <div class="cti-detail" style="margin-bottom:1rem;">
+                    <span class="cti-detail-label">MITRE Techniques: </span>
                     @foreach (var technique in ctiEntry.MitreTechniques)
                     {
                         <span class="mitre-technique" data-tooltip="@(technique.Name) - @(technique.Description)">@technique.Label</span>
@@ -939,7 +944,7 @@ else
         @* Destinations Accessed (when IP is source) *@
         @if (_drilldownData.Destinations.Count > 0)
         {
-            <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card card-spaced">
                 <div class="card-header">
                     <h3 class="card-title">Destinations Accessed</h3>
                 </div>
@@ -961,13 +966,13 @@ else
                                 @foreach (var dest in _drilldownData.Destinations)
                                 {
                                     <tr>
-                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@destName</span> }</td>
+                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
                                         <td class="hide-mobile">@(dest.Domain ?? "-")</td>
-                                        <td><code style="font-size:0.8rem;">@dest.PortRanges</code></td>
+                                        <td><code class="code-sm">@dest.PortRanges</code></td>
                                         <td class="hide-mobile">@FormatServices(dest.Services)</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
                                         <td>@(dest.BlockedCount > 0 ? FormatNumber(dest.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
+                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(_drilldownIp, dest.Ip, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
                                     </tr>
                                 }
                             </tbody>
@@ -980,7 +985,7 @@ else
         @* Sources Targeting (when IP is destination) *@
         @if (_drilldownData.Sources.Count > 0)
         {
-            <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card card-spaced">
                 <div class="card-header">
                     <h3 class="card-title">Sources Targeting This IP</h3>
                 </div>
@@ -1002,13 +1007,13 @@ else
                                 @foreach (var src in _drilldownData.Sources.Take(_sourcesVisible))
                                 {
                                     <tr>
-                                        <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a>@if (srcPeerName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@srcPeerName</span> }</td>
+                                        <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a>@if (srcPeerName != null) { <span class="ip-client-name">@srcPeerName</span> }</td>
                                         <td class="hide-mobile">@(src.Domain ?? "-")</td>
-                                        <td><code style="font-size:0.8rem;">@src.PortRanges</code></td>
+                                        <td><code class="code-sm">@src.PortRanges</code></td>
                                         <td class="hide-mobile">@FormatServices(src.Services)</td>
                                         <td>@FormatNumber(src.EventCount)</td>
                                         <td>@(src.BlockedCount > 0 ? FormatNumber(src.BlockedCount) : "-")</td>
-                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary" style="font-size:0.7rem; padding:0.15rem 0.4rem;" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
+                                        <td class="hide-mobile"><button class="btn btn-sm btn-secondary quick-filter-btn" @onclick="() => QuickFilterFromDrilldown(src.Ip, _drilldownIp, null)" data-tooltip="Add noise filter for this source-dest pair" data-tooltip-hover-only>Filter</button></td>
                                     </tr>
                                 }
                             </tbody>
@@ -1016,7 +1021,7 @@ else
                     </div>
                     @if (_drilldownData.Sources.Count > _sourcesVisible)
                     {
-                        <div style="text-align:center; padding:0.75rem;">
+                        <div class="show-more-row">
                             <button class="btn btn-sm btn-secondary" @onclick="() => _sourcesVisible += DrilldownPageSize">
                                 Show more (@(_drilldownData.Sources.Count - _sourcesVisible) remaining)
                             </button>
@@ -1029,7 +1034,7 @@ else
         @* Port Ranges *@
         @if (_drilldownData.PortRanges.Count > 0)
         {
-            <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card card-spaced">
                 <div class="card-header">
                     <h3 class="card-title">Port Ranges</h3>
                 </div>
@@ -1075,7 +1080,7 @@ else
                     </div>
                     @if (_drilldownData.PortRanges.Count > _portRangesVisible)
                     {
-                        <div style="text-align:center; padding:0.75rem;">
+                        <div class="show-more-row">
                             <button class="btn btn-sm btn-secondary" @onclick="() => _portRangesVisible += DrilldownPageSize">
                                 Show more (@(_drilldownData.PortRanges.Count - _portRangesVisible) remaining)
                             </button>
@@ -1088,7 +1093,7 @@ else
         @* Top Signatures *@
         @if (_drilldownData.TopSignatures.Count > 0)
         {
-            <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card card-spaced">
                 <div class="card-header">
                     <h3 class="card-title">Top Signatures</h3>
                 </div>
@@ -1107,7 +1112,7 @@ else
                                 @foreach (var sig in _drilldownData.TopSignatures)
                                 {
                                     <tr>
-                                        <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@PrettifySignature(sig.Name)</td>
+                                        <td class="text-truncate-400">@PrettifySignature(sig.Name)</td>
                                         <td class="hide-mobile">
                                             @if (string.IsNullOrEmpty(sig.Category))
                                             {
@@ -1123,7 +1128,7 @@ else
                                         </td>
                                         <td>@FormatNumber(sig.EventCount)</td>
                                         <td>
-                                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:@GetSeverityColor(sig.MaxSeverity); margin-right:0.4rem;"></span>
+                                            <span class="severity-dot" style="background:@GetSeverityColor(sig.MaxSeverity);"></span>
                                             @GetSeverityLabel(sig.MaxSeverity)
                                         </td>
                                     </tr>
@@ -1146,17 +1151,17 @@ else
     @* ========== Port Drill-Down ========== *@
     @if (_activeTab == "drilldown" && _portDrilldownData != null)
     {
-        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
-            <h2 style="margin:0; font-size:1.5rem; font-weight:700; display:flex; align-items:baseline; gap:0.5rem;">
-                <code style="font-size:1.3rem;">Port @_portDrilldownData.Port</code>
+        <div class="drilldown-header">
+            <h2 class="drilldown-title drilldown-title-inline">
+                <code>Port @_portDrilldownData.Port</code>
                 @if (!string.IsNullOrEmpty(_portDrilldownData.ServiceName))
                 {
-                    <span style="color:var(--text-secondary); font-size:1rem; font-weight:400;">@_portDrilldownData.ServiceName</span>
+                    <span class="drilldown-subtitle">@_portDrilldownData.ServiceName</span>
                 }
             </h2>
             @if (_portDrilldownData.FirstSeen.HasValue)
             {
-                <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
+                <span class="drilldown-time">
                     @_portDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_portDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
@@ -1183,12 +1188,12 @@ else
 
         @if (_portDrilldownData.Protocols.Count > 0)
         {
-            <div style="display:flex; align-items:baseline; gap:0.5rem; margin-bottom:0.5rem; flex-wrap:wrap;">
-                <span style="color:var(--text-muted); font-size:0.85rem;">Protocols:</span>
+            <div class="protocols-row">
+                <span class="text-muted-sm">Protocols:</span>
                 @foreach (var proto in _portDrilldownData.Protocols)
                 {
                     <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToProtocol(proto.Protocol)">
-                        <code>@FormatServiceToken(proto.Protocol)</code> <span style="color:var(--text-muted); font-size:0.75rem;">(@proto.EventCount)</span>
+                        <code>@FormatServiceToken(proto.Protocol)</code> <span class="text-muted-sm" style="font-size:0.75rem;">(@proto.EventCount)</span>
                     </a>
                 }
             </div>
@@ -1196,9 +1201,9 @@ else
 
         @if (_portDrilldownData.TopSources.Count > 0)
         {
-            <div class="card" style="margin-bottom:1rem;">
+            <div class="card card-spaced-sm">
                 <div class="card-header"><span class="card-title">Top Source IPs</span></div>
-                <div class="card-body" style="padding:0;">
+                <div class="card-body card-body-flush">
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead>
@@ -1216,8 +1221,8 @@ else
                                 {
                                     <tr>
                                         <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
-                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(src.CountryCode)" style="cursor:default">@CountryFlag(src.CountryCode)</span> }</td>
-                                        <td class="hide-mobile"><span style="max-width:200px; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(src.AsnOrg ?? "-")</span></td>
+                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(src.CountryCode)">@CountryFlag(src.CountryCode)</span> }</td>
+                                        <td class="hide-mobile"><span class="text-truncate-300" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
                                         <td>@src.BlockedCount</td>
                                         <td class="hide-mobile">@src.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
@@ -1232,9 +1237,9 @@ else
 
         @if (_portDrilldownData.TopDestinations.Count > 0)
         {
-            <div class="card" style="margin-bottom:1rem;">
+            <div class="card card-spaced-sm">
                 <div class="card-header"><span class="card-title">Top Destinations</span></div>
-                <div class="card-body" style="padding:0;">
+                <div class="card-body card-body-flush">
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead>
@@ -1249,7 +1254,7 @@ else
                                 @foreach (var dest in _portDrilldownData.TopDestinations)
                                 {
                                     <tr>
-                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span style="color:var(--text-muted); margin-left:0.25rem;">@destName</span> }</td>
+                                        <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
                                         <td>@dest.EventCount</td>
                                         <td>@dest.BlockedCount</td>
                                         <td>@dest.UniqueSourceIps</td>
@@ -1264,9 +1269,9 @@ else
 
         @if (_portDrilldownData.TopSignatures.Count > 0)
         {
-            <div class="card" style="margin-bottom:1rem;">
+            <div class="card card-spaced-sm">
                 <div class="card-header"><span class="card-title">Top Signatures</span></div>
-                <div class="card-body" style="padding:0;">
+                <div class="card-body card-body-flush">
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead><tr><th>Signature</th><th>Category</th><th>Events</th></tr></thead>
@@ -1295,14 +1300,14 @@ else
     @* ========== Protocol Drill-Down ========== *@
     @if (_activeTab == "drilldown" && _protocolDrilldownData != null)
     {
-        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
-            <h2 style="margin:0; font-size:1.5rem; font-weight:700; display:flex; align-items:baseline; gap:0.5rem;">
-                <code style="font-size:1.3rem;">@FormatServiceToken(_protocolDrilldownData.Protocol)</code>
-                <span style="color:var(--text-secondary); font-size:1rem; font-weight:400;">Protocol</span>
+        <div class="drilldown-header">
+            <h2 class="drilldown-title drilldown-title-inline">
+                <code>@FormatServiceToken(_protocolDrilldownData.Protocol)</code>
+                <span class="drilldown-subtitle">Protocol</span>
             </h2>
             @if (_protocolDrilldownData.FirstSeen.HasValue)
             {
-                <span style="color:var(--text-muted); font-size:0.8rem; margin-left:auto;">
+                <span class="drilldown-time">
                     @_protocolDrilldownData.FirstSeen.Value.ToLocalTime().ToString("MMM dd HH:mm") - @_protocolDrilldownData.LastSeen?.ToLocalTime().ToString("MMM dd HH:mm")
                 </span>
             }
@@ -1329,9 +1334,9 @@ else
 
         @if (_protocolDrilldownData.TopPorts.Count > 0)
         {
-            <div class="card" style="margin-bottom:1rem;">
+            <div class="card card-spaced-sm">
                 <div class="card-header"><span class="card-title">Top Targeted Ports</span></div>
-                <div class="card-body" style="padding:0;">
+                <div class="card-body card-body-flush">
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead><tr><th>Port</th><th>Service</th><th>Events</th><th>Blocked</th></tr></thead>
@@ -1354,9 +1359,9 @@ else
 
         @if (_protocolDrilldownData.TopSources.Count > 0)
         {
-            <div class="card" style="margin-bottom:1rem;">
+            <div class="card card-spaced-sm">
                 <div class="card-header"><span class="card-title">Top Source IPs</span></div>
-                <div class="card-body" style="padding:0;">
+                <div class="card-body card-body-flush">
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead>
@@ -1374,8 +1379,8 @@ else
                                 {
                                     <tr>
                                         <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
-                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span data-tooltip="@CountryTooltip(src.CountryCode)" style="cursor:default">@CountryFlag(src.CountryCode)</span> }</td>
-                                        <td class="hide-mobile"><span style="max-width:200px; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@(src.AsnOrg ?? "-")</span></td>
+                                        <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(src.CountryCode)">@CountryFlag(src.CountryCode)</span> }</td>
+                                        <td class="hide-mobile"><span class="text-truncate-300" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
                                         <td>@src.BlockedCount</td>
                                         <td class="hide-mobile">@src.LastSeen.ToLocalTime().ToString("MMM dd HH:mm")</td>
@@ -1390,9 +1395,9 @@ else
 
         @if (_protocolDrilldownData.TopSignatures.Count > 0)
         {
-            <div class="card" style="margin-bottom:1rem;">
+            <div class="card card-spaced-sm">
                 <div class="card-header"><span class="card-title">Top Signatures</span></div>
-                <div class="card-body" style="padding:0;">
+                <div class="card-body card-body-flush">
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead><tr><th>Signature</th><th>Category</th><th>Events</th></tr></thead>
@@ -1446,6 +1451,9 @@ else
     }
 
     .threat-summary-grid .card {
+        margin-bottom: 1.5rem;
+    }
+    .threat-summary-grid-compact .card {
         margin-bottom: 0.75rem;
     }
 
@@ -1463,7 +1471,6 @@ else
     .threat-stat-label {
         font-size: 0.85rem;
         color: var(--text-muted);
-        margin-top: 0.25rem;
     }
 
     .threat-two-chart-row {
@@ -1632,6 +1639,287 @@ else
         margin: 0.2rem 0.25rem 0.2rem 0;
         font-size: 0.8rem;
         cursor: default;
+    }
+
+    /* Drilldown header: IP/Port/Protocol title row */
+    .drilldown-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        min-height: 33px;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+    .drilldown-title {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+    .drilldown-title-inline {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+    }
+    .drilldown-title code {
+        font-size: 1.3rem;
+    }
+    .drilldown-subtitle {
+        color: var(--text-secondary);
+        font-size: 1rem;
+        font-weight: 400;
+    }
+    .drilldown-time {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        margin-left: auto;
+    }
+
+    /* Colored severity dot (background set inline) */
+    .severity-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 0.4rem;
+    }
+
+    /* Noise filter form labels and inputs */
+    .noise-filter-label {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-bottom: 0.15rem;
+    }
+    .noise-filter-input {
+        padding: 0.3rem 0.5rem;
+        background: var(--bg-primary);
+        border: 1px solid var(--bg-hover);
+        border-radius: var(--border-radius);
+        color: var(--text-primary);
+        font-size: 0.85rem;
+    }
+
+    /* Muted client name beside IPs */
+    .ip-client-name {
+        color: var(--text-muted);
+        margin-left: 0.25rem;
+    }
+
+    /* Info/warning banner cards with colored left border */
+    .banner-card {
+        margin-bottom: 1rem;
+        border-left: 3px solid var(--info-color);
+    }
+    .banner-card-warning {
+        border-left-color: var(--warning-color);
+    }
+    .banner-card-accent {
+        border-left-color: var(--accent-color);
+    }
+    .banner-card-body {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.75rem 1rem;
+    }
+
+    /* Quick filter buttons in drilldown tables */
+    .quick-filter-btn {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.4rem;
+    }
+
+    .reputation-cell-inner {
+        min-height: 33px;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Card spacing: section cards (1.5rem) and sub-cards (1rem) */
+    .threat-page .card-spaced { margin-bottom: 1.5rem; }
+    .threat-page .card-spaced-sm { margin-bottom: 1rem; }
+
+    /* Card body with no padding (table flush to edges) */
+    .card-body-flush { padding: 0; }
+
+    /* Country flag emoji (no pointer cursor) */
+    .flag-icon { cursor: default; }
+
+    /* Banner/description text */
+    .threat-desc-text {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+    .drilldown-asn {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    /* Dismiss button inside banner-card-body */
+    .banner-card-body > .btn { flex-shrink: 0; }
+
+    /* Noise filter panel header */
+    .noise-filter-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.75rem;
+    }
+    .noise-filter-header h4 {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+
+    /* Noise filter add-form row */
+    .noise-filter-form {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+    }
+
+    /* Small code for port ranges */
+    .code-sm { font-size: 0.8rem; }
+
+    /* "Show more" pagination row */
+    .show-more-row {
+        text-align: center;
+        padding: 0.75rem;
+    }
+
+    /* Muted helper text */
+    .text-muted-sm {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    /* Backfill progress bar */
+    .backfill-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
+
+    /* First-data loading state */
+    .first-data-loading {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    /* CTI detail rows (behaviors, MITRE techniques) */
+    .cti-detail {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+    .cti-detail-label {
+        color: var(--text-muted);
+    }
+
+    /* Custom range popover layout */
+    .custom-range-form {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .custom-range-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .custom-range-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .custom-range-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+    }
+
+    /* Drilldown back button row */
+    .drilldown-back {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+    }
+    .drilldown-back .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    /* Header bar right-side controls */
+    .threat-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Protocols list row in port drilldown */
+    .protocols-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    /* Pattern type badge */
+    .pattern-type-badge {
+        background: var(--bg-hover);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
+    /* Threat count highlight in exposure table */
+    .threat-count-danger {
+        color: #ef4444;
+        font-weight: 600;
+    }
+
+    /* Geo-block recommendation title row */
+    .geo-rec-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+    }
+
+    /* Inline CrowdSec reputation group */
+    .cti-inline-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Filter gear button */
+    .filter-gear-btn {
+        padding: 0.25rem 0.4rem;
+        font-size: 0.8rem;
+        min-width: 0;
+        line-height: 1;
+    }
+
+    /* Custom range calendar button */
+    .custom-range-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    /* Stage bars flex container */
+    .stage-bars {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        flex-wrap: wrap;
     }
 </style>
 
@@ -2014,20 +2302,20 @@ else
             var apiClient = UniFiClientAccessor.Client;
             if (apiClient == null) return;
 
-            var clients = await apiClient.GetClientsAsync();
+            var clients = await apiClient.GetAllKnownClientsAsync();
             if (clients == null) return;
 
             var names = new Dictionary<string, string>();
             foreach (var c in clients)
             {
-                var ip = c.Ip;
+                var ip = c.BestIp;
                 if (string.IsNullOrEmpty(ip)) continue;
 
                 var name = !string.IsNullOrEmpty(c.Name) ? c.Name
                     : !string.IsNullOrEmpty(c.Hostname) ? c.Hostname
                     : null;
                 if (name != null)
-                    names[ip] = name;
+                    names.TryAdd(ip, name);
             }
 
             lock (_clientNamesCacheLock)

@@ -335,6 +335,11 @@ a:hover {
     font-size: 0.875rem;
 }
 
+.unstyled-link {
+    color: inherit;
+    text-decoration: none;
+}
+
 /* Cards */
 .card {
     background: var(--bg-card);
@@ -1069,6 +1074,8 @@ a.stat-card-link:active {
     display: flex;
     align-items: flex-start;
     padding-top: 0.125rem;
+    width: 24px;
+    min-height: 24px;
 }
 
 .alert-item.alert-critical .alert-icon {
@@ -1182,6 +1189,11 @@ a.stat-card-link:active {
     border-radius: 0.25rem;
     font-size: 0.8125rem;
 }
+
+/* Text truncation utilities for table cells */
+.text-truncate-200 { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-truncate-300 { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-truncate-400 { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* TC Monitor Configuration */
 .section-description {

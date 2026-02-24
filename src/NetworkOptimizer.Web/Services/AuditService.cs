@@ -11,6 +11,7 @@ using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Threats.Interfaces;
+using NetworkOptimizer.Threats.Models;
 using AuditModels = NetworkOptimizer.Audit.Models;
 using StorageAuditResult = NetworkOptimizer.Storage.Models.AuditResult;
 
@@ -695,7 +696,7 @@ public class AuditService
                 TotalDetected = summary.DetectedCount,
                 UniqueSourceIps = summary.UniqueSourceIps,
                 TimeRange = "Last 30 days",
-                ByKillChain = killChain.ToDictionary(k => k.Key.ToString(), k => k.Value),
+                ByKillChain = killChain.ToDictionary(k => k.Key.ToDisplayString(), k => k.Value),
                 TopSources = topSources.Select(s => new Reports.ThreatSourceEntry
                 {
                     Ip = s.SourceIp,

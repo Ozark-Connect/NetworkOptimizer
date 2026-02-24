@@ -337,7 +337,7 @@ public class ThreatCollectionService : BackgroundService
                 // Skip if already alerted for this IP in this window
                 if (!_alertedChainIps.Add(seq.SourceIp)) continue;
 
-                var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage));
+                var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
                 var totalEvents = seq.Stages.Sum(s => s.EventCount);
                 var severity = lastStage is KillChainStage.ActiveExploitation or KillChainStage.PostExploitation
                     ? AlertSeverity.Critical : AlertSeverity.Warning;
@@ -380,7 +380,7 @@ public class ThreatCollectionService : BackgroundService
                 if (_alertedChainIps.Contains(seq.SourceIp)) continue;
                 if (!_alertedChainAttemptIps.Add(seq.SourceIp)) continue;
 
-                var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage));
+                var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
                 var totalEvents = seq.Stages.Sum(s => s.EventCount);
 
                 await _alertEventBus.PublishAsync(new AlertEvent
@@ -432,7 +432,7 @@ public class ThreatCollectionService : BackgroundService
                     {
                         ["signature_id"] = evt.SignatureId.ToString(),
                         ["category"] = evt.Category,
-                        ["kill_chain_stage"] = evt.KillChainStage.ToString(),
+                        ["kill_chain_stage"] = evt.KillChainStage.ToDisplayString(),
                         ["country"] = evt.CountryCode ?? "unknown"
                     }
                 }, cancellationToken);
