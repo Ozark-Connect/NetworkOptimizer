@@ -746,7 +746,7 @@ public class VlanAnalyzer
 
             // Check if network is effectively isolated (via setting or firewall rule)
             var isEffectivelyIsolated = network.NetworkIsolationEnabled ||
-                IsIsolatedViaFirewall(network, networks, firewallRules, zoneLookup);
+                IsIsolatedViaFirewall(network, networks, firewallRules);
 
             // Check Security/Camera networks
             if (network.Purpose == NetworkPurpose.Security && !isEffectivelyIsolated)
@@ -832,8 +832,7 @@ public class VlanAnalyzer
     private bool IsIsolatedViaFirewall(
         NetworkInfo network,
         List<NetworkInfo> allNetworks,
-        List<FirewallRule>? firewallRules,
-        FirewallZoneLookup? zoneLookup)
+        List<FirewallRule>? firewallRules)
     {
         if (firewallRules == null || firewallRules.Count == 0)
             return false;
