@@ -2010,6 +2010,16 @@
     private static string FormatTime(DateTime utcTime)
     {
         var elapsed = DateTime.UtcNow - utcTime;
+        if (elapsed.TotalSeconds < 0)
+        {
+            // Future time (e.g. NextRunAt)
+            var until = -elapsed;
+            if (until.TotalMinutes < 1) return "Any moment";
+            if (until.TotalMinutes < 60) return $"in {(int)until.TotalMinutes}m";
+            if (until.TotalHours < 24) return $"in {(int)until.TotalHours}h {until.Minutes}m";
+            if (until.TotalDays < 7) return $"in {(int)until.TotalDays}d";
+            return utcTime.ToString("MMM d, yyyy");
+        }
         if (elapsed.TotalMinutes < 1) return "Just now";
         if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
