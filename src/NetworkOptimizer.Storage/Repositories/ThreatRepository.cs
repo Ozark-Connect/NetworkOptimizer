@@ -451,32 +451,39 @@ public class ThreatRepository : IThreatRepository
             IQueryable<ThreatEvent> srcQuery;
             IQueryable<ThreatEvent> dstQuery;
 
+            // IP searches match on SourceIp OR DestIp - need two GROUP BYs to detect role.
+            // Country/ASN searches match on event-level geo fields (which describe the source IP),
+            // so only group by SourceIp - the dest IPs in those events are unrelated to the query.
+            var ipSearch = false;
+
             if (ipExact != null)
             {
                 srcQuery = baseQ.Where(e => e.SourceIp == ipExact);
                 dstQuery = baseQ.Where(e => e.DestIp == ipExact);
+                ipSearch = true;
             }
             else if (ipPrefix != null)
             {
                 srcQuery = baseQ.Where(e => e.SourceIp.StartsWith(ipPrefix));
                 dstQuery = baseQ.Where(e => e.DestIp.StartsWith(ipPrefix));
+                ipSearch = true;
             }
             else if (countryCode != null)
             {
                 srcQuery = baseQ.Where(e => e.CountryCode == countryCode);
-                dstQuery = baseQ.Where(e => e.CountryCode == countryCode);
+                dstQuery = srcQuery; // unused
             }
             else if (asnNumber != null)
             {
                 srcQuery = baseQ.Where(e => e.Asn == asnNumber);
-                dstQuery = baseQ.Where(e => e.Asn == asnNumber);
+                dstQuery = srcQuery;
             }
             else if (asnOrgLike != null)
             {
                 // SQLite's instr() (used by Contains) is case-sensitive; use lower() for case-insensitive match
                 var lowerOrg = asnOrgLike.ToLowerInvariant();
                 srcQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.ToLower().Contains(lowerOrg));
-                dstQuery = baseQ.Where(e => e.AsnOrg != null && e.AsnOrg.ToLower().Contains(lowerOrg));
+                dstQuery = srcQuery;
             }
             else
             {
@@ -489,6 +496,19 @@ public class ThreatRepository : IThreatRepository
                 .OrderByDescending(g => g.Count)
                 .Take(limit)
                 .ToListAsync(cancellationToken);
+
+            if (!ipSearch)
+            {
+                // Country/ASN: source IPs only, all marked as "Source"
+                return sourceGroups.Select(g => new SearchResultEntry
+                {
+                    Ip = g.Ip,
+                    EventCount = g.Count,
+                    AsSourceCount = g.Count,
+                    MaxSeverity = g.MaxSev,
+                    Role = "Source"
+                }).ToList();
+            }
 
             var destGroups = await dstQuery
                 .GroupBy(e => e.DestIp)
@@ -524,6 +544,32 @@ public class ThreatRepository : IThreatRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to search IPs");
+            throw;
+        }
+    }
+
+    public async Task<List<SearchResultEntry>> GetTopDestinationIpsAsync(DateTime from, DateTime to,
+        int limit = 500, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await BaseQuery(from, to)
+                .GroupBy(e => e.DestIp)
+                .Select(g => new SearchResultEntry
+                {
+                    Ip = g.Key,
+                    EventCount = g.Count(),
+                    AsDestCount = g.Count(),
+                    MaxSeverity = g.Max(e => e.Severity),
+                    Role = "Destination"
+                })
+                .OrderByDescending(r => r.EventCount)
+                .Take(limit)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get top destination IPs");
             throw;
         }
     }

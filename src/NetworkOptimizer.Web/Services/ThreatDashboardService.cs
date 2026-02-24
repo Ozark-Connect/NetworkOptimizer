@@ -415,9 +415,43 @@ public class ThreatDashboardService
                 results = results.Where(r => NetworkUtilities.IsIpInSubnet(r.Ip, cidrForPostFilter)).ToList();
             }
 
-            // Geo-enrich each result
+            // For country/ASN/org searches, event-level geo only describes the source IP.
+            // Also search dest IPs by geo-enriching the top dest IPs and filtering by match.
+            var isGeoSearch = query.CountryCode != null || query.AsnNumber != null || query.AsnOrgLike != null;
+            if (isGeoSearch)
+            {
+                var topDests = await _repository.GetTopDestinationIpsAsync(from, to, 500, cancellationToken);
+                var sourceIps = results.Select(r => r.Ip).ToHashSet();
+
+                foreach (var dest in topDests)
+                {
+                    if (sourceIps.Contains(dest.Ip)) continue; // Already in results as source
+
+                    var geo = _geoService.Enrich(dest.Ip);
+                    dest.CountryCode = geo.CountryCode;
+                    dest.AsnOrg = geo.AsnOrg;
+                    dest.Asn = geo.Asn;
+
+                    var matches = false;
+                    if (query.CountryCode != null)
+                        matches = string.Equals(geo.CountryCode, query.CountryCode, StringComparison.OrdinalIgnoreCase);
+                    else if (query.AsnNumber != null)
+                        matches = geo.Asn == query.AsnNumber;
+                    else if (query.AsnOrgLike != null)
+                        matches = geo.AsnOrg?.Contains(query.AsnOrgLike, StringComparison.OrdinalIgnoreCase) == true;
+
+                    if (matches)
+                        results.Add(dest);
+                }
+
+                // Re-sort after merging
+                results = results.OrderByDescending(r => r.EventCount).Take(200).ToList();
+            }
+
+            // Geo-enrich each result (source results + IP searches don't have geo yet)
             foreach (var entry in results)
             {
+                if (entry.CountryCode != null) continue; // Already enriched (dest IPs from geo search)
                 var geo = _geoService.Enrich(entry.Ip);
                 entry.CountryCode = geo.CountryCode;
                 entry.AsnOrg = geo.AsnOrg;
