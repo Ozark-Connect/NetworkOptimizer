@@ -1185,6 +1185,11 @@ a.stat-card-link:active {
     font-size: 0.8125rem;
 }
 
+/* Text truncation utilities for table cells */
+.text-truncate-200 { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-truncate-300 { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-truncate-400 { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* TC Monitor Configuration */
 .section-description {
     color: var(--text-secondary);
