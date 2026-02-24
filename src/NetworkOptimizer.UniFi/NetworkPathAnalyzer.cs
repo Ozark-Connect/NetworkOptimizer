@@ -1102,6 +1102,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
     /// <summary>
     /// Gets the port speed for a specific port on a device.
+    /// Returns the LAG aggregate speed when the port is part of a Link Aggregation Group.
     /// </summary>
     private int GetPortSpeedFromRawDevices(
         Dictionary<string, UniFiDeviceResponse> rawDevices,
@@ -1118,14 +1119,69 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return 0;
         }
 
-        var port = device.PortTable?.FirstOrDefault(p => p.PortIdx == portIndex.Value);
+        if (device.PortTable == null || device.PortTable.Count == 0)
+        {
+            return 0;
+        }
+
+        return GetLagAggregateSpeed(device.PortTable, portIndex.Value);
+    }
+
+    /// <summary>
+    /// Gets the effective speed for a port, accounting for LAG (Link Aggregation Group) membership.
+    /// If the port is part of a LAG, returns the sum of all Up member port speeds.
+    /// Otherwise returns the individual port speed.
+    /// </summary>
+    internal static int GetLagAggregateSpeed(List<SwitchPort> portTable, int portIdx)
+    {
+        var port = portTable.FirstOrDefault(p => p.PortIdx == portIdx);
         if (port == null)
         {
             return 0;
         }
 
-        // Speed is in Mbps in the API
+        // Check if this port is a LAG child (aggregated by another port)
+        if (port.AggregatedBy.HasValue)
+        {
+            return SumLagMemberSpeeds(portTable, port.AggregatedBy.Value);
+        }
+
+        // Check if this port is a LAG parent (other ports are aggregated by it)
+        var children = portTable.Where(p => p.AggregatedBy == portIdx).ToList();
+        if (children.Count > 0)
+        {
+            return SumLagMemberSpeeds(portTable, portIdx);
+        }
+
+        // Not part of any LAG - return individual port speed
         return port.Speed;
+    }
+
+    /// <summary>
+    /// Sums the speeds of all Up members in a LAG group identified by the parent port index.
+    /// Includes the parent port itself plus all child ports with matching AggregatedBy.
+    /// </summary>
+    private static int SumLagMemberSpeeds(List<SwitchPort> portTable, int parentPortIdx)
+    {
+        var parent = portTable.FirstOrDefault(p => p.PortIdx == parentPortIdx);
+        var children = portTable.Where(p => p.AggregatedBy == parentPortIdx);
+
+        int total = 0;
+
+        if (parent is { Up: true })
+        {
+            total += parent.Speed;
+        }
+
+        foreach (var child in children)
+        {
+            if (child.Up)
+            {
+                total += child.Speed;
+            }
+        }
+
+        return total;
     }
 
     /// <summary>
