@@ -992,5 +992,41 @@ public class AccessPortVlanRuleTests
         };
     }
 
+    [Fact]
+    public void Evaluate_ForwardAllWithBlockAllTaggedVlans_NoIssue()
+    {
+        // UDB-style ports have forward="all" but tagged_vlan_mgmt="block_all",
+        // meaning all tagged VLANs are blocked. This is effectively an access port.
+        var switchInfo = new SwitchInfo
+        {
+            Name = "UDB Backyard",
+            Capabilities = new SwitchCapabilities()
+        };
+
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = false,
+            ForwardMode = "all",
+            TaggedVlanMgmt = "block_all",
+            IsUplink = false,
+            IsWan = false,
+            NativeNetworkId = "net-1",
+            ExcludedNetworkIds = null,
+            ConnectedDeviceType = null,
+            ConnectedClient = null,
+            LastConnectionMac = null,
+            AllowedMacAddresses = null,
+            Switch = switchInfo
+        };
+
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks, networks);
+
+        result.Should().BeNull("port with tagged_vlan_mgmt=block_all is effectively an access port");
+    }
+
     #endregion
 }

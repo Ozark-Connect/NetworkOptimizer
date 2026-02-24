@@ -3348,6 +3348,28 @@ public class VlanAnalyzerTests
         issues.Should().BeEmpty();
     }
 
+    [Fact]
+    public void AnalyzeInfrastructureVlanPlacement_RecommendedAction_NoReclassifyHint()
+    {
+        // Infrastructure devices are detected via UniFi device API, not fingerprints.
+        // The "change its Device Icon / Fingerprint" hint is wrong - use Network Reference hint instead.
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99),
+            CreateNetwork("Main Network", NetworkPurpose.Home, vlanId: 1)
+        };
+
+        var deviceJson = CreateDeviceJson("udb", "UDB Backyard", "192.168.1.50");
+
+        var issues = _analyzer.AnalyzeInfrastructureVlanPlacement(deviceJson, networks);
+
+        issues.Should().HaveCount(1);
+        issues[0].RecommendedAction.Should().Contain("Move to Management (99)");
+        issues[0].RecommendedAction.Should().Contain("Network Reference");
+        issues[0].RecommendedAction.Should().NotContain("Fingerprint");
+        issues[0].RecommendedAction.Should().NotContain("misclassified");
+    }
+
     private static System.Text.Json.JsonElement CreateDeviceJson(string type, string name, string ip)
     {
         var json = $$"""

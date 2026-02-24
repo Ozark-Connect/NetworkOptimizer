@@ -1114,7 +1114,8 @@ public class VlanAnalyzer
                     },
                     RuleId = "INFRA-VLAN-001",
                     ScoreImpact = 10,
-                    RecommendedAction = Rules.VlanPlacementChecker.GetMoveRecommendation($"{managementNetwork.Name} ({managementNetwork.VlanId})")
+                    RecommendedAction = Rules.VlanPlacementChecker.GetMoveRecommendation($"{managementNetwork.Name} ({managementNetwork.VlanId})", includeReclassifyHint: false)
+                        + ". If incorrect, network purposes can be reassigned below in Network Reference."
                 });
 
                 _logger.LogInformation("{DeviceType} '{Name}' on {Network} VLAN - should be on Management",

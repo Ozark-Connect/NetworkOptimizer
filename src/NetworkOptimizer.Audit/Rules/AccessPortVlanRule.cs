@@ -49,7 +49,8 @@ public class AccessPortVlanRule : AuditRuleBase
 
         // Only check ports configured as trunk/custom (these have tagged VLANs)
         // Access ports (ForwardMode = "native") don't have tagged VLANs - that's normal
-        if (!IsTrunkPort(port.ForwardMode))
+        // Ports with tagged_vlan_mgmt = "block_all" block all tagged VLANs regardless of forward mode
+        if (!IsTrunkPort(port.ForwardMode, port.TaggedVlanMgmt))
             return null;
 
         // Skip ports with network fabric devices (AP, switch, gateway, bridge)
@@ -147,10 +148,16 @@ public class AccessPortVlanRule : AuditRuleBase
 
     /// <summary>
     /// Check if the port is configured as a trunk port (allows tagged VLANs).
+    /// A port with tagged_vlan_mgmt = "block_all" blocks all tagged VLANs
+    /// regardless of forward mode, so it's effectively an access port.
     /// </summary>
-    private static bool IsTrunkPort(string? forwardMode)
+    private static bool IsTrunkPort(string? forwardMode, string? taggedVlanMgmt)
     {
         if (string.IsNullOrEmpty(forwardMode))
+            return false;
+
+        // "block_all" means all tagged VLANs are blocked - port is effectively access-only
+        if (string.Equals(taggedVlanMgmt, "block_all", StringComparison.OrdinalIgnoreCase))
             return false;
 
         // "custom" and "customize" are trunk modes that allow tagged VLANs
