@@ -97,10 +97,11 @@ public class DigestService : BackgroundService
                 var handler = _deliveryChannels.FirstOrDefault(d => d.ChannelType == channel.ChannelType);
                 if (handler == null) continue;
 
-                // Collapse duplicate alerts when a source group exceeds the threshold
+                // Compute summary from original alerts, then collapse for display
+                var summary = DigestSummary.FromAlerts(alerts);
                 var collapsedAlerts = CollapseAlerts(alerts);
 
-                var success = await handler.SendDigestAsync(collapsedAlerts, channel, cancellationToken);
+                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, cancellationToken);
                 if (success)
                 {
                     await MarkSentAsync(stateStore, channel.Id, cancellationToken);

@@ -50,7 +50,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
         return await SendEmailAsync(config, $"[{alertEvent.Severity}] {alertEvent.Title}", body, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<EmailChannelConfig>(channel.ConfigJson);
         if (config == null) return false;
@@ -68,24 +68,19 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             }).ToList()
         }).ToList();
 
-        var criticalCount = alerts.Count(a => a.Severity == Core.Enums.AlertSeverity.Critical);
-        var errorCount = alerts.Count(a => a.Severity == Core.Enums.AlertSeverity.Error);
-        var warningCount = alerts.Count(a => a.Severity == Core.Enums.AlertSeverity.Warning);
-        var infoCount = alerts.Count(a => a.Severity == Core.Enums.AlertSeverity.Info);
-
         var template = Template.Parse(DigestTemplate.Value);
         var body = await template.RenderAsync(new
         {
-            total_count = alerts.Count,
-            critical_count = criticalCount,
-            error_count = errorCount,
-            warning_count = warningCount,
-            info_count = infoCount,
+            total_count = summary.TotalCount,
+            critical_count = summary.CriticalCount,
+            error_count = summary.ErrorCount,
+            warning_count = summary.WarningCount,
+            info_count = summary.InfoCount,
             groups = grouped,
             generated_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC")
         });
 
-        return await SendEmailAsync(config, $"Alert Digest - {alerts.Count} alerts", body, cancellationToken);
+        return await SendEmailAsync(config, $"Alert Digest - {summary.TotalCount} alerts", body, cancellationToken);
     }
 
     public async Task<(bool Success, string? Error)> TestAsync(DeliveryChannel channel, CancellationToken cancellationToken = default)

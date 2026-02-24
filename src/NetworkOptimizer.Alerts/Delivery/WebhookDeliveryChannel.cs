@@ -60,7 +60,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
         return await PostWithRetryAsync(config, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<WebhookChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Url)) return false;
@@ -68,10 +68,10 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
         var payload = JsonSerializer.Serialize(new
         {
             type = "digest",
-            total_count = alerts.Count,
-            critical_count = alerts.Count(a => a.Severity == AlertSeverity.Critical),
-            error_count = alerts.Count(a => a.Severity == AlertSeverity.Error),
-            warning_count = alerts.Count(a => a.Severity == AlertSeverity.Warning),
+            total_count = summary.TotalCount,
+            critical_count = summary.CriticalCount,
+            error_count = summary.ErrorCount,
+            warning_count = summary.WarningCount,
             alerts = alerts.Select(a => new
             {
                 title = a.Title,
