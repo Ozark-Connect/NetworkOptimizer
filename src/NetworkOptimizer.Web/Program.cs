@@ -219,6 +219,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertProcessingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.AlertProcessingService>());
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.DigestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.DigestService>());
+// IDigestStateStore adapter: persists digest "last sent" timestamps via SystemSettings
+builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IDigestStateStore, DigestStateStoreAdapter>();
 // ISecretDecryptor adapter: bridges Alerts project's interface to existing credential protection
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.ISecretDecryptor>(sp =>
 {
@@ -1779,4 +1781,23 @@ class SecretDecryptorAdapter(NetworkOptimizer.Storage.Services.ICredentialProtec
 {
     public string Decrypt(string encrypted) => inner.Decrypt(encrypted);
     public string Encrypt(string plaintext) => inner.Encrypt(plaintext);
+}
+
+// Adapter to bridge IDigestStateStore (Alerts project) to SystemSettings (Storage project)
+class DigestStateStoreAdapter(NetworkOptimizer.Storage.Interfaces.ISettingsRepository settings) : NetworkOptimizer.Alerts.Interfaces.IDigestStateStore
+{
+    private static string Key(int channelId) => $"digest.last_sent.{channelId}";
+
+    public async Task<DateTime?> GetLastSentAsync(int channelId, CancellationToken cancellationToken)
+    {
+        var value = await settings.GetSystemSettingAsync(Key(channelId), cancellationToken);
+        return value != null && DateTime.TryParse(value, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
+            ? dt
+            : null;
+    }
+
+    public async Task SetLastSentAsync(int channelId, DateTime sentAt, CancellationToken cancellationToken)
+    {
+        await settings.SaveSystemSettingAsync(Key(channelId), sentAt.ToString("O"), cancellationToken);
+    }
 }

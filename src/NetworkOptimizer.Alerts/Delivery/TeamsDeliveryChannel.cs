@@ -76,24 +76,20 @@ public class TeamsDeliveryChannel : IAlertDeliveryChannel
         return await PostAsync(config.WebhookUrl, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<TeamsChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.WebhookUrl)) return false;
 
-        var criticalCount = alerts.Count(a => a.Severity == AlertSeverity.Critical);
-        var errorCount = alerts.Count(a => a.Severity == AlertSeverity.Error);
-        var warningCount = alerts.Count(a => a.Severity == AlertSeverity.Warning);
-
         var summaryParts = new List<string>();
-        if (criticalCount > 0) summaryParts.Add($"**{criticalCount}** critical");
-        if (errorCount > 0) summaryParts.Add($"**{errorCount}** error");
-        if (warningCount > 0) summaryParts.Add($"**{warningCount}** warning");
+        if (summary.CriticalCount > 0) summaryParts.Add($"**{summary.CriticalCount}** critical");
+        if (summary.ErrorCount > 0) summaryParts.Add($"**{summary.ErrorCount}** error");
+        if (summary.WarningCount > 0) summaryParts.Add($"**{summary.WarningCount}** warning");
 
         var cardBody = new List<object>
         {
             new { type = "TextBlock", text = "Alert Digest", weight = "Bolder", size = "Large" },
-            new { type = "TextBlock", text = $"**{alerts.Count}** alerts: {string.Join(", ", summaryParts)}", wrap = true }
+            new { type = "TextBlock", text = $"**{summary.TotalCount}** alerts: {string.Join(", ", summaryParts)}", wrap = true }
         };
 
         foreach (var alert in alerts.OrderByDescending(a => a.Severity).Take(10))

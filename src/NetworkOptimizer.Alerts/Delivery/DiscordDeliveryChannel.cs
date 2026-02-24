@@ -62,19 +62,17 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
         return await PostAsync(config.WebhookUrl, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<DiscordChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.WebhookUrl)) return false;
 
         var description = new StringBuilder();
-        description.AppendLine($"**{alerts.Count}** alerts in this period");
+        description.AppendLine($"**{summary.TotalCount}** alerts in this period");
         description.AppendLine();
 
-        var criticalCount = alerts.Count(a => a.Severity == AlertSeverity.Critical);
-        var errorCount = alerts.Count(a => a.Severity == AlertSeverity.Error);
-        if (criticalCount > 0) description.AppendLine($":red_circle: **{criticalCount}** critical");
-        if (errorCount > 0) description.AppendLine($":orange_circle: **{errorCount}** error");
+        if (summary.CriticalCount > 0) description.AppendLine($":red_circle: **{summary.CriticalCount}** critical");
+        if (summary.ErrorCount > 0) description.AppendLine($":orange_circle: **{summary.ErrorCount}** error");
         description.AppendLine();
 
         foreach (var alert in alerts.OrderByDescending(a => a.Severity).Take(10))

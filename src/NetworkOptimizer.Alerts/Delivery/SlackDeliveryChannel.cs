@@ -61,24 +61,20 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
         return await PostAsync(config.WebhookUrl, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<SlackChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.WebhookUrl)) return false;
 
-        var criticalCount = alerts.Count(a => a.Severity == AlertSeverity.Critical);
-        var errorCount = alerts.Count(a => a.Severity == AlertSeverity.Error);
-        var warningCount = alerts.Count(a => a.Severity == AlertSeverity.Warning);
-
-        var summary = new StringBuilder($"*{alerts.Count} alerts* in this period");
-        if (criticalCount > 0) summary.Append($" | :red_circle: {criticalCount} critical");
-        if (errorCount > 0) summary.Append($" | :large_orange_circle: {errorCount} error");
-        if (warningCount > 0) summary.Append($" | :warning: {warningCount} warning");
+        var summaryText = new StringBuilder($"*{summary.TotalCount} alerts* in this period");
+        if (summary.CriticalCount > 0) summaryText.Append($" | :red_circle: {summary.CriticalCount} critical");
+        if (summary.ErrorCount > 0) summaryText.Append($" | :large_orange_circle: {summary.ErrorCount} error");
+        if (summary.WarningCount > 0) summaryText.Append($" | :warning: {summary.WarningCount} warning");
 
         var blocks = new List<object>
         {
             new { type = "header", text = new { type = "plain_text", text = "Alert Digest" } },
-            new { type = "section", text = new { type = "mrkdwn", text = summary.ToString() } },
+            new { type = "section", text = new { type = "mrkdwn", text = summaryText.ToString() } },
             new { type = "divider" }
         };
 
