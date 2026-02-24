@@ -111,7 +111,7 @@
                 Filters
             </button>
         }
-        <div class="time-range-selector" style="position:relative;">
+        <div class="time-range-selector" style="position:relative;@(_activeTab == "search" ? " display:none;" : "")">
             <button class="time-btn threat-time-preset @(_timeRange == "1h" ? "active" : "")"
                     @onclick='() => SetTimeRange("1h")'>1h</button>
             <button class="time-btn threat-time-preset @(_timeRange == "4h" ? "active" : "")"
@@ -3864,7 +3864,8 @@ else
         try
         {
             var query = ClassifySearchInput(_searchText);
-            var (from, to) = GetTimeRange();
+            var from = DateTime.MinValue;
+            var to = DateTime.UtcNow;
             DashboardService.FiltersDisabled = !_filtersActive;
             var results = await DashboardService.SearchAsync(from, to, query);
 
