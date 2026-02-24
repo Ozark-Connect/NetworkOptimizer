@@ -656,7 +656,7 @@ public class ThreatRepository : IThreatRepository
         {
             var query = BaseQuery(from, to);
             if (incomingOnly)
-                query = query.Where(e => e.Direction == null || e.Direction == "incoming");
+                query = query.Where(e => e.Direction == null || e.Direction.ToLower() == "incoming");
 
             var results = await query
                 .GroupBy(e => e.DestPort)
