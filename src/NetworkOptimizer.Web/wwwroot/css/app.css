@@ -7724,7 +7724,6 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0 0.4rem;
-    margin-top: -0.5rem;
     font-size: 1.2rem;
     flex-shrink: 0;
     z-index: 1;
