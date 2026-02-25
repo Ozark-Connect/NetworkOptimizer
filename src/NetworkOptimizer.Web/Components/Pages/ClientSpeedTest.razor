@@ -744,11 +744,7 @@
         var openSpeedTestPortConfig = Configuration["OPENSPEEDTEST_PORT"];
         var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
         var openSpeedTestHttpsConfig = Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
-        var openSpeedTestHttpsAll = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
-        var openSpeedTestHttpsMobile = openSpeedTestHttpsConfig.Equals("mobile", StringComparison.OrdinalIgnoreCase);
-        var openSpeedTestHttpsEnabled = openSpeedTestHttpsAll || openSpeedTestHttpsMobile;
-        var openSpeedTestHttpPortConfig = Configuration["OPENSPEEDTEST_HTTP_PORT"];
-        var openSpeedTestHttpPort = !string.IsNullOrEmpty(openSpeedTestHttpPortConfig) ? openSpeedTestHttpPortConfig : "80";
+        var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
         var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
         var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
@@ -767,24 +763,16 @@
             : NetworkUtilities.DetectLocalIpFromInterfaces() ?? "<server IP>";
 
         // Build display URL
-        // "true" = HTTPS link (everything through TLS)
-        // "mobile" = HTTP link (mobile browsers auto-redirect to HTTPS via JS)
-        // "false"/unset = HTTP link (no TLS)
+        // "true" = HTTPS link (everything through TLS proxy)
+        // "false"/unset = HTTP link (direct access)
         if (!string.IsNullOrEmpty(openSpeedTestHost))
         {
-            if (openSpeedTestHttpsAll)
+            if (openSpeedTestHttpsEnabled)
             {
                 // HTTPS URL (behind proxy, all traffic through TLS)
                 openSpeedTestUrl = openSpeedTestHttpsPort == "443"
                     ? $"https://{openSpeedTestHost}"
                     : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
-            }
-            else if (openSpeedTestHttpsMobile)
-            {
-                // HTTP through proxy (mobile browsers auto-redirect to HTTPS via JS)
-                openSpeedTestUrl = openSpeedTestHttpPort == "80"
-                    ? $"http://{openSpeedTestHost}"
-                    : $"http://{openSpeedTestHost}:{openSpeedTestHttpPort}";
             }
             else
             {

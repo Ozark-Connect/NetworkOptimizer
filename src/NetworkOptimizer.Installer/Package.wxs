@@ -126,7 +126,7 @@
         <Control Id="Next" Type="PushButton" X="236" Y="253" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
           <!-- Auto-populate SpeedTest settings from Traefik hostnames -->
           <Publish Property="OPENSPEEDTEST_HOST" Value="[TRAEFIK_SPEEDTEST_HOSTNAME]" Order="1" Condition="NOT OPENSPEEDTEST_HOST" />
-          <Publish Property="OPENSPEEDTEST_HTTPS" Value="mobile" Order="2" Condition="OPENSPEEDTEST_HTTPS = &quot;false&quot;" />
+          <Publish Property="OPENSPEEDTEST_HTTPS" Value="true" Order="2" Condition="OPENSPEEDTEST_HTTPS = &quot;false&quot;" />
           <Publish Event="NewDialog" Value="SpeedTestConfigDlg" Order="3" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="253" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
@@ -149,17 +149,16 @@
         <!-- Browser SpeedTest Section -->
         <Control Id="BrowserLabel" Type="Text" X="20" Y="115" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Browser Speed Test (OpenSpeedTest on nginx)" />
 
-        <Control Id="PortLabel" Type="Text" X="20" Y="132" Width="50" Height="13" NoPrefix="yes" Text="Port:" />
-        <Control Id="PortEdit" Type="Edit" X="70" Y="130" Width="50" Height="18" Property="OPENSPEEDTEST_PORT" />
-        <Control Id="PortHelp" Type="Text" X="125" Y="132" Width="220" Height="13" NoPrefix="yes" Text="Default 3005. Only change if port conflicts." />
+        <Control Id="PortLabel" Type="Text" X="20" Y="132" Width="80" Height="13" NoPrefix="yes" Text="Server port:" />
+        <Control Id="PortEdit" Type="Edit" X="100" Y="130" Width="50" Height="18" Property="OPENSPEEDTEST_PORT" />
+        <Control Id="PortHelp" Type="Text" X="155" Y="132" Width="200" Height="13" NoPrefix="yes" Text="Default 3005. Only change if port conflicts." />
 
         <Control Id="SpeedTestHostLabel" Type="Text" X="20" Y="155" Width="70" Height="13" NoPrefix="yes" Text="Hostname:" />
         <Control Id="SpeedTestHostEdit" Type="Edit" X="90" Y="153" Width="150" Height="18" Property="OPENSPEEDTEST_HOST" />
         <Control Id="SpeedTestHostHelp" Type="Text" X="20" Y="173" Width="330" Height="20" NoPrefix="yes" Text="Leave blank to use Server Hostname. Auto-filled from Traefik if configured." />
 
-        <Control Id="HttpsModeLabel" Type="Text" X="20" Y="196" Width="70" Height="13" NoPrefix="yes" Text="HTTPS mode:" />
-        <Control Id="HttpsMode" Type="ComboBox" X="90" Y="194" Width="250" Height="17" Property="OPENSPEEDTEST_HTTPS" />
-        <Control Id="HttpsModeHelp" Type="Text" X="20" Y="213" Width="330" Height="20" NoPrefix="yes" Text="Mobile only: desktop stays on HTTP (fast), mobile redirects to HTTPS (geolocation)." />
+        <Control Id="HttpsCheck" Type="CheckBox" X="20" Y="196" Width="330" Height="17" Property="OPENSPEEDTEST_HTTPS" CheckBoxValue="true" Text="Speed test is behind a TLS reverse proxy (HTTPS)" />
+        <Control Id="HttpsHelp" Type="Text" X="20" Y="213" Width="330" Height="20" NoPrefix="yes" Text="Auto-enabled when Traefik is configured. UI links will use https://." />
 
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
@@ -174,13 +173,6 @@
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
-
-      <!-- HTTPS mode ComboBox values -->
-      <ComboBox Property="OPENSPEEDTEST_HTTPS">
-        <ListItem Text="Off - HTTP only" Value="false" />
-        <ListItem Text="Mobile only - HTTPS for geolocation (recommended)" Value="mobile" />
-        <ListItem Text="All traffic through HTTPS" Value="true" />
-      </ComboBox>
 
       <!-- Dialog flow: InstallDirDlg → NetworkConfigDlg → [TraefikConfigDlg] → SpeedTestConfigDlg → VerifyReadyDlg -->
       <!-- During upgrades, skip config dialogs (settings preserved from registry) -->
@@ -229,9 +221,6 @@
     </Property>
     <Property Id="OPENSPEEDTEST_HTTPS" Value="false" Secure="yes">
       <RegistrySearch Id="SearchOstHttps" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTPS" Type="raw" />
-    </Property>
-    <Property Id="OPENSPEEDTEST_HTTP_PORT" Value="80" Secure="yes">
-      <RegistrySearch Id="SearchOstHttpPort" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTP_PORT" Type="raw" />
     </Property>
     <Property Id="OPENSPEEDTEST_HTTPS_PORT" Value="443" Secure="yes">
       <RegistrySearch Id="SearchOstHttpsPort" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTPS_PORT" Type="raw" />

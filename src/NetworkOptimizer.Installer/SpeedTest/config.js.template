@@ -7,14 +7,6 @@
 var saveData = {{SAVE_DATA}};
 var saveDataURL = "{{SAVE_DATA_URL}}";
 var apiPath = "{{API_PATH}}";
-var httpsRedirectUrl = "{{HTTPS_REDIRECT_URL}}";
-
-// Mobile HTTPS redirect: when on HTTP and mobile browser, redirect to HTTPS for geolocation
-if (httpsRedirectUrl && httpsRedirectUrl !== "{{HTTPS_REDIRECT_URL}}" && httpsRedirectUrl !== "") {
-    if (window.location.protocol === "http:" && /Mobile|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        window.location.replace(httpsRedirectUrl + window.location.pathname + window.location.search);
-    }
-}
 
 // If __DYNAMIC__, construct URL from browser location (same host, port 8042)
 if (saveDataURL === "__DYNAMIC__") {
