@@ -330,42 +330,92 @@ configure_application() {
         APP_HOSTNAME_REDIRECT="false"
     fi
 
-    # Reverse proxy
-    echo -e "\n${WH}Reverse Proxy${CL}"
-    echo -e "${DIM}If using a reverse proxy (Caddy, nginx, Traefik), enter the public hostname${CL}"
-    echo -e "${DIM}Leave empty if accessing directly via IP${CL}"
-    read -rp "Reverse proxy hostname (e.g., optimizer.example.com): " APP_REVERSE_PROXY_HOST
-    APP_REVERSE_PROXY_HOST=${APP_REVERSE_PROXY_HOST:-}
-
-    # Geo location tagging
+    # Initialize Traefik and proxy variables
+    APP_TRAEFIK_ENABLED="false"
+    TRAEFIK_ACME_EMAIL=""
+    TRAEFIK_CF_DNS_API_TOKEN=""
+    TRAEFIK_OPTIMIZER_HOSTNAME=""
+    TRAEFIK_SPEEDTEST_HOSTNAME=""
+    APP_REVERSE_PROXY_HOST=""
     APP_GEOLOCATION="false"
     APP_OPENSPEEDTEST_HOST=""
 
-    echo -e "\n${WH}Geo Location Tagging${CL}"
-    echo -e "${DIM}Tag speed tests and Wi-Fi signal levels with GPS coordinates to map${CL}"
-    echo -e "${DIM}coverage and identify dead zones across your property.${CL}"
-    read -rp "Set up geo location tagging? [y/N]: " geolocation_response
-    if [[ "${geolocation_response,,}" =~ ^(y|yes)$ ]]; then
-        echo -e "\n${DIM}Geo location requires HTTPS (browser security requirement), and OpenSpeedTest${CL}"
-        echo -e "${DIM}needs HTTP/1.1 for accurate speed results. Set up an HTTP/1.1 reverse proxy${CL}"
-        echo -e "${DIM}(Caddy, nginx, etc.) pointing at the speed test server (port ${APP_SPEEDTEST_PORT}).${CL}"
-        echo -e "${DIM}See .env.example in /opt/network-optimizer for a sample Caddy config.${CL}"
+    # HTTPS via Traefik
+    echo -e "\n${WH}HTTPS via Traefik${CL}"
+    echo -e "${DIM}Automatic HTTPS with Let's Encrypt certificates via Cloudflare DNS.${CL}"
+    echo -e "${DIM}Enables geo location tagging and solves the HTTP/1.1 speed test requirement.${CL}"
+    echo -e "${DIM}Requires a domain managed by Cloudflare.${CL}"
+    read -rp "Set up HTTPS via Traefik? [y/N]: " traefik_response
+    if [[ "${traefik_response,,}" =~ ^(y|yes)$ ]]; then
+        APP_TRAEFIK_ENABLED="true"
+
         echo ""
-        read -rp "Speed test HTTPS hostname (e.g., speedtest.example.com): " APP_OPENSPEEDTEST_HOST
-        if [[ -n "$APP_OPENSPEEDTEST_HOST" ]]; then
-            APP_GEOLOCATION="true"
-            # Mixed content check - main app also needs HTTPS
-            if [[ -z "$APP_REVERSE_PROXY_HOST" ]]; then
-                echo -e "\n${YW}The main app also needs HTTPS to avoid mixed content blocking.${CL}"
-                echo -e "${DIM}Speed test results won't save unless the main app is behind HTTPS too.${CL}"
-                read -rp "Main app HTTPS hostname (e.g., optimizer.example.com): " APP_REVERSE_PROXY_HOST
-                APP_REVERSE_PROXY_HOST=${APP_REVERSE_PROXY_HOST:-}
+        read -rp "ACME email (for Let's Encrypt): " TRAEFIK_ACME_EMAIL
+        if [[ -z "$TRAEFIK_ACME_EMAIL" ]]; then
+            msg_error "ACME email is required for Let's Encrypt."
+            exit 1
+        fi
+
+        echo -e "${DIM}Create a token at: https://dash.cloudflare.com/profile/api-tokens${CL}"
+        echo -e "${DIM}Required permission: Zone > DNS > Edit${CL}"
+        read -rsp "Cloudflare DNS API token (hidden): " TRAEFIK_CF_DNS_API_TOKEN
+        echo ""
+        if [[ -z "$TRAEFIK_CF_DNS_API_TOKEN" ]]; then
+            msg_error "Cloudflare API token is required."
+            exit 1
+        fi
+
+        read -rp "Optimizer hostname (e.g., optimizer.example.com): " TRAEFIK_OPTIMIZER_HOSTNAME
+        if [[ -z "$TRAEFIK_OPTIMIZER_HOSTNAME" ]]; then
+            msg_error "Optimizer hostname is required."
+            exit 1
+        fi
+
+        read -rp "SpeedTest hostname (e.g., speedtest.example.com): " TRAEFIK_SPEEDTEST_HOSTNAME
+        if [[ -z "$TRAEFIK_SPEEDTEST_HOSTNAME" ]]; then
+            msg_error "SpeedTest hostname is required."
+            exit 1
+        fi
+
+        # Auto-configure reverse proxy and geo location
+        APP_REVERSE_PROXY_HOST="$TRAEFIK_OPTIMIZER_HOSTNAME"
+        APP_OPENSPEEDTEST_HOST="$TRAEFIK_SPEEDTEST_HOSTNAME"
+        APP_GEOLOCATION="true"
+    else
+        # Reverse proxy
+        echo -e "\n${WH}Reverse Proxy${CL}"
+        echo -e "${DIM}If using a reverse proxy (Caddy, nginx, Traefik), enter the public hostname${CL}"
+        echo -e "${DIM}Leave empty if accessing directly via IP${CL}"
+        read -rp "Reverse proxy hostname (e.g., optimizer.example.com): " APP_REVERSE_PROXY_HOST
+        APP_REVERSE_PROXY_HOST=${APP_REVERSE_PROXY_HOST:-}
+
+        # Geo location tagging
+        echo -e "\n${WH}Geo Location Tagging${CL}"
+        echo -e "${DIM}Tag speed tests and Wi-Fi signal levels with GPS coordinates to map${CL}"
+        echo -e "${DIM}coverage and identify dead zones across your property.${CL}"
+        read -rp "Set up geo location tagging? [y/N]: " geolocation_response
+        if [[ "${geolocation_response,,}" =~ ^(y|yes)$ ]]; then
+            echo -e "\n${DIM}Geo location requires HTTPS (browser security requirement), and OpenSpeedTest${CL}"
+            echo -e "${DIM}needs HTTP/1.1 for accurate speed results. Set up an HTTP/1.1 reverse proxy${CL}"
+            echo -e "${DIM}(Caddy, nginx, etc.) pointing at the speed test server (port ${APP_SPEEDTEST_PORT}).${CL}"
+            echo -e "${DIM}See .env.example in /opt/network-optimizer for a sample Caddy config.${CL}"
+            echo ""
+            read -rp "Speed test HTTPS hostname (e.g., speedtest.example.com): " APP_OPENSPEEDTEST_HOST
+            if [[ -n "$APP_OPENSPEEDTEST_HOST" ]]; then
+                APP_GEOLOCATION="true"
+                # Mixed content check - main app also needs HTTPS
                 if [[ -z "$APP_REVERSE_PROXY_HOST" ]]; then
-                    msg_warn "No main app hostname set. Speed test results may not save from HTTPS."
+                    echo -e "\n${YW}The main app also needs HTTPS to avoid mixed content blocking.${CL}"
+                    echo -e "${DIM}Speed test results won't save unless the main app is behind HTTPS too.${CL}"
+                    read -rp "Main app HTTPS hostname (e.g., optimizer.example.com): " APP_REVERSE_PROXY_HOST
+                    APP_REVERSE_PROXY_HOST=${APP_REVERSE_PROXY_HOST:-}
+                    if [[ -z "$APP_REVERSE_PROXY_HOST" ]]; then
+                        msg_warn "No main app hostname set. Speed test results may not save from HTTPS."
+                    fi
                 fi
+            else
+                msg_warn "Hostname required for geo location. Skipping geo location setup."
             fi
-        else
-            msg_warn "Hostname required for geo location. Skipping geo location setup."
         fi
     fi
 
@@ -426,15 +476,22 @@ confirm_settings() {
     else
         echo -e "  Host Redirect:  ${DIM}disabled${CL}"
     fi
-    if [[ -n "$APP_REVERSE_PROXY_HOST" ]]; then
-        echo -e "  Reverse Proxy:  ${GN}$APP_REVERSE_PROXY_HOST${CL}"
+    if [[ "$APP_TRAEFIK_ENABLED" == "true" ]]; then
+        echo -e "  Traefik HTTPS:  ${GN}enabled${CL}"
+        echo -e "  ACME Email:     ${GN}$TRAEFIK_ACME_EMAIL${CL}"
+        echo -e "  Optimizer:      ${GN}https://$TRAEFIK_OPTIMIZER_HOSTNAME${CL}"
+        echo -e "  SpeedTest:      ${GN}https://$TRAEFIK_SPEEDTEST_HOSTNAME${CL}"
     else
-        echo -e "  Reverse Proxy:  ${DIM}none${CL}"
-    fi
-    if [[ "$APP_GEOLOCATION" == "true" ]]; then
-        echo -e "  Geo Location:   ${GN}${APP_OPENSPEEDTEST_HOST}${CL} ${DIM}(HTTPS)${CL}"
-    else
-        echo -e "  Geo Location:   ${DIM}disabled${CL}"
+        if [[ -n "$APP_REVERSE_PROXY_HOST" ]]; then
+            echo -e "  Reverse Proxy:  ${GN}$APP_REVERSE_PROXY_HOST${CL}"
+        else
+            echo -e "  Reverse Proxy:  ${DIM}none${CL}"
+        fi
+        if [[ "$APP_GEOLOCATION" == "true" ]]; then
+            echo -e "  Geo Location:   ${GN}${APP_OPENSPEEDTEST_HOST}${CL} ${DIM}(HTTPS)${CL}"
+        else
+            echo -e "  Geo Location:   ${DIM}disabled${CL}"
+        fi
     fi
     if [[ -n "$APP_PASSWORD" ]]; then
         echo -e "  Password:       ${GN}(set)${CL}"
@@ -731,6 +788,13 @@ IPERF3_SERVER_ENABLED=${APP_IPERF3_ENABLED}"
 REVERSE_PROXIED_HOST_NAME=${APP_REVERSE_PROXY_HOST}"
     fi
 
+    if [[ "$APP_TRAEFIK_ENABLED" == "true" ]]; then
+        env_content="${env_content}
+
+# Traefik handles public access - bind app to localhost only
+BIND_LOCALHOST_ONLY=true"
+    fi
+
     if [[ "$APP_GEOLOCATION" == "true" ]]; then
         env_content="${env_content}
 
@@ -765,6 +829,64 @@ APP_PASSWORD=${APP_PASSWORD}"
     msg_info "Starting services..."
     pct exec "$CT_ID" -- bash -c "cd $app_dir && docker compose up -d"
     msg_ok "Services started"
+}
+
+deploy_traefik() {
+    if [[ "$APP_TRAEFIK_ENABLED" != "true" ]]; then
+        return
+    fi
+
+    header "Deploying Traefik HTTPS Proxy"
+
+    local proxy_dir="/opt/network-optimizer-proxy"
+    local proxy_repo="Ozark-Connect/NetworkOptimizer-Proxy"
+    local proxy_branch="main"
+
+    msg_info "Creating proxy directory..."
+    pct exec "$CT_ID" -- mkdir -p "$proxy_dir/dynamic" "$proxy_dir/acme"
+    msg_ok "Directory created"
+
+    msg_info "Downloading Traefik configuration files..."
+    pct exec "$CT_ID" -- curl -fsSL \
+        "https://raw.githubusercontent.com/${proxy_repo}/${proxy_branch}/docker-compose.yml" \
+        -o "$proxy_dir/docker-compose.yml"
+    pct exec "$CT_ID" -- curl -fsSL \
+        "https://raw.githubusercontent.com/${proxy_repo}/${proxy_branch}/config.example.yml" \
+        -o "$proxy_dir/config.example.yml"
+    pct exec "$CT_ID" -- curl -fsSL \
+        "https://raw.githubusercontent.com/${proxy_repo}/${proxy_branch}/.env.example" \
+        -o "$proxy_dir/.env.example"
+    msg_ok "Configuration files downloaded"
+
+    msg_info "Generating dynamic configuration..."
+    pct exec "$CT_ID" -- bash -c "
+        sed -e 's/optimizer\\.example\\.com/${TRAEFIK_OPTIMIZER_HOSTNAME}/g' \
+            -e 's/speedtest\\.example\\.com/${TRAEFIK_SPEEDTEST_HOSTNAME}/g' \
+            -e 's|http://localhost:3005|http://localhost:${APP_SPEEDTEST_PORT}|g' \
+            '$proxy_dir/config.example.yml' > '$proxy_dir/dynamic/config.yml'
+    "
+    msg_ok "Dynamic configuration generated"
+
+    msg_info "Creating environment file..."
+    local proxy_env_content="# Traefik Proxy - Generated by Proxmox installation script
+ACME_EMAIL=${TRAEFIK_ACME_EMAIL}
+CF_DNS_API_TOKEN=${TRAEFIK_CF_DNS_API_TOKEN}"
+    local encoded_proxy_env
+    encoded_proxy_env=$(echo "$proxy_env_content" | base64 -w 0)
+    pct exec "$CT_ID" -- bash -c "echo '$encoded_proxy_env' | base64 -d > $proxy_dir/.env"
+    msg_ok "Environment file created"
+
+    msg_info "Setting up certificate storage..."
+    pct exec "$CT_ID" -- bash -c "touch $proxy_dir/acme/acme.json && chmod 600 $proxy_dir/acme/acme.json"
+    msg_ok "Certificate storage ready"
+
+    msg_info "Pulling Traefik image..."
+    pct exec "$CT_ID" -- bash -c "cd $proxy_dir && docker compose pull"
+    msg_ok "Traefik image pulled"
+
+    msg_info "Starting Traefik..."
+    pct exec "$CT_ID" -- bash -c "cd $proxy_dir && docker compose up -d"
+    msg_ok "Traefik started"
 }
 
 wait_for_healthy() {
@@ -805,16 +927,23 @@ show_completion() {
     echo -e "${GN}${BLD}$APP_NAME has been successfully installed!${CL}\n"
 
     echo -e "${BLD}Access Information:${CL}"
-    echo -e "  Web UI:        ${CY}http://${container_ip}:8042${CL}"
-    echo -e "  OpenSpeedTest: ${CY}http://${container_ip}:${APP_SPEEDTEST_PORT}${CL}"
+    if [[ "$APP_TRAEFIK_ENABLED" == "true" ]]; then
+        echo -e "  Web UI:        ${CY}https://${TRAEFIK_OPTIMIZER_HOSTNAME}${CL}"
+        echo -e "  SpeedTest:     ${CY}https://${TRAEFIK_SPEEDTEST_HOSTNAME}${CL} ${DIM}(geo location enabled)${CL}"
+    else
+        echo -e "  Web UI:        ${CY}http://${container_ip}:8042${CL}"
+        echo -e "  OpenSpeedTest: ${CY}http://${container_ip}:${APP_SPEEDTEST_PORT}${CL}"
+    fi
     if [[ "$APP_IPERF3_ENABLED" == "true" ]]; then
         echo -e "  iperf3 Server: ${CY}${container_ip}:5201${CL}"
     fi
-    if [[ -n "$APP_REVERSE_PROXY_HOST" ]]; then
-        echo -e "  Reverse Proxy: ${CY}https://${APP_REVERSE_PROXY_HOST}${CL}"
-    fi
-    if [[ "$APP_GEOLOCATION" == "true" ]]; then
-        echo -e "  Speed Test:    ${CY}https://${APP_OPENSPEEDTEST_HOST}${CL} ${DIM}(geo location enabled)${CL}"
+    if [[ "$APP_TRAEFIK_ENABLED" != "true" ]]; then
+        if [[ -n "$APP_REVERSE_PROXY_HOST" ]]; then
+            echo -e "  Reverse Proxy: ${CY}https://${APP_REVERSE_PROXY_HOST}${CL}"
+        fi
+        if [[ "$APP_GEOLOCATION" == "true" ]]; then
+            echo -e "  Speed Test:    ${CY}https://${APP_OPENSPEEDTEST_HOST}${CL} ${DIM}(geo location enabled)${CL}"
+        fi
     fi
 
     if [[ -z "$APP_PASSWORD" ]]; then
@@ -840,8 +969,21 @@ show_completion() {
     echo -e "  Reference:  ${DIM}/opt/network-optimizer/.env.example${CL} ${DIM}(all options)${CL}"
     echo -e "  Update:     ${DIM}pct exec $CT_ID -- bash -c 'cd /opt/network-optimizer && docker compose pull && docker compose up -d'${CL}"
 
+    if [[ "$APP_TRAEFIK_ENABLED" == "true" ]]; then
+        echo -e "\n${BLD}Traefik HTTPS Proxy:${CL}"
+        echo -e "  ${YW}Certificates may take a minute to issue on first start.${CL}"
+        echo -e "  Directory:  ${DIM}/opt/network-optimizer-proxy${CL}"
+        echo -e "  Config:     ${DIM}/opt/network-optimizer-proxy/dynamic/config.yml${CL}"
+        echo -e "  Logs:       ${DIM}pct exec $CT_ID -- docker logs -f traefik-proxy${CL}"
+        echo -e "  Update:     ${DIM}pct exec $CT_ID -- bash -c 'cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d'${CL}"
+    fi
+
     echo -e "\n${BLD}First Run:${CL}"
-    echo -e "  1. Open ${CY}http://${container_ip}:8042${CL}"
+    if [[ "$APP_TRAEFIK_ENABLED" == "true" ]]; then
+        echo -e "  1. Open ${CY}https://${TRAEFIK_OPTIMIZER_HOSTNAME}${CL} ${DIM}(wait ~1 min for certificates)${CL}"
+    else
+        echo -e "  1. Open ${CY}http://${container_ip}:8042${CL}"
+    fi
     echo -e "  2. Log in with the auto-generated password (or the one you set)"
     echo -e "  3. Go to Settings and connect to your UniFi controller"
     echo -e "  4. Run your first Security Audit!"
@@ -874,6 +1016,7 @@ main() {
     configure_ssh
     install_dependencies
     deploy_application
+    deploy_traefik
     wait_for_healthy || true
 
     # Done
