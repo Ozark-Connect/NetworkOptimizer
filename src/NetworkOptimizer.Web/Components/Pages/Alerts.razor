@@ -706,7 +706,7 @@
                             <div class="form-group">
                                 <label>Event Type Pattern</label>
                                 <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., wan.speed_degradation, audit.*" />
-                                <small class="form-text">Use * for wildcard. Examples: audit.*, threats.attack_chain - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
+                                <small class="form-text">Wildcards and comma-separated lists supported. Examples: audit.*, threats.attack_pattern - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
                             </div>
                             <div class="form-group">
                                 <label>Threshold %</label>
@@ -1193,7 +1193,7 @@
                 <button class="btn btn-sm btn-secondary" @onclick="() => _showEventTypeKey = false">Close</button>
             </div>
             <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 1rem;">
-                Click a pattern to use it. Supports trailing wildcard (e.g., <code>audit.*</code> matches all audit events).
+                Click patterns to add them. Supports wildcards (<code>audit.*</code>) and comma-separated lists.
             </p>
             <div class="event-type-modal-grid">
                 <div>
@@ -1750,8 +1750,17 @@
 
     private void SelectEventType(string eventType)
     {
-        _ruleEventPattern = eventType;
-        _showEventTypeKey = false;
+        if (string.IsNullOrWhiteSpace(_ruleEventPattern))
+        {
+            _ruleEventPattern = eventType;
+        }
+        else
+        {
+            // Append if not already present
+            var existing = _ruleEventPattern.Split(',').Select(p => p.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (!existing.Contains(eventType))
+                _ruleEventPattern = _ruleEventPattern.TrimEnd() + ", " + eventType;
+        }
     }
 
     private async Task SaveRule()

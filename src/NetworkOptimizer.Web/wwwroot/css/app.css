@@ -12318,7 +12318,10 @@ a.affected-client:hover {
     gap: 1.25rem;
 }
 
-@@media (max-width: 600px) {
+@@media (max-width: 768px) {
+    .event-type-modal {
+        padding: 1rem;
+    }
     .event-type-modal-grid {
         grid-template-columns: 1fr;
     }

@@ -74,11 +74,32 @@ public class AlertRuleEvaluator
     }
 
     /// <summary>
-    /// Match event type against pattern. Supports trailing wildcard (e.g., "audit.*" matches "audit.score_dropped").
+    /// Match event type against pattern. Supports trailing wildcard (e.g., "audit.*") and
+    /// comma-separated patterns (e.g., "audit.*, threats.attack_pattern").
     /// </summary>
     internal static bool MatchesEventType(string eventType, string pattern)
     {
         if (string.IsNullOrEmpty(pattern) || pattern == "*")
+            return true;
+
+        // Support comma-separated patterns (any match wins)
+        if (pattern.Contains(','))
+        {
+            foreach (var part in pattern.Split(','))
+            {
+                var trimmed = part.Trim();
+                if (trimmed.Length > 0 && MatchesSinglePattern(eventType, trimmed))
+                    return true;
+            }
+            return false;
+        }
+
+        return MatchesSinglePattern(eventType, pattern);
+    }
+
+    private static bool MatchesSinglePattern(string eventType, string pattern)
+    {
+        if (pattern == "*")
             return true;
 
         if (pattern.EndsWith(".*"))
