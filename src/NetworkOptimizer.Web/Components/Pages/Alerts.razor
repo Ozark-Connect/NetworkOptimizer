@@ -439,7 +439,7 @@
         @* ========== Active Alerts Tab ========== *@
         @if (_activeTab == "active")
         {
-            @if (_activeAlerts.Count == 0)
+            @if (_unresolvedAlerts.Count == 0)
             {
                 <div class="empty-state">
                     <div class="no-alerts-icon">&#10003;</div>
@@ -449,57 +449,95 @@
             }
             else
             {
-                <div class="alert-list">
-                    @foreach (var alert in _activeAlerts)
-                    {
-                        <div class="alert-item @GetSeverityClass(alert.Severity)">
-                            <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
-                            <div class="alert-content">
-                                <div class="alert-header">
-                                    <h3 class="alert-title">@alert.Title</h3>
-                                    <span class="alert-time">@FormatTime(alert.TriggeredAt)</span>
+                @if (_unresolvedAlerts.Any(a => a.Status == AlertStatus.Active))
+                {
+                    <h2 class="alert-group-title">Active</h2>
+                    <div class="alert-list">
+                        @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active))
+                        {
+                            <div class="alert-item @GetSeverityClass(alert.Severity)">
+                                <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
+                                <div class="alert-content">
+                                    <div class="alert-header">
+                                        <h3 class="alert-title">@alert.Title</h3>
+                                        <span class="alert-time">@FormatTime(alert.TriggeredAt)</span>
+                                    </div>
+                                    <p class="alert-message">@alert.Message</p>
+                                    @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
+                                    {
+                                        <span class="alert-source">
+                                            @alert.Source
+                                            @if (!string.IsNullOrEmpty(alert.DeviceName))
+                                            {
+                                                <text> &middot; @alert.DeviceName</text>
+                                            }
+                                            @if (!string.IsNullOrEmpty(alert.DeviceIp))
+                                            {
+                                                <text> &middot; @alert.DeviceIp</text>
+                                            }
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="alert-source">@alert.Source</span>
+                                    }
                                 </div>
-                                <p class="alert-message">@alert.Message</p>
-                                @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
-                                {
-                                    <span class="alert-source">
-                                        @alert.Source
-                                        @if (!string.IsNullOrEmpty(alert.DeviceName))
-                                        {
-                                            <text> &middot; @alert.DeviceName</text>
-                                        }
-                                        @if (!string.IsNullOrEmpty(alert.DeviceIp))
-                                        {
-                                            <text> &middot; @alert.DeviceIp</text>
-                                        }
-                                    </span>
-                                }
-                                else
-                                {
-                                    <span class="alert-source">@alert.Source</span>
-                                }
-                            </div>
-                            <div class="alert-actions">
-                                @if (alert.Status == AlertStatus.Active)
-                                {
+                                <div class="alert-actions">
                                     <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeAlert(alert)">
                                         Acknowledge
                                     </button>
                                     <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
                                         Resolve
                                     </button>
-                                }
-                                else if (alert.Status == AlertStatus.Acknowledged)
-                                {
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (_unresolvedAlerts.Any(a => a.Status == AlertStatus.Acknowledged))
+                {
+                    <h2 class="alert-group-title">Acknowledged</h2>
+                    <div class="alert-list">
+                        @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged))
+                        {
+                            <div class="alert-item @GetSeverityClass(alert.Severity)">
+                                <div class="alert-icon">@((MarkupString)GetSeverityIcon(alert.Severity))</div>
+                                <div class="alert-content">
+                                    <div class="alert-header">
+                                        <h3 class="alert-title">@alert.Title</h3>
+                                        <span class="alert-time">@FormatTime(alert.TriggeredAt)</span>
+                                    </div>
+                                    <p class="alert-message">@alert.Message</p>
+                                    @if (!string.IsNullOrEmpty(alert.DeviceName) || !string.IsNullOrEmpty(alert.DeviceIp))
+                                    {
+                                        <span class="alert-source">
+                                            @alert.Source
+                                            @if (!string.IsNullOrEmpty(alert.DeviceName))
+                                            {
+                                                <text> &middot; @alert.DeviceName</text>
+                                            }
+                                            @if (!string.IsNullOrEmpty(alert.DeviceIp))
+                                            {
+                                                <text> &middot; @alert.DeviceIp</text>
+                                            }
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="alert-source">@alert.Source</span>
+                                    }
+                                </div>
+                                <div class="alert-actions">
                                     <span class="status-badge status-active">Acknowledged</span>
                                     <button class="btn btn-sm btn-primary" @onclick="() => ResolveAlert(alert)">
                                         Resolve
                                     </button>
-                                }
+                                </div>
                             </div>
-                        </div>
-                    }
-                </div>
+                        }
+                    </div>
+                }
             }
         }
 
@@ -516,6 +554,7 @@
                                 <option value="audit">Audit</option>
                                 <option value="device">Device</option>
                                 <option value="speedtest">Speed Test</option>
+                                <option value="threats">Threats</option>
                                 <option value="wan">WAN</option>
                                 <option value="wifi">WiFi</option>
                             </select>
@@ -552,7 +591,7 @@
                                     <th>Severity</th>
                                     <th>Title</th>
                                     <th>Source</th>
-                                    <th class="hide-mobile">Device</th>
+                                    <th class="hide-mobile">Device / IP</th>
                                     <th>Status</th>
                                     <th>Time</th>
                                 </tr>
@@ -568,7 +607,7 @@
                                         </td>
                                         <td>@alert.Title</td>
                                         <td>@alert.Source</td>
-                                        <td class="hide-mobile">@(alert.DeviceName ?? alert.DeviceIp ?? "-")</td>
+                                        <td class="hide-mobile">@FormatDeviceColumn(alert.DeviceName, alert.DeviceIp)</td>
                                         <td>
                                             <span class="status-badge @GetStatusBadgeClass(alert.Status)">
                                                 @alert.Status
@@ -743,19 +782,19 @@
         @* ========== Incidents Tab ========== *@
         @if (_activeTab == "incidents")
         {
-            @if (_incidents.Count == 0)
+            @if (!_incidents.Any(i => i.Status != AlertStatus.Resolved))
             {
                 <div class="empty-state">
-                    <h3>No Incidents</h3>
+                    <h3>No Active Incidents</h3>
                     <p>Correlated alerts will be grouped into incidents automatically.</p>
                 </div>
             }
             else
             {
-                @foreach (var incident in _incidents)
+                @foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved))
                 {
                     <div class="card" style="margin-bottom: 1rem;">
-                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                             <div style="display: flex; align-items: center; gap: 0.75rem;">
                                 <span class="severity-badge @GetSeverityBadgeClass(incident.Severity)">
                                     @incident.Severity
@@ -781,13 +820,17 @@
                                     <span class="detail-label">Last Updated</span>
                                     <span class="detail-value">@FormatTime(incident.LastTriggeredAt)</span>
                                 </div>
-                                @if (incident.ResolvedAt.HasValue)
+                            </div>
+                            <div class="incident-actions">
+                                @if (incident.Status == AlertStatus.Active)
                                 {
-                                    <div>
-                                        <span class="detail-label">Resolved</span>
-                                        <span class="detail-value">@FormatTime(incident.ResolvedAt.Value)</span>
-                                    </div>
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeIncident(incident)">
+                                        Acknowledge All
+                                    </button>
                                 }
+                                <button class="btn btn-sm btn-primary" @onclick="() => ResolveIncident(incident)">
+                                    Resolve All
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1094,6 +1137,22 @@
         gap: 0.75rem;
         padding-bottom: 0.25rem;
     }
+    .alert-group-title {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+        margin-top: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .incident-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+    }
     .status-success {
         background: rgba(36, 188, 112, 0.2);
         color: var(--success-color);
@@ -1219,8 +1278,8 @@
         public int[] Indices { get; set; } = [];
     }
 
-    // Active alerts
-    private List<AlertHistoryEntry> _activeAlerts = [];
+    // Active alerts (unresolved = active + acknowledged)
+    private List<AlertHistoryEntry> _unresolvedAlerts = [];
 
     // History
     private List<AlertHistoryEntry> _historyAlerts = [];
@@ -1498,12 +1557,12 @@
     {
         try
         {
-            _activeAlerts = await AlertRepository.GetActiveAlertsAsync();
+            _unresolvedAlerts = await AlertRepository.GetUnresolvedAlertsAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading active alerts");
-            _activeAlerts = [];
+            _unresolvedAlerts = [];
         }
     }
 
@@ -1560,6 +1619,7 @@
             alert.Status = AlertStatus.Acknowledged;
             alert.AcknowledgedAt = DateTime.UtcNow;
             await AlertRepository.UpdateAlertAsync(alert);
+            await RecalculateIncidentStatusAsync(alert);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
@@ -1575,11 +1635,76 @@
             alert.Status = AlertStatus.Resolved;
             alert.ResolvedAt = DateTime.UtcNow;
             await AlertRepository.UpdateAlertAsync(alert);
+            await RecalculateIncidentStatusAsync(alert);
             await LoadActiveAlerts();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving alert {Id}", alert.Id);
+        }
+    }
+
+    private async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert)
+    {
+        if (!alert.IncidentId.HasValue) return;
+
+        var incident = await AlertRepository.GetIncidentAsync(alert.IncidentId.Value);
+        if (incident == null) return;
+
+        var incidentAlerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
+        var (newStatus, resolvedAt) = AlertCorrelationService.DeriveIncidentStatus(incidentAlerts);
+
+        if (newStatus == incident.Status) return;
+
+        incident.Status = newStatus;
+        incident.ResolvedAt = resolvedAt;
+        await AlertRepository.UpdateIncidentAsync(incident);
+    }
+
+    private async Task AcknowledgeIncident(AlertIncident incident)
+    {
+        try
+        {
+            var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
+            foreach (var alert in alerts.Where(a => a.Status == AlertStatus.Active))
+            {
+                alert.Status = AlertStatus.Acknowledged;
+                alert.AcknowledgedAt = DateTime.UtcNow;
+                await AlertRepository.UpdateAlertAsync(alert);
+            }
+
+            incident.Status = AlertStatus.Acknowledged;
+            await AlertRepository.UpdateIncidentAsync(incident);
+            await LoadIncidents();
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error acknowledging incident {Id}", incident.Id);
+        }
+    }
+
+    private async Task ResolveIncident(AlertIncident incident)
+    {
+        try
+        {
+            var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
+            foreach (var alert in alerts.Where(a => a.Status != AlertStatus.Resolved))
+            {
+                alert.Status = AlertStatus.Resolved;
+                alert.ResolvedAt = DateTime.UtcNow;
+                await AlertRepository.UpdateAlertAsync(alert);
+            }
+
+            incident.Status = AlertStatus.Resolved;
+            incident.ResolvedAt = DateTime.UtcNow;
+            await AlertRepository.UpdateIncidentAsync(incident);
+            await LoadIncidents();
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resolving incident {Id}", incident.Id);
         }
     }
 
@@ -2087,6 +2212,17 @@
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
         if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
         return utcTime.ToString("MMM d, yyyy");
+    }
+
+    private static string FormatDeviceColumn(string? deviceName, string? deviceIp)
+    {
+        if (!string.IsNullOrEmpty(deviceName) && !string.IsNullOrEmpty(deviceIp))
+            return $"{deviceName} ({deviceIp})";
+        if (!string.IsNullOrEmpty(deviceIp))
+            return deviceIp;
+        if (!string.IsNullOrEmpty(deviceName))
+            return deviceName;
+        return "-";
     }
 
     private static string FormatCooldown(int seconds)

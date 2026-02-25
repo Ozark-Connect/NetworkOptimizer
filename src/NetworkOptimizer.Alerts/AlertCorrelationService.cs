@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
+using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Alerts;
 
@@ -16,6 +17,23 @@ public class AlertCorrelationService
     public AlertCorrelationService(ILogger<AlertCorrelationService> logger)
     {
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Derive incident status from the statuses of its constituent alerts.
+    /// </summary>
+    public static (AlertStatus Status, DateTime? ResolvedAt) DeriveIncidentStatus(List<AlertHistoryEntry> alerts)
+    {
+        if (alerts.Count == 0)
+            return (AlertStatus.Active, null);
+
+        if (alerts.All(a => a.Status == AlertStatus.Resolved))
+            return (AlertStatus.Resolved, DateTime.UtcNow);
+
+        if (alerts.All(a => a.Status is AlertStatus.Acknowledged or AlertStatus.Resolved))
+            return (AlertStatus.Acknowledged, null);
+
+        return (AlertStatus.Active, null);
     }
 
     /// <summary>
