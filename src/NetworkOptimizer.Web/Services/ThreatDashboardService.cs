@@ -904,15 +904,7 @@ public class ThreatDashboardService
     private List<ThreatEvent> ApplyNoiseFilters(List<ThreatEvent> events, List<ThreatNoiseFilter> filters)
     {
         if (filters.Count == 0) return events;
-        return events.Where(e => !filters.Any(f => MatchesFilter(e, f))).ToList();
-    }
-
-    private static bool MatchesFilter(ThreatEvent evt, ThreatNoiseFilter filter)
-    {
-        if (filter.SourceIp != null && evt.SourceIp != filter.SourceIp) return false;
-        if (filter.DestIp != null && evt.DestIp != filter.DestIp) return false;
-        if (filter.DestPort != null && evt.DestPort != filter.DestPort) return false;
-        return true; // All non-null fields matched (null = wildcard)
+        return events.Where(e => !filters.Any(f => f.Matches(e.SourceIp, e.DestIp, e.DestPort))).ToList();
     }
 
     private static string GetServiceName(int port)
