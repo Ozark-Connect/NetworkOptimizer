@@ -727,13 +727,25 @@ public class ThreatDashboardService
     {
         if (sortedPorts.Count == 0) return "-";
 
+        // First pass: collapse ports within 10 of each other
+        var ranges = CollapsePortsWithGap(sortedPorts, 10);
+
+        // If still more than 10 entries, group tighter (ports within 100 of each other)
+        if (ranges.Count > 10)
+            ranges = CollapsePortsWithGap(sortedPorts, 100);
+
+        return string.Join(", ", ranges);
+    }
+
+    private static List<string> CollapsePortsWithGap(List<int> sortedPorts, int maxGap)
+    {
         var ranges = new List<string>();
         var start = sortedPorts[0];
         var end = start;
 
         for (var i = 1; i < sortedPorts.Count; i++)
         {
-            if (sortedPorts[i] == end + 1)
+            if (sortedPorts[i] - end <= maxGap)
             {
                 end = sortedPorts[i];
             }
@@ -746,7 +758,7 @@ public class ThreatDashboardService
         }
         ranges.Add(start == end ? start.ToString() : $"{start}-{end}");
 
-        return string.Join(", ", ranges);
+        return ranges;
     }
 
     private static List<SignatureGroup> BuildSignatureGroups(List<ThreatEvent> events)
