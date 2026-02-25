@@ -12319,16 +12319,19 @@ a.affected-client:hover {
 }
 
 @media (max-width: 768px) {
+    .event-type-key-list > div {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.125rem;
+    }
+}
+
+@media (max-width: 600px) {
     .event-type-modal {
         padding: 1rem;
     }
     .event-type-modal-grid {
         grid-template-columns: 1fr;
-    }
-    .event-type-key-list > div {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.125rem;
     }
 }
 
