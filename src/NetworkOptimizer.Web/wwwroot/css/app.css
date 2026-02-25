@@ -12318,7 +12318,7 @@ a.affected-client:hover {
     gap: 1.25rem;
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .event-type-modal {
         padding: 1rem;
     }
