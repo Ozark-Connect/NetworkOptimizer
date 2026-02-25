@@ -2348,7 +2348,7 @@ select.form-control {
     .content-grid {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 8px;
     }
 
     .device-grid {
@@ -2368,6 +2368,11 @@ select.form-control {
     /* Card adjustments for mobile */
     .card {
         padding: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .card-stack {
+        gap: 0.5rem;
     }
 
     .card-header {
