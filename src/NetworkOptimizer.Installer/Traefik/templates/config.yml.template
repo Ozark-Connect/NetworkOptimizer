@@ -10,10 +10,19 @@ tls:
   options:
     default:
       minVersion: VersionTLS12
+    # Speed test: HTTP/1.1 only, lightweight TLS for minimal CPU at high throughput.
+    # TLS is only needed for browser geolocation (secure context requirement).
+    # AES-128-GCM is ~30% faster than AES-256 with AES-NI; X25519 is fastest ECDHE.
     h1only:
       minVersion: VersionTLS12
+      maxVersion: VersionTLS12
       alpnProtocols:
         - "http/1.1"
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+      curvePreferences:
+        - X25519
 
 # ---------------------------------------------------------------------------
 # HTTP Configuration
