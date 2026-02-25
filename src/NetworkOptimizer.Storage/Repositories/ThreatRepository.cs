@@ -790,8 +790,10 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            // Dedup: match on DedupKey (stable across runs) or fall back to SourceIpsJson for old patterns
-            var cutoff = DateTime.UtcNow.AddHours(-1);
+            // Dedup: match on DedupKey (stable across runs) or fall back to SourceIpsJson for old patterns.
+            // 6h window matches the longest detection window (ScanSweep/BruteForce). Ongoing attacks
+            // get merged within the window; resumed activity after 6h gets a fresh alert.
+            var cutoff = DateTime.UtcNow.AddHours(-6);
             var existing = pattern.DedupKey != null
                 ? await _context.ThreatPatterns
                     .FirstOrDefaultAsync(p =>

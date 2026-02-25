@@ -434,7 +434,7 @@ public class ThreatCollectionService : BackgroundService
                         int.TryParse(parts[0], out var prevStages) &&
                         int.TryParse(parts[1], out var prevEvents))
                     {
-                        // Skip if chain hasn't progressed (same/fewer stages AND <50% event growth)
+                        // Full chains are high-risk - re-alert on any progression (more stages or 50%+ events)
                         if (seq.Stages.Count <= prevStages && totalEvents < prevEvents * 1.5)
                             continue;
                     }
@@ -496,11 +496,15 @@ public class ThreatCollectionService : BackgroundService
                 if (_chainAlertState.TryGetValue(attemptKey, out var prevValue))
                 {
                     var parts = prevValue.Split(':');
-                    if (parts.Length >= 2 &&
+                    if (parts.Length >= 3 &&
                         int.TryParse(parts[0], out var prevStages) &&
-                        int.TryParse(parts[1], out var prevEvents))
+                        int.TryParse(parts[1], out var prevEvents) &&
+                        long.TryParse(parts[2], out var prevTicks))
                     {
-                        if (seq.Stages.Count <= prevStages && totalEvents < prevEvents * 1.5)
+                        var hoursSinceLast = (DateTime.UtcNow.Ticks - prevTicks) / (double)TimeSpan.TicksPerHour;
+
+                        if (seq.Stages.Count <= prevStages &&
+                            (hoursSinceLast < 6 || totalEvents < prevEvents * 2))
                             continue;
                     }
                 }
