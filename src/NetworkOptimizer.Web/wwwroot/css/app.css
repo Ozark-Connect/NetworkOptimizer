@@ -2869,6 +2869,15 @@ select.form-control {
     color: white;
 }
 
+.sponsorship-banner.thank-you-banner {
+    background: linear-gradient(135deg, rgba(36, 188, 112, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+    border-color: var(--success-color);
+}
+
+.sponsorship-banner.thank-you-banner .banner-icon {
+    color: var(--success-color);
+}
+
 @media (max-width: 768px) {
     .sponsorship-banner {
         padding: 1rem;

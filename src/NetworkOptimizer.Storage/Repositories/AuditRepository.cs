@@ -140,6 +140,32 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    public async Task<int> GetManualAuditCountAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.AuditResults.CountAsync(a => !a.IsScheduled, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get manual audit count");
+            throw;
+        }
+    }
+
+    public async Task<int> GetScheduledAuditCountAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.AuditResults.CountAsync(a => a.IsScheduled, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get scheduled audit count");
+            throw;
+        }
+    }
+
     /// <summary>
     /// Deletes audit results older than the specified date.
     /// </summary>

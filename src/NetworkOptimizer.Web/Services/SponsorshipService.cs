@@ -37,7 +37,7 @@ public class SponsorshipService : ISponsorshipService
         ("Still free. Still no VC funding. Still powered by coffee and spite.", "Fund the spite"),
 
         // Level 6: 21-30 uses - stats flex
-        ("147,000 lines of code. 4,084 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
+        ("167,000 lines of code. 4,084 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
 
         // Level 7: 31-40 uses - former employer dig
         ("You've used this more than some employers used my code. Just saying.", "Money me"),
@@ -169,7 +169,8 @@ public class SponsorshipService : ISponsorshipService
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
 
         // Count all usage sources in parallel
-        var auditCountTask = auditRepository.GetAuditCountAsync();
+        var manualAuditCountTask = auditRepository.GetManualAuditCountAsync();
+        var scheduledAuditCountTask = auditRepository.GetScheduledAuditCountAsync();
         var speedTestCountTask = speedTestRepository.GetIperf3ResultCountAsync();
         var sqmWan1Task = speedTestRepository.GetSqmWanConfigAsync(1);
         var sqmWan2Task = speedTestRepository.GetSqmWanConfigAsync(2);
@@ -186,12 +187,12 @@ public class SponsorshipService : ISponsorshipService
             plannedApCountTask = db.PlannedAps.CountAsync();
             floorCountTask = db.FloorPlans.CountAsync();
 
-            await Task.WhenAll(auditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task,
+            await Task.WhenAll(manualAuditCountTask, scheduledAuditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task,
                 signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask);
         }
 
-        // Audits count as 1, speed tests count as 0.5 (integer division)
-        var count = auditCountTask.Result + (speedTestCountTask.Result / 2);
+        // Manual audits count as 1, scheduled audits count as 0.2 (~2 per workweek), speed tests count as 0.5
+        var count = manualAuditCountTask.Result + (scheduledAuditCountTask.Result / 5) + (speedTestCountTask.Result / 2);
 
         // 50 signal points = 1 audit equivalent
         count += signalLogCountTask.Result / 50;
