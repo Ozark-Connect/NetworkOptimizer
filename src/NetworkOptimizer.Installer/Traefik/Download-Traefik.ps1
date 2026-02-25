@@ -60,5 +60,32 @@ Remove-Item -Recurse -Force $ExtractPath
 
 Write-Host "Traefik v$Version ready at $OutputDir"
 
+# Download config templates from NetworkOptimizer-Proxy repo
+$TemplatesDir = Join-Path $OutputDir "templates"
+if (-not (Test-Path $TemplatesDir)) {
+    New-Item -ItemType Directory -Path $TemplatesDir | Out-Null
+}
+
+$BaseUrl = "https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer-Proxy/main/windows"
+$Templates = @("traefik.yml.template", "config.yml.template")
+
+foreach ($Template in $Templates) {
+    $DestPath = Join-Path $TemplatesDir $Template
+    if (-not (Test-Path $DestPath)) {
+        Write-Host "Downloading $Template..."
+        try {
+            Invoke-WebRequest -Uri "$BaseUrl/$Template" -OutFile $DestPath
+            Write-Host "  Saved to $DestPath"
+        }
+        catch {
+            Write-Error "Failed to download $Template from $BaseUrl/$Template. Error: $_"
+            exit 1
+        }
+    }
+    else {
+        Write-Host "Template already exists: $DestPath"
+    }
+}
+
 # List contents
-Get-ChildItem $OutputDir -Filter "traefik*" | ForEach-Object { Write-Host "  $_" }
+Get-ChildItem $OutputDir -Recurse -File | ForEach-Object { Write-Host "  $($_.FullName.Substring($OutputDir.Length + 1))" }

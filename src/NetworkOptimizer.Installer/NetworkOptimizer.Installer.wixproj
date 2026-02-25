@@ -55,8 +55,8 @@
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(Iperf3Dir)Download-Iperf3.ps1&quot;" />
   </Target>
 
-  <!-- Download Traefik before build -->
-  <Target Name="DownloadTraefik" BeforeTargets="Build" Condition="!Exists('$(TraefikDir)traefik.exe')">
+  <!-- Download Traefik binary and config templates before build -->
+  <Target Name="DownloadTraefik" BeforeTargets="Build" Condition="!Exists('$(TraefikDir)traefik.exe') OR !Exists('$(TraefikTemplatesDir)traefik.yml.template')">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(TraefikDir)Download-Traefik.ps1&quot;" />
   </Target>
 
