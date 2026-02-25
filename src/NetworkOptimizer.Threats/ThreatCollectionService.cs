@@ -440,12 +440,13 @@ public class ThreatCollectionService : BackgroundService
                     }
                 }
 
-                _chainAlertState[stateKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
-                stateChanged = true;
-
-                // Skip publishing if noise-filtered (state still updated for dedup)
+                // Skip publishing if noise-filtered (don't advance state so escalation
+                // alerts fire when the filter is removed)
                 if (noiseFilters.Any(f => f.Matches(seq.SourceIp, null, null)))
                     continue;
+
+                _chainAlertState[stateKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
+                stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
                 var severity = lastStage is KillChainStage.ActiveExploitation or KillChainStage.PostExploitation
@@ -504,12 +505,13 @@ public class ThreatCollectionService : BackgroundService
                     }
                 }
 
-                _chainAlertState[attemptKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
-                stateChanged = true;
-
-                // Skip publishing if noise-filtered (state still updated for dedup)
+                // Skip publishing if noise-filtered (don't advance state so escalation
+                // alerts fire when the filter is removed)
                 if (noiseFilters.Any(f => f.Matches(seq.SourceIp, null, null)))
                     continue;
+
+                _chainAlertState[attemptKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
+                stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
 
