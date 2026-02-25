@@ -846,6 +846,26 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
+    public async Task<List<ThreatPattern>> GetUnalertedPatternsAsync(CancellationToken cancellationToken = default)
+    {
+        var cutoff = DateTime.UtcNow.AddHours(-6);
+        return await _context.ThreatPatterns
+            .Where(p => p.DetectedAt >= cutoff &&
+                        (p.LastAlertedAt == null || p.LastSeen > p.LastAlertedAt))
+            .OrderByDescending(p => p.LastSeen)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task MarkPatternAlertedAsync(int patternId, DateTime alertedAt, CancellationToken cancellationToken = default)
+    {
+        var pattern = await _context.ThreatPatterns.FindAsync(new object[] { patternId }, cancellationToken);
+        if (pattern != null)
+        {
+            pattern.LastAlertedAt = alertedAt;
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+    }
+
     #endregion
 
     #region CrowdSec Cache

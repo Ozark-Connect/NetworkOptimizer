@@ -48,6 +48,8 @@ public interface IThreatRepository
     // --- Threat Patterns ---
     Task SavePatternAsync(ThreatPattern pattern, CancellationToken cancellationToken = default);
     Task<List<ThreatPattern>> GetPatternsAsync(DateTime from, DateTime to, PatternType? type = null, int limit = 50, CancellationToken cancellationToken = default);
+    Task<List<ThreatPattern>> GetUnalertedPatternsAsync(CancellationToken cancellationToken = default);
+    Task MarkPatternAlertedAsync(int patternId, DateTime alertedAt, CancellationToken cancellationToken = default);
 
     // --- Attack Sequences ---
     Task<List<AttackSequence>> GetAttackSequencesAsync(DateTime from, DateTime to, int limit = 50, CancellationToken cancellationToken = default);

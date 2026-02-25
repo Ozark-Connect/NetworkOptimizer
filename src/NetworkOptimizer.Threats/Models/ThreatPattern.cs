@@ -45,6 +45,12 @@ public class ThreatPattern
     public double Confidence { get; set; }
 
     /// <summary>
+    /// When an alert was last published for this pattern. Null if never alerted.
+    /// Used to prevent duplicate alerts - only alert when LastSeen > LastAlertedAt.
+    /// </summary>
+    public DateTime? LastAlertedAt { get; set; }
+
+    /// <summary>
     /// Human-readable description of the detected pattern.
     /// </summary>
     public string Description { get; set; } = string.Empty;

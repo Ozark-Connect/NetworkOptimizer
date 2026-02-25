@@ -39,10 +39,10 @@ public class ThreatCollectionService : BackgroundService
     private DateTimeOffset _lastGeoCheck = DateTimeOffset.MinValue;
     private bool _geoBackfillComplete;
 
-    // Track source IPs we've already alerted on for attack chains (reset periodically)
-    private readonly HashSet<string> _alertedChainIps = new();
-    private readonly HashSet<string> _alertedChainAttemptIps = new();
-    private DateTime _lastChainAlertReset = DateTime.UtcNow;
+    // Track attack chain alerts: key = "chain:{ip}" or "attempt:{ip}", value = "stageCount:totalEvents:utcTicks"
+    // Persisted to SystemSettings as JSON so dedup survives restarts.
+    private readonly Dictionary<string, string> _chainAlertState = new();
+    private bool _chainStateLoaded;
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -178,7 +178,7 @@ public class ThreatCollectionService : BackgroundService
             if (chunkEnd > now) chunkEnd = now;
 
             var chunkEvents = await CollectRangeAsync(apiClient, chunkCursor, chunkEnd, maxPages: int.MaxValue, cancellationToken);
-            await ProcessAndSaveAsync(chunkEvents, repository, cancellationToken);
+            await ProcessAndSaveAsync(chunkEvents, repository, settings, cancellationToken);
             totalRecentEvents += chunkEvents.Count;
 
             chunkCursor = chunkEnd;
@@ -210,7 +210,7 @@ public class ThreatCollectionService : BackgroundService
                 if (chunkStart < backfillLimit) chunkStart = backfillLimit;
 
                 var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
-                await ProcessAndSaveAsync(backfillEvents, repository, cancellationToken);
+                await ProcessAndSaveAsync(backfillEvents, repository, settings, cancellationToken);
 
                 cursor = chunkStart;
                 await settings.SaveSettingAsync("threats.backfill_cursor", cursor.ToString("O"));
@@ -286,7 +286,7 @@ public class ThreatCollectionService : BackgroundService
     /// Enrich, classify, save events, run pattern analysis, and publish alerts.
     /// </summary>
     private async Task ProcessAndSaveAsync(List<ThreatEvent> events,
-        IThreatRepository repository, CancellationToken cancellationToken)
+        IThreatRepository repository, IThreatSettingsAccessor settings, CancellationToken cancellationToken)
     {
         if (events.Count == 0) return;
 
@@ -305,6 +305,49 @@ public class ThreatCollectionService : BackgroundService
             var patterns = _patternAnalyzer.DetectPatterns(recentEvents);
             foreach (var pattern in patterns)
                 await repository.SavePatternAsync(pattern, cancellationToken);
+
+            // Publish alert events for patterns with new activity (DB-persisted dedup)
+            var unalertedPatterns = await repository.GetUnalertedPatternsAsync(cancellationToken);
+            foreach (var pattern in unalertedPatterns)
+            {
+                try
+                {
+                    var sourceIps = System.Text.Json.JsonSerializer.Deserialize<List<string>>(pattern.SourceIpsJson) ?? [];
+                    var firstSourceIp = sourceIps.FirstOrDefault() ?? "unknown";
+
+                    var severity = pattern.PatternType switch
+                    {
+                        Models.PatternType.DDoS => AlertSeverity.Critical,
+                        Models.PatternType.BruteForce => AlertSeverity.Error,
+                        Models.PatternType.ExploitCampaign => AlertSeverity.Error,
+                        _ => AlertSeverity.Warning
+                    };
+
+                    await _alertEventBus.PublishAsync(new AlertEvent
+                    {
+                        EventType = "threats.attack_pattern",
+                        Source = "threats",
+                        Severity = severity,
+                        Title = pattern.Description,
+                        Message = $"{pattern.PatternType} pattern detected: {pattern.EventCount} events, confidence {pattern.Confidence:P0}",
+                        DeviceIp = firstSourceIp,
+                        Context = new Dictionary<string, string>
+                        {
+                            ["pattern_type"] = pattern.PatternType.ToString(),
+                            ["event_count"] = pattern.EventCount.ToString(),
+                            ["confidence"] = pattern.Confidence.ToString("F2"),
+                            ["target_port"] = pattern.TargetPort?.ToString() ?? "",
+                            ["source_ips"] = string.Join(", ", sourceIps.Take(5))
+                        }
+                    }, cancellationToken);
+
+                    await repository.MarkPatternAlertedAsync(pattern.Id, DateTime.UtcNow, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to publish alert for pattern {PatternType}", pattern.PatternType);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -312,18 +355,45 @@ public class ThreatCollectionService : BackgroundService
         }
 
         // Check for multi-stage attack chains (2+ kill chain stages from same source)
+        // State is persisted to SystemSettings so dedup survives restarts.
+        // Only re-alerts when a chain has progressed (more stages or 50%+ more events).
         try
         {
-            // Reset alerted IPs every 6 hours to allow re-alerting on continued chains
-            if ((DateTime.UtcNow - _lastChainAlertReset).TotalHours >= 6)
+            // Load persisted chain alert state from DB on first cycle
+            if (!_chainStateLoaded)
             {
-                _alertedChainIps.Clear();
-                _alertedChainAttemptIps.Clear();
-                _lastChainAlertReset = DateTime.UtcNow;
+                _chainStateLoaded = true;
+                var stateJson = await settings.GetSettingAsync("threats.chain_alert_state", cancellationToken);
+                if (!string.IsNullOrEmpty(stateJson))
+                {
+                    try
+                    {
+                        var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(stateJson);
+                        if (loaded != null)
+                            foreach (var kv in loaded)
+                                _chainAlertState[kv.Key] = kv.Value;
+                    }
+                    catch { /* corrupt state, start fresh */ }
+                }
             }
+
+            // Prune entries older than 24h
+            var pruneThreshold = DateTime.UtcNow.AddHours(-24).Ticks;
+            var staleKeys = _chainAlertState
+                .Where(kv =>
+                {
+                    var parts = kv.Value.Split(':');
+                    return parts.Length >= 3 && long.TryParse(parts[2], out var t) && t < pruneThreshold;
+                })
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var key in staleKeys)
+                _chainAlertState.Remove(key);
 
             var sequences = await repository.GetAttackSequencesAsync(
                 DateTime.UtcNow.AddHours(-6), DateTime.UtcNow, limit: 20, cancellationToken);
+
+            var stateChanged = staleKeys.Count > 0;
 
             // Alert on chains with 2+ stages ending in ActiveExploitation, PostExploitation, or Monitored
             var alertableEndings = new[] { KillChainStage.ActiveExploitation, KillChainStage.PostExploitation, KillChainStage.Monitored };
@@ -334,11 +404,27 @@ public class ThreatCollectionService : BackgroundService
                 var lastStage = seq.Stages[^1].Stage;
                 if (!alertableEndings.Contains(lastStage)) continue;
 
-                // Skip if already alerted for this IP in this window
-                if (!_alertedChainIps.Add(seq.SourceIp)) continue;
+                var stateKey = $"chain:{seq.SourceIp}";
+                var totalEvents = seq.Stages.Sum(s => s.EventCount);
+
+                // Check if this chain has progressed since last alert
+                if (_chainAlertState.TryGetValue(stateKey, out var prevValue))
+                {
+                    var parts = prevValue.Split(':');
+                    if (parts.Length >= 2 &&
+                        int.TryParse(parts[0], out var prevStages) &&
+                        int.TryParse(parts[1], out var prevEvents))
+                    {
+                        // Skip if chain hasn't progressed (same/fewer stages AND <50% event growth)
+                        if (seq.Stages.Count <= prevStages && totalEvents < prevEvents * 1.5)
+                            continue;
+                    }
+                }
+
+                _chainAlertState[stateKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
+                stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
-                var totalEvents = seq.Stages.Sum(s => s.EventCount);
                 var severity = lastStage is KillChainStage.ActiveExploitation or KillChainStage.PostExploitation
                     ? AlertSeverity.Critical : AlertSeverity.Warning;
 
@@ -376,12 +462,29 @@ public class ThreatCollectionService : BackgroundService
             {
                 if (seq.Stages.Count < 2) continue;
 
-                // Skip if already alerted as a full chain or as an attempt
-                if (_alertedChainIps.Contains(seq.SourceIp)) continue;
-                if (!_alertedChainAttemptIps.Add(seq.SourceIp)) continue;
+                // Skip if already alerted as a full chain
+                if (_chainAlertState.ContainsKey($"chain:{seq.SourceIp}")) continue;
+
+                var attemptKey = $"attempt:{seq.SourceIp}";
+                var totalEvents = seq.Stages.Sum(s => s.EventCount);
+
+                // Check if this attempt chain has progressed since last alert
+                if (_chainAlertState.TryGetValue(attemptKey, out var prevValue))
+                {
+                    var parts = prevValue.Split(':');
+                    if (parts.Length >= 2 &&
+                        int.TryParse(parts[0], out var prevStages) &&
+                        int.TryParse(parts[1], out var prevEvents))
+                    {
+                        if (seq.Stages.Count <= prevStages && totalEvents < prevEvents * 1.5)
+                            continue;
+                    }
+                }
+
+                _chainAlertState[attemptKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
+                stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
-                var totalEvents = seq.Stages.Sum(s => s.EventCount);
 
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
@@ -404,6 +507,13 @@ public class ThreatCollectionService : BackgroundService
 
                 _logger.LogDebug("Early-stage attack chain detected: {Ip} ({Country}) - {Stages}",
                     seq.SourceIp, seq.CountryCode, stageNames);
+            }
+
+            // Persist updated state to DB
+            if (stateChanged)
+            {
+                var json = JsonSerializer.Serialize(_chainAlertState);
+                await settings.SaveSettingAsync("threats.chain_alert_state", json);
             }
         }
         catch (Exception ex)

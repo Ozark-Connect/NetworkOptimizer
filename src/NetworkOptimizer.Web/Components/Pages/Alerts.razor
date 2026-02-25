@@ -667,7 +667,7 @@
                             <div class="form-group">
                                 <label>Event Type Pattern</label>
                                 <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., wan.speed_degradation, audit.*" />
-                                <small class="form-text">Use * for wildcard. Examples: wan.speed_degradation, speedtest.regression, audit.*, threats.attack_chain</small>
+                                <small class="form-text">Use * for wildcard. Examples: audit.*, threats.attack_chain - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
                             </div>
                             <div class="form-group">
                                 <label>Threshold %</label>
@@ -1125,6 +1125,61 @@
     }
 </style>
 
+@if (_showEventTypeKey)
+{
+    <div class="event-type-modal-backdrop" @onclick="() => _showEventTypeKey = false">
+        <div class="event-type-modal" @onclick:stopPropagation>
+            <div class="event-type-modal-header">
+                <h3>Event Type Patterns</h3>
+                <button class="btn btn-sm btn-secondary" @onclick="() => _showEventTypeKey = false">Close</button>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 1rem;">
+                Click a pattern to use it. Supports trailing wildcard (e.g., <code>audit.*</code> matches all audit events).
+            </p>
+            <div class="event-type-modal-grid">
+                <div>
+                    <h4 class="event-type-group-header">Security Audit</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("audit.completed")'><code>audit.completed</code> <span>Audit finished running</span></div>
+                        <div @onclick='() => SelectEventType("audit.score_dropped")'><code>audit.score_dropped</code> <span>Security score decreased</span></div>
+                        <div @onclick='() => SelectEventType("audit.critical_findings")'><code>audit.critical_findings</code> <span>Critical issues found</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Threat Intelligence</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("threats.ips_event")'><code>threats.ips_event</code> <span>High-severity IPS/IDS event</span></div>
+                        <div @onclick='() => SelectEventType("threats.traffic_flow")'><code>threats.traffic_flow</code> <span>High-severity traffic flow</span></div>
+                        <div @onclick='() => SelectEventType("threats.attack_chain")'><code>threats.attack_chain</code> <span>Multi-stage kill chain detected</span></div>
+                        <div @onclick='() => SelectEventType("threats.attack_chain_attempt")'><code>threats.attack_chain_attempt</code> <span>Early-stage attack chain</span></div>
+                        <div @onclick='() => SelectEventType("threats.attack_pattern")'><code>threats.attack_pattern</code> <span>Scan, brute force, DDoS, or exploit pattern</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Speed Tests</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("wan.speed_completed")'><code>wan.speed_completed</code> <span>WAN speed test finished</span></div>
+                        <div @onclick='() => SelectEventType("wan.speed_degradation")'><code>wan.speed_degradation</code> <span>WAN speed dropped significantly</span></div>
+                        <div @onclick='() => SelectEventType("speedtest.completed")'><code>speedtest.completed</code> <span>LAN speed test finished</span></div>
+                        <div @onclick='() => SelectEventType("speedtest.regression")'><code>speedtest.regression</code> <span>LAN speed dropped vs. baseline</span></div>
+                        <div @onclick='() => SelectEventType("speedtest.client_completed")'><code>speedtest.client_completed</code> <span>Client (browser) speed test finished</span></div>
+                        <div @onclick='() => SelectEventType("speedtest.client_regression")'><code>speedtest.client_regression</code> <span>Client speed dropped vs. baseline</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Schedule & Other</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("schedule.task_completed")'><code>schedule.task_completed</code> <span>Scheduled task succeeded</span></div>
+                        <div @onclick='() => SelectEventType("schedule.task_failed")'><code>schedule.task_failed</code> <span>Scheduled task failed</span></div>
+                        <div @onclick='() => SelectEventType("device.offline")'><code>device.offline</code> <span>Device went offline</span></div>
+                        <div @onclick='() => SelectEventType("wifi.congestion")'><code>wifi.congestion</code> <span>Wi-Fi channel congestion detected</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
@@ -1175,6 +1230,7 @@
     // Rules
     private List<AlertRule> _rules = [];
     private bool _showRuleForm;
+    private bool _showEventTypeKey;
     private int _editingRuleId;
     private string _ruleName = "";
     private string _ruleEventPattern = "";
@@ -1565,6 +1621,12 @@
     {
         _showRuleForm = false;
         _ruleError = null;
+    }
+
+    private void SelectEventType(string eventType)
+    {
+        _ruleEventPattern = eventType;
+        _showEventTypeKey = false;
     }
 
     private async Task SaveRule()

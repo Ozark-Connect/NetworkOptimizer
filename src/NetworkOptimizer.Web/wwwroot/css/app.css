@@ -12275,3 +12275,94 @@ a.affected-client:hover {
     margin-top: 1px;
     font-weight: 500;
 }
+
+/* Event Type Key Modal (Alerts > Rules tab) */
+.event-type-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.event-type-modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 960px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.event-type-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.event-type-modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.event-type-modal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+}
+
+@@media (max-width: 600px) {
+    .event-type-modal-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.event-type-group-header {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
+}
+
+.event-type-key-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.event-type-key-list > div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    cursor: pointer;
+    padding: 0.25rem 0.375rem;
+    border-radius: 4px;
+    margin: 0 -0.375rem;
+}
+
+.event-type-key-list > div:hover {
+    background: var(--bg-tertiary);
+}
+
+.event-type-key-list code {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    padding: 0.125rem 0.375rem;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    color: var(--info-color);
+}
+
+.event-type-key-list span {
+    color: var(--text-secondary);
+}
