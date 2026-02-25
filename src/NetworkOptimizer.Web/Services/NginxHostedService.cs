@@ -91,6 +91,7 @@ public class NginxHostedService : IHostedService, IDisposable
 
         // Read template and replace placeholders (matches OpenSpeedTest format)
         var template = await File.ReadAllTextAsync(templatePath);
+
         var configJs = template
             .Replace("{{SAVE_DATA}}", "true")
             .Replace("{{SAVE_DATA_URL}}", saveDataUrl)

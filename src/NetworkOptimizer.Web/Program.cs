@@ -210,6 +210,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Iperf3ServerServic
 // Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
 builder.Services.AddHostedService<NginxHostedService>();
 
+// Register Traefik hosted service (Windows only - manages Traefik for HTTPS reverse proxying)
+builder.Services.AddHostedService<TraefikHostedService>();
+
 // Register Alert Engine services (Vigilance)
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Events.IAlertEventBus, NetworkOptimizer.Alerts.Events.AlertEventBus>();
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertCooldownTracker>();
@@ -391,11 +394,12 @@ var openSpeedTestPortConfig = builder.Configuration["OPENSPEEDTEST_PORT"];
 var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
 var openSpeedTestHostConfig = builder.Configuration["OPENSPEEDTEST_HOST"];
 var openSpeedTestHost = !string.IsNullOrEmpty(openSpeedTestHostConfig) ? openSpeedTestHostConfig : hostName;
-var openSpeedTestHttps = builder.Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+var openSpeedTestHttpsConfig = builder.Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
+var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
 var openSpeedTestHttpsPortConfig = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"];
 var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
-// HTTP origins (direct access via IP or hostname)
+// HTTP origins (direct access via IP or hostname) - always added
 // Use HOST_IP if set, otherwise auto-detect from network interfaces
 var corsIp = !string.IsNullOrEmpty(hostIp) ? hostIp : NetworkUtilities.DetectLocalIpFromInterfaces();
 if (!string.IsNullOrEmpty(corsIp))
@@ -407,8 +411,8 @@ if (!string.IsNullOrEmpty(openSpeedTestHost))
     corsOriginsList.Add($"http://{openSpeedTestHost}:{openSpeedTestPort}");
 }
 
-// HTTPS origins (when proxied with TLS)
-if (openSpeedTestHttps && !string.IsNullOrEmpty(openSpeedTestHost))
+// HTTPS proxy origin (when OPENSPEEDTEST_HTTPS=true)
+if (openSpeedTestHttpsEnabled && !string.IsNullOrEmpty(openSpeedTestHost))
 {
     var httpsOrigin = openSpeedTestHttpsPort == "443"
         ? $"https://{openSpeedTestHost}"
@@ -1695,7 +1699,15 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
             ["IPERF3_SERVER_ENABLED"] = "Iperf3Server:Enabled",  // Maps to Iperf3Server:Enabled
             ["OPENSPEEDTEST_PORT"] = "OPENSPEEDTEST_PORT",
             ["OPENSPEEDTEST_HOST"] = "OPENSPEEDTEST_HOST",
-            ["OPENSPEEDTEST_HTTPS"] = "OPENSPEEDTEST_HTTPS"
+            ["OPENSPEEDTEST_HTTPS"] = "OPENSPEEDTEST_HTTPS",
+            ["OPENSPEEDTEST_HTTPS_PORT"] = "OPENSPEEDTEST_HTTPS_PORT",
+            // Traefik settings (optional HTTPS reverse proxy feature)
+            ["TRAEFIK_ACME_EMAIL"] = "TRAEFIK_ACME_EMAIL",
+            ["TRAEFIK_CF_DNS_API_TOKEN"] = "TRAEFIK_CF_DNS_API_TOKEN",
+            ["TRAEFIK_OPTIMIZER_HOSTNAME"] = "TRAEFIK_OPTIMIZER_HOSTNAME",
+            ["TRAEFIK_SPEEDTEST_HOSTNAME"] = "TRAEFIK_SPEEDTEST_HOSTNAME",
+            ["TRAEFIK_LISTEN_IP"] = "TRAEFIK_LISTEN_IP",
+            ["TRAEFIK_LOG_LEVEL"] = "TRAEFIK_LOG_LEVEL"
         };
 
         foreach (var mapping in keyMappings)

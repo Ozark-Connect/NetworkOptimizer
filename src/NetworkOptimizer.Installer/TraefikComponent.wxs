@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - Traefik Component (HTTPS Reverse Proxy)
+
+  Bundles Traefik for Windows with config templates.
+  Traefik is managed as a child process by the main NetworkOptimizer service.
+  Certificates (acme/) are preserved on uninstall.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Fragment>
+    <!-- Traefik directory under main install folder -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Directory Id="TraefikFolder" Name="Traefik">
+        <Directory Id="TraefikTemplatesFolder" Name="templates" />
+        <Directory Id="TraefikDynamicFolder" Name="dynamic" />
+        <Directory Id="TraefikAcmeFolder" Name="acme" />
+        <Directory Id="TraefikLogsFolder" Name="logs" />
+      </Directory>
+    </DirectoryRef>
+
+    <ComponentGroup Id="TraefikComponents">
+
+      <!-- Traefik executable -->
+      <Component Id="TraefikExecutable" Directory="TraefikFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE0" Bitness="always64">
+        <File Id="TraefikExe"
+              Source="$(var.TraefikDir)traefik.exe"
+              KeyPath="yes" />
+
+        <!-- Stop/start the main service when TraefikFeature is added or removed via maintenance Change.
+             Without this, the ServiceControl in MainFeature doesn't fire during sub-feature changes,
+             so TraefikHostedService never starts/stops Traefik.
+             Start="install" only - Start="both" would try to start a deleted service during MajorUpgrade
+             (RemoveExistingProducts deletes the service, then StartServices fires for this component). -->
+        <ServiceControl
+            Id="TraefikServiceRestart"
+            Name="NetworkOptimizer"
+            Stop="both"
+            Start="install"
+            Wait="yes" />
+
+        <!-- Firewall exception for HTTP (port 80) -->
+        <fw:FirewallException
+            Id="TraefikHttpFirewall"
+            Name="Network Optimizer Traefik HTTP"
+            Port="80"
+            Protocol="tcp"
+            Scope="any"
+            Profile="all" />
+
+        <!-- Firewall exception for HTTPS (port 443) -->
+        <fw:FirewallException
+            Id="TraefikHttpsFirewall"
+            Name="Network Optimizer Traefik HTTPS"
+            Port="443"
+            Protocol="tcp"
+            Scope="any"
+            Profile="all" />
+      </Component>
+
+      <!-- Config templates -->
+      <Component Id="TraefikTemplates" Directory="TraefikTemplatesFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE1" Bitness="always64">
+        <File Id="TraefikStaticTemplate"
+              Source="$(var.TraefikTemplatesDir)traefik.yml.template"
+              KeyPath="yes" />
+        <File Id="TraefikDynamicTemplate"
+              Source="$(var.TraefikTemplatesDir)config.yml.template" />
+      </Component>
+
+      <!-- Dynamic config folder - clean up runtime-generated files on uninstall -->
+      <Component Id="TraefikDynamicFolderComponent" Directory="TraefikDynamicFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE2" Bitness="always64">
+        <CreateFolder />
+        <RemoveFile Id="RemoveTraefikDynamicFiles" On="uninstall" Directory="TraefikDynamicFolder" Name="*.*" />
+        <RemoveFolder Id="RemoveTraefikDynamicFolder" On="uninstall" />
+      </Component>
+
+      <!-- Acme folder - preserved on uninstall (certificates are valuable) -->
+      <Component Id="TraefikAcmeFolderComponent" Directory="TraefikAcmeFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE3" Bitness="always64">
+        <CreateFolder />
+      </Component>
+
+      <!-- Logs folder - preserved on uninstall (access.log may be locked by Traefik process) -->
+      <Component Id="TraefikLogsFolderComponent" Directory="TraefikLogsFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE4" Bitness="always64">
+        <CreateFolder />
+      </Component>
+
+      <!-- Traefik registry settings - in TraefikFeature so they are written/removed with the feature -->
+      <!-- This ensures maintenance Change properly writes values when adding Traefik.
+           Includes downstream settings (REVERSE_PROXIED_HOST_NAME, OPENSPEEDTEST_HOST/HTTPS) that are
+           pre-filled from Traefik hostnames - MainFeature's RegistrySettings also has these but isn't
+           re-processed during Change. When Traefik is removed, these are cleaned up. -->
+      <Component Id="TraefikRegistrySettings" Directory="TraefikFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE6" Bitness="always64">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer">
+          <RegistryValue Name="TRAEFIK_ACME_EMAIL" Type="string" Value="[TRAEFIK_ACME_EMAIL]" KeyPath="yes" />
+          <RegistryValue Name="TRAEFIK_CF_DNS_API_TOKEN" Type="string" Value="[TRAEFIK_CF_DNS_API_TOKEN]" />
+          <RegistryValue Name="TRAEFIK_OPTIMIZER_HOSTNAME" Type="string" Value="[TRAEFIK_OPTIMIZER_HOSTNAME]" />
+          <RegistryValue Name="TRAEFIK_SPEEDTEST_HOSTNAME" Type="string" Value="[TRAEFIK_SPEEDTEST_HOSTNAME]" />
+          <RegistryValue Name="TRAEFIK_LISTEN_IP" Type="string" Value="[TRAEFIK_LISTEN_IP]" />
+          <RegistryValue Name="TRAEFIK_LOG_LEVEL" Type="string" Value="[TRAEFIK_LOG_LEVEL]" />
+          <!-- Downstream settings pre-filled from Traefik hostnames -->
+          <RegistryValue Name="REVERSE_PROXIED_HOST_NAME" Type="string" Value="[REVERSE_PROXIED_HOST_NAME]" />
+          <RegistryValue Name="OPENSPEEDTEST_HOST" Type="string" Value="[OPENSPEEDTEST_HOST]" />
+          <RegistryValue Name="OPENSPEEDTEST_HTTPS" Type="string" Value="[OPENSPEEDTEST_HTTPS]" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Clean up runtime-generated traefik.yml and empty folders on uninstall -->
+      <Component Id="TraefikFolderCleanup" Directory="TraefikFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE5" Bitness="always64">
+        <RemoveFile Id="RemoveTraefikYml" On="uninstall" Directory="TraefikFolder" Name="traefik.yml" />
+        <RemoveFolder Id="RemoveTraefikTemplatesFolder" Directory="TraefikTemplatesFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveTraefikFolder" On="uninstall" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- Restart NetworkOptimizer service after maintenance Change when Traefik feature is removed.
+         TraefikServiceRestart has Start="install" (only fires when component is installed, not removed).
+         This CA ensures the service restarts even when the Traefik component is being removed.
+         Return="ignore" - sc.exe returns non-zero if service is already running, which is fine. -->
+    <CustomAction Id="CA_RestartServiceAfterChange"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="sc.exe start NetworkOptimizer"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- Only during maintenance Change/Repair, not fresh install/upgrade/full-uninstall.
+           During MajorUpgrade: WIX_UPGRADE_DETECTED is set, so this doesn't fire (main ServiceControl handles it).
+           During full uninstall: REMOVE="ALL", so this doesn't fire.
+           During fresh install: Installed is not set, so this doesn't fire. -->
+      <Custom Action="CA_RestartServiceAfterChange" After="StartServices"
+              Condition="Installed AND NOT (REMOVE = &quot;ALL&quot;) AND NOT WIX_UPGRADE_DETECTED" />
+    </InstallExecuteSequence>
+
+  </Fragment>
+
+</Wix>

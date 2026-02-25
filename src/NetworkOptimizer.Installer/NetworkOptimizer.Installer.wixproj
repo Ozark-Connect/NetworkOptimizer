@@ -28,10 +28,14 @@
     <SpeedTestDir>$(MSBuildThisFileDirectory)SpeedTest\</SpeedTestDir>
     <OpenSpeedTestDir>$(MSBuildThisFileDirectory)..\OpenSpeedTest\</OpenSpeedTestDir>
     <Iperf3Dir>$(MSBuildThisFileDirectory)Iperf3\</Iperf3Dir>
+
+    <!-- Traefik directories -->
+    <TraefikDir>$(MSBuildThisFileDirectory)Traefik\</TraefikDir>
+    <TraefikTemplatesDir>$(MSBuildThisFileDirectory)Traefik\templates\</TraefikTemplatesDir>
   </PropertyGroup>
 
   <PropertyGroup>
-    <DefineConstants>PublishDir=$(PublishDir);InstallerDir=$(InstallerDir);SpeedTestDir=$(SpeedTestDir);OpenSpeedTestDir=$(OpenSpeedTestDir);Iperf3Dir=$(Iperf3Dir)</DefineConstants>
+    <DefineConstants>PublishDir=$(PublishDir);InstallerDir=$(InstallerDir);SpeedTestDir=$(SpeedTestDir);OpenSpeedTestDir=$(OpenSpeedTestDir);Iperf3Dir=$(Iperf3Dir);TraefikDir=$(TraefikDir);TraefikTemplatesDir=$(TraefikTemplatesDir)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -49,6 +53,11 @@
   <!-- Download iperf3 before build -->
   <Target Name="DownloadIperf3" BeforeTargets="Build" Condition="!Exists('$(Iperf3Dir)iperf3.exe')">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(Iperf3Dir)Download-Iperf3.ps1&quot;" />
+  </Target>
+
+  <!-- Download Traefik binary and config templates before build -->
+  <Target Name="DownloadTraefik" BeforeTargets="Build" Condition="!Exists('$(TraefikDir)traefik.exe') OR !Exists('$(TraefikTemplatesDir)traefik.yml.template')">
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(TraefikDir)Download-Traefik.ps1&quot;" />
   </Target>
 
 </Project>

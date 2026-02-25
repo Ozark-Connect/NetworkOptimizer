@@ -743,7 +743,8 @@
         var openSpeedTestHost = Configuration["OPENSPEEDTEST_HOST"];
         var openSpeedTestPortConfig = Configuration["OPENSPEEDTEST_PORT"];
         var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
-        var openSpeedTestHttps = Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+        var openSpeedTestHttpsConfig = Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
+        var openSpeedTestHttpsEnabled = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
         var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
         var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
@@ -761,19 +762,21 @@
             : !string.IsNullOrEmpty(hostIp) ? hostIp
             : NetworkUtilities.DetectLocalIpFromInterfaces() ?? "<server IP>";
 
-        // Build display URL - prefer HTTPS when configured, else HTTP
+        // Build display URL
+        // "true" = HTTPS link (everything through TLS proxy)
+        // "false"/unset = HTTP link (direct access)
         if (!string.IsNullOrEmpty(openSpeedTestHost))
         {
-            if (openSpeedTestHttps)
+            if (openSpeedTestHttpsEnabled)
             {
-                // HTTPS URL (behind proxy)
+                // HTTPS URL (behind proxy, all traffic through TLS)
                 openSpeedTestUrl = openSpeedTestHttpsPort == "443"
                     ? $"https://{openSpeedTestHost}"
                     : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
             }
             else
             {
-                // HTTP URL (direct access)
+                // HTTP URL (direct access, no proxy)
                 openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
             }
         }
@@ -788,9 +791,9 @@
         }
 
         // Check if OpenSpeedTest is actually reachable
-        if (openSpeedTestHttps)
+        if (openSpeedTestHttpsEnabled)
         {
-            // HTTPS configured = user has a working proxy setup, trust them
+            // HTTPS configured (true or mobile) = user has a working proxy setup, trust them
             openSpeedTestAvailable = true;
         }
         else if (!string.IsNullOrEmpty(openSpeedTestHealthCheckUrl))

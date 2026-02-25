@@ -54,6 +54,7 @@ OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
 OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"
 
 # Build canonical URL (same logic as ClientSpeedTest.razor)
+# "true" = HTTPS via proxy, "false"/unset = HTTP direct
 CANONICAL_URL=""
 CANONICAL_HOST=""
 if [ -n "$OST_HOST" ]; then
@@ -75,8 +76,7 @@ fi
 if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
     echo "Enforcing canonical URL: $CANONICAL_URL"
 
-    # Redirect HTTP to HTTPS when HTTPS is enabled
-    # Check X-Forwarded-Proto (set by reverse proxy) - if not "https", we're on HTTP
+    # Redirect HTTP to HTTPS when behind a TLS proxy
     if [ "$OPENSPEEDTEST_HTTPS" = "true" ]; then
         sed -i "/server_name/a\\
     # Redirect HTTP to HTTPS\\
@@ -85,7 +85,7 @@ if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
     }" "$NGINX_CONF"
         echo "Added HTTP->HTTPS redirect rule"
     else
-        # Only add host redirect when not using HTTPS (HTTP->HTTPS covers host mismatch too)
+        # Host enforcement only (no scheme redirect)
         sed -i "/server_name/a\\
     # Enforce canonical host - prevents browser caching issues on mobile\\
     if (\$host != \"$CANONICAL_HOST\") {\\
