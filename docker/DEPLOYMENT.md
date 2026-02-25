@@ -157,10 +157,11 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOp
 ```
 
 The interactive script will:
-1. Create a privileged Debian 12 LXC container
+1. Create a privileged Debian LXC container
 2. Install Docker and Docker Compose
 3. Deploy Network Optimizer with Docker Compose
-4. Configure auto-start on boot
+4. Optionally deploy a [Traefik HTTPS proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) with automatic Let's Encrypt certificates (requires Cloudflare DNS)
+5. Configure auto-start on boot
 
 **Requirements:**
 - Proxmox VE 7.0 or later
@@ -343,6 +344,8 @@ This binds the app to `127.0.0.1:8042` instead of all interfaces, so only the lo
 If you use the browser-based speed test (OpenSpeedTest), Traefik is the recommended reverse proxy. Most proxies negotiate HTTP/2 at the TLS level, and HTTP/2 multiplexing interferes with speed test throughput measurements. Traefik's per-router TLS options let you force HTTP/1.1 for the speed test hostname while keeping HTTP/2 for the main app - all on one port 443.
 
 See [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) for a ready-to-use Docker Compose setup with automatic Let's Encrypt certificates via Cloudflare DNS-01.
+
+**Proxmox users:** The [Proxmox LXC installer](../scripts/proxmox/README.md) can set up Traefik automatically during installation.
 
 **Windows users:** Traefik is available as an optional feature in the MSI installer.
 
