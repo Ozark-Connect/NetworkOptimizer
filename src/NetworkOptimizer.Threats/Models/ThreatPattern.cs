@@ -45,6 +45,13 @@ public class ThreatPattern
     public double Confidence { get; set; }
 
     /// <summary>
+    /// Stable dedup key that identifies "the same attack" across analysis runs.
+    /// Format varies by detector (e.g. "ddos:192.168.1.220:80", "bf:45.33.12.5:22").
+    /// Used by SavePatternAsync to merge re-detections instead of creating duplicates.
+    /// </summary>
+    public string? DedupKey { get; set; }
+
+    /// <summary>
     /// When an alert was last published for this pattern. Null if never alerted.
     /// Used to prevent duplicate alerts - only alert when LastSeen > LastAlertedAt.
     /// </summary>

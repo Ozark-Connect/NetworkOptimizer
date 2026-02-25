@@ -38,6 +38,7 @@ public class BruteForceDetector
                     {
                         PatternType = PatternType.BruteForce,
                         DetectedAt = DateTime.UtcNow,
+                        DedupKey = $"bf:{group.Key.SourceIp}:{group.Key.DestPort}",
                         SourceIpsJson = $"[\"{group.Key.SourceIp}\"]",
                         TargetPort = group.Key.DestPort,
                         EventCount = windowCount,

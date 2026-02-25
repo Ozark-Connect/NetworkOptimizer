@@ -790,13 +790,18 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            // Dedup: if a pattern with the same type + source IPs was detected in the last hour, update it
+            // Dedup: match on DedupKey (stable across runs) or fall back to SourceIpsJson for old patterns
             var cutoff = DateTime.UtcNow.AddHours(-1);
-            var existing = await _context.ThreatPatterns
-                .FirstOrDefaultAsync(p =>
-                    p.PatternType == pattern.PatternType &&
-                    p.SourceIpsJson == pattern.SourceIpsJson &&
-                    p.DetectedAt >= cutoff, cancellationToken);
+            var existing = pattern.DedupKey != null
+                ? await _context.ThreatPatterns
+                    .FirstOrDefaultAsync(p =>
+                        p.DedupKey == pattern.DedupKey &&
+                        p.DetectedAt >= cutoff, cancellationToken)
+                : await _context.ThreatPatterns
+                    .FirstOrDefaultAsync(p =>
+                        p.PatternType == pattern.PatternType &&
+                        p.SourceIpsJson == pattern.SourceIpsJson &&
+                        p.DetectedAt >= cutoff, cancellationToken);
 
             if (existing != null)
             {
@@ -804,6 +809,8 @@ public class ThreatRepository : IThreatRepository
                 existing.DetectedAt = pattern.DetectedAt;
                 existing.Description = pattern.Description;
                 existing.LastSeen = pattern.LastSeen;
+                existing.SourceIpsJson = pattern.SourceIpsJson;
+                existing.Confidence = pattern.Confidence;
                 _logger.LogDebug("Updated existing pattern {Id}: {Type}", existing.Id, existing.PatternType);
             }
             else

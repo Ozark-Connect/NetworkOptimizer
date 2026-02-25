@@ -40,11 +40,12 @@ public class DDoSDetector
 
                     if (uniqueSources >= MinUniqueSources)
                     {
-                        var sourceIps = windowEvents.Select(e => e.SourceIp).Distinct().Take(20).ToList();
+                        var sourceIps = windowEvents.Select(e => e.SourceIp).Distinct().OrderBy(ip => ip).Take(20).ToList();
                         patterns.Add(new ThreatPattern
                         {
                             PatternType = PatternType.DDoS,
                             DetectedAt = DateTime.UtcNow,
+                            DedupKey = $"ddos:{group.Key.DestIp}:{group.Key.DestPort}",
                             SourceIpsJson = JsonSerializer.Serialize(sourceIps),
                             TargetPort = group.Key.DestPort,
                             EventCount = windowCount,
