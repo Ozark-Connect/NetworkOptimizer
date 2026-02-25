@@ -12344,6 +12344,14 @@ a.affected-client:hover {
     gap: 0.5rem;
     font-size: 0.8125rem;
     line-height: 1.4;
+    cursor: pointer;
+    padding: 0.25rem 0.375rem;
+    border-radius: 4px;
+    margin: 0 -0.375rem;
+}
+
+.event-type-key-list > div:hover {
+    background: var(--bg-tertiary);
 }
 
 .event-type-key-list code {
