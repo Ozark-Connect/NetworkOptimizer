@@ -836,7 +836,7 @@ public class ThreatRepository : IThreatRepository
         {
             var query = _context.ThreatPatterns
                 .AsNoTracking()
-                .Where(p => p.DetectedAt >= from && p.DetectedAt <= to);
+                .Where(p => p.LastSeen >= from && p.LastSeen <= to);
 
             if (type.HasValue)
                 query = query.Where(p => p.PatternType == type.Value);
