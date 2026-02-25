@@ -12276,7 +12276,62 @@ a.affected-client:hover {
     font-weight: 500;
 }
 
-/* Event Type Key (Alerts > Rules tab) */
+/* Event Type Key Modal (Alerts > Rules tab) */
+.event-type-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.event-type-modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 720px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.event-type-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.event-type-modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.event-type-modal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+}
+
+@@media (max-width: 600px) {
+    .event-type-modal-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.event-type-group-header {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
+}
+
 .event-type-key-list {
     display: flex;
     flex-direction: column;
