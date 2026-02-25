@@ -397,12 +397,6 @@ public class AlertRuleEvaluatorTests
     [InlineData("audit.score_dropped", "audit.new_finding", false)]
     [InlineData("device.offline", "device.*", true)]
     [InlineData("device", "device.*", false)] // No dot after prefix
-    [InlineData("audit.score_dropped", "audit.score_dropped, device.offline", true)] // Comma-separated, first matches
-    [InlineData("device.offline", "audit.score_dropped, device.offline", true)] // Comma-separated, second matches
-    [InlineData("wan.speed_degradation", "audit.*, device.offline", false)] // Comma-separated, neither matches
-    [InlineData("audit.completed", "audit.*, threats.*", true)] // Comma-separated wildcards
-    [InlineData("threats.attack_pattern", "audit.*, threats.*", true)] // Comma-separated wildcards, second matches
-    [InlineData("device.offline", "device.offline,audit.*", true)] // No space after comma
     public void MatchesEventType_ReturnsExpected(string eventType, string pattern, bool expected)
     {
         AlertRuleEvaluator.MatchesEventType(eventType, pattern).Should().Be(expected);

@@ -12325,6 +12325,11 @@ a.affected-client:hover {
     .event-type-modal-grid {
         grid-template-columns: 1fr;
     }
+    .event-type-key-list > div {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.125rem;
+    }
 }
 
 .event-type-group-header {

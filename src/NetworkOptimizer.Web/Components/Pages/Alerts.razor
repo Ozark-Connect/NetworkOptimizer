@@ -18,6 +18,7 @@
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
+@inject IJSRuntime JS
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -693,7 +694,7 @@
             @* Rule Add/Edit Form *@
             @if (_showRuleForm)
             {
-                <div class="card" style="margin-top: 1rem;">
+                <div id="rule-form" class="card" style="margin-top: 1rem;">
                     <div class="card-header">
                         <h2 class="card-title">@(_editingRuleId > 0 ? "Edit Rule" : "Add Rule")</h2>
                     </div>
@@ -705,8 +706,8 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Event Type Pattern</label>
-                                <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., wan.speed_degradation, audit.*" />
-                                <small class="form-text">Wildcards and comma-separated lists supported. Examples: audit.*, threats.attack_pattern - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
+                                <input type="text" class="form-control" @bind="_ruleEventPattern" placeholder="e.g., audit.* or wan.speed_degradation" />
+                                <small class="form-text">Use <code>category.*</code> for wildcards (e.g., <code>audit.*</code> matches all audit events) - <a href="#" @onclick="() => _showEventTypeKey = true" @onclick:preventDefault style="color: var(--info-color);">View all event types</a></small>
                             </div>
                             <div class="form-group">
                                 <label>Threshold %</label>
@@ -1193,7 +1194,7 @@
                 <button class="btn btn-sm btn-secondary" @onclick="() => _showEventTypeKey = false">Close</button>
             </div>
             <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 1rem;">
-                Click patterns to add them. Supports wildcards (<code>audit.*</code>) and comma-separated lists.
+                Click a pattern to use it. Use <code>category.*</code> wildcards to match all events in a category.
             </p>
             <div class="event-type-modal-grid">
                 <div>
@@ -1710,7 +1711,7 @@
 
     // ========== Rule CRUD ==========
 
-    private void StartAddRule()
+    private async Task StartAddRule()
     {
         _editingRuleId = 0;
         _ruleName = "";
@@ -1724,6 +1725,9 @@
         _ruleTargetDevices = "";
         _ruleError = null;
         _showRuleForm = true;
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("eval",
+            "document.getElementById('rule-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
 
     private void StartEditRule(AlertRule rule)
@@ -1750,17 +1754,8 @@
 
     private void SelectEventType(string eventType)
     {
-        if (string.IsNullOrWhiteSpace(_ruleEventPattern))
-        {
-            _ruleEventPattern = eventType;
-        }
-        else
-        {
-            // Append if not already present
-            var existing = _ruleEventPattern.Split(',').Select(p => p.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (!existing.Contains(eventType))
-                _ruleEventPattern = _ruleEventPattern.TrimEnd() + ", " + eventType;
-        }
+        _ruleEventPattern = eventType;
+        _showEventTypeKey = false;
     }
 
     private async Task SaveRule()
