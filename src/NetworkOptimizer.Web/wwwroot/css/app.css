@@ -2869,9 +2869,6 @@ select.form-control {
     color: white;
 }
 
-.sponsorship-banner.thank-you-banner {
-    background: linear-gradient(135deg, rgba(36, 188, 112, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
-}
 
 
 @media (max-width: 768px) {
