@@ -12275,3 +12275,31 @@ a.affected-client:hover {
     margin-top: 1px;
     font-weight: 500;
 }
+
+/* Event Type Key (Alerts > Rules tab) */
+.event-type-key-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.event-type-key-list > div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+}
+
+.event-type-key-list code {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    padding: 0.125rem 0.375rem;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    color: var(--info-color);
+}
+
+.event-type-key-list span {
+    color: var(--text-secondary);
+}

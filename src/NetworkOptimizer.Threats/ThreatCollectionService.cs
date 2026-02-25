@@ -42,6 +42,7 @@ public class ThreatCollectionService : BackgroundService
     // Track source IPs we've already alerted on for attack chains (reset periodically)
     private readonly HashSet<string> _alertedChainIps = new();
     private readonly HashSet<string> _alertedChainAttemptIps = new();
+    private readonly HashSet<string> _alertedPatternKeys = new();
     private DateTime _lastChainAlertReset = DateTime.UtcNow;
 
     public ThreatCollectionService(
@@ -305,6 +306,49 @@ public class ThreatCollectionService : BackgroundService
             var patterns = _patternAnalyzer.DetectPatterns(recentEvents);
             foreach (var pattern in patterns)
                 await repository.SavePatternAsync(pattern, cancellationToken);
+
+            // Publish alert events for newly detected patterns
+            foreach (var pattern in patterns)
+            {
+                try
+                {
+                    var sourceIps = System.Text.Json.JsonSerializer.Deserialize<List<string>>(pattern.SourceIpsJson) ?? [];
+                    var firstSourceIp = sourceIps.FirstOrDefault() ?? "unknown";
+                    var patternKey = $"{pattern.PatternType}:{firstSourceIp}:{pattern.TargetPort}";
+
+                    if (!_alertedPatternKeys.Add(patternKey)) continue;
+
+                    var severity = pattern.PatternType switch
+                    {
+                        Models.PatternType.DDoS => AlertSeverity.Critical,
+                        Models.PatternType.BruteForce => AlertSeverity.Error,
+                        Models.PatternType.ExploitCampaign => AlertSeverity.Error,
+                        _ => AlertSeverity.Warning
+                    };
+
+                    await _alertEventBus.PublishAsync(new AlertEvent
+                    {
+                        EventType = "threats.attack_pattern",
+                        Source = "threats",
+                        Severity = severity,
+                        Title = pattern.Description,
+                        Message = $"{pattern.PatternType} pattern detected: {pattern.EventCount} events, confidence {pattern.Confidence:P0}",
+                        DeviceIp = firstSourceIp,
+                        Context = new Dictionary<string, string>
+                        {
+                            ["pattern_type"] = pattern.PatternType.ToString(),
+                            ["event_count"] = pattern.EventCount.ToString(),
+                            ["confidence"] = pattern.Confidence.ToString("F2"),
+                            ["target_port"] = pattern.TargetPort?.ToString() ?? "",
+                            ["source_ips"] = string.Join(", ", sourceIps.Take(5))
+                        }
+                    }, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to publish alert for pattern {PatternType}", pattern.PatternType);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -319,6 +363,7 @@ public class ThreatCollectionService : BackgroundService
             {
                 _alertedChainIps.Clear();
                 _alertedChainAttemptIps.Clear();
+                _alertedPatternKeys.Clear();
                 _lastChainAlertReset = DateTime.UtcNow;
             }
 

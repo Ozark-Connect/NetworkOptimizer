@@ -96,6 +96,15 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 3600 // 1 hour
         },
+        new AlertRule
+        {
+            Name = "Threat Intelligence: Attack Pattern",
+            IsEnabled = false,
+            EventTypePattern = "threats.attack_pattern",
+            Source = "threats",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
 
         // --- WAN Speed Test (disabled - needs gateway SSH configured) ---
         new AlertRule

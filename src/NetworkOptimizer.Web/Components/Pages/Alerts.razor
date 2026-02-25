@@ -590,8 +590,61 @@
             <div class="card">
                 <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                     <h2 class="card-title">Alert Rules</h2>
-                    <button class="btn btn-sm btn-primary" @onclick="StartAddRule">Add Rule</button>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-sm btn-secondary" @onclick="() => _showEventTypeKey = !_showEventTypeKey">
+                            @(_showEventTypeKey ? "Hide" : "View") Event Types
+                        </button>
+                        <button class="btn btn-sm btn-primary" @onclick="StartAddRule">Add Rule</button>
+                    </div>
                 </div>
+                @if (_showEventTypeKey)
+                {
+                    <div class="card-body" style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem;">
+                        <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0.75rem;">
+                            Use these event type patterns when creating rules. Supports trailing wildcard (e.g., <code>audit.*</code> matches all audit events).
+                        </p>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem;">
+                            <div>
+                                <h4 style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.05em;">Security Audit</h4>
+                                <div class="event-type-key-list">
+                                    <div><code>audit.completed</code> <span>Audit finished running</span></div>
+                                    <div><code>audit.score_dropped</code> <span>Security score decreased</span></div>
+                                    <div><code>audit.critical_findings</code> <span>Critical issues found</span></div>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.05em;">Threat Intelligence</h4>
+                                <div class="event-type-key-list">
+                                    <div><code>threats.ips_event</code> <span>High-severity IPS/IDS event</span></div>
+                                    <div><code>threats.traffic_flow</code> <span>High-severity traffic flow</span></div>
+                                    <div><code>threats.attack_chain</code> <span>Multi-stage kill chain detected</span></div>
+                                    <div><code>threats.attack_chain_attempt</code> <span>Early-stage attack chain</span></div>
+                                    <div><code>threats.attack_pattern</code> <span>Scan, brute force, DDoS, or exploit pattern</span></div>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.05em;">Speed Tests</h4>
+                                <div class="event-type-key-list">
+                                    <div><code>wan.speed_completed</code> <span>WAN speed test finished</span></div>
+                                    <div><code>wan.speed_degradation</code> <span>WAN speed dropped significantly</span></div>
+                                    <div><code>speedtest.completed</code> <span>LAN speed test finished</span></div>
+                                    <div><code>speedtest.regression</code> <span>LAN speed dropped vs. baseline</span></div>
+                                    <div><code>speedtest.client_completed</code> <span>Client (browser) speed test finished</span></div>
+                                    <div><code>speedtest.client_regression</code> <span>Client speed dropped vs. baseline</span></div>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.05em;">Schedule & Other</h4>
+                                <div class="event-type-key-list">
+                                    <div><code>schedule.task_completed</code> <span>Scheduled task succeeded</span></div>
+                                    <div><code>schedule.task_failed</code> <span>Scheduled task failed</span></div>
+                                    <div><code>device.offline</code> <span>Device went offline</span></div>
+                                    <div><code>wifi.congestion</code> <span>Wi-Fi channel congestion detected</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
                 <div class="card-body">
                     @if (_rules.Count == 0)
                     {
@@ -1175,6 +1228,7 @@
     // Rules
     private List<AlertRule> _rules = [];
     private bool _showRuleForm;
+    private bool _showEventTypeKey;
     private int _editingRuleId;
     private string _ruleName = "";
     private string _ruleEventPattern = "";
