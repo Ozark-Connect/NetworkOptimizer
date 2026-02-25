@@ -167,7 +167,7 @@ Docker Desktop on macOS and Windows limits network throughput for speed testing.
 
 ### HTTPS Reverse Proxy
 
-For HTTPS with automatic Let's Encrypt certificates, use [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) - a Traefik setup that forces HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results) while keeping HTTP/2 for the main app. Windows MSI users can enable Traefik as an optional feature during install.
+For HTTPS with automatic Let's Encrypt certificates, use [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) - a Traefik setup that forces HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results) while keeping HTTP/2 for the main app. Windows MSI users can enable Traefik as an optional feature during install. This also allows for simpler enablement of GPS-based tagging on your self-hosted Speed Test and Signal walk test data as browsers require HTTPS for location data to flow.
 
 ### Quick Start (Linux Docker)
 
