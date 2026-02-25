@@ -727,8 +727,8 @@ public class ThreatDashboardService
     {
         if (sortedPorts.Count == 0) return "-";
 
-        // First pass: collapse only consecutive ports (gap=1)
-        var ranges = CollapsePortsWithGap(sortedPorts, 1);
+        // First pass: collapse ports within 10 of each other
+        var ranges = CollapsePortsWithGap(sortedPorts, 10);
 
         // If still more than 10 entries, group tighter (ports within 100 of each other)
         if (ranges.Count > 10)
