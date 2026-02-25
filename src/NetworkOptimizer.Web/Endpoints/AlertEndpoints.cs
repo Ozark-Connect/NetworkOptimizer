@@ -107,6 +107,9 @@ public static class AlertEndpoints
             alert.Status = AlertStatus.Acknowledged;
             alert.AcknowledgedAt = DateTime.UtcNow;
             await repo.UpdateAlertAsync(alert);
+
+            await RecalculateIncidentStatusAsync(alert, repo);
+
             return Results.Ok(alert);
         });
 
@@ -118,6 +121,9 @@ public static class AlertEndpoints
             alert.Status = AlertStatus.Resolved;
             alert.ResolvedAt = DateTime.UtcNow;
             await repo.UpdateAlertAsync(alert);
+
+            await RecalculateIncidentStatusAsync(alert, repo);
+
             return Results.Ok(alert);
         });
 
@@ -153,5 +159,22 @@ public static class AlertEndpoints
             var started = await scheduleService.RunNowAsync(id);
             return started ? Results.Ok(new { started = true }) : Results.Conflict(new { error = "Task is already running or not found" });
         });
+    }
+
+    private static async Task RecalculateIncidentStatusAsync(AlertHistoryEntry alert, IAlertRepository repo)
+    {
+        if (!alert.IncidentId.HasValue) return;
+
+        var incident = await repo.GetIncidentAsync(alert.IncidentId.Value);
+        if (incident == null) return;
+
+        var incidentAlerts = await repo.GetAlertsByIncidentIdAsync(incident.Id);
+        var (newStatus, resolvedAt) = AlertCorrelationService.DeriveIncidentStatus(incidentAlerts);
+
+        if (newStatus == incident.Status) return;
+
+        incident.Status = newStatus;
+        incident.ResolvedAt = resolvedAt;
+        await repo.UpdateIncidentAsync(incident);
     }
 }

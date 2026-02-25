@@ -31,6 +31,8 @@ public interface IAlertRepository
     Task<List<AlertHistoryEntry>> GetAlertHistoryAsync(int limit = 100, string? source = null, AlertSeverity? minSeverity = null, CancellationToken cancellationToken = default);
     Task<AlertHistoryEntry?> GetAlertAsync(int id, CancellationToken cancellationToken = default);
     Task<List<AlertHistoryEntry>> GetAlertsForDigestAsync(DateTime since, CancellationToken cancellationToken = default);
+    Task<List<AlertHistoryEntry>> GetUnresolvedAlertsAsync(CancellationToken cancellationToken = default);
+    Task<List<AlertHistoryEntry>> GetAlertsByIncidentIdAsync(int incidentId, CancellationToken cancellationToken = default);
 
     // --- Alert Incidents ---
     Task<int> SaveIncidentAsync(AlertIncident incident, CancellationToken cancellationToken = default);
