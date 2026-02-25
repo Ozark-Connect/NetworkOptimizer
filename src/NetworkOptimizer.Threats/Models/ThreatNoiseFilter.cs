@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Threats.Models;
 
 /// <summary>
@@ -34,4 +36,26 @@ public class ThreatNoiseFilter
 
     public bool Enabled { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Check if this filter matches the given event fields.
+    /// Null filter fields are wildcards (match anything).
+    /// Null event fields don't match non-null filter fields.
+    /// Supports CIDR notation in SourceIp/DestIp (e.g. "10.0.0.0/8").
+    /// </summary>
+    public bool Matches(string? sourceIp, string? destIp, int? destPort)
+    {
+        if (SourceIp != null && !IpMatches(SourceIp, sourceIp)) return false;
+        if (DestIp != null && !IpMatches(DestIp, destIp)) return false;
+        if (DestPort != null && DestPort != destPort) return false;
+        return true;
+    }
+
+    private static bool IpMatches(string filterIp, string? eventIp)
+    {
+        if (eventIp == null) return false;
+        if (filterIp.Contains('/'))
+            return NetworkUtilities.IsIpInSubnet(eventIp, filterIp);
+        return string.Equals(filterIp, eventIp, StringComparison.Ordinal);
+    }
 }

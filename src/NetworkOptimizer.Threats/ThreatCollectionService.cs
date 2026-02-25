@@ -297,6 +297,19 @@ public class ThreatCollectionService : BackgroundService
 
         await repository.SaveEventsAsync(events, cancellationToken);
 
+        // Load noise filters once for all alert checks in this cycle
+        List<ThreatNoiseFilter> noiseFilters;
+        try
+        {
+            noiseFilters = (await repository.GetNoiseFiltersAsync(cancellationToken))
+                .Where(f => f.Enabled).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load noise filters, proceeding without filtering");
+            noiseFilters = [];
+        }
+
         // Pattern analysis on recent data
         try
         {
@@ -314,6 +327,14 @@ public class ThreatCollectionService : BackgroundService
                 {
                     var sourceIps = System.Text.Json.JsonSerializer.Deserialize<List<string>>(pattern.SourceIpsJson) ?? [];
                     var firstSourceIp = sourceIps.FirstOrDefault() ?? "unknown";
+
+                    // Always mark as alerted to prevent re-alerting every cycle,
+                    // even if noise-filtered
+                    await repository.MarkPatternAlertedAsync(pattern.Id, DateTime.UtcNow, cancellationToken);
+
+                    // Skip publishing if noise-filtered
+                    if (noiseFilters.Any(f => f.Matches(firstSourceIp, null, pattern.TargetPort)))
+                        continue;
 
                     var severity = pattern.PatternType switch
                     {
@@ -340,8 +361,6 @@ public class ThreatCollectionService : BackgroundService
                             ["source_ips"] = string.Join(", ", sourceIps.Take(5))
                         }
                     }, cancellationToken);
-
-                    await repository.MarkPatternAlertedAsync(pattern.Id, DateTime.UtcNow, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -424,6 +443,10 @@ public class ThreatCollectionService : BackgroundService
                 _chainAlertState[stateKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
                 stateChanged = true;
 
+                // Skip publishing if noise-filtered (state still updated for dedup)
+                if (noiseFilters.Any(f => f.Matches(seq.SourceIp, null, null)))
+                    continue;
+
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
                 var severity = lastStage is KillChainStage.ActiveExploitation or KillChainStage.PostExploitation
                     ? AlertSeverity.Critical : AlertSeverity.Warning;
@@ -484,6 +507,10 @@ public class ThreatCollectionService : BackgroundService
                 _chainAlertState[attemptKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
                 stateChanged = true;
 
+                // Skip publishing if noise-filtered (state still updated for dedup)
+                if (noiseFilters.Any(f => f.Matches(seq.SourceIp, null, null)))
+                    continue;
+
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
 
                 await _alertEventBus.PublishAsync(new AlertEvent
@@ -521,9 +548,12 @@ public class ThreatCollectionService : BackgroundService
             _logger.LogDebug(ex, "Attack chain detection failed");
         }
 
-        // Publish high-severity events to alert bus
+        // Publish high-severity events to alert bus (skip noise-filtered)
         foreach (var evt in events.Where(e => e.Severity >= 4))
         {
+            if (noiseFilters.Any(f => f.Matches(evt.SourceIp, evt.DestIp, evt.DestPort)))
+                continue;
+
             try
             {
                 var eventType = evt.EventSource == Models.EventSource.TrafficFlow
