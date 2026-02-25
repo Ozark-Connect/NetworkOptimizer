@@ -33,6 +33,8 @@ else if (_nag != null)
     </div>
 }
 
+@implements IDisposable
+
 @code {
     /// <summary>
     /// When true, always shows the banner (for Settings page preview).
@@ -43,6 +45,7 @@ else if (_nag != null)
 
     private SponsorshipNag? _nag;
     private bool _showThankYou;
+    private CancellationTokenSource? _cts;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -101,14 +104,26 @@ else if (_nag != null)
         StateHasChanged();
 
         // Auto-hide after 15 seconds
+        _cts = new CancellationTokenSource();
         _ = Task.Run(async () =>
         {
-            await Task.Delay(15000);
-            await InvokeAsync(() =>
+            try
             {
-                _showThankYou = false;
-                StateHasChanged();
-            });
+                await Task.Delay(15000, _cts.Token);
+                await InvokeAsync(() =>
+                {
+                    _showThankYou = false;
+                    StateHasChanged();
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
         });
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
     }
 }

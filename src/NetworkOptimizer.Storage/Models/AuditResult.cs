@@ -55,7 +55,7 @@ public class AuditResult
 
     /// <summary>
     /// Whether this audit was triggered by a scheduled task (vs manual user action).
-    /// Scheduled audits count at half weight for sponsorship usage tracking.
+    /// Scheduled audits count at 0.2x weight for sponsorship usage tracking.
     /// </summary>
     public bool IsScheduled { get; set; }
 
