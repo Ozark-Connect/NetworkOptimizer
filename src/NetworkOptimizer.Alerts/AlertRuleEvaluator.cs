@@ -74,7 +74,7 @@ public class AlertRuleEvaluator
     }
 
     /// <summary>
-    /// Match event type against pattern. Supports trailing wildcard (e.g., "audit.*" matches "audit.score_dropped").
+    /// Match event type against pattern. Supports exact match and trailing wildcard (e.g., "audit.*").
     /// </summary>
     internal static bool MatchesEventType(string eventType, string pattern)
     {

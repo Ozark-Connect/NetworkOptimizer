@@ -42,6 +42,7 @@ public class ScanSweepDetector
                     {
                         PatternType = PatternType.ScanSweep,
                         DetectedAt = DateTime.UtcNow,
+                        DedupKey = $"ss:{group.Key}",
                         SourceIpsJson = $"[\"{group.Key}\"]",
                         EventCount = windowEvents.Count,
                         FirstSeen = windowEvents.First().Timestamp,
