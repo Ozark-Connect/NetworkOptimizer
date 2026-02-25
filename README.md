@@ -15,6 +15,10 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
+## New: HTTPS Reverse Proxy
+
+Enable HTTPS with automatic Let's Encrypt certificates using the included [Traefik reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy). It forces HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results) while keeping HTTP/2 for the main app. Windows MSI users can enable Traefik as an optional feature during install. HTTPS also unlocks GPS-based tagging on your self-hosted Speed Test and Signal walk test data, since browsers require a secure context for location access.
+
 ## New: Threat Intelligence
 
 Your UniFi gateway's IPS is blocking threats all day long, but the controller buries this data in a flat event log with no context. Threat Intelligence pulls those IPS events and actually analyzes them: who's attacking you, where they're coming from, what they're after, and whether it's random noise or a coordinated effort.
@@ -63,10 +67,6 @@ Install natively on macOS for maximum speed test performance (Docker Desktop lim
 ## New: Windows Installer
 
 Download the MSI installer from [GitHub Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) for one-click installation on Windows. Includes automatic service setup, bundled iperf3, OpenSpeedTest for browser-based speed tests, and runs at system startup.
-
-## New: HTTPS Reverse Proxy
-
-Enable HTTPS with automatic Let's Encrypt certificates using the included [Traefik reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy). It forces HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results) while keeping HTTP/2 for the main app. Windows MSI users can enable Traefik as an optional feature during install. HTTPS also unlocks GPS-based tagging on your self-hosted Speed Test and Signal walk test data, since browsers require a secure context for location access.
 
 ## New: Client-Based LAN Speed Testing
 
