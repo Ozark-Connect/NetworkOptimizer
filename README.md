@@ -165,6 +165,10 @@ To enable SSH, see [SSH Configuration](docker/DEPLOYMENT.md#unifi-ssh-configurat
 
 Docker Desktop on macOS and Windows limits network throughput for speed testing. For accurate multi-gigabit measurements, use native deployment.
 
+### HTTPS Reverse Proxy
+
+For HTTPS with automatic Let's Encrypt certificates, use [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) - a Traefik setup that forces HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results) while keeping HTTP/2 for the main app. Windows MSI users can enable Traefik as an optional feature during install.
+
 ### Quick Start (Linux Docker)
 
 **Option A: Pull Docker Image (Recommended)**

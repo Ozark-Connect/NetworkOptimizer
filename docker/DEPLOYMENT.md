@@ -338,6 +338,14 @@ BIND_LOCALHOST_ONLY=true
 ```
 This binds the app to `127.0.0.1:8042` instead of all interfaces, so only the local proxy can access it.
 
+#### Traefik (Recommended for Speed Testing)
+
+If you use the browser-based speed test (OpenSpeedTest), Traefik is the recommended reverse proxy. Most proxies negotiate HTTP/2 at the TLS level, and HTTP/2 multiplexing interferes with speed test throughput measurements. Traefik's per-router TLS options let you force HTTP/1.1 for the speed test hostname while keeping HTTP/2 for the main app - all on one port 443.
+
+See [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) for a ready-to-use Docker Compose setup with automatic Let's Encrypt certificates via Cloudflare DNS-01.
+
+**Windows users:** Traefik is available as an optional feature in the MSI installer.
+
 #### Nginx Example
 
 ```nginx
