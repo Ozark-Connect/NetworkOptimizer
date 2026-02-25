@@ -7770,7 +7770,7 @@ a.path-hop.hop-clickable:hover {
     border-radius: var(--border-radius);
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .wifi-view-tabs-wrapper {
         margin-bottom: 0.75rem;
     }
@@ -12080,7 +12080,7 @@ a.affected-client:hover {
     gap: 1rem 1.4rem;
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .wan-speedtest .wan-test-options {
         flex-direction: column;
     }
@@ -12332,6 +12332,19 @@ a.affected-client:hover {
     }
     .event-type-modal-grid {
         grid-template-columns: 1fr;
+    }
+    .event-type-key-list > div {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 420px) {
+    .event-type-key-list > div {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.125rem;
     }
 }
 
