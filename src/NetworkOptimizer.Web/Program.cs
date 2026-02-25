@@ -210,6 +210,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Iperf3ServerServic
 // Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
 builder.Services.AddHostedService<NginxHostedService>();
 
+// Register Traefik hosted service (Windows only - manages Traefik for HTTPS reverse proxying)
+builder.Services.AddHostedService<TraefikHostedService>();
+
 // Register Alert Engine services (Vigilance)
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Events.IAlertEventBus, NetworkOptimizer.Alerts.Events.AlertEventBus>();
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertCooldownTracker>();
@@ -1695,7 +1698,14 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
             ["IPERF3_SERVER_ENABLED"] = "Iperf3Server:Enabled",  // Maps to Iperf3Server:Enabled
             ["OPENSPEEDTEST_PORT"] = "OPENSPEEDTEST_PORT",
             ["OPENSPEEDTEST_HOST"] = "OPENSPEEDTEST_HOST",
-            ["OPENSPEEDTEST_HTTPS"] = "OPENSPEEDTEST_HTTPS"
+            ["OPENSPEEDTEST_HTTPS"] = "OPENSPEEDTEST_HTTPS",
+            // Traefik settings (optional HTTPS reverse proxy feature)
+            ["TRAEFIK_ACME_EMAIL"] = "TRAEFIK_ACME_EMAIL",
+            ["TRAEFIK_CF_DNS_API_TOKEN"] = "TRAEFIK_CF_DNS_API_TOKEN",
+            ["TRAEFIK_OPTIMIZER_HOSTNAME"] = "TRAEFIK_OPTIMIZER_HOSTNAME",
+            ["TRAEFIK_SPEEDTEST_HOSTNAME"] = "TRAEFIK_SPEEDTEST_HOSTNAME",
+            ["TRAEFIK_LISTEN_IP"] = "TRAEFIK_LISTEN_IP",
+            ["TRAEFIK_LOG_LEVEL"] = "TRAEFIK_LOG_LEVEL"
         };
 
         foreach (var mapping in keyMappings)

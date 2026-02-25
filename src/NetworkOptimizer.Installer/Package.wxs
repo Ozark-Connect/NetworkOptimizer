@@ -125,20 +125,57 @@
           <Publish Event="NewDialog" Value="NetworkConfigDlg" />
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
-          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+          <!-- Show Traefik config if Traefik feature is selected, otherwise skip to install -->
+          <Publish Event="NewDialog" Value="TraefikConfigDlg" Condition="&amp;TraefikFeature = 3" />
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" Condition="NOT (&amp;TraefikFeature = 3)" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
-      <!-- Dialog flow: InstallDirDlg → NetworkConfigDlg → SpeedTestConfigDlg → VerifyReadyDlg -->
+      <!-- Page 3: Traefik HTTPS Configuration Dialog (shown only when Traefik feature is selected) -->
+      <Dialog Id="TraefikConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}HTTPS Configuration (Traefik)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Configure HTTPS with automatic Let's Encrypt certificates via Cloudflare DNS." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+
+        <Control Id="AcmeEmailLabel" Type="Text" X="20" Y="55" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}ACME Email (required)" />
+        <Control Id="AcmeEmailEdit" Type="Edit" X="20" Y="70" Width="250" Height="18" Property="TRAEFIK_ACME_EMAIL" />
+        <Control Id="AcmeEmailHelp" Type="Text" X="20" Y="90" Width="330" Height="13" NoPrefix="yes" Text="Email for Let's Encrypt certificate registration." />
+
+        <Control Id="CfTokenLabel" Type="Text" X="20" Y="108" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Cloudflare DNS API Token (required)" />
+        <Control Id="CfTokenEdit" Type="Edit" X="20" Y="123" Width="330" Height="18" Property="TRAEFIK_CF_DNS_API_TOKEN" Password="yes" />
+        <Control Id="CfTokenHelp" Type="Text" X="20" Y="143" Width="330" Height="13" NoPrefix="yes" Text="Token with Zone:DNS:Edit permissions. Stored in registry, never written to disk." />
+
+        <Control Id="OptHostLabel" Type="Text" X="20" Y="161" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Optimizer Hostname" />
+        <Control Id="OptHostEdit" Type="Edit" X="20" Y="176" Width="250" Height="18" Property="TRAEFIK_OPTIMIZER_HOSTNAME" />
+        <Control Id="OptHostHelp" Type="Text" X="20" Y="196" Width="330" Height="13" NoPrefix="yes" Text="e.g., optimizer.yourdomain.com (HTTP/2)" />
+
+        <Control Id="SpeedHostLabel" Type="Text" X="20" Y="211" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Speed Test Hostname" />
+        <Control Id="SpeedHostEdit" Type="Edit" X="20" Y="224" Width="250" Height="18" Property="TRAEFIK_SPEEDTEST_HOSTNAME" />
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="244" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="253" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="253" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="253" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Dialog flow: InstallDirDlg → NetworkConfigDlg → SpeedTestConfigDlg → [TraefikConfigDlg] → VerifyReadyDlg -->
       <!-- During upgrades, skip config dialogs (settings preserved from registry) -->
       <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
       <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
       <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="NetworkConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED" />
       <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SpeedTestConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="TraefikConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed AND &amp;TraefikFeature = 3" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SpeedTestConfigDlg" Order="9" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed AND NOT (&amp;TraefikFeature = 3)" />
 
       <!-- Set exit dialog text and checkbox - different for fresh install vs upgrade -->
       <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
@@ -181,6 +218,26 @@
       <RegistrySearch Id="SearchOstHttps" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTPS" Type="raw" />
     </Property>
 
+    <!-- Traefik config properties -->
+    <Property Id="TRAEFIK_ACME_EMAIL" Secure="yes">
+      <RegistrySearch Id="SearchTraefikAcmeEmail" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="TRAEFIK_ACME_EMAIL" Type="raw" />
+    </Property>
+    <Property Id="TRAEFIK_CF_DNS_API_TOKEN" Secure="yes">
+      <RegistrySearch Id="SearchTraefikCfToken" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="TRAEFIK_CF_DNS_API_TOKEN" Type="raw" />
+    </Property>
+    <Property Id="TRAEFIK_OPTIMIZER_HOSTNAME" Secure="yes">
+      <RegistrySearch Id="SearchTraefikOptHost" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="TRAEFIK_OPTIMIZER_HOSTNAME" Type="raw" />
+    </Property>
+    <Property Id="TRAEFIK_SPEEDTEST_HOSTNAME" Secure="yes">
+      <RegistrySearch Id="SearchTraefikSpeedHost" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="TRAEFIK_SPEEDTEST_HOSTNAME" Type="raw" />
+    </Property>
+    <Property Id="TRAEFIK_LISTEN_IP" Secure="yes">
+      <RegistrySearch Id="SearchTraefikListenIp" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="TRAEFIK_LISTEN_IP" Type="raw" />
+    </Property>
+    <Property Id="TRAEFIK_LOG_LEVEL" Secure="yes">
+      <RegistrySearch Id="SearchTraefikLogLevel" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="TRAEFIK_LOG_LEVEL" Type="raw" />
+    </Property>
+
     <!-- Directory structure -->
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="ManufacturerFolder" Name="Ozark Connect">
@@ -215,6 +272,15 @@
         <ComponentGroupRef Id="SpeedTestImageFiles" />
         <ComponentGroupRef Id="SpeedTestIconFiles" />
         <ComponentGroupRef Id="SpeedTestFontFiles" />
+      </Feature>
+
+      <!-- Traefik feature - HTTPS reverse proxy with Let's Encrypt (opt-in) -->
+      <Feature Id="TraefikFeature"
+               Title="HTTPS (Traefik)"
+               Description="Traefik reverse proxy with automatic Let's Encrypt certificates via Cloudflare DNS. Requires a domain with Cloudflare DNS management."
+               Level="2"
+               AllowAbsent="yes">
+        <ComponentGroupRef Id="TraefikComponents" />
       </Feature>
     </Feature>
 

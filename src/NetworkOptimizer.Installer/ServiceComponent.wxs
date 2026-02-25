@@ -92,6 +92,13 @@
           <RegistryValue Name="OPENSPEEDTEST_HOST" Type="string" Value="[OPENSPEEDTEST_HOST]" />
           <!-- OPENSPEEDTEST_HTTPS - Enable HTTPS for SpeedTest (behind TLS proxy) -->
           <RegistryValue Name="OPENSPEEDTEST_HTTPS" Type="string" Value="[OPENSPEEDTEST_HTTPS]" />
+          <!-- Traefik settings (optional HTTPS reverse proxy) -->
+          <RegistryValue Name="TRAEFIK_ACME_EMAIL" Type="string" Value="[TRAEFIK_ACME_EMAIL]" />
+          <RegistryValue Name="TRAEFIK_CF_DNS_API_TOKEN" Type="string" Value="[TRAEFIK_CF_DNS_API_TOKEN]" />
+          <RegistryValue Name="TRAEFIK_OPTIMIZER_HOSTNAME" Type="string" Value="[TRAEFIK_OPTIMIZER_HOSTNAME]" />
+          <RegistryValue Name="TRAEFIK_SPEEDTEST_HOSTNAME" Type="string" Value="[TRAEFIK_SPEEDTEST_HOSTNAME]" />
+          <RegistryValue Name="TRAEFIK_LISTEN_IP" Type="string" Value="[TRAEFIK_LISTEN_IP]" />
+          <RegistryValue Name="TRAEFIK_LOG_LEVEL" Type="string" Value="[TRAEFIK_LOG_LEVEL]" />
         </RegistryKey>
       </Component>
 

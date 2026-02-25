@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - Traefik Component (HTTPS Reverse Proxy)
+
+  Bundles Traefik for Windows with config templates.
+  Traefik is managed as a child process by the main NetworkOptimizer service.
+  Certificates (acme/) are preserved on uninstall.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Fragment>
+    <!-- Traefik directory under main install folder -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Directory Id="TraefikFolder" Name="Traefik">
+        <Directory Id="TraefikTemplatesFolder" Name="templates" />
+        <Directory Id="TraefikDynamicFolder" Name="dynamic" />
+        <Directory Id="TraefikAcmeFolder" Name="acme" />
+        <Directory Id="TraefikLogsFolder" Name="logs" />
+      </Directory>
+    </DirectoryRef>
+
+    <ComponentGroup Id="TraefikComponents">
+
+      <!-- Traefik executable -->
+      <Component Id="TraefikExecutable" Directory="TraefikFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE0" Bitness="always64">
+        <File Id="TraefikExe"
+              Source="$(var.TraefikDir)traefik.exe"
+              KeyPath="yes" />
+
+        <!-- Firewall exception for HTTP (port 80) -->
+        <fw:FirewallException
+            Id="TraefikHttpFirewall"
+            Name="Network Optimizer Traefik HTTP"
+            Port="80"
+            Protocol="tcp"
+            Scope="any"
+            Profile="all" />
+
+        <!-- Firewall exception for HTTPS (port 443) -->
+        <fw:FirewallException
+            Id="TraefikHttpsFirewall"
+            Name="Network Optimizer Traefik HTTPS"
+            Port="443"
+            Protocol="tcp"
+            Scope="any"
+            Profile="all" />
+      </Component>
+
+      <!-- Config templates -->
+      <Component Id="TraefikTemplates" Directory="TraefikTemplatesFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE1" Bitness="always64">
+        <File Id="TraefikStaticTemplate"
+              Source="$(var.TraefikTemplatesDir)traefik.yml.template"
+              KeyPath="yes" />
+        <File Id="TraefikDynamicTemplate"
+              Source="$(var.TraefikTemplatesDir)config.yml.template" />
+      </Component>
+
+      <!-- Dynamic config folder - clean up runtime-generated files on uninstall -->
+      <Component Id="TraefikDynamicFolderComponent" Directory="TraefikDynamicFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE2" Bitness="always64">
+        <CreateFolder />
+        <RemoveFile Id="RemoveTraefikDynamicFiles" On="uninstall" Directory="TraefikDynamicFolder" Name="*.*" />
+        <RemoveFolder Id="RemoveTraefikDynamicFolder" On="uninstall" />
+      </Component>
+
+      <!-- Acme folder - preserved on uninstall (certificates are valuable) -->
+      <Component Id="TraefikAcmeFolderComponent" Directory="TraefikAcmeFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE3" Bitness="always64">
+        <CreateFolder />
+      </Component>
+
+      <!-- Logs folder - clean up on uninstall -->
+      <Component Id="TraefikLogsFolderComponent" Directory="TraefikLogsFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE4" Bitness="always64">
+        <CreateFolder />
+        <RemoveFile Id="RemoveTraefikLogFiles" On="uninstall" Directory="TraefikLogsFolder" Name="*.*" />
+        <RemoveFolder Id="RemoveTraefikLogsFolder" On="uninstall" />
+      </Component>
+
+      <!-- Clean up runtime-generated traefik.yml and empty folders on uninstall -->
+      <Component Id="TraefikFolderCleanup" Directory="TraefikFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE5" Bitness="always64">
+        <RemoveFile Id="RemoveTraefikYml" On="uninstall" Directory="TraefikFolder" Name="traefik.yml" />
+        <RemoveFolder Id="RemoveTraefikTemplatesFolder" Directory="TraefikTemplatesFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveTraefikFolder" On="uninstall" />
+      </Component>
+
+    </ComponentGroup>
+
+  </Fragment>
+
+</Wix>
