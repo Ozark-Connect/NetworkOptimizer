@@ -7694,7 +7694,6 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: stretch;
     margin-bottom: 1.5rem;
-    min-height: 3rem;
 }
 
 .wifi-view-tabs {
@@ -7737,10 +7736,6 @@ a.path-hop.hop-clickable:hover {
 /* Show scroll buttons when tabs overflow */
 .wifi-view-tabs-wrapper.has-overflow .wifi-tabs-scroll-btn {
     display: flex;
-}
-
-.wifi-view-tabs-wrapper.has-overflow .wifi-view-tabs {
-    margin-top: 0.5rem;
 }
 
 /* Collapse button when scrolled to start/end */
