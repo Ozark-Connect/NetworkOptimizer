@@ -747,6 +747,8 @@
         var openSpeedTestHttpsAll = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
         var openSpeedTestHttpsMobile = openSpeedTestHttpsConfig.Equals("mobile", StringComparison.OrdinalIgnoreCase);
         var openSpeedTestHttpsEnabled = openSpeedTestHttpsAll || openSpeedTestHttpsMobile;
+        var openSpeedTestHttpPortConfig = Configuration["OPENSPEEDTEST_HTTP_PORT"];
+        var openSpeedTestHttpPort = !string.IsNullOrEmpty(openSpeedTestHttpPortConfig) ? openSpeedTestHttpPortConfig : "80";
         var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
         var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
@@ -777,9 +779,16 @@
                     ? $"https://{openSpeedTestHost}"
                     : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
             }
+            else if (openSpeedTestHttpsMobile)
+            {
+                // HTTP through proxy (mobile browsers auto-redirect to HTTPS via JS)
+                openSpeedTestUrl = openSpeedTestHttpPort == "80"
+                    ? $"http://{openSpeedTestHost}"
+                    : $"http://{openSpeedTestHost}:{openSpeedTestHttpPort}";
+            }
             else
             {
-                // HTTP URL (direct access or mobile mode - JS handles mobile redirect)
+                // HTTP URL (direct access, no proxy)
                 openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
             }
         }

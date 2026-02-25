@@ -71,7 +71,9 @@ OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
 OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"
 
 # Build canonical URL (same logic as ClientSpeedTest.razor)
-# "mobile" and "false" both use HTTP canonical URL (mobile redirect is handled by JS)
+# "mobile" uses proxy HTTP port (default 80), "false" uses direct nginx port (3005)
+# "true" uses HTTPS proxy port (default 443)
+OST_HTTP_PORT="${OPENSPEEDTEST_HTTP_PORT:-80}"
 CANONICAL_URL=""
 CANONICAL_HOST=""
 if [ -n "$OST_HOST" ]; then
@@ -81,6 +83,12 @@ if [ -n "$OST_HOST" ]; then
             CANONICAL_URL="https://$OST_HOST"
         else
             CANONICAL_URL="https://$OST_HOST:$OST_HTTPS_PORT"
+        fi
+    elif [ "$OPENSPEEDTEST_HTTPS" = "mobile" ]; then
+        if [ "$OST_HTTP_PORT" = "80" ]; then
+            CANONICAL_URL="http://$OST_HOST"
+        else
+            CANONICAL_URL="http://$OST_HOST:$OST_HTTP_PORT"
         fi
     else
         CANONICAL_URL="http://$OST_HOST:$OST_PORT"

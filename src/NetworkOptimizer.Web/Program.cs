@@ -398,6 +398,8 @@ var openSpeedTestHttpsConfig = builder.Configuration["OPENSPEEDTEST_HTTPS"] ?? "
 var openSpeedTestHttpsAll = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
 var openSpeedTestHttpsMobile = openSpeedTestHttpsConfig.Equals("mobile", StringComparison.OrdinalIgnoreCase);
 var openSpeedTestHttpsEnabled = openSpeedTestHttpsAll || openSpeedTestHttpsMobile;
+var openSpeedTestHttpPortConfig = builder.Configuration["OPENSPEEDTEST_HTTP_PORT"];
+var openSpeedTestHttpPort = !string.IsNullOrEmpty(openSpeedTestHttpPortConfig) ? openSpeedTestHttpPortConfig : "80";
 var openSpeedTestHttpsPortConfig = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"];
 var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
@@ -413,14 +415,23 @@ if (!string.IsNullOrEmpty(openSpeedTestHost))
     corsOriginsList.Add($"http://{openSpeedTestHost}:{openSpeedTestPort}");
 }
 
-// HTTPS origins (when proxied with TLS - both "true" and "mobile" modes)
-// "mobile" needs both HTTP and HTTPS origins since mobile browsers redirect to HTTPS
+// Proxy origins (when proxied with TLS - both "true" and "mobile" modes)
 if (openSpeedTestHttpsEnabled && !string.IsNullOrEmpty(openSpeedTestHost))
 {
+    // HTTPS origin (mobile redirect target, or all-HTTPS mode)
     var httpsOrigin = openSpeedTestHttpsPort == "443"
         ? $"https://{openSpeedTestHost}"
         : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
     corsOriginsList.Add(httpsOrigin);
+
+    // HTTP proxy origin ("mobile" mode - desktop accesses via proxy HTTP port)
+    if (openSpeedTestHttpsMobile)
+    {
+        var httpProxyOrigin = openSpeedTestHttpPort == "80"
+            ? $"http://{openSpeedTestHost}"
+            : $"http://{openSpeedTestHost}:{openSpeedTestHttpPort}";
+        corsOriginsList.Add(httpProxyOrigin);
+    }
 }
 
 builder.Services.AddCors(options =>
@@ -1703,6 +1714,8 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
             ["OPENSPEEDTEST_PORT"] = "OPENSPEEDTEST_PORT",
             ["OPENSPEEDTEST_HOST"] = "OPENSPEEDTEST_HOST",
             ["OPENSPEEDTEST_HTTPS"] = "OPENSPEEDTEST_HTTPS",
+            ["OPENSPEEDTEST_HTTP_PORT"] = "OPENSPEEDTEST_HTTP_PORT",
+            ["OPENSPEEDTEST_HTTPS_PORT"] = "OPENSPEEDTEST_HTTPS_PORT",
             // Traefik settings (optional HTTPS reverse proxy feature)
             ["TRAEFIK_ACME_EMAIL"] = "TRAEFIK_ACME_EMAIL",
             ["TRAEFIK_CF_DNS_API_TOKEN"] = "TRAEFIK_CF_DNS_API_TOKEN",

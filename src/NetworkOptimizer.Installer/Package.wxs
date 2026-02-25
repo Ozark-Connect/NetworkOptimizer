@@ -87,54 +87,17 @@
           <Publish Event="NewDialog" Value="InstallDirDlg" />
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
-          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" />
-        </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
-          <Publish Event="SpawnDialog" Value="CancelDlg" />
-        </Control>
-      </Dialog>
-
-      <!-- Page 2: Speed Test Configuration Dialog -->
-      <Dialog Id="SpeedTestConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
-        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
-        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Speed Test Configuration" />
-        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Configure speed testing servers. All settings are optional." />
-        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
-
-        <!-- iperf3 Section -->
-        <Control Id="Iperf3Label" Type="Text" X="20" Y="55" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}iperf3 Server (CLI-based testing)" />
-        <Control Id="Iperf3Check" Type="CheckBox" X="20" Y="70" Width="330" Height="17" Property="IPERF3_SERVER_ENABLED" CheckBoxValue="true" Text="Enable iperf3 server on port 5201" />
-        <Control Id="Iperf3Help" Type="Text" X="20" Y="88" Width="330" Height="20" NoPrefix="yes" Text="For testing from network devices, laptops, desktops, servers, or any device with iperf3." />
-
-        <!-- Browser SpeedTest Section -->
-        <Control Id="BrowserLabel" Type="Text" X="20" Y="115" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Browser Speed Test (OpenSpeedTest on nginx)" />
-
-        <Control Id="PortLabel" Type="Text" X="20" Y="132" Width="50" Height="13" NoPrefix="yes" Text="Port:" />
-        <Control Id="PortEdit" Type="Edit" X="70" Y="130" Width="50" Height="18" Property="OPENSPEEDTEST_PORT" />
-        <Control Id="PortHelp" Type="Text" X="125" Y="132" Width="220" Height="13" NoPrefix="yes" Text="Default 3005. Only change if port conflicts." />
-
-        <Control Id="SpeedTestHostLabel" Type="Text" X="20" Y="155" Width="70" Height="13" NoPrefix="yes" Text="Hostname:" />
-        <Control Id="SpeedTestHostEdit" Type="Edit" X="90" Y="153" Width="150" Height="18" Property="OPENSPEEDTEST_HOST" />
-        <Control Id="SpeedTestHostHelp" Type="Text" X="20" Y="173" Width="330" Height="20" NoPrefix="yes" Text="Leave blank to use Server Hostname. Set only if SpeedTest has its own DNS name." />
-
-        <Control Id="SpeedTestHttpsCheck" Type="CheckBox" X="20" Y="195" Width="330" Height="17" Property="OPENSPEEDTEST_HTTPS" CheckBoxValue="true" Text="SpeedTest uses HTTPS (behind TLS-terminating proxy)" />
-        <Control Id="SpeedTestHttpsHelp" Type="Text" X="20" Y="213" Width="330" Height="20" NoPrefix="yes" Text="Enables browser geolocation. Requires a separate HTTP/1.1 proxy for accuracy." />
-
-        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
-        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
-          <Publish Event="NewDialog" Value="NetworkConfigDlg" />
-        </Control>
-        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
-          <!-- Show Traefik config if Traefik feature is selected, otherwise skip to install -->
+          <!-- Show Traefik config first if Traefik feature is selected -->
           <Publish Event="NewDialog" Value="TraefikConfigDlg" Condition="&amp;TraefikFeature = 3" />
-          <Publish Event="NewDialog" Value="VerifyReadyDlg" Condition="NOT (&amp;TraefikFeature = 3)" />
+          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" Condition="NOT (&amp;TraefikFeature = 3)" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
-      <!-- Page 3: Traefik HTTPS Configuration Dialog (shown only when Traefik feature is selected) -->
+      <!-- Page 2: Traefik HTTPS Configuration Dialog (shown only when Traefik feature is selected) -->
+      <!-- Shown BEFORE SpeedTest config so Traefik hostnames can pre-populate SpeedTest settings -->
       <Dialog Id="TraefikConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}HTTPS Configuration (Traefik)" />
@@ -158,24 +121,74 @@
 
         <Control Id="BottomLine" Type="Line" X="0" Y="244" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="253" Width="56" Height="17" Text="!(loc.WixUIBack)">
-          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" />
+          <Publish Event="NewDialog" Value="NetworkConfigDlg" />
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="253" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
-          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+          <!-- Auto-populate SpeedTest settings from Traefik hostnames -->
+          <Publish Property="OPENSPEEDTEST_HOST" Value="[TRAEFIK_SPEEDTEST_HOSTNAME]" Order="1" Condition="NOT OPENSPEEDTEST_HOST" />
+          <Publish Property="OPENSPEEDTEST_HTTPS" Value="mobile" Order="2" Condition="OPENSPEEDTEST_HTTPS = &quot;false&quot;" />
+          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" Order="3" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="253" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
-      <!-- Dialog flow: InstallDirDlg → NetworkConfigDlg → SpeedTestConfigDlg → [TraefikConfigDlg] → VerifyReadyDlg -->
+      <!-- Page 3: Speed Test Configuration Dialog -->
+      <Dialog Id="SpeedTestConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Speed Test Configuration" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Configure speed testing servers. All settings are optional." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+
+        <!-- iperf3 Section -->
+        <Control Id="Iperf3Label" Type="Text" X="20" Y="55" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}iperf3 Server (CLI-based testing)" />
+        <Control Id="Iperf3Check" Type="CheckBox" X="20" Y="70" Width="330" Height="17" Property="IPERF3_SERVER_ENABLED" CheckBoxValue="true" Text="Enable iperf3 server on port 5201" />
+        <Control Id="Iperf3Help" Type="Text" X="20" Y="88" Width="330" Height="20" NoPrefix="yes" Text="For testing from network devices, laptops, desktops, servers, or any device with iperf3." />
+
+        <!-- Browser SpeedTest Section -->
+        <Control Id="BrowserLabel" Type="Text" X="20" Y="115" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Browser Speed Test (OpenSpeedTest on nginx)" />
+
+        <Control Id="PortLabel" Type="Text" X="20" Y="132" Width="50" Height="13" NoPrefix="yes" Text="Port:" />
+        <Control Id="PortEdit" Type="Edit" X="70" Y="130" Width="50" Height="18" Property="OPENSPEEDTEST_PORT" />
+        <Control Id="PortHelp" Type="Text" X="125" Y="132" Width="220" Height="13" NoPrefix="yes" Text="Default 3005. Only change if port conflicts." />
+
+        <Control Id="SpeedTestHostLabel" Type="Text" X="20" Y="155" Width="70" Height="13" NoPrefix="yes" Text="Hostname:" />
+        <Control Id="SpeedTestHostEdit" Type="Edit" X="90" Y="153" Width="150" Height="18" Property="OPENSPEEDTEST_HOST" />
+        <Control Id="SpeedTestHostHelp" Type="Text" X="20" Y="173" Width="330" Height="20" NoPrefix="yes" Text="Leave blank to use Server Hostname. Auto-filled from Traefik if configured." />
+
+        <Control Id="HttpsModeLabel" Type="Text" X="20" Y="196" Width="70" Height="13" NoPrefix="yes" Text="HTTPS mode:" />
+        <Control Id="HttpsMode" Type="ComboBox" X="90" Y="194" Width="250" Height="17" Property="OPENSPEEDTEST_HTTPS" />
+        <Control Id="HttpsModeHelp" Type="Text" X="20" Y="213" Width="330" Height="20" NoPrefix="yes" Text="Mobile only: desktop stays on HTTP (fast), mobile redirects to HTTPS (geolocation)." />
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <!-- Go back to Traefik config if Traefik feature is selected, otherwise NetworkConfig -->
+          <Publish Event="NewDialog" Value="TraefikConfigDlg" Condition="&amp;TraefikFeature = 3" />
+          <Publish Event="NewDialog" Value="NetworkConfigDlg" Condition="NOT (&amp;TraefikFeature = 3)" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- HTTPS mode ComboBox values -->
+      <ComboBox Property="OPENSPEEDTEST_HTTPS">
+        <ListItem Text="Off - HTTP only" Value="false" />
+        <ListItem Text="Mobile only - HTTPS for geolocation (recommended)" Value="mobile" />
+        <ListItem Text="All traffic through HTTPS" Value="true" />
+      </ComboBox>
+
+      <!-- Dialog flow: InstallDirDlg → NetworkConfigDlg → [TraefikConfigDlg] → SpeedTestConfigDlg → VerifyReadyDlg -->
       <!-- During upgrades, skip config dialogs (settings preserved from registry) -->
       <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
       <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
       <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="NetworkConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED" />
       <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="TraefikConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed AND &amp;TraefikFeature = 3" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SpeedTestConfigDlg" Order="9" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed AND NOT (&amp;TraefikFeature = 3)" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SpeedTestConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed" />
 
       <!-- Set exit dialog text and checkbox - different for fresh install vs upgrade -->
       <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
@@ -214,8 +227,14 @@
     <Property Id="OPENSPEEDTEST_HOST" Secure="yes">
       <RegistrySearch Id="SearchOstHost" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HOST" Type="raw" />
     </Property>
-    <Property Id="OPENSPEEDTEST_HTTPS" Secure="yes">
+    <Property Id="OPENSPEEDTEST_HTTPS" Value="false" Secure="yes">
       <RegistrySearch Id="SearchOstHttps" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTPS" Type="raw" />
+    </Property>
+    <Property Id="OPENSPEEDTEST_HTTP_PORT" Value="80" Secure="yes">
+      <RegistrySearch Id="SearchOstHttpPort" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTP_PORT" Type="raw" />
+    </Property>
+    <Property Id="OPENSPEEDTEST_HTTPS_PORT" Value="443" Secure="yes">
+      <RegistrySearch Id="SearchOstHttpsPort" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTPS_PORT" Type="raw" />
     </Property>
 
     <!-- Traefik config properties -->
