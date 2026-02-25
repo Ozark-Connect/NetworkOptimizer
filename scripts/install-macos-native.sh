@@ -304,6 +304,9 @@ http {
             client_body_buffer_size 35m;
             client_max_body_size 50m;
 
+            # Don't forward the body to upstream - just drain it and get a 200 back
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
             proxy_pass http://127.0.0.1:3005/upload-sink;
             proxy_set_header Host $host;
         }
