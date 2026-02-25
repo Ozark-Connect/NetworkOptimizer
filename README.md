@@ -21,7 +21,7 @@ Enable HTTPS with automatic Let's Encrypt certificates using the included [Traef
 
 ## New: Threat Intelligence
 
-Your UniFi gateway's IPS is blocking threats all day long, but the controller buries this data in a flat event log with no context. Threat Intelligence pulls those IPS events and actually analyzes them: who's attacking you, where they're coming from, what they're after, and whether it's random noise or a coordinated effort.
+Your UniFi gateway's IPS is blocking threats all day long, but the UniFi Console buries this data in a flat event log with no context. Threat Intelligence pulls those IPS events and actually analyzes them: who's attacking you, where they're coming from, what they're after, and whether it's random noise or a coordinated effort.
 
 The exposure analysis is where it gets useful. It cross-references your port forwards with actual threat data, so you can see which of your exposed services are getting hammered and from where. Attack sequence detection watches for the same source IP progressing through kill chain stages (reconnaissance to exploitation to post-exploitation) and flags the ones that look like real campaigns rather than drive-by scanning. Geographic and ASN breakdowns show you which countries and networks are generating the most traffic against your infrastructure.
 
