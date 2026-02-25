@@ -91,10 +91,31 @@ public class NginxHostedService : IHostedService, IDisposable
 
         // Read template and replace placeholders (matches OpenSpeedTest format)
         var template = await File.ReadAllTextAsync(templatePath);
+        // Build HTTPS redirect URL for mobile mode
+        var httpsRedirectUrl = "";
+        var ostHttpsConfig = _configuration["OPENSPEEDTEST_HTTPS"] ?? "";
+        if (ostHttpsConfig.Equals("mobile", StringComparison.OrdinalIgnoreCase))
+        {
+            var ostHost = _configuration["OPENSPEEDTEST_HOST"];
+            if (string.IsNullOrEmpty(ostHost))
+                ostHost = _configuration["HOST_NAME"];
+            if (string.IsNullOrEmpty(ostHost))
+                config.TryGetValue("HOST_NAME", out ostHost);
+            if (!string.IsNullOrEmpty(ostHost))
+            {
+                var ostHttpsPort = _configuration["OPENSPEEDTEST_HTTPS_PORT"];
+                if (string.IsNullOrEmpty(ostHttpsPort)) ostHttpsPort = "443";
+                httpsRedirectUrl = ostHttpsPort == "443"
+                    ? $"https://{ostHost}"
+                    : $"https://{ostHost}:{ostHttpsPort}";
+            }
+        }
+
         var configJs = template
             .Replace("{{SAVE_DATA}}", "true")
             .Replace("{{SAVE_DATA_URL}}", saveDataUrl)
-            .Replace("{{API_PATH}}", apiPath);
+            .Replace("{{API_PATH}}", apiPath)
+            .Replace("{{HTTPS_REDIRECT_URL}}", httpsRedirectUrl);
 
         // Ensure output directory exists
         var outputDir = Path.GetDirectoryName(outputPath);

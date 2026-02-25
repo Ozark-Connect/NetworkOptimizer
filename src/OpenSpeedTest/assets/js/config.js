@@ -8,9 +8,18 @@
 // __SAVE_DATA__ becomes true/false
 // __SAVE_DATA_URL__ becomes the actual URL or __DYNAMIC__
 // __API_PATH__ becomes the API endpoint path
+// __HTTPS_REDIRECT_URL__ becomes the HTTPS URL for mobile redirect (or empty)
 var saveData = __SAVE_DATA__;
 var saveDataURL = "__SAVE_DATA_URL__";
 var apiPath = "__API_PATH__";
+var httpsRedirectUrl = "__HTTPS_REDIRECT_URL__";
+
+// Mobile HTTPS redirect: when on HTTP and mobile browser, redirect to HTTPS for geolocation
+if (httpsRedirectUrl && httpsRedirectUrl !== "__HTTPS_REDIRECT_URL__" && httpsRedirectUrl !== "") {
+    if (window.location.protocol === "http:" && /Mobile|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        window.location.replace(httpsRedirectUrl + window.location.pathname + window.location.search);
+    }
+}
 
 // If __DYNAMIC__, construct URL from browser location (same host, port 8042)
 if (saveDataURL === "__DYNAMIC__") {

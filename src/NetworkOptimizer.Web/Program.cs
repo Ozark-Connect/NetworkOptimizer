@@ -394,11 +394,14 @@ var openSpeedTestPortConfig = builder.Configuration["OPENSPEEDTEST_PORT"];
 var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
 var openSpeedTestHostConfig = builder.Configuration["OPENSPEEDTEST_HOST"];
 var openSpeedTestHost = !string.IsNullOrEmpty(openSpeedTestHostConfig) ? openSpeedTestHostConfig : hostName;
-var openSpeedTestHttps = builder.Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+var openSpeedTestHttpsConfig = builder.Configuration["OPENSPEEDTEST_HTTPS"] ?? "";
+var openSpeedTestHttpsAll = openSpeedTestHttpsConfig.Equals("true", StringComparison.OrdinalIgnoreCase);
+var openSpeedTestHttpsMobile = openSpeedTestHttpsConfig.Equals("mobile", StringComparison.OrdinalIgnoreCase);
+var openSpeedTestHttpsEnabled = openSpeedTestHttpsAll || openSpeedTestHttpsMobile;
 var openSpeedTestHttpsPortConfig = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"];
 var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
-// HTTP origins (direct access via IP or hostname)
+// HTTP origins (direct access via IP or hostname) - always added
 // Use HOST_IP if set, otherwise auto-detect from network interfaces
 var corsIp = !string.IsNullOrEmpty(hostIp) ? hostIp : NetworkUtilities.DetectLocalIpFromInterfaces();
 if (!string.IsNullOrEmpty(corsIp))
@@ -410,8 +413,9 @@ if (!string.IsNullOrEmpty(openSpeedTestHost))
     corsOriginsList.Add($"http://{openSpeedTestHost}:{openSpeedTestPort}");
 }
 
-// HTTPS origins (when proxied with TLS)
-if (openSpeedTestHttps && !string.IsNullOrEmpty(openSpeedTestHost))
+// HTTPS origins (when proxied with TLS - both "true" and "mobile" modes)
+// "mobile" needs both HTTP and HTTPS origins since mobile browsers redirect to HTTPS
+if (openSpeedTestHttpsEnabled && !string.IsNullOrEmpty(openSpeedTestHost))
 {
     var httpsOrigin = openSpeedTestHttpsPort == "443"
         ? $"https://{openSpeedTestHost}"

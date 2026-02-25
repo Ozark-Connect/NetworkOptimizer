@@ -39,6 +39,23 @@ if [ -f "$CONFIG_FILE" ]; then
     sed -i "s|__SAVE_DATA_URL__|$SAVE_DATA_URL|g" "$CONFIG_FILE"
     sed -i "s|__API_PATH__|$API_PATH|g" "$CONFIG_FILE"
 
+    # Mobile HTTPS redirect URL (OPENSPEEDTEST_HTTPS=mobile)
+    # When set, mobile browsers on HTTP are redirected to HTTPS for geolocation
+    OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"
+    OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
+    if [ "$OPENSPEEDTEST_HTTPS" = "mobile" ] && [ -n "$OST_HOST" ]; then
+        if [ "$OST_HTTPS_PORT" = "443" ]; then
+            HTTPS_REDIRECT_URL="https://$OST_HOST"
+        else
+            HTTPS_REDIRECT_URL="https://$OST_HOST:$OST_HTTPS_PORT"
+        fi
+        sed -i "s|__HTTPS_REDIRECT_URL__|$HTTPS_REDIRECT_URL|g" "$CONFIG_FILE"
+        echo "Mobile HTTPS redirect enabled: $HTTPS_REDIRECT_URL"
+    else
+        # Clear placeholder (no redirect)
+        sed -i "s|__HTTPS_REDIRECT_URL__||g" "$CONFIG_FILE"
+    fi
+
     echo "Configuration complete"
 else
     echo "Warning: config.js not found at $CONFIG_FILE"
@@ -54,6 +71,7 @@ OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
 OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"
 
 # Build canonical URL (same logic as ClientSpeedTest.razor)
+# "mobile" and "false" both use HTTP canonical URL (mobile redirect is handled by JS)
 CANONICAL_URL=""
 CANONICAL_HOST=""
 if [ -n "$OST_HOST" ]; then
@@ -75,7 +93,7 @@ fi
 if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
     echo "Enforcing canonical URL: $CANONICAL_URL"
 
-    # Redirect HTTP to HTTPS when HTTPS is enabled
+    # Redirect HTTP to HTTPS when HTTPS is fully enabled (not "mobile" mode)
     # Check X-Forwarded-Proto (set by reverse proxy) - if not "https", we're on HTTP
     if [ "$OPENSPEEDTEST_HTTPS" = "true" ]; then
         sed -i "/server_name/a\\
@@ -85,7 +103,8 @@ if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
     }" "$NGINX_CONF"
         echo "Added HTTP->HTTPS redirect rule"
     else
-        # Only add host redirect when not using HTTPS (HTTP->HTTPS covers host mismatch too)
+        # "mobile" and "false" both use host enforcement only (no scheme redirect)
+        # Mobile HTTPS redirect is handled client-side by config.js
         sed -i "/server_name/a\\
     # Enforce canonical host - prevents browser caching issues on mobile\\
     if (\$host != \"$CANONICAL_HOST\") {\\
