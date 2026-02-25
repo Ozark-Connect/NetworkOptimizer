@@ -42,7 +42,6 @@ public class ThreatCollectionService : BackgroundService
     // Track source IPs we've already alerted on for attack chains (reset periodically)
     private readonly HashSet<string> _alertedChainIps = new();
     private readonly HashSet<string> _alertedChainAttemptIps = new();
-    private readonly HashSet<string> _alertedPatternKeys = new();
     private DateTime _lastChainAlertReset = DateTime.UtcNow;
 
     public ThreatCollectionService(
@@ -307,16 +306,14 @@ public class ThreatCollectionService : BackgroundService
             foreach (var pattern in patterns)
                 await repository.SavePatternAsync(pattern, cancellationToken);
 
-            // Publish alert events for newly detected patterns
-            foreach (var pattern in patterns)
+            // Publish alert events for patterns with new activity (DB-persisted dedup)
+            var unalertedPatterns = await repository.GetUnalertedPatternsAsync(cancellationToken);
+            foreach (var pattern in unalertedPatterns)
             {
                 try
                 {
                     var sourceIps = System.Text.Json.JsonSerializer.Deserialize<List<string>>(pattern.SourceIpsJson) ?? [];
                     var firstSourceIp = sourceIps.FirstOrDefault() ?? "unknown";
-                    var patternKey = $"{pattern.PatternType}:{firstSourceIp}:{pattern.TargetPort}";
-
-                    if (!_alertedPatternKeys.Add(patternKey)) continue;
 
                     var severity = pattern.PatternType switch
                     {
@@ -343,6 +340,8 @@ public class ThreatCollectionService : BackgroundService
                             ["source_ips"] = string.Join(", ", sourceIps.Take(5))
                         }
                     }, cancellationToken);
+
+                    await repository.MarkPatternAlertedAsync(pattern.Id, DateTime.UtcNow, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -363,7 +362,6 @@ public class ThreatCollectionService : BackgroundService
             {
                 _alertedChainIps.Clear();
                 _alertedChainAttemptIps.Clear();
-                _alertedPatternKeys.Clear();
                 _lastChainAlertReset = DateTime.UtcNow;
             }
 
