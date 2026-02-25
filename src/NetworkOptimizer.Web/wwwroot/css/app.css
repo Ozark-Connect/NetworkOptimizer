@@ -7700,6 +7700,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     gap: 0.4rem;
     border-bottom: 1px solid var(--border-color);
+    margin-top: 0.5rem;
     padding-bottom: 0.5rem;
     overflow-x: auto;
     flex: 1;
@@ -7723,6 +7724,7 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0 0.4rem;
+    margin-top: -0.5rem;
     font-size: 1.2rem;
     flex-shrink: 0;
     z-index: 1;
