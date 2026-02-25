@@ -106,7 +106,7 @@
         {
             <button class="btn btn-sm btn-secondary"
                     @onclick="() => _showFilterPanel = !_showFilterPanel"
-                    data-tooltip="Add noise filters to hide noisy traffic"
+                    data-tooltip="Add noise filters to hide noisy traffic and suppress alerts"
                     data-tooltip-hover-only>
                 Filters
             </button>
@@ -159,7 +159,7 @@
             <div class="card-body" style="padding:1rem;">
                 <div class="noise-filter-header">
                     <h4>Noise Filters</h4>
-                    <span style="color:var(--text-muted); font-size:0.8rem;">Hide noisy traffic from all dashboard views</span>
+                    <span style="color:var(--text-muted); font-size:0.8rem;">Hide noisy traffic from dashboard views and alert notifications</span>
                 </div>
 
                 @* Add new filter form *@
@@ -231,7 +231,7 @@
                 }
                 else
                 {
-                    <div class="text-muted-sm">No filters configured. Add one above to hide noisy traffic.</div>
+                    <div class="text-muted-sm">No filters configured. Add one above to hide noisy traffic and suppress alerts.</div>
                 }
             </div>
         </div>
