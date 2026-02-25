@@ -44,6 +44,13 @@
     <WixVariable Id="WixUIBannerBmp" Value="$(var.InstallerDir)Banner.bmp" />
     <WixVariable Id="WixUIDialogBmp" Value="$(var.InstallerDir)Dialog.bmp" />
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <!-- WixUI_InstallDir sets ARPNOMODIFY=1 which disables the Change button in maintenance mode -->
+    <!-- and hides the Modify button in Add/Remove Programs. Clear it so users can change features. -->
+    <!-- [_] resolves to empty string (undefined property), effectively unsetting ARPNOMODIFY. -->
+    <CustomAction Id="CA_ClearArpNoModify" Property="ARPNOMODIFY" Value="[_]" Execute="immediate" />
+    <InstallExecuteSequence>
+      <Custom Action="CA_ClearArpNoModify" Before="RegisterProduct" />
+    </InstallExecuteSequence>
 
     <!-- Checkbox text for upgrades (no logs folder) -->
     <CustomAction Id="CA_SetCheckboxTextUpgrade"
@@ -51,19 +58,75 @@
                   Value="Launch app in browser"
                   Execute="immediate" />
 
-    <!-- Exit dialog text - different for fresh install vs upgrade -->
+    <!-- Exit dialog text - different for fresh install vs upgrade, with/without Traefik -->
     <CustomAction Id="CA_SetExitDialogText"
                   Property="WIXUI_EXITDIALOGOPTIONALTEXT"
                   Value="Access Network Optimizer at: http://localhost:8042&#13;&#10;&#13;&#10;*** IMPORTANT: First Login ***&#13;&#10;Your temporary password is in the log file:&#13;&#10;[INSTALLFOLDER]logs\&#13;&#10;&#13;&#10;Open the log file and look for the generated password."
+                  Execute="immediate" />
+    <CustomAction Id="CA_SetExitDialogTextTraefik"
+                  Property="WIXUI_EXITDIALOGOPTIONALTEXT"
+                  Value="Access at: http://localhost:8042&#13;&#10;Password is in [INSTALLFOLDER]logs\&#13;&#10;&#13;&#10;HTTPS: If you see a certificate error, wait a minute for Let's Encrypt to issue certificates, then refresh."
                   Execute="immediate" />
     <CustomAction Id="CA_SetExitDialogTextUpgrade"
                   Property="WIXUI_EXITDIALOGOPTIONALTEXT"
                   Value="Network Optimizer has been upgraded successfully.&#13;&#10;&#13;&#10;Access at: http://localhost:8042&#13;&#10;&#13;&#10;Your existing settings have been preserved."
                   Execute="immediate" />
+    <CustomAction Id="CA_SetExitDialogTextUpgradeTraefik"
+                  Property="WIXUI_EXITDIALOGOPTIONALTEXT"
+                  Value="Upgraded successfully. Access at: http://localhost:8042&#13;&#10;&#13;&#10;HTTPS: If you see a certificate error, wait a minute for Let's Encrypt to issue certificates, then refresh."
+                  Execute="immediate" />
+
+    <!-- Clear Traefik-derived fields when user removes Traefik feature during upgrade -->
+    <!-- [_] resolves to empty string (undefined property), effectively clearing the property -->
+    <CustomAction Id="CA_ClearReverseProxy" Property="REVERSE_PROXIED_HOST_NAME" Value="[_]" Execute="immediate" />
+    <CustomAction Id="CA_ClearOstHost" Property="OPENSPEEDTEST_HOST" Value="[_]" Execute="immediate" />
+    <CustomAction Id="CA_ClearOstHttps" Property="OPENSPEEDTEST_HTTPS" Value="[_]" Execute="immediate" />
 
     <!-- Custom UI modifications - must be inside Package, not Fragment -->
     <UI>
-      <!-- Page 1: Network Configuration Dialog -->
+      <!-- Validation dialog for required Traefik fields -->
+      <Dialog Id="TraefikRequiredFieldsDlg" Width="260" Height="85" Title="Missing Required Fields">
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="194" Height="30" NoPrefix="yes" Text="All four Traefik configuration fields are required. Please fill in the missing fields." />
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32" Text="WixUI_Ico_Exclam" />
+        <Control Id="OK" Type="PushButton" X="102" Y="57" Width="56" Height="17" Default="yes" Cancel="yes" Text="OK">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <!-- Page 1: Feature Selection Dialog -->
+      <Dialog Id="CustomFeaturesDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Optional Features" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Select which features to install. Click a feature to see its description." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+
+        <Control Id="Tree" Type="SelectionTree" X="20" Y="55" Width="330" Height="120" Property="_BrowseProperty" Sunken="yes" />
+        <Control Id="ItemDescription" Type="Text" X="20" Y="180" Width="330" Height="40" NoPrefix="yes" Text="Highlight a feature to see its description.">
+          <Subscribe Event="SelectionDescription" Attribute="Text" />
+        </Control>
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="InstallDirDlg" Order="1" />
+          <!-- Maintenance mode (Change from Add/Remove Programs): back to MaintenanceTypeDlg -->
+          <Publish Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT WIX_UPGRADE_DETECTED" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <!-- Clear Traefik-derived fields when removing Traefik (was configured, now deselected) -->
+          <Publish Event="DoAction" Value="CA_ClearReverseProxy" Order="1" Condition="NOT (&amp;TraefikFeature = 3) AND TRAEFIK_ACME_EMAIL" />
+          <Publish Event="DoAction" Value="CA_ClearOstHost" Order="2" Condition="NOT (&amp;TraefikFeature = 3) AND TRAEFIK_ACME_EMAIL" />
+          <Publish Event="DoAction" Value="CA_ClearOstHttps" Order="3" Condition="NOT (&amp;TraefikFeature = 3) AND TRAEFIK_ACME_EMAIL" />
+          <!-- Navigation: TraefikConfig if adding, NetworkConfig if removing or fresh, Verify if no changes -->
+          <Publish Event="NewDialog" Value="NetworkConfigDlg" Order="10" />
+          <Publish Event="NewDialog" Value="TraefikConfigDlg" Order="20" Condition="&amp;TraefikFeature = 3" />
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" Order="30" Condition="WIX_UPGRADE_DETECTED AND ((&amp;TraefikFeature = 3 AND TRAEFIK_ACME_EMAIL) OR (NOT (&amp;TraefikFeature = 3) AND NOT TRAEFIK_ACME_EMAIL))" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Page 2: Network Configuration Dialog -->
       <Dialog Id="NetworkConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Network Configuration" />
@@ -76,7 +139,7 @@
 
         <Control Id="HostNameLabel" Type="Text" X="20" Y="120" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Server Hostname (optional)" />
         <Control Id="HostNameEdit" Type="Edit" X="20" Y="135" Width="150" Height="18" Property="HOST_NAME" />
-        <Control Id="HostNameHelp" Type="Text" X="20" Y="155" Width="330" Height="26" NoPrefix="yes" Text="DNS name clients can resolve (e.g., nas, server.local). Enables canonical URL redirects." />
+        <Control Id="HostNameHelp" Type="Text" X="20" Y="155" Width="330" Height="26" NoPrefix="yes" Text="DNS name clients can resolve (e.g., nas, server.local). Used for URL redirects and iperf3 commands in the UI." />
 
         <Control Id="ProxyLabel" Type="Text" X="20" Y="185" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Reverse Proxy Hostname (optional)" />
         <Control Id="ProxyEdit" Type="Edit" X="20" Y="200" Width="200" Height="18" Property="REVERSE_PROXIED_HOST_NAME" />
@@ -84,52 +147,57 @@
 
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
-          <Publish Event="NewDialog" Value="InstallDirDlg" />
+          <Publish Event="NewDialog" Value="TraefikConfigDlg" Condition="&amp;TraefikFeature = 3" />
+          <Publish Event="NewDialog" Value="CustomFeaturesDlg" Condition="NOT (&amp;TraefikFeature = 3)" />
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
-          <!-- Show Traefik config first if Traefik feature is selected -->
-          <Publish Event="NewDialog" Value="TraefikConfigDlg" Condition="&amp;TraefikFeature = 3" />
-          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" Condition="NOT (&amp;TraefikFeature = 3)" />
+          <!-- Auto-enable HTTPS when reverse proxy hostname is set (non-Traefik path) -->
+          <Publish Property="OPENSPEEDTEST_HTTPS" Value="true" Order="1" Condition="REVERSE_PROXIED_HOST_NAME AND NOT (&amp;TraefikFeature = 3)" />
+          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" Order="2" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
-      <!-- Page 2: Traefik HTTPS Configuration Dialog (shown only when Traefik feature is selected) -->
-      <!-- Shown BEFORE SpeedTest config so Traefik hostnames can pre-populate SpeedTest settings -->
-      <Dialog Id="TraefikConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+      <!-- Page 2 (if Traefik selected): HTTPS Configuration -->
+      <!-- Shown BEFORE NetworkConfig so Traefik hostnames pre-fill Reverse Proxy Hostname and SpeedTest settings -->
+      <Dialog Id="TraefikConfigDlg" Width="370" Height="320" Title="!(loc.InstallDirDlg_Title)">
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}HTTPS Configuration (Traefik)" />
         <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Configure HTTPS with automatic Let's Encrypt certificates via Cloudflare DNS." />
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
 
-        <Control Id="AcmeEmailLabel" Type="Text" X="20" Y="55" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}ACME Email (required)" />
-        <Control Id="AcmeEmailEdit" Type="Edit" X="20" Y="70" Width="250" Height="18" Property="TRAEFIK_ACME_EMAIL" />
-        <Control Id="AcmeEmailHelp" Type="Text" X="20" Y="90" Width="330" Height="13" NoPrefix="yes" Text="Email for Let's Encrypt certificate registration." />
+        <Control Id="AcmeEmailLabel" Type="Text" X="20" Y="58" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}ACME Email (required)" />
+        <Control Id="AcmeEmailEdit" Type="Edit" X="20" Y="73" Width="250" Height="18" Property="TRAEFIK_ACME_EMAIL" />
+        <Control Id="AcmeEmailHelp" Type="Text" X="20" Y="93" Width="330" Height="13" NoPrefix="yes" Text="Email for Let's Encrypt certificate registration." />
 
-        <Control Id="CfTokenLabel" Type="Text" X="20" Y="108" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Cloudflare DNS API Token (required)" />
-        <Control Id="CfTokenEdit" Type="Edit" X="20" Y="123" Width="330" Height="18" Property="TRAEFIK_CF_DNS_API_TOKEN" Password="yes" />
-        <Control Id="CfTokenHelp" Type="Text" X="20" Y="143" Width="330" Height="13" NoPrefix="yes" Text="Token with Zone:DNS:Edit permissions. Stored in registry, never written to disk." />
+        <Control Id="CfTokenLabel" Type="Text" X="20" Y="112" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Cloudflare DNS API Token (required)" />
+        <Control Id="CfTokenEdit" Type="Edit" X="20" Y="127" Width="330" Height="18" Property="TRAEFIK_CF_DNS_API_TOKEN" Password="yes" />
+        <Control Id="CfTokenHelp" Type="Text" X="20" Y="147" Width="330" Height="13" NoPrefix="yes" Text="Token with Zone:DNS:Edit permissions. Stored in registry, never written to disk." />
 
-        <Control Id="OptHostLabel" Type="Text" X="20" Y="161" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Optimizer Hostname" />
-        <Control Id="OptHostEdit" Type="Edit" X="20" Y="176" Width="250" Height="18" Property="TRAEFIK_OPTIMIZER_HOSTNAME" />
-        <Control Id="OptHostHelp" Type="Text" X="20" Y="196" Width="330" Height="13" NoPrefix="yes" Text="e.g., optimizer.yourdomain.com (HTTP/2)" />
+        <Control Id="OptHostLabel" Type="Text" X="20" Y="168" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Optimizer Hostname (required)" />
+        <Control Id="OptHostEdit" Type="Edit" X="20" Y="183" Width="250" Height="18" Property="TRAEFIK_OPTIMIZER_HOSTNAME" />
+        <Control Id="OptHostHelp" Type="Text" X="20" Y="203" Width="330" Height="13" NoPrefix="yes" Text="e.g., optimizer.yourdomain.com (HTTP/2)" />
 
-        <Control Id="SpeedHostLabel" Type="Text" X="20" Y="211" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Speed Test Hostname" />
-        <Control Id="SpeedHostEdit" Type="Edit" X="20" Y="224" Width="250" Height="18" Property="TRAEFIK_SPEEDTEST_HOSTNAME" />
+        <Control Id="SpeedHostLabel" Type="Text" X="20" Y="224" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Speed Test Hostname (required)" />
+        <Control Id="SpeedHostEdit" Type="Edit" X="20" Y="239" Width="250" Height="18" Property="TRAEFIK_SPEEDTEST_HOSTNAME" />
+        <Control Id="SpeedHostHelp" Type="Text" X="20" Y="259" Width="330" Height="13" NoPrefix="yes" Text="e.g., speedtest.yourdomain.com (HTTP/1.1 for accurate tests)" />
 
-        <Control Id="BottomLine" Type="Line" X="0" Y="244" Width="370" Height="0" />
-        <Control Id="Back" Type="PushButton" X="180" Y="253" Width="56" Height="17" Text="!(loc.WixUIBack)">
-          <Publish Event="NewDialog" Value="NetworkConfigDlg" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="284" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="293" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="CustomFeaturesDlg" />
         </Control>
-        <Control Id="Next" Type="PushButton" X="236" Y="253" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
-          <!-- Auto-populate SpeedTest settings from Traefik hostnames -->
-          <Publish Property="OPENSPEEDTEST_HOST" Value="[TRAEFIK_SPEEDTEST_HOSTNAME]" Order="1" Condition="NOT OPENSPEEDTEST_HOST" />
-          <Publish Property="OPENSPEEDTEST_HTTPS" Value="true" Order="2" Condition="OPENSPEEDTEST_HTTPS = &quot;false&quot;" />
-          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" Order="3" />
+        <Control Id="Next" Type="PushButton" X="236" Y="293" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <!-- Require all 4 fields before proceeding -->
+          <Publish Event="SpawnDialog" Value="TraefikRequiredFieldsDlg" Order="1" Condition="NOT TRAEFIK_ACME_EMAIL OR NOT TRAEFIK_CF_DNS_API_TOKEN OR NOT TRAEFIK_OPTIMIZER_HOSTNAME OR NOT TRAEFIK_SPEEDTEST_HOSTNAME" />
+          <!-- Pre-fill downstream settings from Traefik hostnames (only when validation passes) -->
+          <Publish Property="REVERSE_PROXIED_HOST_NAME" Value="[TRAEFIK_OPTIMIZER_HOSTNAME]" Order="2" Condition="TRAEFIK_ACME_EMAIL AND TRAEFIK_CF_DNS_API_TOKEN AND TRAEFIK_OPTIMIZER_HOSTNAME AND TRAEFIK_SPEEDTEST_HOSTNAME AND NOT REVERSE_PROXIED_HOST_NAME" />
+          <Publish Property="OPENSPEEDTEST_HOST" Value="[TRAEFIK_SPEEDTEST_HOSTNAME]" Order="3" Condition="TRAEFIK_ACME_EMAIL AND TRAEFIK_CF_DNS_API_TOKEN AND TRAEFIK_OPTIMIZER_HOSTNAME AND TRAEFIK_SPEEDTEST_HOSTNAME AND NOT OPENSPEEDTEST_HOST" />
+          <Publish Property="OPENSPEEDTEST_HTTPS" Value="true" Order="4" Condition="TRAEFIK_ACME_EMAIL AND TRAEFIK_CF_DNS_API_TOKEN AND TRAEFIK_OPTIMIZER_HOSTNAME AND TRAEFIK_SPEEDTEST_HOSTNAME AND NOT OPENSPEEDTEST_HTTPS" />
+          <Publish Event="NewDialog" Value="NetworkConfigDlg" Order="5" Condition="TRAEFIK_ACME_EMAIL AND TRAEFIK_CF_DNS_API_TOKEN AND TRAEFIK_OPTIMIZER_HOSTNAME AND TRAEFIK_SPEEDTEST_HOSTNAME" />
         </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="253" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+        <Control Id="Cancel" Type="PushButton" X="304" Y="293" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
@@ -162,9 +230,7 @@
 
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
-          <!-- Go back to Traefik config if Traefik feature is selected, otherwise NetworkConfig -->
-          <Publish Event="NewDialog" Value="TraefikConfigDlg" Condition="&amp;TraefikFeature = 3" />
-          <Publish Event="NewDialog" Value="NetworkConfigDlg" Condition="NOT (&amp;TraefikFeature = 3)" />
+          <Publish Event="NewDialog" Value="NetworkConfigDlg" />
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
           <Publish Event="NewDialog" Value="VerifyReadyDlg" />
@@ -174,19 +240,30 @@
         </Control>
       </Dialog>
 
-      <!-- Dialog flow: InstallDirDlg → NetworkConfigDlg → [TraefikConfigDlg] → SpeedTestConfigDlg → VerifyReadyDlg -->
-      <!-- During upgrades, skip config dialogs (settings preserved from registry) -->
-      <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
-      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
-      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="NetworkConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SpeedTestConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed" />
+      <!-- Dialog flow -->
+      <!-- Fresh install:                Features → [TraefikConfig] → NetworkConfig → SpeedTestConfig → Verify -->
+      <!-- Upgrade + Traefik newly added: Features → TraefikConfig → NetworkConfig → SpeedTestConfig → Verify -->
+      <!-- Upgrade + no feature changes:  Features → Verify -->
+      <!-- Maintenance Change:            Features → [config dialogs] → Verify -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="CustomFeaturesDlg" Order="5" />
+      <!-- Maintenance mode: clear ARPNOMODIFY before MaintenanceTypeDlg so Change button is enabled -->
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Property="ARPNOMODIFY" Value="[_]" Order="1" />
+      <!-- Redirect Change to our feature dialog instead of built-in CustomizeDlg -->
+      <Publish Dialog="MaintenanceTypeDlg" Control="ChangeButton" Event="NewDialog" Value="CustomFeaturesDlg" Order="5" />
 
-      <!-- Set exit dialog text and checkbox - different for fresh install vs upgrade -->
-      <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
-      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetCheckboxTextUpgrade" Order="3" Condition="WIX_UPGRADE_DETECTED" />
-      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetExitDialogTextUpgrade" Order="2" Condition="WIX_UPGRADE_DETECTED" />
+      <!-- VerifyReadyDlg Back navigation:
+           - Fresh install / upgrade with config shown / maintenance Change: SpeedTestConfigDlg
+           - Upgrade with no feature changes: CustomFeaturesDlg
+           - Maintenance Repair/Remove: falls through to built-in MaintenanceTypeDlg (Order=1) -->
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SpeedTestConfigDlg" Order="10" Condition="NOT Installed OR WixUI_InstallMode = &quot;Change&quot;" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="CustomFeaturesDlg" Order="20" Condition="WIX_UPGRADE_DETECTED AND ((&amp;TraefikFeature = 3 AND TRAEFIK_ACME_EMAIL) OR (NOT (&amp;TraefikFeature = 3) AND NOT TRAEFIK_ACME_EMAIL))" />
+
+      <!-- Set exit dialog text and checkbox - different for fresh/upgrade and with/without Traefik -->
+      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetCheckboxTextUpgrade" Order="5" Condition="WIX_UPGRADE_DETECTED" />
       <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetExitDialogText" Order="1" Condition="NOT WIX_UPGRADE_DETECTED" />
+      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetExitDialogTextTraefik" Order="2" Condition="NOT WIX_UPGRADE_DETECTED AND &amp;TraefikFeature = 3" />
+      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetExitDialogTextUpgrade" Order="3" Condition="WIX_UPGRADE_DETECTED" />
+      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetExitDialogTextUpgradeTraefik" Order="4" Condition="WIX_UPGRADE_DETECTED AND &amp;TraefikFeature = 3" />
 
       <!-- Launch browser on finish if checkbox is checked (both fresh install and upgrade) -->
       <!-- Launch logs folder only on fresh install (user needs temp password) -->
@@ -219,7 +296,7 @@
     <Property Id="OPENSPEEDTEST_HOST" Secure="yes">
       <RegistrySearch Id="SearchOstHost" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HOST" Type="raw" />
     </Property>
-    <Property Id="OPENSPEEDTEST_HTTPS" Value="false" Secure="yes">
+    <Property Id="OPENSPEEDTEST_HTTPS" Secure="yes">
       <RegistrySearch Id="SearchOstHttps" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTPS" Type="raw" />
     </Property>
     <Property Id="OPENSPEEDTEST_HTTPS_PORT" Value="443" Secure="yes">
@@ -284,8 +361,8 @@
 
       <!-- Traefik feature - HTTPS reverse proxy with Let's Encrypt (opt-in) -->
       <Feature Id="TraefikFeature"
-               Title="HTTPS (Traefik)"
-               Description="Traefik reverse proxy with automatic Let's Encrypt certificates via Cloudflare DNS. Requires a domain with Cloudflare DNS management."
+               Title="HTTPS Reverse Proxy (Traefik + Let's Encrypt)"
+               Description="Adds Traefik as a reverse proxy with automatic SSL certificates from Let's Encrypt via Cloudflare DNS-01 challenge. Provides HTTPS access and HTTP/1.1 enforcement for accurate browser speed tests. Requires a domain managed by Cloudflare DNS."
                Level="2"
                AllowAbsent="yes">
         <ComponentGroupRef Id="TraefikComponents" />

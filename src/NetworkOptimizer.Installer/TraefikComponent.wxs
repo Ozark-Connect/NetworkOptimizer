@@ -30,6 +30,18 @@
               Source="$(var.TraefikDir)traefik.exe"
               KeyPath="yes" />
 
+        <!-- Stop/start the main service when TraefikFeature is added or removed via maintenance Change.
+             Without this, the ServiceControl in MainFeature doesn't fire during sub-feature changes,
+             so TraefikHostedService never starts/stops Traefik.
+             Start="install" only - Start="both" would try to start a deleted service during MajorUpgrade
+             (RemoveExistingProducts deletes the service, then StartServices fires for this component). -->
+        <ServiceControl
+            Id="TraefikServiceRestart"
+            Name="NetworkOptimizer"
+            Stop="both"
+            Start="install"
+            Wait="yes" />
+
         <!-- Firewall exception for HTTP (port 80) -->
         <fw:FirewallException
             Id="TraefikHttpFirewall"
@@ -70,11 +82,29 @@
         <CreateFolder />
       </Component>
 
-      <!-- Logs folder - clean up on uninstall -->
+      <!-- Logs folder - preserved on uninstall (access.log may be locked by Traefik process) -->
       <Component Id="TraefikLogsFolderComponent" Directory="TraefikLogsFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE4" Bitness="always64">
         <CreateFolder />
-        <RemoveFile Id="RemoveTraefikLogFiles" On="uninstall" Directory="TraefikLogsFolder" Name="*.*" />
-        <RemoveFolder Id="RemoveTraefikLogsFolder" On="uninstall" />
+      </Component>
+
+      <!-- Traefik registry settings - in TraefikFeature so they are written/removed with the feature -->
+      <!-- This ensures maintenance Change properly writes values when adding Traefik.
+           Includes downstream settings (REVERSE_PROXIED_HOST_NAME, OPENSPEEDTEST_HOST/HTTPS) that are
+           pre-filled from Traefik hostnames - MainFeature's RegistrySettings also has these but isn't
+           re-processed during Change. When Traefik is removed, these are cleaned up. -->
+      <Component Id="TraefikRegistrySettings" Directory="TraefikFolder" Guid="D4E5F6A7-B8C9-0D1E-2F3A-456789ABCDE6" Bitness="always64">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer">
+          <RegistryValue Name="TRAEFIK_ACME_EMAIL" Type="string" Value="[TRAEFIK_ACME_EMAIL]" KeyPath="yes" />
+          <RegistryValue Name="TRAEFIK_CF_DNS_API_TOKEN" Type="string" Value="[TRAEFIK_CF_DNS_API_TOKEN]" />
+          <RegistryValue Name="TRAEFIK_OPTIMIZER_HOSTNAME" Type="string" Value="[TRAEFIK_OPTIMIZER_HOSTNAME]" />
+          <RegistryValue Name="TRAEFIK_SPEEDTEST_HOSTNAME" Type="string" Value="[TRAEFIK_SPEEDTEST_HOSTNAME]" />
+          <RegistryValue Name="TRAEFIK_LISTEN_IP" Type="string" Value="[TRAEFIK_LISTEN_IP]" />
+          <RegistryValue Name="TRAEFIK_LOG_LEVEL" Type="string" Value="[TRAEFIK_LOG_LEVEL]" />
+          <!-- Downstream settings pre-filled from Traefik hostnames -->
+          <RegistryValue Name="REVERSE_PROXIED_HOST_NAME" Type="string" Value="[REVERSE_PROXIED_HOST_NAME]" />
+          <RegistryValue Name="OPENSPEEDTEST_HOST" Type="string" Value="[OPENSPEEDTEST_HOST]" />
+          <RegistryValue Name="OPENSPEEDTEST_HTTPS" Type="string" Value="[OPENSPEEDTEST_HTTPS]" />
+        </RegistryKey>
       </Component>
 
       <!-- Clean up runtime-generated traefik.yml and empty folders on uninstall -->
@@ -85,6 +115,26 @@
       </Component>
 
     </ComponentGroup>
+
+    <!-- Restart NetworkOptimizer service after maintenance Change when Traefik feature is removed.
+         TraefikServiceRestart has Start="install" (only fires when component is installed, not removed).
+         This CA ensures the service restarts even when the Traefik component is being removed.
+         Return="ignore" - sc.exe returns non-zero if service is already running, which is fine. -->
+    <CustomAction Id="CA_RestartServiceAfterChange"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="sc.exe start NetworkOptimizer"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- Only during maintenance Change/Repair, not fresh install/upgrade/full-uninstall.
+           During MajorUpgrade: WIX_UPGRADE_DETECTED is set, so this doesn't fire (main ServiceControl handles it).
+           During full uninstall: REMOVE="ALL", so this doesn't fire.
+           During fresh install: Installed is not set, so this doesn't fire. -->
+      <Custom Action="CA_RestartServiceAfterChange" After="StartServices"
+              Condition="Installed AND NOT (REMOVE = &quot;ALL&quot;) AND NOT WIX_UPGRADE_DETECTED" />
+    </InstallExecuteSequence>
 
   </Fragment>
 

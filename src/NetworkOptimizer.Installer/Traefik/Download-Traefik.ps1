@@ -1,9 +1,9 @@
 # Download Traefik for Windows
-# Run this during build to fetch the Traefik binary
+# Run this during build to fetch the Traefik binary and config templates
 
 param(
     [string]$OutputDir = "$PSScriptRoot",
-    [string]$Version = "3.3.3"
+    [string]$Version = "3.6.9"
 )
 
 $ErrorActionPreference = "Stop"
