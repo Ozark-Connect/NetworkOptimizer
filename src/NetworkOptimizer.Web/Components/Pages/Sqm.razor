@@ -296,7 +296,7 @@
                                 <div class="detail-header">Last Ping Adjustment</div>
                                 <div class="detail-row">
                                     <span class="detail-label">Latency</span>
-                                    <span class="detail-value @(sqmMonitorData.Wan1.LastPing.LatencyMs > 50 ? "text-warning" : "")">@sqmMonitorData.Wan1.LastPing.LatencyMs.ToString("F1") ms</span>
+                                    <span class="detail-value @GetLatencyClass(sqmMonitorData.Wan1.LastPing.LatencyMs, wan1Config.BaselineLatency)">@sqmMonitorData.Wan1.LastPing.LatencyMs.ToString("F1") ms</span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Rate</span>
@@ -381,7 +381,7 @@
                                 <div class="detail-header">Last Ping Adjustment</div>
                                 <div class="detail-row">
                                     <span class="detail-label">Latency</span>
-                                    <span class="detail-value @(sqmMonitorData.Wan2.LastPing.LatencyMs > 50 ? "text-warning" : "")">@sqmMonitorData.Wan2.LastPing.LatencyMs.ToString("F1") ms</span>
+                                    <span class="detail-value @GetLatencyClass(sqmMonitorData.Wan2.LastPing.LatencyMs, wan2Config.BaselineLatency)">@sqmMonitorData.Wan2.LastPing.LatencyMs.ToString("F1") ms</span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Rate</span>
@@ -533,7 +533,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Nominal Download Speed (Mbps)</label>
-                    <input type="number" class="form-control" @bind="wan1Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan1Config)" min="10" max="10000" />
+                    <input type="number" class="form-control" @bind="wan1Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan1Config, resetLatency: false)" min="10" max="10000" />
                     <small class="form-hint">Advertised/paid-for download speed</small>
                 </div>
                 <div class="form-group">
@@ -562,8 +562,8 @@
                         <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Baseline Latency</span>
-                        <span class="param-value">@wan1Config.BaselineLatency</span>
+                        <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan1Config.BaselineLatency" min="1" max="500" step="1" />
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
@@ -682,7 +682,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Nominal Download Speed (Mbps)</label>
-                    <input type="number" class="form-control" @bind="wan2Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan2Config)" min="10" max="10000" />
+                    <input type="number" class="form-control" @bind="wan2Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan2Config, resetLatency: false)" min="10" max="10000" />
                 </div>
                 <div class="form-group">
                     <label class="form-label">Nominal Upload Speed (Mbps)</label>
@@ -709,8 +709,8 @@
                         <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Baseline Latency</span>
-                        <span class="param-value">@wan2Config.BaselineLatency</span>
+                        <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan2Config.BaselineLatency" min="1" max="500" step="1" />
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
@@ -1002,6 +1002,25 @@
         font-family: var(--font-mono);
         font-size: 1.1rem;
         color: var(--text-primary);
+    }
+
+    .param-input {
+        font-weight: 600;
+        font-family: var(--font-mono);
+        font-size: 1.1rem;
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+        border: 1px solid transparent;
+        border-radius: 4px;
+        text-align: center;
+        width: 5rem;
+        padding: 2px 4px;
+        margin: 0 auto;
+    }
+
+    .param-input:hover, .param-input:focus {
+        border-color: var(--primary-color);
+        outline: none;
     }
 
     .param-unit {
@@ -1795,7 +1814,17 @@
                     config.MorningMinute = saved.SpeedtestMorningMinute;
                     config.EveningHour = saved.SpeedtestEveningHour;
                     config.EveningMinute = saved.SpeedtestEveningMinute;
+
+                    // Look up physical link speed from detected WAN interfaces
+                    var matchingWan = wanInterfaces.FirstOrDefault(w =>
+                        w.Interface.Equals(saved.Interface, StringComparison.OrdinalIgnoreCase));
+                    config.WanLinkSpeedMbps = matchingWan?.LinkSpeedMbps;
+
                     UpdateCalculatedSpeeds(config);
+
+                    // Restore user's baseline latency override (if saved)
+                    if (saved.BaselineLatencyMs.HasValue)
+                        config.BaselineLatency = saved.BaselineLatencyMs.Value;
 
                     // Track this interface as loaded
                     if (!string.IsNullOrEmpty(saved.Interface))
@@ -1837,6 +1866,7 @@
                     NominalUploadMbps = wan1Config.NominalUpload,
                     PingHost = wan1Config.PingHost,
                     SpeedtestServerId = wan1Config.SpeedtestServerId,
+                    BaselineLatencyMs = wan1Config.BaselineLatency,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
                     SpeedtestEveningHour = wan1Config.EveningHour,
@@ -1860,6 +1890,7 @@
                     NominalUploadMbps = wan2Config.NominalUpload,
                     PingHost = wan2Config.PingHost,
                     SpeedtestServerId = wan2Config.SpeedtestServerId,
+                    BaselineLatencyMs = wan2Config.BaselineLatency,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
                     SpeedtestEveningHour = wan2Config.EveningHour,
@@ -1987,7 +2018,7 @@
         ApplyConnectionDefaults(config, wan.Name);
     }
 
-    private void UpdateCalculatedSpeeds(WanConfigModel config)
+    private void UpdateCalculatedSpeeds(WanConfigModel config, bool resetLatency = true)
     {
         var profile = new ConnectionProfile
         {
@@ -2000,8 +2031,43 @@
         config.MinSpeed = profile.MinDownloadMbps;
         config.AbsoluteMax = profile.AbsoluteMaxDownloadMbps;
         config.Overhead = profile.OverheadMultiplier;
-        config.BaselineLatency = profile.BaselineLatency;
         config.LatencyThreshold = profile.LatencyThreshold;
+
+        // Only reset baseline latency when connection type changes or on initial load,
+        // not when the user adjusts nominal speed (which would overwrite their override)
+        if (resetLatency)
+            config.BaselineLatency = profile.BaselineLatency;
+
+        // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
+        if (config.WanLinkSpeedMbps is > 0)
+        {
+            config.MaxSpeed = Math.Min(config.MaxSpeed, config.WanLinkSpeedMbps.Value);
+            config.MinSpeed = Math.Min(config.MinSpeed, config.WanLinkSpeedMbps.Value);
+            config.AbsoluteMax = Math.Min(config.AbsoluteMax, config.WanLinkSpeedMbps.Value);
+        }
+    }
+
+    private static string GetLatencyClass(double latencyMs, double baselineMs)
+    {
+        if (baselineMs <= 0) return "";
+        var ratio = latencyMs / baselineMs;
+        if (ratio > 3) return "text-danger";
+        if (ratio > 1.5) return "text-warning";
+        return "";
+    }
+
+    private void UpdateLinkSpeedsFromWanInterfaces()
+    {
+        foreach (var config in new[] { wan1Config, wan2Config })
+        {
+            if (string.IsNullOrEmpty(config.Interface)) continue;
+            var wan = wanInterfaces.FirstOrDefault(w =>
+                w.Interface.Equals(config.Interface, StringComparison.OrdinalIgnoreCase));
+            if (wan == null) continue;
+
+            config.WanLinkSpeedMbps = wan.LinkSpeedMbps;
+            UpdateCalculatedSpeeds(config, resetLatency: false);
+        }
     }
 
     private void ResetWanConfigs()
@@ -2044,14 +2110,30 @@
     /// </summary>
     private void ApplyConnectionDefaults(WanConfigModel config, string wanName)
     {
-        if (wanName.Equals("Starlink", StringComparison.OrdinalIgnoreCase))
+        var name = wanName ?? "";
+        if (name.Contains("Starlink", StringComparison.OrdinalIgnoreCase))
         {
             config.ConnectionType = ConnectionType.Starlink;
             config.NominalDownload = 400;
             config.NominalUpload = 40;
             config.SpeedtestServerId = "59762";
         }
-        // Add other connection-specific defaults here as needed
+        else if (name.Contains("LTE", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("5G", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("Cellular", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.CellularHome;
+        }
+        else if (name.Contains("Fiber", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("FTTH", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("FTTP", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.Fiber;
+        }
+        else if (name.Contains("DSL", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.Dsl;
+        }
 
         // Always update calculated speeds after applying defaults
         UpdateCalculatedSpeeds(config);
@@ -2064,6 +2146,7 @@
         {
             var wan = availableInterfaces[0];
             config.Interface = wan.Interface;
+            config.WanLinkSpeedMbps = wan.LinkSpeedMbps;
 
             // Apply all defaults as if user selected it
             if (!string.IsNullOrEmpty(wan.SuggestedPingIp))
@@ -2092,15 +2175,18 @@
         if (wanInfo == null)
             return;
 
-        // Set suggested ping IP
-        if (!string.IsNullOrEmpty(wanInfo.SuggestedPingIp))
-            config.PingHost = wanInfo.SuggestedPingIp;
+        // Reset all interface-dependent fields to defaults for the new WAN
+        config.WanLinkSpeedMbps = wanInfo.LinkSpeedMbps;
+        config.Name = wanInfo.Name;
+        config.ConnectionType = ConnectionType.DocsisCable;
+        config.NominalDownload = 300;
+        config.NominalUpload = 35;
+        config.SpeedtestServerId = null;
+        config.PingHost = !string.IsNullOrEmpty(wanInfo.SuggestedPingIp)
+            ? wanInfo.SuggestedPingIp
+            : "1.1.1.1";
 
-        // Set name from WAN
-        if (string.IsNullOrEmpty(config.Name) || config.Name == "WAN1" || config.Name == "WAN2")
-            config.Name = wanInfo.Name;
-
-        // Apply connection-specific defaults (Starlink, etc.)
+        // Apply connection-specific overrides (Starlink, etc.)
         ApplyConnectionDefaults(config, wanInfo.Name);
     }
 
@@ -2183,6 +2269,10 @@
                     // Only apply detected interfaces if we don't have saved configs
                     if (!hasSavedConfigs)
                         ApplyDetectedWanInterfaces();
+
+                    // Update link speeds on loaded configs (wanInterfaces may not have been
+                    // available when LoadSavedConfigsAsync ran on first render)
+                    UpdateLinkSpeedsFromWanInterfaces();
                 }
                 catch
                 {
@@ -2413,17 +2503,11 @@
                     w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
                 if (wanInfo?.SmartqDownRateMbps == null) continue;
 
-                var profile = new ConnectionProfile
-                {
-                    Type = wanConfig.config.ConnectionType,
-                    NominalDownloadMbps = wanConfig.config.NominalDownload,
-                    NominalUploadMbps = wanConfig.config.NominalUpload
-                };
-
-                if (wanInfo.SmartqDownRateMbps < profile.AbsoluteMaxDownloadMbps)
+                // Use the already-capped AbsoluteMax (accounts for WAN link speed)
+                if (wanInfo.SmartqDownRateMbps < wanConfig.config.AbsoluteMax)
                 {
                     statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
-                        $"but Adaptive SQM needs up to {profile.AbsoluteMaxDownloadMbps} Mbps. " +
+                        $"but Adaptive SQM needs up to {wanConfig.config.AbsoluteMax} Mbps. " +
                         $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
                     statusSuccess = false;
                     isDeploying = false;
@@ -2825,7 +2909,11 @@
             }
         };
 
-        config.ApplyProfileSettings();
+        config.ApplyProfileSettings(model.WanLinkSpeedMbps);
+
+        // Restore user's baseline latency override (ApplyProfileSettings recalculates it)
+        config.BaselineLatency = model.BaselineLatency;
+
         return config;
     }
 
@@ -2925,6 +3013,9 @@
         public int EveningHour { get; set; } = 18;
         public int EveningMinute { get; set; } = 30;
 
+        // Physical WAN port link speed (null if unknown, e.g., GRE tunnels)
+        public int? WanLinkSpeedMbps { get; set; }
+
         // Calculated values
         public int MaxSpeed { get; set; }
         public int MinSpeed { get; set; }
@@ -2940,7 +3031,8 @@
         // Create a snapshot of the deployable config values
         public WanConfigSnapshot ToSnapshot() => new(
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
-            PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute);
+            PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
+            BaselineLatency);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -2957,7 +3049,8 @@
                    MorningHour != snapshot.MorningHour ||
                    MorningMinute != snapshot.MorningMinute ||
                    EveningHour != snapshot.EveningHour ||
-                   EveningMinute != snapshot.EveningMinute;
+                   EveningMinute != snapshot.EveningMinute ||
+                   Math.Abs(BaselineLatency - snapshot.BaselineLatency) > 0.01;
         }
     }
 
@@ -2965,7 +3058,8 @@
     private record WanConfigSnapshot(
         bool Enabled, string Name, string Interface, ConnectionType ConnectionType,
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
-        int MorningHour, int MorningMinute, int EveningHour, int EveningMinute);
+        int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
+        double BaselineLatency);
 
     public void Dispose()
     {

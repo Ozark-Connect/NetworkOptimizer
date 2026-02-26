@@ -441,6 +441,7 @@ public class SpeedTestRepository : ISpeedTestRepository
                 existing.SpeedtestMorningMinute = config.SpeedtestMorningMinute;
                 existing.SpeedtestEveningHour = config.SpeedtestEveningHour;
                 existing.SpeedtestEveningMinute = config.SpeedtestEveningMinute;
+                existing.BaselineLatencyMs = config.BaselineLatencyMs;
                 existing.UpdatedAt = DateTime.UtcNow;
             }
             else

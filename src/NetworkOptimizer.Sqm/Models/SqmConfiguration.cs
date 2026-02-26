@@ -156,7 +156,7 @@ public class SqmConfiguration
     /// Apply connection profile settings to calculate optimal parameters
     /// based on connection type and nominal speed
     /// </summary>
-    public void ApplyProfileSettings()
+    public void ApplyProfileSettings(int? wanLinkSpeedMbps = null)
     {
         var profile = new ConnectionProfile
         {
@@ -178,6 +178,14 @@ public class SqmConfiguration
         LatencyThreshold = profile.LatencyThreshold;
         LatencyDecrease = profile.LatencyDecrease;
         LatencyIncrease = profile.LatencyIncrease;
+
+        // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
+        if (wanLinkSpeedMbps is > 0)
+        {
+            MaxDownloadSpeed = Math.Min(MaxDownloadSpeed, wanLinkSpeedMbps.Value);
+            MinDownloadSpeed = Math.Min(MinDownloadSpeed, wanLinkSpeedMbps.Value);
+            AbsoluteMaxDownloadSpeed = Math.Min(AbsoluteMaxDownloadSpeed, wanLinkSpeedMbps.Value);
+        }
 
         // Apply blending ratios
         var (withinWeight, _) = profile.GetBlendingRatios(withinThreshold: true);

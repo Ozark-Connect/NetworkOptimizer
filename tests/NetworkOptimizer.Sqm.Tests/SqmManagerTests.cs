@@ -474,7 +474,7 @@ public class SqmManagerTests
         var errors = manager.ValidateConfiguration();
 
         // Assert
-        errors.Should().Contain("MinDownloadSpeed must be less than MaxDownloadSpeed");
+        errors.Should().Contain("MinDownloadSpeed must be less than or equal to MaxDownloadSpeed");
     }
 
     [Fact]
