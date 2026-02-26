@@ -33,7 +33,7 @@ Additional environment variables can be added to `start.sh` - see [docker/.env.e
 - `HOST_NAME` - Hostname for canonical URL enforcement
 - `REVERSE_PROXIED_HOST_NAME` - Hostname when behind a reverse proxy (enables HTTPS)
 - `OPENSPEEDTEST_HTTPS` - Enable HTTPS for speed tests (required for geolocation)
-- `LOG_LEVEL` / `APP_LOG_LEVEL` - Logging verbosity
+- `Logging__LogLevel__NetworkOptimizer` / `Logging__LogLevel__Default` - Logging verbosity (see [Enable Debug Logging](#enable-debug-logging))
 
 Note: The app auto-detects its IP address, so `HOST_IP` is not required for native installations.
 
@@ -80,7 +80,65 @@ git pull
 
 The install script preserves your database, encryption keys, and `start.sh` configuration by backing them up before reinstalling.
 
+## Logs and Debugging
+
+Application logs are in `~/network-optimizer/logs/`:
+
+```bash
+# Follow live logs
+tail -f ~/network-optimizer/logs/stdout.log
+
+# View errors
+tail -f ~/network-optimizer/logs/stderr.log
+
+# Search for specific events
+grep "UniFi" ~/network-optimizer/logs/stdout.log | tail -20
+```
+
+### Enable Debug Logging
+
+For more detailed logs, edit `~/network-optimizer/start.sh` and add:
+
+```bash
+# Debug logging for Network Optimizer application code only (recommended):
+export Logging__LogLevel__NetworkOptimizer=Debug
+
+# Or debug everything (verbose - includes framework/EF Core noise):
+export Logging__LogLevel__Default=Debug
+```
+
+Then restart the service:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
+launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist
+```
+
+Remember to set it back to `Information` when done - debug logging is verbose.
+
+### Log Rotation
+
+Logs are not rotated automatically. To clear them:
+
+```bash
+# Truncate without restarting
+: > ~/network-optimizer/logs/stdout.log
+: > ~/network-optimizer/logs/stderr.log
+```
+
 ## Troubleshooting
+
+### Previous sudo Installation
+
+If you previously ran the install script with `sudo`, files and processes end up owned by root, which breaks future installs and upgrades. The install script detects this automatically and offers to fix it. Just run the script normally (without sudo):
+
+```bash
+./scripts/install-macos-native.sh
+```
+
+It will prompt for your password once to clean up root-owned files and kill root-owned processes, then continue the installation as your regular user.
+
+**Never run the install script with sudo.** Everything installs to your home directory and does not need root access.
 
 ### Reset Admin Password
 
