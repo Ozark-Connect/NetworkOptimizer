@@ -41,11 +41,14 @@
                             data-tooltip="Show/hide access point markers">
                         APs (@PlacedApCount)
                     </button>
-                    <button class="btn btn-sm @(apEditMode ? "btn-warning" : "btn-secondary")"
-                            @onclick="ToggleApEditMode"
-                            data-tooltip="@(apEditMode ? "Done editing AP locations" : "Edit AP locations")">
-                        @(apEditMode ? "Done" : PlacedApCount > 0 ? "Edit APs" : "Place APs")
-                    </button>
+                    @if (AllowApEditing)
+                    {
+                        <button class="btn btn-sm @(apEditMode ? "btn-warning" : "btn-secondary")"
+                                @onclick="ToggleApEditMode"
+                                data-tooltip="@(apEditMode ? "Done editing AP locations" : "Edit AP locations")">
+                            @(apEditMode ? "Done" : PlacedApCount > 0 ? "Edit APs" : "Place APs")
+                        </button>
+                    }
                 }
                 <button class="btn btn-sm btn-secondary map-action-btn"
                         @onclick="FitToMarkers"
@@ -158,6 +161,12 @@
     [Parameter]
     public string? MapHeight { get; set; }
 
+    [Parameter]
+    public bool AllowApEditing { get; set; } = true;
+
+    [Parameter]
+    public int? TimeFilterHours { get; set; }
+
     // Search filter state (internal to map only)
     private string searchFilter = "";
 
@@ -184,6 +193,7 @@
     private int? lastNewestResultId = null;
     private int lastFilteredCount = 0;
     private int lastApMarkerCount = 0;
+    private int? _lastExternalTimeFilter;
     private List<NetworkInfo>? _networks;
 
     // Time slider: log scale breakpoints (slider value -> hours, 0 = all time)
@@ -479,6 +489,23 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // Sync slider with external time filter when provided and changed
+        if (TimeFilterHours.HasValue && TimeFilterHours != _lastExternalTimeFilter)
+        {
+            _lastExternalTimeFilter = TimeFilterHours;
+            var targetIndex = FindClosestBreakpointIndex(TimeFilterHours.Value);
+            if (targetIndex != sliderValue)
+            {
+                sliderValue = targetIndex;
+                if (mapInitialized)
+                {
+                    await UpdateMarkers(fitBounds: !userHasZoomed);
+                    StateHasChanged();
+                    return; // Markers already updated, skip the count check below
+                }
+            }
+        }
+
         var currentCount = Results.Count();
         var newestId = Results.FirstOrDefault()?.Id;
         var filteredCount = FilteredResults.Count();
@@ -504,6 +531,20 @@
                 await UpdateApMarkers();
             }
         }
+    }
+
+    private static int FindClosestBreakpointIndex(int hours)
+    {
+        if (hours == 0) return TimeBreakpoints.Length - 1; // All time (last index)
+        int bestIndex = 0;
+        int bestDiff = int.MaxValue;
+        for (int i = 0; i < TimeBreakpoints.Length; i++)
+        {
+            if (TimeBreakpoints[i].hours == 0) continue; // Skip "All time" for distance calc
+            var diff = Math.Abs(TimeBreakpoints[i].hours - hours);
+            if (diff < bestDiff) { bestDiff = diff; bestIndex = i; }
+        }
+        return bestIndex;
     }
 
     private async Task InitializeMap()
