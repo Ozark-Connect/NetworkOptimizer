@@ -1821,6 +1821,10 @@
 
                     UpdateCalculatedSpeeds(config);
 
+                    // Restore user's baseline latency override (if saved)
+                    if (saved.BaselineLatencyMs.HasValue)
+                        config.BaselineLatency = saved.BaselineLatencyMs.Value;
+
                     // Track this interface as loaded
                     if (!string.IsNullOrEmpty(saved.Interface))
                         loadedInterfaces.Add(saved.Interface);
@@ -1861,6 +1865,7 @@
                     NominalUploadMbps = wan1Config.NominalUpload,
                     PingHost = wan1Config.PingHost,
                     SpeedtestServerId = wan1Config.SpeedtestServerId,
+                    BaselineLatencyMs = wan1Config.BaselineLatency,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
                     SpeedtestEveningHour = wan1Config.EveningHour,
@@ -1884,6 +1889,7 @@
                     NominalUploadMbps = wan2Config.NominalUpload,
                     PingHost = wan2Config.PingHost,
                     SpeedtestServerId = wan2Config.SpeedtestServerId,
+                    BaselineLatencyMs = wan2Config.BaselineLatency,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
                     SpeedtestEveningHour = wan2Config.EveningHour,
