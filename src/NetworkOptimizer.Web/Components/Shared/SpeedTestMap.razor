@@ -182,6 +182,7 @@
     private bool HighAccuracyOnly { get; set; } = false;
     private int lastResultCount = 0;
     private int? lastNewestResultId = null;
+    private int lastFilteredCount = 0;
     private int lastApMarkerCount = 0;
     private List<NetworkInfo>? _networks;
 
@@ -480,12 +481,15 @@
     {
         var currentCount = Results.Count();
         var newestId = Results.FirstOrDefault()?.Id;
+        var filteredCount = FilteredResults.Count();
 
-        // Update markers if data changed (count or newest result ID)
-        if (mapInitialized && (currentCount != lastResultCount || newestId != lastNewestResultId))
+        // Update markers if data changed (count, newest result ID, or filtered count
+        // which changes when background enrichment adds PathAnalysis to new results)
+        if (mapInitialized && (currentCount != lastResultCount || newestId != lastNewestResultId || filteredCount != lastFilteredCount))
         {
             lastResultCount = currentCount;
             lastNewestResultId = newestId;
+            lastFilteredCount = filteredCount;
             await UpdateMarkers(fitBounds: false);
             StateHasChanged();
         }
@@ -817,6 +821,7 @@
             mapInitialized = true;
             lastResultCount = Results.Count();
             lastNewestResultId = Results.FirstOrDefault()?.Id;
+            lastFilteredCount = FilteredResults.Count();
             await UpdateMarkers(fitBounds: true);
             await UpdateApMarkers();
 
