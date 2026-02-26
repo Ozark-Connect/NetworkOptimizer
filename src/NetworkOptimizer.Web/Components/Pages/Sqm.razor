@@ -533,7 +533,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Nominal Download Speed (Mbps)</label>
-                    <input type="number" class="form-control" @bind="wan1Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan1Config)" min="10" max="10000" />
+                    <input type="number" class="form-control" @bind="wan1Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan1Config, resetLatency: false)" min="10" max="10000" />
                     <small class="form-hint">Advertised/paid-for download speed</small>
                 </div>
                 <div class="form-group">
@@ -562,8 +562,8 @@
                         <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Baseline Latency</span>
-                        <span class="param-value">@wan1Config.BaselineLatency</span>
+                        <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan1Config.BaselineLatency" min="1" max="500" step="0.1" />
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
@@ -682,7 +682,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Nominal Download Speed (Mbps)</label>
-                    <input type="number" class="form-control" @bind="wan2Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan2Config)" min="10" max="10000" />
+                    <input type="number" class="form-control" @bind="wan2Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan2Config, resetLatency: false)" min="10" max="10000" />
                 </div>
                 <div class="form-group">
                     <label class="form-label">Nominal Upload Speed (Mbps)</label>
@@ -709,8 +709,8 @@
                         <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Baseline Latency</span>
-                        <span class="param-value">@wan2Config.BaselineLatency</span>
+                        <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan2Config.BaselineLatency" min="1" max="500" step="0.1" />
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
@@ -1002,6 +1002,24 @@
         font-family: var(--font-mono);
         font-size: 1.1rem;
         color: var(--text-primary);
+    }
+
+    .param-input {
+        font-weight: 600;
+        font-family: var(--font-mono);
+        font-size: 1.1rem;
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+        border: 1px solid transparent;
+        border-radius: 4px;
+        text-align: center;
+        width: 5rem;
+        padding: 2px 4px;
+    }
+
+    .param-input:hover, .param-input:focus {
+        border-color: var(--primary-color);
+        outline: none;
     }
 
     .param-unit {
@@ -1993,7 +2011,7 @@
         ApplyConnectionDefaults(config, wan.Name);
     }
 
-    private void UpdateCalculatedSpeeds(WanConfigModel config)
+    private void UpdateCalculatedSpeeds(WanConfigModel config, bool resetLatency = true)
     {
         var profile = new ConnectionProfile
         {
@@ -2006,8 +2024,12 @@
         config.MinSpeed = profile.MinDownloadMbps;
         config.AbsoluteMax = profile.AbsoluteMaxDownloadMbps;
         config.Overhead = profile.OverheadMultiplier;
-        config.BaselineLatency = profile.BaselineLatency;
         config.LatencyThreshold = profile.LatencyThreshold;
+
+        // Only reset baseline latency when connection type changes or on initial load,
+        // not when the user adjusts nominal speed (which would overwrite their override)
+        if (resetLatency)
+            config.BaselineLatency = profile.BaselineLatency;
 
         // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
         if (config.WanLinkSpeedMbps is > 0)
@@ -2028,7 +2050,7 @@
             if (wan == null) continue;
 
             config.WanLinkSpeedMbps = wan.LinkSpeedMbps;
-            UpdateCalculatedSpeeds(config);
+            UpdateCalculatedSpeeds(config, resetLatency: false);
         }
     }
 
