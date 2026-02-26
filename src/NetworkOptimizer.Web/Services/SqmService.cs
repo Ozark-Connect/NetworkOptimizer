@@ -338,6 +338,23 @@ public class SqmService : ISqmService
                 _logger.LogDebug("Examining gateway-capable device: type={DeviceType}, model={Model}, name={Name}",
                     deviceType, deviceModel2, deviceName ?? "(unnamed)");
 
+                // Build port_idx -> speed lookup from port_table (for WAN link speed capping)
+                var portIdxToSpeed = new Dictionary<int, int>();
+                if (device.TryGetProperty("port_table", out var portTable) &&
+                    portTable.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var port in portTable.EnumerateArray())
+                    {
+                        var isUp = port.TryGetProperty("up", out var upProp) && upProp.GetBoolean();
+                        var portIdx = port.TryGetProperty("port_idx", out var idxProp) && idxProp.TryGetInt32(out var idx) ? idx : -1;
+                        var speed = port.TryGetProperty("speed", out var speedProp) && speedProp.TryGetInt32(out var spd) ? spd : 0;
+                        if (isUp && portIdx >= 0 && speed > 0)
+                        {
+                            portIdxToSpeed[portIdx] = speed;
+                        }
+                    }
+                }
+
                 // Build ifname -> networkgroup lookup from ethernet_overrides
                 var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (device.TryGetProperty("ethernet_overrides", out var ethOverrides) &&
@@ -469,6 +486,22 @@ public class SqmService : ISqmService
                             wanType = wt;
                         }
 
+                        // Get physical port link speed for capping SQM rates.
+                        // Primary: read "speed" directly from the WAN object (present on DHCP/static WANs).
+                        // Fallback: look up via port_idx in port_table (for PPPoE where speed may not be inline).
+                        int? linkSpeedMbps = null;
+                        if (wanObj.TryGetProperty("speed", out var wanSpeedProp) &&
+                            wanSpeedProp.TryGetInt32(out var wanSpeed) && wanSpeed > 0)
+                        {
+                            linkSpeedMbps = wanSpeed;
+                        }
+                        else if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
+                            portIdxProp.TryGetInt32(out var wanPortIdx) &&
+                            portIdxToSpeed.TryGetValue(wanPortIdx, out var portSpeed))
+                        {
+                            linkSpeedMbps = portSpeed;
+                        }
+
                         result.Add(new WanInterfaceInfo
                         {
                             Name = friendlyName,
@@ -480,7 +513,8 @@ public class SqmService : ISqmService
                             LoadBalanceWeight = null,
                             SuggestedPingIp = suggestedPingIp,
                             SmartqEnabled = smartqEnabled,
-                            SmartqDownRateMbps = smartqDownRateMbps
+                            SmartqDownRateMbps = smartqDownRateMbps,
+                            LinkSpeedMbps = linkSpeedMbps
                         });
 
                         _logger.LogDebug("Accepted {WanKey}: interface={Interface}, name={Name}, networkGroup={NG}, smartQ={SQ}, wanType={WT}",
@@ -753,4 +787,7 @@ public class WanInterfaceInfo
 
     /// <summary>Smart Queue download rate in Mbps (from UniFi config, converted from kbps)</summary>
     public int? SmartqDownRateMbps { get; set; }
+
+    /// <summary>Physical WAN port link speed in Mbps (e.g., 1000 for 1GbE, 2500 for 2.5GbE). Null if unknown (GRE tunnels, etc.)</summary>
+    public int? LinkSpeedMbps { get; set; }
 }

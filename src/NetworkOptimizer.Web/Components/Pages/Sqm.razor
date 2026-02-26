@@ -1795,6 +1795,12 @@
                     config.MorningMinute = saved.SpeedtestMorningMinute;
                     config.EveningHour = saved.SpeedtestEveningHour;
                     config.EveningMinute = saved.SpeedtestEveningMinute;
+
+                    // Look up physical link speed from detected WAN interfaces
+                    var matchingWan = wanInterfaces.FirstOrDefault(w =>
+                        w.Interface.Equals(saved.Interface, StringComparison.OrdinalIgnoreCase));
+                    config.WanLinkSpeedMbps = matchingWan?.LinkSpeedMbps;
+
                     UpdateCalculatedSpeeds(config);
 
                     // Track this interface as loaded
@@ -2002,6 +2008,13 @@
         config.Overhead = profile.OverheadMultiplier;
         config.BaselineLatency = profile.BaselineLatency;
         config.LatencyThreshold = profile.LatencyThreshold;
+
+        // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
+        if (config.WanLinkSpeedMbps is > 0)
+        {
+            config.MaxSpeed = Math.Min(config.MaxSpeed, config.WanLinkSpeedMbps.Value);
+            config.AbsoluteMax = Math.Min(config.AbsoluteMax, config.WanLinkSpeedMbps.Value);
+        }
     }
 
     private void ResetWanConfigs()
@@ -2091,6 +2104,9 @@
 
         if (wanInfo == null)
             return;
+
+        // Set physical link speed for SQM rate capping
+        config.WanLinkSpeedMbps = wanInfo.LinkSpeedMbps;
 
         // Set suggested ping IP
         if (!string.IsNullOrEmpty(wanInfo.SuggestedPingIp))
@@ -2825,7 +2841,7 @@
             }
         };
 
-        config.ApplyProfileSettings();
+        config.ApplyProfileSettings(model.WanLinkSpeedMbps);
         return config;
     }
 
@@ -2924,6 +2940,9 @@
         public int MorningMinute { get; set; } = 0;
         public int EveningHour { get; set; } = 18;
         public int EveningMinute { get; set; } = 30;
+
+        // Physical WAN port link speed (null if unknown, e.g., GRE tunnels)
+        public int? WanLinkSpeedMbps { get; set; }
 
         // Calculated values
         public int MaxSpeed { get; set; }
