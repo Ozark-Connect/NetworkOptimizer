@@ -107,8 +107,6 @@ export Logging__LogLevel__NetworkOptimizer=Debug
 export Logging__LogLevel__Default=Debug
 ```
 
-Note: Docker installations use `APP_LOG_LEVEL` and `LOG_LEVEL` in `.env`, which docker-compose maps to the variables above. On native macOS, use the `Logging__LogLevel__` form directly.
-
 Then restart the service:
 
 ```bash
