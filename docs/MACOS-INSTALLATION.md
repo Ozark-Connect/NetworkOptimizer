@@ -33,7 +33,7 @@ Additional environment variables can be added to `start.sh` - see [docker/.env.e
 - `HOST_NAME` - Hostname for canonical URL enforcement
 - `REVERSE_PROXIED_HOST_NAME` - Hostname when behind a reverse proxy (enables HTTPS)
 - `OPENSPEEDTEST_HTTPS` - Enable HTTPS for speed tests (required for geolocation)
-- `LOG_LEVEL` / `APP_LOG_LEVEL` - Logging verbosity
+- `Logging__LogLevel__NetworkOptimizer` / `Logging__LogLevel__Default` - Logging verbosity (see [Enable Debug Logging](#enable-debug-logging))
 
 Note: The app auto-detects its IP address, so `HOST_IP` is not required for native installations.
 
@@ -100,10 +100,14 @@ grep "UniFi" ~/network-optimizer/logs/stdout.log | tail -20
 For more detailed logs, edit `~/network-optimizer/start.sh` and add:
 
 ```bash
-export LOG_LEVEL=Debug
-# Or for app-only debug (keeps Microsoft/system logs at Information):
-export APP_LOG_LEVEL=Debug
+# Debug logging for Network Optimizer application code only (recommended):
+export Logging__LogLevel__NetworkOptimizer=Debug
+
+# Or debug everything (verbose - includes framework/EF Core noise):
+export Logging__LogLevel__Default=Debug
 ```
+
+Note: Docker installations use `APP_LOG_LEVEL` and `LOG_LEVEL` in `.env`, which docker-compose maps to the variables above. On native macOS, use the `Logging__LogLevel__` form directly.
 
 Then restart the service:
 
