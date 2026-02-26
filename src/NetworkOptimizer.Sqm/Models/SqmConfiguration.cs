@@ -183,6 +183,7 @@ public class SqmConfiguration
         if (wanLinkSpeedMbps is > 0)
         {
             MaxDownloadSpeed = Math.Min(MaxDownloadSpeed, wanLinkSpeedMbps.Value);
+            MinDownloadSpeed = Math.Min(MinDownloadSpeed, wanLinkSpeedMbps.Value);
             AbsoluteMaxDownloadSpeed = Math.Min(AbsoluteMaxDownloadSpeed, wanLinkSpeedMbps.Value);
         }
 

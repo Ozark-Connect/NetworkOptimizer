@@ -2013,6 +2013,7 @@
         if (config.WanLinkSpeedMbps is > 0)
         {
             config.MaxSpeed = Math.Min(config.MaxSpeed, config.WanLinkSpeedMbps.Value);
+            config.MinSpeed = Math.Min(config.MinSpeed, config.WanLinkSpeedMbps.Value);
             config.AbsoluteMax = Math.Min(config.AbsoluteMax, config.WanLinkSpeedMbps.Value);
         }
     }
@@ -2429,17 +2430,11 @@
                     w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
                 if (wanInfo?.SmartqDownRateMbps == null) continue;
 
-                var profile = new ConnectionProfile
-                {
-                    Type = wanConfig.config.ConnectionType,
-                    NominalDownloadMbps = wanConfig.config.NominalDownload,
-                    NominalUploadMbps = wanConfig.config.NominalUpload
-                };
-
-                if (wanInfo.SmartqDownRateMbps < profile.AbsoluteMaxDownloadMbps)
+                // Use the already-capped AbsoluteMax (accounts for WAN link speed)
+                if (wanInfo.SmartqDownRateMbps < wanConfig.config.AbsoluteMax)
                 {
                     statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
-                        $"but Adaptive SQM needs up to {profile.AbsoluteMaxDownloadMbps} Mbps. " +
+                        $"but Adaptive SQM needs up to {wanConfig.config.AbsoluteMax} Mbps. " +
                         $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
                     statusSuccess = false;
                     isDeploying = false;
