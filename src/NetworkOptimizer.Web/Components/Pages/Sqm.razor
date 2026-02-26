@@ -296,7 +296,7 @@
                                 <div class="detail-header">Last Ping Adjustment</div>
                                 <div class="detail-row">
                                     <span class="detail-label">Latency</span>
-                                    <span class="detail-value @(sqmMonitorData.Wan1.LastPing.LatencyMs > 50 ? "text-warning" : "")">@sqmMonitorData.Wan1.LastPing.LatencyMs.ToString("F1") ms</span>
+                                    <span class="detail-value @GetLatencyClass(sqmMonitorData.Wan1.LastPing.LatencyMs, wan1Config.BaselineLatency)">@sqmMonitorData.Wan1.LastPing.LatencyMs.ToString("F1") ms</span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Rate</span>
@@ -381,7 +381,7 @@
                                 <div class="detail-header">Last Ping Adjustment</div>
                                 <div class="detail-row">
                                     <span class="detail-label">Latency</span>
-                                    <span class="detail-value @(sqmMonitorData.Wan2.LastPing.LatencyMs > 50 ? "text-warning" : "")">@sqmMonitorData.Wan2.LastPing.LatencyMs.ToString("F1") ms</span>
+                                    <span class="detail-value @GetLatencyClass(sqmMonitorData.Wan2.LastPing.LatencyMs, wan2Config.BaselineLatency)">@sqmMonitorData.Wan2.LastPing.LatencyMs.ToString("F1") ms</span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Rate</span>
@@ -2045,6 +2045,15 @@
             config.MinSpeed = Math.Min(config.MinSpeed, config.WanLinkSpeedMbps.Value);
             config.AbsoluteMax = Math.Min(config.AbsoluteMax, config.WanLinkSpeedMbps.Value);
         }
+    }
+
+    private static string GetLatencyClass(double latencyMs, double baselineMs)
+    {
+        if (baselineMs <= 0) return "";
+        var ratio = latencyMs / baselineMs;
+        if (ratio > 3) return "text-danger";
+        if (ratio > 1.5) return "text-warning";
+        return "";
     }
 
     private void UpdateLinkSpeedsFromWanInterfaces()
