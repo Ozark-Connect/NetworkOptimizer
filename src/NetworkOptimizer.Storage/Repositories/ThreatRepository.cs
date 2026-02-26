@@ -315,18 +315,20 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
+            // Group by (port, protocol) so non-port protocols (ICMP, GRE, etc.)
+            // that all share port 0 get separate rows instead of being lumped together
             return await BaseQuery(from, to)
-                .GroupBy(e => e.DestPort)
+                .GroupBy(e => new { e.DestPort, e.Protocol })
                 .Select(g => new TargetPortSummary
                 {
-                    Port = g.Key,
+                    Port = g.Key.DestPort,
                     EventCount = g.Count(),
                     UniqueSourceIps = g.Select(e => e.SourceIp).Distinct().Count(),
                     TopSignature = g.GroupBy(e => e.SignatureName)
                         .OrderByDescending(sg => sg.Count())
                         .Select(sg => sg.Key)
                         .FirstOrDefault() ?? "",
-                    Protocol = g.Select(e => e.Protocol).FirstOrDefault()
+                    Protocol = g.Key.Protocol
                 })
                 .OrderByDescending(s => s.EventCount)
                 .Take(count)

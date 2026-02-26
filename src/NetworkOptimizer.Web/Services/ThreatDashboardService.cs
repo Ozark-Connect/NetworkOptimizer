@@ -518,16 +518,17 @@ public class ThreatDashboardService
                 .OrderByDescending(p => p.EventCount)
                 .ToList();
 
-            // Port range breakdown (all events involving this IP)
+            // Port range breakdown - group by (port, protocol) so non-port protocols
+            // (ICMP, GRE, etc.) that share port 0 get separate rows
             var portGroups = events
-                .GroupBy(e => e.DestPort)
+                .GroupBy(e => (e.DestPort, Proto: e.DestPort == 0 ? e.Protocol : null))
                 .OrderByDescending(g => g.Count())
                 .Select(g => new PortRangeGroup
                 {
-                    Port = g.Key,
-                    Service = g.Key == 0
-                        ? g.Select(e => e.Protocol).Where(p => !string.IsNullOrEmpty(p)).Distinct().FirstOrDefault() ?? ""
-                        : GetServiceName(g.Key),
+                    Port = g.Key.DestPort,
+                    Service = g.Key.DestPort == 0
+                        ? g.Key.Proto ?? ""
+                        : GetServiceName(g.Key.DestPort),
                     EventCount = g.Count(),
                     BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
                     DetectedCount = g.Count(e => e.Action != ThreatAction.Blocked)
@@ -640,13 +641,13 @@ public class ThreatDashboardService
 
             // Top targeted ports
             var topPorts = events
-                .GroupBy(e => e.DestPort)
+                .GroupBy(e => (e.DestPort, Proto: e.DestPort == 0 ? e.Protocol : null))
                 .Select(g => new PortCount
                 {
-                    Port = g.Key,
-                    ServiceName = g.Key == 0
-                        ? g.Select(e => e.Protocol).Where(p => !string.IsNullOrEmpty(p)).Distinct().FirstOrDefault() ?? ""
-                        : GetServiceName(g.Key),
+                    Port = g.Key.DestPort,
+                    ServiceName = g.Key.DestPort == 0
+                        ? g.Key.Proto ?? ""
+                        : GetServiceName(g.Key.DestPort),
                     EventCount = g.Count(),
                     BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked)
                 })
