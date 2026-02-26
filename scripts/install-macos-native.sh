@@ -64,58 +64,31 @@ fi
 # A normal user can't overwrite those files or kill those processes, so the next
 # install fails. This function detects the problem and fixes it with one sudo prompt.
 check_root_remnants() {
-    local needs_cleanup=false
-    local root_pids=""
     local root_files=false
 
-    # Check for root-owned processes on our ports (8042=app, 3005=nginx, 5201=iperf3)
-    for port in 8042 3005 5201; do
-        local pids
-        pids=$(lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null) || true
-        for pid in $pids; do
-            local owner
-            owner=$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ') || true
-            if [ "$owner" = "root" ]; then
-                needs_cleanup=true
-                root_pids="$root_pids $pid"
-            fi
-        done
-    done
-
-    # Check for root-owned install directories and files
+    # Check for root-owned install directories and files (visible without sudo)
     for dir in "$INSTALL_DIR" "$DATA_DIR"; do
         if [ -d "$dir" ] && [ "$(stat -f '%Su' "$dir" 2>/dev/null)" = "root" ]; then
-            needs_cleanup=true
             root_files=true
         fi
     done
     if [ -f "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" ] && \
        [ "$(stat -f '%Su' "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" 2>/dev/null)" = "root" ]; then
-        needs_cleanup=true
         root_files=true
     fi
 
     # Check for root-owned .NET directories (blocks dotnet publish)
     for dotdir in "$HOME/.nuget" "$HOME/.dotnet"; do
         if [ -d "$dotdir" ] && [ "$(stat -f '%Su' "$dotdir" 2>/dev/null)" = "root" ]; then
-            needs_cleanup=true
             root_files=true
         fi
     done
 
-    if [ "$needs_cleanup" = false ]; then
+    if [ "$root_files" = false ]; then
         return 0
     fi
 
-    echo "Detected remnants from a previous sudo installation:"
-    echo ""
-    if [ -n "$root_pids" ]; then
-        echo "  - Root-owned processes holding ports 8042/3005/5201 (PIDs:$root_pids)"
-    fi
-    if [ "$root_files" = true ]; then
-        echo "  - Root-owned files in install directories"
-    fi
-    echo ""
+    echo "Detected root-owned files from a previous sudo installation."
     echo "This needs sudo to fix. You'll be prompted for your password once."
     echo ""
     read -rp "Press Enter to clean up, or Ctrl+C to cancel... "
@@ -130,9 +103,23 @@ check_root_remnants() {
     local current_user
     current_user=$(whoami)
 
-    # Kill root-owned processes on our ports
+    # Now that we have sudo, check for root-owned processes on our ports.
+    # Regular users can't see root-owned sockets with lsof on macOS.
+    local root_pids=""
+    for port in 8042 3005 5201; do
+        local pids
+        pids=$(sudo lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null) || true
+        for pid in $pids; do
+            local owner
+            owner=$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ') || true
+            if [ "$owner" = "root" ]; then
+                root_pids="$root_pids $pid"
+            fi
+        done
+    done
+
     if [ -n "$root_pids" ]; then
-        echo "Stopping root-owned processes..."
+        echo "Stopping root-owned processes (PIDs:$root_pids)..."
         for pid in $root_pids; do
             sudo kill "$pid" 2>/dev/null || true
         done
