@@ -707,7 +707,16 @@ public class ThreatDashboardService
         var ports = events.Select(e => e.DestPort).Distinct().OrderBy(p => p).ToList();
         var portRangesStr = FormatPortRanges(ports);
         var services = events
-            .Select(e => e.Service)
+            .Select(e =>
+            {
+                // Prefer our port lookup over raw CrowdSec service when it's generic
+                if (string.IsNullOrEmpty(e.Service) || string.Equals(e.Service, "other", StringComparison.OrdinalIgnoreCase))
+                {
+                    var portName = GetServiceName(e.DestPort);
+                    if (!string.IsNullOrEmpty(portName)) return portName;
+                }
+                return e.Service;
+            })
             .Where(s => !string.IsNullOrEmpty(s))
             .Distinct()
             .ToList();
