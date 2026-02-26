@@ -434,9 +434,30 @@ public class ConnectionProfile
             ConnectionType.FixedWireless => CreateUniformWeekPattern(new double[]
                 { 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.80, 0.80, 0.80, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.70, 0.70, 0.70, 0.65, 0.65, 0.65, 0.70, 0.80, 0.85 }),
 
-            // Cellular: cell congestion patterns (same pattern all week)
-            ConnectionType.CellularHome => CreateUniformWeekPattern(new double[]
-                { 0.90, 0.90, 0.90, 0.90, 0.90, 0.85, 0.75, 0.70, 0.70, 0.75, 0.75, 0.75, 0.70, 0.70, 0.70, 0.70, 0.65, 0.60, 0.55, 0.55, 0.60, 0.70, 0.80, 0.85 }),
+            // Cellular/Fixed 5G/LTE: tower congestion driven by mobile users sharing the sector.
+            // Weekdays: morning commute ramp, sustained daytime from mobile workers, afternoon build
+            // toward evening peak (3-9 PM nationally per Opensignal). Evening recovers as people go
+            // home to Wi-Fi. Friday evening stays congested (people out socializing).
+            // Saturday: late start (sleep in), sustained midday from shoppers/errands, evening WORSE
+            // than weekdays because people are at restaurants/bars/events on cellular, not home on Wi-Fi.
+            // Sunday: lightest day overall, earliest evening recovery as people head home for the week.
+            ConnectionType.CellularHome => new double[,]
+            {
+                // Monday (day 0) - typical weekday
+                { 0.92, 0.92, 0.93, 0.93, 0.92, 0.88, 0.80, 0.75, 0.72, 0.73, 0.73, 0.72, 0.68, 0.70, 0.68, 0.65, 0.62, 0.58, 0.53, 0.50, 0.50, 0.55, 0.68, 0.80 },
+                // Tuesday (day 1)
+                { 0.92, 0.92, 0.93, 0.93, 0.92, 0.88, 0.80, 0.75, 0.72, 0.73, 0.73, 0.72, 0.68, 0.70, 0.68, 0.65, 0.62, 0.58, 0.53, 0.50, 0.50, 0.55, 0.68, 0.80 },
+                // Wednesday (day 2)
+                { 0.92, 0.92, 0.93, 0.93, 0.92, 0.88, 0.80, 0.75, 0.72, 0.73, 0.73, 0.72, 0.68, 0.70, 0.68, 0.65, 0.62, 0.58, 0.53, 0.50, 0.50, 0.55, 0.68, 0.80 },
+                // Thursday (day 3)
+                { 0.92, 0.92, 0.93, 0.93, 0.92, 0.88, 0.80, 0.75, 0.72, 0.73, 0.73, 0.72, 0.68, 0.70, 0.68, 0.65, 0.62, 0.58, 0.53, 0.50, 0.50, 0.55, 0.68, 0.80 },
+                // Friday (day 4) - people leave work, go out; evening stays congested
+                { 0.92, 0.92, 0.93, 0.93, 0.92, 0.88, 0.80, 0.75, 0.72, 0.73, 0.73, 0.72, 0.68, 0.70, 0.68, 0.65, 0.60, 0.55, 0.50, 0.48, 0.50, 0.52, 0.58, 0.72 },
+                // Saturday (day 5) - late start, out all day, evening worst (restaurants/bars/events)
+                { 0.78, 0.82, 0.88, 0.92, 0.93, 0.93, 0.92, 0.90, 0.85, 0.78, 0.72, 0.68, 0.65, 0.65, 0.65, 0.62, 0.60, 0.58, 0.55, 0.52, 0.52, 0.55, 0.62, 0.72 },
+                // Sunday (day 6) - lightest day, people home early preparing for the week
+                { 0.80, 0.85, 0.90, 0.93, 0.93, 0.93, 0.92, 0.90, 0.88, 0.82, 0.78, 0.72, 0.68, 0.68, 0.70, 0.70, 0.68, 0.65, 0.58, 0.55, 0.55, 0.60, 0.70, 0.80 }
+            },
 
             _ => CreateUniformWeekPattern(Enumerable.Repeat(0.85, 24).ToArray())
         };
