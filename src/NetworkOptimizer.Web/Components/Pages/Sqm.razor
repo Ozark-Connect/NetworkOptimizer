@@ -2893,6 +2893,10 @@
         };
 
         config.ApplyProfileSettings(model.WanLinkSpeedMbps);
+
+        // Restore user's baseline latency override (ApplyProfileSettings recalculates it)
+        config.BaselineLatency = model.BaselineLatency;
+
         return config;
     }
 
