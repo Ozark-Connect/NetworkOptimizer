@@ -2120,18 +2120,18 @@
         if (wanInfo == null)
             return;
 
-        // Set physical link speed for SQM rate capping
+        // Reset all interface-dependent fields to defaults for the new WAN
         config.WanLinkSpeedMbps = wanInfo.LinkSpeedMbps;
+        config.Name = wanInfo.Name;
+        config.ConnectionType = ConnectionType.DocsisCable;
+        config.NominalDownload = 300;
+        config.NominalUpload = 35;
+        config.SpeedtestServerId = null;
+        config.PingHost = !string.IsNullOrEmpty(wanInfo.SuggestedPingIp)
+            ? wanInfo.SuggestedPingIp
+            : "1.1.1.1";
 
-        // Set suggested ping IP
-        if (!string.IsNullOrEmpty(wanInfo.SuggestedPingIp))
-            config.PingHost = wanInfo.SuggestedPingIp;
-
-        // Set name from WAN
-        if (string.IsNullOrEmpty(config.Name) || config.Name == "WAN1" || config.Name == "WAN2")
-            config.Name = wanInfo.Name;
-
-        // Apply connection-specific defaults (Starlink, etc.)
+        // Apply connection-specific overrides (Starlink, etc.)
         ApplyConnectionDefaults(config, wanInfo.Name);
     }
 
