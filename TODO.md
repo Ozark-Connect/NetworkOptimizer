@@ -15,6 +15,28 @@
 
 ### ✅ ~~LAN Speed Test Schedule: UniFi Device Targets~~ (done)
 
+### Threat Alert Dedup Tuning (if users report noise)
+
+Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAlertId, pattern-level dedup via DedupKey with 6h merge window, rule-level cooldown at 1h. No spam reported yet, but here are levers to pull if it gets noisy:
+
+**ScanSweep re-alerting for persistent scanners**
+- Currently: Same IP re-alerts every ~2h if it keeps scanning (new events push LastSeen past LastAlertedAt, then 1h rule cooldown expires)
+- Option A: Bump `attack_pattern` rule cooldown from 1h to 6h (matches the pattern merge window - one alert per scan window)
+- Option B: Change `GetUnalertedPatternsAsync` to require event count increase (e.g., `EventCount > previousEventCount * 1.5`) instead of just `LastSeen > LastAlertedAt`
+- Option C: Leave as-is - ongoing scanning is arguably worth periodic notification
+- Trade-off: Less noise vs missing escalation of an ongoing scan that adds new ports
+
+**DDoS alert cooldown key uses wrong IP**
+- Currently: `DeviceIp = firstSourceIp` means the cooldown key is `{ruleId}:{randomSourceIp}`. For multi-source attacks (DDoS), the first source IP in the sorted list can shift between cycles, defeating cooldown.
+- Fix: Use the target IP (from DedupKey `ddos:{targetIp}:{port}`) as DeviceIp for DDoS patterns, so cooldown groups by what's being attacked, not who's attacking
+- Low priority since DDoS pattern dedup (DedupKey) now merges patterns correctly - this only matters if the pattern is re-detected after the 6h window
+
+**Early-stage chain alert granularity**
+- Currently: Re-alerts on more stages OR (6h elapsed AND 2x events). The `attack_chain_attempt` rule has 1h cooldown.
+- If noisy: Increase cooldown to 6h, or only re-alert on stage progression (not event count growth)
+- If too quiet: Reduce the 2x event multiplier to 1.5x
+- These are Info severity - users who find them noisy can disable rule 13 in alert settings
+
 ## Security Audit / PDF Report
 
 ### Manual Network Purpose Override
