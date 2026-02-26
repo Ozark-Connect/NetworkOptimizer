@@ -2110,14 +2110,30 @@
     /// </summary>
     private void ApplyConnectionDefaults(WanConfigModel config, string wanName)
     {
-        if (wanName.Equals("Starlink", StringComparison.OrdinalIgnoreCase))
+        var name = wanName ?? "";
+        if (name.Equals("Starlink", StringComparison.OrdinalIgnoreCase))
         {
             config.ConnectionType = ConnectionType.Starlink;
             config.NominalDownload = 400;
             config.NominalUpload = 40;
             config.SpeedtestServerId = "59762";
         }
-        // Add other connection-specific defaults here as needed
+        else if (name.Contains("LTE", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("5G", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("Cellular", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.CellularHome;
+        }
+        else if (name.Contains("Fiber", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("FTTH", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("FTTP", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.Fiber;
+        }
+        else if (name.Contains("DSL", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.Dsl;
+        }
 
         // Always update calculated speeds after applying defaults
         UpdateCalculatedSpeeds(config);
