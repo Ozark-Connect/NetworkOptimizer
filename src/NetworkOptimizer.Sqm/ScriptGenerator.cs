@@ -196,14 +196,12 @@ public class ScriptGenerator
         sb.AppendLine("    fi");
         sb.AppendLine("done");
         sb.AppendLine();
-        // !!! TODO: UNCOMMENT BEFORE MERGING TO MAIN !!!
-        // Auto speedtest suppressed for testing on metered WAN connections
-        // sb.AppendLine($"# Schedule speedtest calibration {_initialDelaySeconds} seconds after boot");
-        // sb.AppendLine($"echo \"[$(date)] Scheduling initial SQM calibration in {_initialDelaySeconds} seconds...\" >> $LOG_FILE");
-        // sb.AppendLine($"systemd-run --on-active={_initialDelaySeconds}sec --timer-property=AccuracySec=1s \\");
-        // sb.AppendLine("  --setenv=PATH=\"$PATH\" \\");
-        // sb.AppendLine("  --setenv=HOME=/root \\");
-        // sb.AppendLine("  \"$SPEEDTEST_SCRIPT\"");
+        sb.AppendLine($"# Schedule speedtest calibration {_initialDelaySeconds} seconds after boot");
+        sb.AppendLine($"echo \"[$(date)] Scheduling initial SQM calibration in {_initialDelaySeconds} seconds...\" >> $LOG_FILE");
+        sb.AppendLine($"systemd-run --on-active={_initialDelaySeconds}sec --timer-property=AccuracySec=1s \\");
+        sb.AppendLine("  --setenv=PATH=\"$PATH\" \\");
+        sb.AppendLine("  --setenv=HOME=/root \\");
+        sb.AppendLine("  \"$SPEEDTEST_SCRIPT\"");
         sb.AppendLine();
         sb.AppendLine("echo \"[$(date)] SQM boot script completed for $SQM_NAME\" >> $LOG_FILE");
 
