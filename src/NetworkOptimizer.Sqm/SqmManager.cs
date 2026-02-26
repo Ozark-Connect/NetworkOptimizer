@@ -236,9 +236,9 @@ public class SqmManager
             errors.Add("MinDownloadSpeed must be greater than 0");
         }
 
-        if (_config.MinDownloadSpeed >= _config.MaxDownloadSpeed)
+        if (_config.MinDownloadSpeed > _config.MaxDownloadSpeed)
         {
-            errors.Add("MinDownloadSpeed must be less than MaxDownloadSpeed");
+            errors.Add("MinDownloadSpeed must be less than or equal to MaxDownloadSpeed");
         }
 
         if (_config.AbsoluteMaxDownloadSpeed < _config.MaxDownloadSpeed)
