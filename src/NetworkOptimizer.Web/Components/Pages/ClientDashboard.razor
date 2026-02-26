@@ -16,6 +16,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject IHttpContextAccessor HttpContextAccessor
+@inject ApMapService ApMapService
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -444,7 +445,9 @@
                     @* Speed Map (wireless clients only) *@
                     @if (!(_client?.IsWired == true) && _speedResults.Any(r => r.Latitude.HasValue))
                     {
-                        <SpeedTestMap Results="_speedResults" MapHeight="400px" />
+                        <SpeedTestMap Results="_speedResults" MapHeight="400px"
+                                     ApMarkers="_apMapMarkers" AllowApEditing="false"
+                                     TimeFilterHours="_selectedTimeFilter" />
                     }
                 </div>
             }
@@ -803,6 +806,7 @@
 
     // Speed tab
     private List<Iperf3Result> _speedResults = new();
+    private List<ApMapMarker> _apMapMarkers = new();
     private Iperf3Result? _latestSpeedResult;
     private List<SpeedChartPoint> _speedDownloadData = new();
     private List<SpeedChartPoint> _speedUploadData = new();
@@ -929,6 +933,10 @@
 
         // Identify client
         await IdentifyAndLoadAsync();
+
+        // Load AP markers for speed map (non-critical)
+        try { _apMapMarkers = await ApMapService.GetApMapMarkersAsync(); }
+        catch { /* non-critical - map works without AP markers */ }
 
         // Note: initial GPS request happens in OnAfterRenderAsync (needs JS interop)
 
