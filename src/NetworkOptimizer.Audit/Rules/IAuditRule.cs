@@ -279,14 +279,16 @@ public abstract class AuditRuleBase : IAuditRule
         string message,
         PortInfo port,
         Dictionary<string, object>? metadata = null,
-        string? recommendedAction = null)
+        string? recommendedAction = null,
+        AuditSeverity? overrideSeverity = null,
+        int? overrideScoreImpact = null)
     {
         var deviceName = GetBestDeviceName(port);
 
         return new AuditIssue
         {
             Type = RuleId,
-            Severity = Severity,
+            Severity = overrideSeverity ?? Severity,
             Message = message,
             DeviceName = deviceName,
             DeviceMac = port.Switch.MacAddress,
@@ -295,7 +297,7 @@ public abstract class AuditRuleBase : IAuditRule
             Metadata = metadata,
             RecommendedAction = recommendedAction,
             RuleId = RuleId,
-            ScoreImpact = ScoreImpact
+            ScoreImpact = overrideScoreImpact ?? ScoreImpact
         };
     }
 
