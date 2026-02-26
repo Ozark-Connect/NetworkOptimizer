@@ -2018,6 +2018,20 @@
         }
     }
 
+    private void UpdateLinkSpeedsFromWanInterfaces()
+    {
+        foreach (var config in new[] { wan1Config, wan2Config })
+        {
+            if (string.IsNullOrEmpty(config.Interface)) continue;
+            var wan = wanInterfaces.FirstOrDefault(w =>
+                w.Interface.Equals(config.Interface, StringComparison.OrdinalIgnoreCase));
+            if (wan == null) continue;
+
+            config.WanLinkSpeedMbps = wan.LinkSpeedMbps;
+            UpdateCalculatedSpeeds(config);
+        }
+    }
+
     private void ResetWanConfigs()
     {
         // Reset WAN1 to defaults
@@ -2200,6 +2214,10 @@
                     // Only apply detected interfaces if we don't have saved configs
                     if (!hasSavedConfigs)
                         ApplyDetectedWanInterfaces();
+
+                    // Update link speeds on loaded configs (wanInterfaces may not have been
+                    // available when LoadSavedConfigsAsync ran on first render)
+                    UpdateLinkSpeedsFromWanInterfaces();
                 }
                 catch
                 {
