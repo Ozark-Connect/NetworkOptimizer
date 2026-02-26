@@ -325,7 +325,8 @@ public class ThreatRepository : IThreatRepository
                     TopSignature = g.GroupBy(e => e.SignatureName)
                         .OrderByDescending(sg => sg.Count())
                         .Select(sg => sg.Key)
-                        .FirstOrDefault() ?? ""
+                        .FirstOrDefault() ?? "",
+                    Protocol = g.Select(e => e.Protocol).FirstOrDefault()
                 })
                 .OrderByDescending(s => s.EventCount)
                 .Take(count)

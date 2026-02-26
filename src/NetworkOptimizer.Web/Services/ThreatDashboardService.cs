@@ -525,7 +525,9 @@ public class ThreatDashboardService
                 .Select(g => new PortRangeGroup
                 {
                     Port = g.Key,
-                    Service = GetServiceName(g.Key),
+                    Service = g.Key == 0
+                        ? g.Select(e => e.Protocol).Where(p => !string.IsNullOrEmpty(p)).Distinct().FirstOrDefault() ?? ""
+                        : GetServiceName(g.Key),
                     EventCount = g.Count(),
                     BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked),
                     DetectedCount = g.Count(e => e.Action != ThreatAction.Blocked)
@@ -642,7 +644,9 @@ public class ThreatDashboardService
                 .Select(g => new PortCount
                 {
                     Port = g.Key,
-                    ServiceName = GetServiceName(g.Key),
+                    ServiceName = g.Key == 0
+                        ? g.Select(e => e.Protocol).Where(p => !string.IsNullOrEmpty(p)).Distinct().FirstOrDefault() ?? ""
+                        : GetServiceName(g.Key),
                     EventCount = g.Count(),
                     BlockedCount = g.Count(e => e.Action == ThreatAction.Blocked)
                 })

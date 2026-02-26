@@ -545,8 +545,16 @@ else
                                 @foreach (var port in _dashboardData.TopTargetedPorts)
                                 {
                                     <tr>
-                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(port.Port)"><code>@port.Port</code></a></td>
-                                        <td>@GetPortServiceName(port.Port)</td>
+                                        @if (port.Port == 0 && !string.IsNullOrEmpty(port.Protocol))
+                                        {
+                                            <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToProtocol(port.Protocol)"><code>@port.Protocol.ToUpperInvariant()</code></a></td>
+                                            <td>-</td>
+                                        }
+                                        else
+                                        {
+                                            <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(port.Port)"><code>@port.Port</code></a></td>
+                                            <td>@GetPortServiceName(port.Port)</td>
+                                        }
                                         <td>@FormatNumber(port.EventCount)</td>
                                         <td class="hide-mobile">@FormatNumber(port.UniqueSourceIps)</td>
                                         <td class="hide-mobile text-truncate-300">@PrettifySignature(port.TopSignature)</td>
@@ -1149,7 +1157,15 @@ else
                                 {
                                     <tr>
                                         <td>
-                                            @if (pr.PortEnd == 0 || pr.PortEnd == pr.Port)
+                                            @if (pr.Port == 0 && !string.IsNullOrEmpty(pr.Service))
+                                            {
+                                                <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToProtocol(pr.Service)"><code>@pr.Service</code></a>
+                                            }
+                                            else if (pr.Port == 0)
+                                            {
+                                                <code>0</code>
+                                            }
+                                            else if (pr.PortEnd == 0 || pr.PortEnd == pr.Port)
                                             {
                                                 <a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToPort(pr.Port)"><code>@pr.Port</code></a>
                                             }
@@ -1163,7 +1179,7 @@ else
                                                 }
                                             }
                                         </td>
-                                        <td>@(string.IsNullOrEmpty(pr.Service) ? "-" : pr.Service)</td>
+                                        <td>@(pr.Port == 0 ? "-" : string.IsNullOrEmpty(pr.Service) ? "-" : pr.Service)</td>
                                         <td>@FormatNumber(pr.EventCount)</td>
                                         <td>@(pr.BlockedCount > 0 ? FormatNumber(pr.BlockedCount) : "-")</td>
                                         <td>@(pr.DetectedCount > 0 ? FormatNumber(pr.DetectedCount) : "-")</td>

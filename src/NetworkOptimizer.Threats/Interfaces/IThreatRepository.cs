@@ -107,6 +107,8 @@ public record TargetPortSummary
     public int EventCount { get; init; }
     public int UniqueSourceIps { get; init; }
     public string TopSignature { get; init; } = string.Empty;
+    /// <summary>Top protocol for this port group (useful when Port=0 for ICMP/GRE etc.)</summary>
+    public string? Protocol { get; init; }
 }
 
 /// <summary>
