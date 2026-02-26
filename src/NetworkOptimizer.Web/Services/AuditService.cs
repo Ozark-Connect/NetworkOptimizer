@@ -523,7 +523,7 @@ public class AuditService
         };
     }
 
-    private async Task PersistAuditResultAsync(AuditResult result)
+    private async Task PersistAuditResultAsync(AuditResult result, bool isScheduled = false)
     {
         try
         {
@@ -553,6 +553,7 @@ public class AuditService
                 FindingsJson = JsonSerializer.Serialize(result.Issues),
                 ReportDataJson = reportDataJson,
                 AuditVersion = "1.0",
+                IsScheduled = isScheduled,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -1462,7 +1463,7 @@ public class AuditService
             LastAuditTimeCached = DateTime.UtcNow;
 
             // Persist to database
-            await PersistAuditResultAsync(webResult);
+            await PersistAuditResultAsync(webResult, options.IsScheduled);
 
             _logger.LogInformation("Audit complete: Score={Score}, Critical={Critical}, Recommended={Recommended}",
                 webResult.Score, webResult.CriticalCount, webResult.WarningCount);
@@ -2046,6 +2047,7 @@ public class AuditOptions
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
     public bool AllowMediaPlayersOnMainNetwork { get; set; } = false;
     public bool AllowPrintersOnMainNetwork { get; set; } = true;
+    public bool IsScheduled { get; set; }
     public List<int>? DnatExcludedVlanIds { get; set; }
     public int? PiholeManagementPort { get; set; }
 

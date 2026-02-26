@@ -1,7 +1,18 @@
 @using NetworkOptimizer.Web.Services
 @inject ISponsorshipService SponsorshipService
 
-@if (_nag != null)
+@if (_showThankYou)
+{
+    <div class="sponsorship-banner thank-you-banner">
+        <div class="banner-content">
+            <span class="banner-icon">&#x2665;</span>
+            <div class="banner-text">
+                <strong>It means so much that you chose to sponsor. Thank you. Seriously. I will continue to improve Network Optimizer so long as awesome people like you use it. -TJ</strong>
+            </div>
+        </div>
+    </div>
+}
+else if (_nag != null)
 {
     <div class="sponsorship-banner">
         <div class="banner-content">
@@ -22,6 +33,8 @@
     </div>
 }
 
+@implements IDisposable
+
 @code {
     /// <summary>
     /// When true, always shows the banner (for Settings page preview).
@@ -31,6 +44,8 @@
     public bool AlwaysShow { get; set; } = false;
 
     private SponsorshipNag? _nag;
+    private bool _showThankYou;
+    private CancellationTokenSource? _cts;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -85,6 +100,30 @@
             // Still hide it
         }
         _nag = null;
+        _showThankYou = true;
         StateHasChanged();
+
+        // Auto-hide after 15 seconds
+        _cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(15000, _cts.Token);
+                await InvokeAsync(() =>
+                {
+                    _showThankYou = false;
+                    StateHasChanged();
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+        });
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
     }
 }

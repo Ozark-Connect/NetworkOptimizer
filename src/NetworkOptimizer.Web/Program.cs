@@ -558,7 +558,7 @@ if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
 
         try
         {
-            var result = await auditService.RunAuditAsync(new AuditOptions());
+            var result = await auditService.RunAuditAsync(new AuditOptions { IsScheduled = true });
             return (true, $"Score: {result.Score}", null);
         }
         catch (Exception ex)

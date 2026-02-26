@@ -53,5 +53,11 @@ public class AuditResult
     [MaxLength(50)]
     public string AuditVersion { get; set; } = "1.0";
 
+    /// <summary>
+    /// Whether this audit was triggered by a scheduled task (vs manual user action).
+    /// Scheduled audits count at 0.2x weight for sponsorship usage tracking.
+    /// </summary>
+    public bool IsScheduled { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
