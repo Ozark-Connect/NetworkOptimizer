@@ -350,8 +350,9 @@ WantedBy=multi-user.target
 
         try
         {
-            // Apply profile-based settings
-            config.ApplyProfileSettings();
+            // Note: profile settings (including WAN link speed caps) are already applied
+            // by the caller via CreateSqmConfiguration. Do NOT re-apply here without link
+            // speed context, as that would overwrite the caps with uncapped values.
 
             // Security: Validate all inputs before script generation to prevent command injection.
             // This is defense-in-depth - the UI also validates before calling DeployAsync,
