@@ -2111,7 +2111,7 @@
     private void ApplyConnectionDefaults(WanConfigModel config, string wanName)
     {
         var name = wanName ?? "";
-        if (name.Equals("Starlink", StringComparison.OrdinalIgnoreCase))
+        if (name.Contains("Starlink", StringComparison.OrdinalIgnoreCase))
         {
             config.ConnectionType = ConnectionType.Starlink;
             config.NominalDownload = 400;
