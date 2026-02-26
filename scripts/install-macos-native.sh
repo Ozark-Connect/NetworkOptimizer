@@ -11,6 +11,21 @@
 
 set -e
 
+# Refuse to run as root - everything installs to $HOME, root is never needed
+if [ "$(id -u)" = "0" ]; then
+    echo "Error: Do not run this script with sudo or as root."
+    echo ""
+    echo "This installer puts everything in your home directory and does not need"
+    echo "root access. Running with sudo causes file ownership problems that break"
+    echo "future upgrades."
+    echo ""
+    echo "If you previously installed with sudo, just run the script normally:"
+    echo "  ./scripts/install-macos-native.sh"
+    echo ""
+    echo "The script will detect and clean up any root-owned files automatically."
+    exit 1
+fi
+
 # Configuration
 INSTALL_DIR="$HOME/network-optimizer"
 DATA_DIR="$HOME/Library/Application Support/NetworkOptimizer"
@@ -43,6 +58,109 @@ if [ ! -f "$REPO_ROOT/src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" ]; t
     echo "Clone the repo first: git clone https://github.com/Ozark-Connect/NetworkOptimizer.git"
     exit 1
 fi
+
+# Check for root-owned remnants from a previous sudo installation.
+# If someone ran this script with sudo, all files and processes end up owned by root.
+# A normal user can't overwrite those files or kill those processes, so the next
+# install fails. This function detects the problem and fixes it with one sudo prompt.
+check_root_remnants() {
+    local needs_cleanup=false
+    local root_pids=""
+    local root_files=false
+
+    # Check for root-owned processes on our ports (8042=app, 3005=nginx, 5201=iperf3)
+    for port in 8042 3005 5201; do
+        local pids
+        pids=$(lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null) || true
+        for pid in $pids; do
+            local owner
+            owner=$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ') || true
+            if [ "$owner" = "root" ]; then
+                needs_cleanup=true
+                root_pids="$root_pids $pid"
+            fi
+        done
+    done
+
+    # Check for root-owned install directories and files
+    for dir in "$INSTALL_DIR" "$DATA_DIR"; do
+        if [ -d "$dir" ] && [ "$(stat -f '%Su' "$dir" 2>/dev/null)" = "root" ]; then
+            needs_cleanup=true
+            root_files=true
+        fi
+    done
+    if [ -f "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" ] && \
+       [ "$(stat -f '%Su' "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" 2>/dev/null)" = "root" ]; then
+        needs_cleanup=true
+        root_files=true
+    fi
+
+    # Check for root-owned NuGet cache (blocks dotnet publish)
+    if [ -d "$HOME/.nuget" ] && [ "$(stat -f '%Su' "$HOME/.nuget" 2>/dev/null)" = "root" ]; then
+        needs_cleanup=true
+        root_files=true
+    fi
+
+    if [ "$needs_cleanup" = false ]; then
+        return 0
+    fi
+
+    echo "Detected remnants from a previous sudo installation:"
+    echo ""
+    if [ -n "$root_pids" ]; then
+        echo "  - Root-owned processes holding ports 8042/3005/5201 (PIDs:$root_pids)"
+    fi
+    if [ "$root_files" = true ]; then
+        echo "  - Root-owned files in install directories"
+    fi
+    echo ""
+    echo "This needs sudo to fix. You'll be prompted for your password once."
+    echo ""
+    read -rp "Press Enter to clean up, or Ctrl+C to cancel... "
+
+    local current_user
+    current_user=$(whoami)
+
+    # Kill root-owned processes on our ports
+    if [ -n "$root_pids" ]; then
+        echo "Stopping root-owned processes..."
+        for pid in $root_pids; do
+            sudo kill "$pid" 2>/dev/null || true
+        done
+        sleep 2
+    fi
+
+    # Unload any root-loaded launchd services
+    sudo launchctl unload "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" 2>/dev/null || true
+    sudo launchctl unload "$LAUNCH_AGENT_DIR/$OLD_LAUNCH_AGENT_FILE" 2>/dev/null || true
+
+    # Fix ownership on install directories
+    if [ -d "$INSTALL_DIR" ]; then
+        echo "Fixing ownership: $INSTALL_DIR"
+        sudo chown -R "$current_user:staff" "$INSTALL_DIR"
+    fi
+    if [ -d "$DATA_DIR" ]; then
+        echo "Fixing ownership: $DATA_DIR"
+        sudo chown -R "$current_user:staff" "$DATA_DIR"
+    fi
+    for plist in "$LAUNCH_AGENT_FILE" "$OLD_LAUNCH_AGENT_FILE"; do
+        if [ -f "$LAUNCH_AGENT_DIR/$plist" ]; then
+            sudo chown "$current_user:staff" "$LAUNCH_AGENT_DIR/$plist"
+        fi
+    done
+
+    # Fix NuGet cache
+    if [ -d "$HOME/.nuget" ] && [ "$(stat -f '%Su' "$HOME/.nuget" 2>/dev/null)" = "root" ]; then
+        echo "Fixing ownership: ~/.nuget"
+        sudo chown -R "$current_user:staff" "$HOME/.nuget"
+    fi
+
+    echo ""
+    echo "Cleanup complete. Continuing with installation..."
+    echo ""
+}
+
+check_root_remnants
 
 # Backup existing installation if present
 if [ -d "$DATA_DIR" ] || [ -d "$INSTALL_DIR" ]; then
