@@ -95,11 +95,13 @@ check_root_remnants() {
         root_files=true
     fi
 
-    # Check for root-owned NuGet cache (blocks dotnet publish)
-    if [ -d "$HOME/.nuget" ] && [ "$(stat -f '%Su' "$HOME/.nuget" 2>/dev/null)" = "root" ]; then
-        needs_cleanup=true
-        root_files=true
-    fi
+    # Check for root-owned .NET directories (blocks dotnet publish)
+    for dotdir in "$HOME/.nuget" "$HOME/.dotnet"; do
+        if [ -d "$dotdir" ] && [ "$(stat -f '%Su' "$dotdir" 2>/dev/null)" = "root" ]; then
+            needs_cleanup=true
+            root_files=true
+        fi
+    done
 
     if [ "$needs_cleanup" = false ]; then
         return 0
@@ -149,11 +151,13 @@ check_root_remnants() {
         fi
     done
 
-    # Fix NuGet cache
-    if [ -d "$HOME/.nuget" ] && [ "$(stat -f '%Su' "$HOME/.nuget" 2>/dev/null)" = "root" ]; then
-        echo "Fixing ownership: ~/.nuget"
-        sudo chown -R "$current_user:staff" "$HOME/.nuget"
-    fi
+    # Fix .NET directories
+    for dotdir in "$HOME/.nuget" "$HOME/.dotnet"; do
+        if [ -d "$dotdir" ] && [ "$(stat -f '%Su' "$dotdir" 2>/dev/null)" = "root" ]; then
+            echo "Fixing ownership: ${dotdir/#$HOME/~}"
+            sudo chown -R "$current_user:staff" "$dotdir"
+        fi
+    done
 
     echo ""
     echo "Cleanup complete. Continuing with installation..."
