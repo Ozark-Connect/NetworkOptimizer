@@ -140,6 +140,7 @@ public static class UniFiProductDatabase
         // ----- Cloud Gateways -----
         { "UCGMAX", "UCG-Max" },
         { "UDMA6A8", "UCG-Fiber" },
+        { "UDMA6AD", "UCG-Industrial" },
 
         // ----- Cloud Keys -----
         { "UCK-v3", "UCK" },
@@ -307,6 +308,7 @@ public static class UniFiProductDatabase
 
         // ----- Official: WiFi 7 Hardware Revision Codes -----
         { "UAPA693", "U7-Lite" },
+        { "UAPA69E", "U7-Mesh" },
         { "UAPA6A4", "U7-Pro-XGS" },
         { "UAPA6A5", "U7-IW" },
         { "UAPA6A6", "U7-Pro-Outdoor" },
@@ -459,6 +461,8 @@ public static class UniFiProductDatabase
         { "EFG", "EFG" },
         { "UCGF", "UCG-Fiber" },
         { "UCG-ULTRA", "UCG-Ultra" },
+        { "UCG-INDUSTRIAL", "UCG-Industrial" },
+        { "UCGA6AD", "UCG-Industrial" },
         { "UCK-G2", "UCK-G2" },
         { "UCK-G2-PLUS", "UCK-G2-Plus" },
         { "UCKP2", "UCK-G2-Plus" },
@@ -550,6 +554,8 @@ public static class UniFiProductDatabase
         { "G7LR", "U7-LR" },
         { "G7LRV2", "U7-LR" },
         { "G7LT", "U7-Lite" },
+        { "U7MESH", "U7-Mesh" },
+        { "U7-MESH", "U7-Mesh" },
         { "G7IW", "U7-IW" },
         { "E7", "E7" },
         { "E7CEU", "E7-Campus-EU" },
