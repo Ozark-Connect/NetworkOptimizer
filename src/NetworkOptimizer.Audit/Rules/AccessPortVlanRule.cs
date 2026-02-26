@@ -58,6 +58,37 @@ public class AccessPortVlanRule : AuditRuleBase
         if (IsNetworkFabricDevice(port.ConnectedDeviceType))
             return null;
 
+        // 802.1X/RADIUS-secured ports need tagged VLANs for dynamic VLAN assignment.
+        // If the admin has curated a custom VLAN set, trust their intent.
+        // Still flag "Allow All" as informational - best practice is to restrict.
+        if (port.IsDot1xSecured)
+        {
+            var networksForDot1x = allNetworks ?? networks;
+            if (networksForDot1x.Count == 0)
+                return null;
+
+            var (dot1xVlanCount, dot1xAllowsAll) = GetTaggedVlanInfo(port, networksForDot1x);
+            if (!dot1xAllowsAll)
+                return null; // Custom VLAN set - admin has curated, skip
+
+            // "Allow All" on 802.1x port - informational only
+            var dot1xNetwork = GetNetwork(port.NativeNetworkId, networks);
+            return CreateIssue(
+                "802.1X port allows all VLANs",
+                port,
+                new Dictionary<string, object>
+                {
+                    { "network", dot1xNetwork?.Name ?? "Unknown" },
+                    { "tagged_vlan_count", dot1xVlanCount },
+                    { "allows_all_vlans", true },
+                    { "is_dot1x_secured", true }
+                },
+                "This 802.1X-secured port uses 'Allow All' tagged VLANs. While RADIUS controls VLAN assignment, "
+                + "restricting tagged VLANs to only those RADIUS may assign limits exposure if 802.1X fails or is bypassed.",
+                overrideSeverity: AuditSeverity.Informational,
+                overrideScoreImpact: 2);
+        }
+
         // Check if we have evidence of a single device attached
         // (connected client, single MAC restriction, or offline device data)
         var hasSingleDeviceEvidence = port.ConnectedClient != null ||
