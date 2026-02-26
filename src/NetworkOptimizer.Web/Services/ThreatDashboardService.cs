@@ -908,16 +908,7 @@ public class ThreatDashboardService
     }
 
     private static string GetServiceName(int port)
-    {
-        return port switch
-        {
-            21 => "FTP", 22 => "SSH", 23 => "Telnet", 25 => "SMTP", 53 => "DNS",
-            80 => "HTTP", 443 => "HTTPS", 445 => "SMB", 993 => "IMAPS", 1433 => "MSSQL",
-            1883 => "MQTT", 3306 => "MySQL", 3389 => "RDP", 5432 => "PostgreSQL",
-            5900 => "VNC", 6379 => "Redis", 8080 => "HTTP-Alt", 8443 => "HTTPS-Alt",
-            27017 => "MongoDB", _ => ""
-        };
-    }
+        => Core.Helpers.NetworkUtilities.GetPortServiceName(port) ?? "";
 }
 
 /// <summary>

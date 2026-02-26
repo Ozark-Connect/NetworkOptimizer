@@ -518,6 +518,76 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Well-known port-to-service name map. Single source of truth used by
+    /// threat dashboard, drilldowns, and any future port labeling.
+    /// Returns the friendly service name, or null if the port is not in the map.
+    /// </summary>
+    public static string? GetPortServiceName(int port)
+    {
+        return port switch
+        {
+            20 => "FTP Data",
+            21 => "FTP",
+            22 => "SSH",
+            23 => "Telnet",
+            25 => "SMTP",
+            53 => "DNS",
+            80 => "HTTP",
+            110 => "POP3",
+            111 => "RPC",
+            123 => "NTP",
+            135 => "MS-RPC",
+            137 => "NetBIOS-NS",
+            138 => "NetBIOS-DGM",
+            139 => "NetBIOS",
+            143 => "IMAP",
+            161 => "SNMP",
+            162 => "SNMP Trap",
+            389 => "LDAP",
+            443 => "HTTPS",
+            445 => "SMB",
+            465 => "SMTPS",
+            500 => "IKE",
+            502 => "Modbus",
+            587 => "SMTP Submit",
+            636 => "LDAPS",
+            993 => "IMAPS",
+            995 => "POP3S",
+            1080 => "SOCKS",
+            1433 => "MSSQL",
+            1434 => "MSSQL Browser",
+            1521 => "Oracle",
+            1723 => "PPTP",
+            1883 => "MQTT",
+            2049 => "NFS",
+            2222 => "SSH-Alt",
+            2375 => "Docker",
+            2376 => "Docker TLS",
+            3306 => "MySQL",
+            3389 => "RDP",
+            4500 => "IPSec NAT-T",
+            5060 => "SIP",
+            5405 => "Corosync",
+            5406 => "Corosync",
+            5432 => "PostgreSQL",
+            5672 => "AMQP",
+            5900 => "VNC",
+            6379 => "Redis",
+            6443 => "Kubernetes",
+            8006 => "Proxmox",
+            8080 => "HTTP-Alt",
+            8086 => "InfluxDB",
+            8443 => "HTTPS-Alt",
+            8883 => "MQTT-TLS",
+            9200 => "Elasticsearch",
+            9300 => "Elasticsearch",
+            11211 => "Memcached",
+            27017 => "MongoDB",
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// Parse CIDR notation into network address and prefix length.
     /// </summary>
     /// <param name="cidr">CIDR string (e.g., "192.168.1.0/24" or "2001:db8::/32")</param>
