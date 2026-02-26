@@ -589,11 +589,15 @@
         return "overview";
     }
 
-    private void SetActiveTab(string tab)
+    private async Task SetActiveTab(string tab)
     {
         _activeTab = tab;
         // Clear client filter when manually switching tabs
         _initialClientMac = null;
+
+        // Reload AP markers when entering Speed Map tab (may have been edited on Signal Map)
+        if (tab == "coverage")
+            await LoadApMarkers();
 
         // Build clean URL - drop client param when leaving client tab
         var uri = "/wifi-optimizer?tab=" + tab;
