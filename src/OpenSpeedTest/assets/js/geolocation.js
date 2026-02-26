@@ -103,24 +103,33 @@ function getLocationFormData() {
             // Geolocation requires HTTPS - wrap in try-catch to handle security errors
             if (navigator.geolocation && window.isSecureContext) {
                 try {
+                    var sent = false;
+                    var sendOnce = function(finalBody) {
+                        if (sent) return;
+                        sent = true;
+                        originalSend.call(xhr, finalBody);
+                    };
+
+                    // Safety timeout - if permission prompt is pending and user
+                    // hasn't responded, the geolocation timeout doesn't start
+                    // counting until they do. Send without location after 3s.
+                    setTimeout(function() { sendOnce(body); }, 3000);
+
                     navigator.geolocation.getCurrentPosition(
                         function(position) {
                             geoLocation.latitude = position.coords.latitude;
                             geoLocation.longitude = position.coords.longitude;
                             geoLocation.accuracy = position.coords.accuracy;
                             var locData = getLocationFormData();
-                            if (locData) {
-                                body = body + locData;
-                            }
-                            originalSend.call(xhr, body);
+                            sendOnce(locData ? body + locData : body);
                         },
                         function(error) {
                             // Failed - send without location
-                            originalSend.call(xhr, body);
+                            sendOnce(body);
                         },
                         { enableHighAccuracy: true, timeout: 2000, maximumAge: 60000 }
                     );
-                    return; // Don't call send yet - callback will do it
+                    return; // Don't call send yet - callback or timeout will do it
                 } catch (e) {
                     // Security error or other exception - continue without location
                 }
