@@ -3508,9 +3508,11 @@ else
         // Application
         "HTTP", "HTTPS", "SSH", "DNS", "FTP", "SMTP", "SNMP", "SIP", "IMAP", "IMAPS",
         "POP3", "POP3S", "NTP", "LDAP", "SMB", "TLS", "SSL", "MQTT", "QUIC", "RPC",
-        "TFTP", "DHCP", "ARP", "IRC", "VPN", "IPP", "MODBUS", "TSAP", "RTSP",
+        "TFTP", "DHCP", "ARP", "IRC", "VPN", "IPP", "MODBUS", "TSAP", "RTSP", "MSSQL",
         // Tunneling & encapsulation
         "L2TP", "IPIP", "MPLS", "GTP",
+        // Database & services
+        "MSSQL", "AMQP", "NFS", "VNC", "SOCKS", "PPTP", "LDAPS", "SMTPS",
         // Other acronyms
         "P2P", "HIP", "WESP", "ROHC"
     };
@@ -3541,6 +3543,13 @@ else
         ["MANET"] = "MANET",
         ["SHIM6"] = "Shim6",
         ["OTHER"] = "Other",
+        ["MONGODB"] = "MongoDB",
+        ["POSTGRESQL"] = "PostgreSQL",
+        ["MYSQL"] = "MySQL",
+        ["IPSEC"] = "IPSec",
+        ["INFLUXDB"] = "InfluxDB",
+        ["ELASTICSEARCH"] = "Elasticsearch",
+        ["NETBIOS"] = "NetBIOS",
     };
 
     private static string FormatServices(string? services)
@@ -3555,7 +3564,7 @@ else
         var trimmed = token.Trim();
         if (ServiceNameMap.TryGetValue(trimmed, out var mapped)) return mapped;
         if (ProtocolTokens.Contains(trimmed)) return trimmed.ToUpperInvariant();
-        return System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(trimmed.ToLowerInvariant());
+        return TitleCaseWithProtocols(trimmed);
     }
 
     private static string PrettifySignature(string? sig)
