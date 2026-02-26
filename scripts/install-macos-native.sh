@@ -120,6 +120,13 @@ check_root_remnants() {
     echo ""
     read -rp "Press Enter to clean up, or Ctrl+C to cancel... "
 
+    # Validate sudo credentials upfront so a failed password doesn't leave
+    # things half-cleaned (some processes killed but files still root-owned)
+    if ! sudo -v; then
+        echo "Error: sudo authentication failed. Please re-run the script and try again."
+        exit 1
+    fi
+
     local current_user
     current_user=$(whoami)
 
