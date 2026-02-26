@@ -578,6 +578,63 @@ docker compose logs -f network-optimizer
 docker compose logs --tail=100 network-optimizer
 ```
 
+#### Windows Service
+
+On Windows, logs are written to `<install-dir>\logs\networkoptimizer-YYYY-MM-DD.log` (rolling daily, 7-day retention).
+
+To change log levels, set environment variables on the Windows service via the registry. This avoids modifying any config files.
+
+**Enable debug logging for Network Optimizer:**
+
+```powershell
+$regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\NetworkOptimizer"
+$existing = (Get-ItemProperty $regPath -Name Environment -ErrorAction SilentlyContinue).Environment
+$env = [string[]](@($existing | Where-Object { $_ }) + "Logging__LogLevel__NetworkOptimizer=Debug")
+Set-ItemProperty $regPath -Name Environment -Value $env
+Restart-Service NetworkOptimizer
+```
+
+**Enable debug logging for Traefik (HTTPS certificate issues):**
+
+If HTTPS isn't working after a couple minutes (certificate errors in the browser), enable Traefik debug logging to see why certificate issuance is failing. Traefik runs as a child process and its output is captured into the app log. You need both the Traefik log level (controls what Traefik emits) and the app log level (controls what gets written to the log file):
+
+```powershell
+$regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\NetworkOptimizer"
+$existing = (Get-ItemProperty $regPath -Name Environment -ErrorAction SilentlyContinue).Environment
+$env = [string[]](@($existing | Where-Object { $_ }) + "Logging__LogLevel__NetworkOptimizer=Debug")
+Set-ItemProperty $regPath -Name Environment -Value $env
+
+# Also set Traefik's own log level to DEBUG (this is separate from the app log level)
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Ozark Connect\Network Optimizer" -Name "TRAEFIK_LOG_LEVEL" -Value "DEBUG"
+
+Restart-Service NetworkOptimizer
+```
+
+**Remove debug logging when done:**
+
+```powershell
+# Remove service environment variables
+$regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\NetworkOptimizer"
+$env = [string[]]((Get-ItemProperty $regPath -Name Environment).Environment | Where-Object { $_ -notlike "Logging__*" })
+if ($env.Count -gt 0) {
+    Set-ItemProperty $regPath -Name Environment -Value $env
+} else {
+    Remove-ItemProperty $regPath -Name Environment -ErrorAction SilentlyContinue
+}
+
+# Reset Traefik log level
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Ozark Connect\Network Optimizer" -Name "TRAEFIK_LOG_LEVEL" -Value "INFO"
+
+Restart-Service NetworkOptimizer
+```
+
+**View logs:**
+
+```powershell
+# Follow the current log file
+Get-Content "<install-dir>\logs\networkoptimizer-*.log" -Tail 50 -Wait
+```
+
 ## Upgrade Procedure
 
 ### Option A: Using Docker Image (Recommended)
