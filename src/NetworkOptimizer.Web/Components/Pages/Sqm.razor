@@ -2130,6 +2130,7 @@
         {
             var wan = availableInterfaces[0];
             config.Interface = wan.Interface;
+            config.WanLinkSpeedMbps = wan.LinkSpeedMbps;
 
             // Apply all defaults as if user selected it
             if (!string.IsNullOrEmpty(wan.SuggestedPingIp))
@@ -3014,7 +3015,8 @@
         // Create a snapshot of the deployable config values
         public WanConfigSnapshot ToSnapshot() => new(
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
-            PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute);
+            PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
+            BaselineLatency);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -3031,7 +3033,8 @@
                    MorningHour != snapshot.MorningHour ||
                    MorningMinute != snapshot.MorningMinute ||
                    EveningHour != snapshot.EveningHour ||
-                   EveningMinute != snapshot.EveningMinute;
+                   EveningMinute != snapshot.EveningMinute ||
+                   Math.Abs(BaselineLatency - snapshot.BaselineLatency) > 0.01;
         }
     }
 
@@ -3039,7 +3042,8 @@
     private record WanConfigSnapshot(
         bool Enabled, string Name, string Interface, ConnectionType ConnectionType,
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
-        int MorningHour, int MorningMinute, int EveningHour, int EveningMinute);
+        int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
+        double BaselineLatency);
 
     public void Dispose()
     {
