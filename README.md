@@ -241,7 +241,7 @@ src/
 
 ## Tech Stack
 
-.NET 10, Blazor Server, SQLite, iperf3, SSH.NET, QuestPDF
+.NET 10, Blazor Server, SQLite, iperf3, SSH.NET, QuestPDF, OpenSpeedTest™, Go (WAN speed test binary)
 
 ## Password Reset
 
