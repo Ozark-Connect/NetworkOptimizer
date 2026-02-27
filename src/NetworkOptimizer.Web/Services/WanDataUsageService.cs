@@ -498,22 +498,45 @@ public class WanDataUsageService : BackgroundService
     }
 
     /// <summary>
-    /// Marks data usage alert rules as enabled. Does NOT call SaveChangesAsync -
-    /// the caller is responsible for saving (allows atomic save with config changes).
+    /// Ensures data usage alert rules exist and are enabled. Creates them if deleted.
+    /// Does NOT call SaveChangesAsync - the caller is responsible for saving.
     /// </summary>
     private static async Task EnsureAlertRulesEnabledAsync(NetworkOptimizerDbContext db)
     {
-        var patterns = new[] { "wan.data_usage_warning", "wan.data_usage_exceeded" };
-        var rules = await db.Set<Alerts.Models.AlertRule>()
+        var expected = new (string Pattern, string Name, Core.Enums.AlertSeverity Severity)[]
+        {
+            ("wan.data_usage_warning", "WAN Data Usage: Warning", Core.Enums.AlertSeverity.Warning),
+            ("wan.data_usage_exceeded", "WAN Data Usage: Cap Exceeded", Core.Enums.AlertSeverity.Error)
+        };
+
+        var patterns = expected.Select(e => e.Pattern).ToArray();
+        var existing = await db.Set<Alerts.Models.AlertRule>()
             .Where(r => patterns.Contains(r.EventTypePattern))
             .ToListAsync();
 
-        foreach (var rule in rules)
+        foreach (var (pattern, name, severity) in expected)
         {
-            if (!rule.IsEnabled)
+            var rule = existing.FirstOrDefault(r => r.EventTypePattern == pattern);
+            if (rule != null)
             {
-                rule.IsEnabled = true;
-                rule.UpdatedAt = DateTime.UtcNow;
+                if (!rule.IsEnabled)
+                {
+                    rule.IsEnabled = true;
+                    rule.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+            else
+            {
+                // Rule was deleted - re-create it enabled
+                db.Set<Alerts.Models.AlertRule>().Add(new Alerts.Models.AlertRule
+                {
+                    Name = name,
+                    IsEnabled = true,
+                    EventTypePattern = pattern,
+                    Source = "wan",
+                    MinSeverity = severity,
+                    CooldownSeconds = 86400
+                });
             }
         }
     }
