@@ -126,6 +126,9 @@ public class WanDataUsageService : BackgroundService
 
         await db.SaveChangesAsync();
 
+        // Invalidate cached summaries so next GetCurrentUsageAsync recalculates from DB
+        _currentUsage = [];
+
         return existing ?? config;
     }
 
