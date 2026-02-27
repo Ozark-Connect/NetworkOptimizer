@@ -469,8 +469,8 @@
                     var isDirty = _dirtyConfigs.Contains(wanGroup);
 
                     <div class="schedule-section">
-                        <h2 class="schedule-section-title">
-                            @displayName <span style="color: var(--text-muted); font-weight: normal;">(@DisplayFormatters.NormalizeWanDisplay(wanGroup))</span>
+                        <h2 class="schedule-section-title" style="display: flex; align-items: center;">
+                            @displayName <span style="color: var(--text-muted); font-weight: normal; margin-left: 0.25rem;">(@DisplayFormatters.NormalizeWanDisplay(wanGroup))</span>
                             @if (_wanUpStatus.TryGetValue(wanGroup, out var isUp) && isUp)
                             {
                                 <span class="status-dot online" style="margin-left: 0.5rem;" data-tooltip="Connected"></span>
