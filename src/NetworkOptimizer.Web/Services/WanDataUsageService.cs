@@ -154,8 +154,8 @@ public class WanDataUsageService : BackgroundService
             return;
         }
 
-        // Get WAN byte counters from UniFi device data
-        var wanInterfaces = await GetWanInterfacesAsync(ct);
+        // Get WAN byte counters and gateway uptime from UniFi device data
+        var (wanInterfaces, uptimeSeconds) = await GetWanInterfacesAsync(ct);
         if (wanInterfaces == null)
             return;
 
@@ -194,12 +194,27 @@ public class WanDataUsageService : BackgroundService
                 var isReset = lastSnapshot != null &&
                     (wan.RxBytes < lastSnapshot.RxBytes || wan.TxBytes < lastSnapshot.TxBytes);
 
+                // First snapshot for this WAN: check if gateway booted within current billing cycle.
+                // If so, the raw byte counters represent all usage since boot = all usage this cycle.
+                var isBaseline = false;
+                if (lastSnapshot == null && uptimeSeconds > 0)
+                {
+                    var (blCycleStart, _) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+                    var bootTime = now.AddSeconds(-uptimeSeconds);
+                    isBaseline = bootTime >= blCycleStart;
+
+                    if (isBaseline)
+                        _logger.LogInformation("Using gateway uptime as baseline for {WanKey}: boot {BootTime:u}, cycle start {CycleStart:u}, {RxGb:F2} GB rx + {TxGb:F2} GB tx",
+                            config.WanKey, bootTime, blCycleStart, wan.RxBytes / 1_073_741_824.0, wan.TxBytes / 1_073_741_824.0);
+                }
+
                 db.WanDataUsageSnapshots.Add(new WanDataUsageSnapshot
                 {
                     WanKey = config.WanKey,
                     RxBytes = wan.RxBytes,
                     TxBytes = wan.TxBytes,
                     IsCounterReset = isReset,
+                    IsBaseline = isBaseline,
                     Timestamp = now
                 });
             }
@@ -246,23 +261,23 @@ public class WanDataUsageService : BackgroundService
         }
     }
 
-    private async Task<List<UniFi.Models.GatewayWanInterface>?> GetWanInterfacesAsync(CancellationToken ct)
+    private async Task<(List<UniFi.Models.GatewayWanInterface>? Interfaces, long UptimeSeconds)> GetWanInterfacesAsync(CancellationToken ct)
     {
         try
         {
             var client = _connectionService.Client;
-            if (client == null) return null;
+            if (client == null) return (null, 0);
 
             var devices = await client.GetDevicesAsync(ct);
             var gateway = devices?.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
-            if (gateway == null) return null;
+            if (gateway == null) return (null, 0);
 
-            return gateway.GetWanInterfaces();
+            return (gateway.GetWanInterfaces(), gateway.Uptime);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Could not fetch WAN interfaces for data usage tracking");
-            return null;
+            return (null, 0);
         }
     }
 
@@ -286,7 +301,7 @@ public class WanDataUsageService : BackgroundService
     public async Task<Dictionary<string, bool>> GetWanStatusAsync(CancellationToken ct = default)
     {
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        var interfaces = await GetWanInterfacesAsync(ct);
+        var (interfaces, _) = await GetWanInterfacesAsync(ct);
         if (interfaces == null) return result;
 
         foreach (var wan in interfaces)
@@ -333,10 +348,15 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public static long CalculateUsageFromSnapshots(List<WanDataUsageSnapshot> snapshots)
     {
-        if (snapshots.Count < 2)
+        if (snapshots.Count == 0)
             return 0;
 
         long totalBytes = 0;
+
+        // If the first snapshot is a baseline, its raw bytes represent all usage since
+        // gateway boot (which is within the billing cycle). Include them as starting usage.
+        if (snapshots[0].IsBaseline)
+            totalBytes = snapshots[0].RxBytes + snapshots[0].TxBytes;
 
         for (int i = 1; i < snapshots.Count; i++)
         {

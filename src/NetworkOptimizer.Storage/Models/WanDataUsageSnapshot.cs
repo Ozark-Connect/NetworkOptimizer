@@ -32,5 +32,11 @@ public class WanDataUsageSnapshot
     /// </summary>
     public bool IsCounterReset { get; set; }
 
+    /// <summary>
+    /// True if this is the first snapshot and the gateway booted within the current billing cycle,
+    /// meaning the raw byte counters represent all usage since boot (which is all within this cycle).
+    /// </summary>
+    public bool IsBaseline { get; set; }
+
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

@@ -190,6 +190,49 @@ public class WanDataUsageServiceTests
         result.Should().Be(oneGb * 2 + oneGb / 2);
     }
 
+    // ========== Baseline from Gateway Uptime ==========
+
+    [Fact]
+    public void CalculateUsageFromSnapshots_BaselineSnapshot_IncludesRawBytes()
+    {
+        var oneGb = 1024L * 1024 * 1024;
+        var snapshots = new List<WanDataUsageSnapshot>
+        {
+            new() { WanKey = "WAN3", RxBytes = oneGb * 2, TxBytes = oneGb, IsBaseline = true, Timestamp = DateTime.UtcNow.AddMinutes(-4) },
+            new() { WanKey = "WAN3", RxBytes = oneGb * 2 + 1000, TxBytes = oneGb + 500, Timestamp = DateTime.UtcNow }
+        };
+
+        var result = WanDataUsageService.CalculateUsageFromSnapshots(snapshots);
+        // Baseline: 2GB + 1GB = 3GB, plus delta: 1000 + 500 = 1500
+        result.Should().Be(oneGb * 3 + 1500);
+    }
+
+    [Fact]
+    public void CalculateUsageFromSnapshots_BaselineSingleSnapshot_ReturnsRawBytes()
+    {
+        var oneGb = 1024L * 1024 * 1024;
+        var snapshots = new List<WanDataUsageSnapshot>
+        {
+            new() { WanKey = "WAN3", RxBytes = oneGb * 2, TxBytes = oneGb, IsBaseline = true, Timestamp = DateTime.UtcNow }
+        };
+
+        var result = WanDataUsageService.CalculateUsageFromSnapshots(snapshots);
+        // Just the baseline bytes: 2GB + 1GB = 3GB
+        result.Should().Be(oneGb * 3);
+    }
+
+    [Fact]
+    public void CalculateUsageFromSnapshots_NonBaselineSingleSnapshot_ReturnsZero()
+    {
+        var snapshots = new List<WanDataUsageSnapshot>
+        {
+            new() { WanKey = "WAN3", RxBytes = 5000, TxBytes = 3000, Timestamp = DateTime.UtcNow }
+        };
+
+        var result = WanDataUsageService.CalculateUsageFromSnapshots(snapshots);
+        result.Should().Be(0);
+    }
+
     // ========== WAN Key to Network Group Mapping ==========
 
     [Theory]
