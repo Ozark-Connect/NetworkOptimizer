@@ -79,6 +79,62 @@ public class PerformanceAnalyzerTests
         result[0].DeviceName.Should().Be("Test Gateway");
     }
 
+    [Fact]
+    public void CheckHardwareAcceleration_Disabled_NetFlowEnabled_Suppressed()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            CreateGateway(hardwareOffload: false)
+        };
+        var settings = CreateSettingsWithNetFlow(netflowEnabled: true);
+
+        var result = _analyzer.CheckHardwareAcceleration(devices, settings);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckHardwareAcceleration_Disabled_NetFlowDisabled_ReturnsIssue()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            CreateGateway(hardwareOffload: false)
+        };
+        var settings = CreateSettingsWithNetFlow(netflowEnabled: false);
+
+        var result = _analyzer.CheckHardwareAcceleration(devices, settings);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Be("Hardware Acceleration Disabled");
+    }
+
+    [Fact]
+    public void IsNetFlowEnabled_Enabled_ReturnsTrue()
+    {
+        var settings = CreateSettingsWithNetFlow(netflowEnabled: true);
+        PerformanceAnalyzer.IsNetFlowEnabled(settings).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNetFlowEnabled_Disabled_ReturnsFalse()
+    {
+        var settings = CreateSettingsWithNetFlow(netflowEnabled: false);
+        PerformanceAnalyzer.IsNetFlowEnabled(settings).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNetFlowEnabled_NoSettings_ReturnsFalse()
+    {
+        PerformanceAnalyzer.IsNetFlowEnabled(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNetFlowEnabled_NoNetFlowKey_ReturnsFalse()
+    {
+        var settings = CreateSettings(); // has global_switch but no netflow
+        PerformanceAnalyzer.IsNetFlowEnabled(settings).Should().BeFalse();
+    }
+
     #endregion
 
     #region Jumbo Frames
@@ -1199,6 +1255,27 @@ public class PerformanceAnalyzerTests
         return JsonDocument.Parse(JsonSerializer.Serialize(new
         {
             data = new object[] { globalSwitch }
+        }));
+    }
+
+    private static JsonDocument CreateSettingsWithNetFlow(bool netflowEnabled)
+    {
+        var globalSwitch = new Dictionary<string, object>
+        {
+            ["key"] = "global_switch",
+            ["jumboframe_enabled"] = false,
+            ["flowctrl_enabled"] = false
+        };
+
+        var netflow = new Dictionary<string, object>
+        {
+            ["key"] = "netflow",
+            ["enabled"] = netflowEnabled
+        };
+
+        return JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            data = new object[] { globalSwitch, netflow }
         }));
     }
 

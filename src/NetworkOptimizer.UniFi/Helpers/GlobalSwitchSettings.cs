@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.UniFi.Helpers;
@@ -8,6 +9,7 @@ namespace NetworkOptimizer.UniFi.Helpers;
 /// Devices listed in switch_exclusions use their own device-level settings;
 /// all other devices inherit from the global values.
 /// </summary>
+[VendorSpecific("UniFi", "Parses UniFi settings JSON 'data' array with 'key' discriminator (global_switch)")]
 public class GlobalSwitchSettings
 {
     public bool JumboFramesEnabled { get; init; }
