@@ -560,6 +560,14 @@
                                             </span>
                                         </div>
                                     }
+
+                                    @if (capGb > 0)
+                                    {
+                                        <p style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.75rem;">
+                                            Alert rules for warning (@(warningPct)%) and cap exceeded are managed automatically.
+                                            <a href="/alerts?tab=rules" style="color: var(--primary-color);">View in Rules</a>
+                                        </p>
+                                    }
                                 }
                             </div>
                         </div>
