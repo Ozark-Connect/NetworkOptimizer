@@ -774,6 +774,16 @@ public class DisplayFormattersTests
     [InlineData(22, "22nd")]
     [InlineData(23, "23rd")]
     [InlineData(28, "28th")]
+    [InlineData(0, "0th")]
+    [InlineData(100, "100th")]
+    [InlineData(101, "101st")]
+    [InlineData(111, "111th")]
+    [InlineData(112, "112th")]
+    [InlineData(113, "113th")]
+    [InlineData(121, "121st")]
+    [InlineData(-1, "-1st")]
+    [InlineData(-11, "-11th")]
+    [InlineData(-21, "-21st")]
     public void FormatOrdinal_ReturnsCorrectSuffix(int number, string expected)
     {
         DisplayFormatters.FormatOrdinal(number).Should().Be(expected);

@@ -541,12 +541,13 @@ public static class DisplayFormatters
     /// </summary>
     public static string FormatOrdinal(int number)
     {
-        // 11, 12, 13 are special cases (not 11st, 12nd, 13th)
-        var lastTwoDigits = number % 100;
+        // Use Math.Abs for modulo so negative numbers work correctly (-11th not -11st)
+        var abs = Math.Abs(number);
+        var lastTwoDigits = abs % 100;
         if (lastTwoDigits is >= 11 and <= 13)
             return $"{number}th";
 
-        return (number % 10) switch
+        return (abs % 10) switch
         {
             1 => $"{number}st",
             2 => $"{number}nd",
