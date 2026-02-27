@@ -534,7 +534,7 @@
                                                    @oninput="() => _dirtyConfigs.Add(wanGroup)"
                                                    @onchange="e => EditDataUsageConfig(wanGroup, warningPct: int.TryParse(e.Value?.ToString(), out var v) ? v : 80)" />
                                         </div>
-                                        <div class="form-group schedule-field">
+                                        <div class="form-group schedule-field schedule-field-compact" style="max-width: 180px;">
                                             <label>Usage Resets On <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The day of the month your ISP resets your data usage to zero. Check your carrier account for the renewal or due date.">?</span></label>
                                             <select class="form-control" value="@billingDay"
                                                     @onchange="e => EditDataUsageConfig(wanGroup, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
