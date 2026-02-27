@@ -434,7 +434,7 @@
                 {
                     <div class="empty-state">
                         <h3>No Devices Available</h3>
-                        <p>Connect to your UniFi controller or add devices on the LAN Speed Test page.</p>
+                        <p>Connect to your UniFi Console or add devices on the LAN Speed Test page.</p>
                         <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
                     </div>
                 }
@@ -449,7 +449,7 @@
                 <div class="empty-state">
                     <span class="empty-icon">&#128202;</span>
                     <h3>No WAN Interfaces Found</h3>
-                    <p>Connect to your UniFi controller to detect WAN interfaces for data usage tracking.</p>
+                    <p>Connect to your UniFi Console to detect WAN interfaces for data usage tracking.</p>
                 </div>
             }
             else
@@ -467,8 +467,8 @@
 
                     <div class="schedule-section">
                         <h2 class="schedule-section-title">
-                            @displayName
-                            @if (summary?.IsUp == true)
+                            @displayName <span style="color: var(--text-muted); font-weight: normal;">(@wanGroup)</span>
+                            @if (_wanUpStatus.TryGetValue(wanGroup, out var isUp) && isUp)
                             {
                                 <span class="status-dot online" style="margin-left: 0.5rem;" data-tooltip="Connected"></span>
                             }
@@ -1474,6 +1474,7 @@
     private List<WanUsageSummary> _wanUsageSummaries = [];
     private Dictionary<string, WanDataUsageConfig> _dataUsageConfigs = new();
     private List<NetworkOptimizer.UniFi.NetworkInfo> _dataUsageWanNetworks = [];
+    private Dictionary<string, bool> _wanUpStatus = new(StringComparer.OrdinalIgnoreCase);
     private bool _dataUsageLoaded;
 
     // Auto-refresh
@@ -1507,6 +1508,7 @@
         {
             switch (_activeTab)
             {
+                case "data-usage": await LoadDataUsageAsync(); break;
                 case "active": await LoadActiveAlerts(); break;
                 case "history": await LoadHistory(); break;
                 case "rules": await LoadRules(); break;
@@ -2416,7 +2418,7 @@
     {
         try
         {
-            // Load WAN networks from controller (same source as WAN Speed Test dropdowns)
+            // Load WAN networks from console (same source as WAN Speed Test dropdowns)
             if (!_dataUsageLoaded)
             {
                 try
@@ -2430,6 +2432,9 @@
                 }
                 _dataUsageLoaded = true;
             }
+
+            // Load live WAN up/down status from device API
+            _wanUpStatus = await DataUsageService.GetWanStatusAsync();
 
             // Load configs (keyed by WanNetworkgroup e.g., "WAN", "WAN2")
             var configs = await DataUsageService.GetAllConfigsAsync();

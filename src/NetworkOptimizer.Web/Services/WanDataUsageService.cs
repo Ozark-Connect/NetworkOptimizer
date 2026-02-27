@@ -281,6 +281,23 @@ public class WanDataUsageService : BackgroundService
     }
 
     /// <summary>
+    /// Returns live WAN interface up/down status keyed by network group (e.g., "WAN", "WAN2").
+    /// </summary>
+    public async Task<Dictionary<string, bool>> GetWanStatusAsync(CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var interfaces = await GetWanInterfacesAsync(ct);
+        if (interfaces == null) return result;
+
+        foreach (var wan in interfaces)
+        {
+            var ng = WanKeyToNetworkGroup(wan.Key);
+            result[ng] = wan.Up;
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Converts a device-level WAN key (e.g., "wan1", "wan2") to a network group (e.g., "WAN", "WAN2").
     /// This is the UniFi convention used to correlate device data with network configs.
     /// </summary>
