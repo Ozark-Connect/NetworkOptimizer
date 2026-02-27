@@ -557,4 +557,15 @@ public static class DisplayFormatters
     }
 
     #endregion
+
+    #region WAN Display
+
+    /// <summary>
+    /// Normalizes a WAN network group for display: "WAN" becomes "WAN1" for consistency.
+    /// "WAN2", "WAN3" etc. are returned unchanged.
+    /// </summary>
+    public static string NormalizeWanDisplay(string value)
+        => string.Equals(value, "WAN", StringComparison.OrdinalIgnoreCase) ? "WAN1" : value;
+
+    #endregion
 }

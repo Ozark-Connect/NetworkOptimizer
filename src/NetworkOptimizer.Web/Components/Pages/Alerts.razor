@@ -467,7 +467,7 @@
 
                     <div class="schedule-section">
                         <h2 class="schedule-section-title">
-                            @displayName <span style="color: var(--text-muted); font-weight: normal;">(@wanGroup)</span>
+                            @displayName <span style="color: var(--text-muted); font-weight: normal;">(@DisplayFormatters.NormalizeWanDisplay(wanGroup))</span>
                             @if (_wanUpStatus.TryGetValue(wanGroup, out var isUp) && isUp)
                             {
                                 <span class="status-dot online" style="margin-left: 0.5rem;" data-tooltip="Connected"></span>

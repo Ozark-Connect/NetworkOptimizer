@@ -790,4 +790,18 @@ public class DisplayFormattersTests
     }
 
     #endregion
+
+    #region NormalizeWanDisplay Tests
+
+    [Theory]
+    [InlineData("WAN", "WAN1")]
+    [InlineData("wan", "WAN1")]
+    [InlineData("WAN2", "WAN2")]
+    [InlineData("WAN3", "WAN3")]
+    public void NormalizeWanDisplay_NormalizesCorrectly(string input, string expected)
+    {
+        DisplayFormatters.NormalizeWanDisplay(input).Should().Be(expected);
+    }
+
+    #endregion
 }
