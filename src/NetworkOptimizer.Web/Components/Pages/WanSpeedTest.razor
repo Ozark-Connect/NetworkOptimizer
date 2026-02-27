@@ -8,6 +8,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.UniFi
+@using NetworkOptimizer.Core.Helpers
 @inject UwnSpeedTestService WanSpeedTestService
 @inject GatewayWanSpeedTestService GatewayWanTestService
 @inject SqmService SqmService
@@ -598,7 +599,7 @@
                     _availableWans = wanNetworks
                         .Select(n => new WanOption(
                             n.WanNetworkgroup ?? "WAN",
-                            !string.IsNullOrEmpty(n.Name) ? n.Name : NormalizeWanDisplay(n.WanNetworkgroup ?? "WAN")))
+                            !string.IsNullOrEmpty(n.Name) ? n.Name : DisplayFormatters.NormalizeWanDisplay(n.WanNetworkgroup ?? "WAN")))
                         .ToList();
 
                     // Load WAN interfaces with physical names for gateway test
@@ -1065,11 +1066,7 @@
         return name != null ? $"{group}|{name}" : group;
     }
 
-    private static string NormalizeWanDisplay(string value)
-    {
-        // "WAN" -> "WAN1" for display consistency
-        return string.Equals(value, "WAN", StringComparison.OrdinalIgnoreCase) ? "WAN1" : value;
-    }
+
 
     private static string GetWanDisplayName(Iperf3Result result)
     {
@@ -1080,7 +1077,7 @@
             return result.WanName;
         }
         if (!string.IsNullOrEmpty(result.WanNetworkGroup))
-            return NormalizeWanDisplay(result.WanNetworkGroup);
+            return DisplayFormatters.NormalizeWanDisplay(result.WanNetworkGroup);
         return "WAN1";
     }
 
@@ -1092,7 +1089,7 @@
         // Legacy ALL_WAN
         if (string.Equals(key, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
             return "All WAN Links";
-        return NormalizeWanDisplay(key);
+        return DisplayFormatters.NormalizeWanDisplay(key);
     }
 
     private static string TruncateServerList(string? serverList, int max = 4)

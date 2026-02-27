@@ -270,6 +270,10 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IScheduleRepositor
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.ScheduleService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>());
 
+// Register WAN Data Usage tracking service (singleton - polls WAN counters, calculates billing cycle usage)
+builder.Services.AddSingleton<WanDataUsageService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WanDataUsageService>());
+
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredService<SystemSettingsService>());

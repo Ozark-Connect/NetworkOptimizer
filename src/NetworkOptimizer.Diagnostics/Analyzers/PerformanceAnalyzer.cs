@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Diagnostics.Models;
 using NetworkOptimizer.UniFi.Helpers;
@@ -48,7 +49,7 @@ public class PerformanceAnalyzer
 
         if (runPerformanceChecks)
         {
-            issues.AddRange(CheckHardwareAcceleration(devices));
+            issues.AddRange(CheckHardwareAcceleration(devices, settingsData));
             issues.AddRange(CheckJumboFrames(devices, settingsData));
             issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData));
         }
@@ -63,8 +64,11 @@ public class PerformanceAnalyzer
 
     /// <summary>
     /// Check if Hardware Acceleration (packet offload) is enabled on the gateway.
+    /// Suppressed when NetFlow is enabled, since NetFlow requires CPU-based packet inspection.
     /// </summary>
-    internal List<PerformanceIssue> CheckHardwareAcceleration(List<UniFiDeviceResponse> devices)
+    [VendorSpecific("UniFi", "Reads gateway.HardwareOffload from UniFi device response")]
+    internal List<PerformanceIssue> CheckHardwareAcceleration(
+        List<UniFiDeviceResponse> devices, JsonDocument? settingsData = null)
     {
         var issues = new List<PerformanceIssue>();
 
@@ -77,6 +81,12 @@ public class PerformanceAnalyzer
 
         if (gateway.HardwareOffload == false)
         {
+            if (IsNetFlowEnabled(settingsData))
+            {
+                _logger?.LogDebug("Hardware Acceleration disabled but NetFlow is enabled - suppressing recommendation");
+                return issues;
+            }
+
             issues.Add(new PerformanceIssue
             {
                 Title = "Hardware Acceleration Disabled",
@@ -95,10 +105,36 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
+    /// Check if NetFlow is enabled in the controller settings.
+    /// </summary>
+    [VendorSpecific("UniFi", "Parses UniFi settings JSON 'data' array with 'key' discriminator (netflow)")]
+    internal static bool IsNetFlowEnabled(JsonDocument? settingsData)
+    {
+        if (settingsData == null)
+            return false;
+
+        if (!settingsData.RootElement.TryGetProperty("data", out var data) ||
+            data.ValueKind != JsonValueKind.Array)
+            return false;
+
+        foreach (var item in data.EnumerateArray())
+        {
+            if (!item.TryGetProperty("key", out var key) || key.GetString() != "netflow")
+                continue;
+
+            return item.TryGetProperty("enabled", out var enabled) &&
+                   enabled.ValueKind == JsonValueKind.True;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Check Jumbo Frames configuration using exclusion-aware global switch settings.
     /// Three scenarios: global off (suggest enabling), global on with excluded device off (mismatch),
     /// global off but all excluded devices on (suggest using global).
     /// </summary>
+    [VendorSpecific("UniFi", "Uses GlobalSwitchSettings parsed from UniFi settings JSON")]
     internal List<PerformanceIssue> CheckJumboFrames(
         List<UniFiDeviceResponse> devices,
         JsonDocument? settingsData)
@@ -219,6 +255,7 @@ public class PerformanceAnalyzer
     /// Three scenarios: global off (suggest enabling), global on with excluded device off (mismatch),
     /// global off but all excluded devices on (suggest using global).
     /// </summary>
+    [VendorSpecific("UniFi", "Uses GlobalSwitchSettings parsed from UniFi settings JSON")]
     internal List<PerformanceIssue> CheckFlowControl(
         List<UniFiDeviceResponse> devices,
         List<UniFiNetworkConfig> networks,
@@ -385,6 +422,7 @@ public class PerformanceAnalyzer
     /// <summary>
     /// Check if cellular WAN is present and QoS rules cover bandwidth-heavy app categories.
     /// </summary>
+    [VendorSpecific("UniFi", "Reads UniFi WAN interfaces, modem mbb_overrides, and QoS rule JSON")]
     internal List<PerformanceIssue> CheckCellularQos(
         List<UniFiDeviceResponse> devices,
         JsonDocument? qosRulesData,

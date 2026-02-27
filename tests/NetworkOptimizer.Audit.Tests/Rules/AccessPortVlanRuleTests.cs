@@ -776,6 +776,217 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
+    #region 802.1X / RADIUS Dynamic VLAN Assignment
+
+    [Fact]
+    public void Evaluate_Dot1x_MacBased_CustomVlanSet_ReturnsNull()
+    {
+        // 802.1X mac_based with curated VLAN list - trust admin intent
+        var networks = CreateVlanNetworks(5);
+        var excludeSome = networks.Skip(3).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeSome, dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("802.1X mac_based with custom VLAN set should be trusted");
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_Auto_CustomVlanSet_ReturnsNull()
+    {
+        // 802.1X auto with curated VLAN list - trust admin intent
+        var networks = CreateVlanNetworks(5);
+        var excludeSome = networks.Skip(3).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeSome, dot1xCtrl: "auto");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("802.1X auto with custom VLAN set should be trusted");
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_MacBased_AllowAll_ReturnsInformational()
+    {
+        // 802.1X mac_based with Allow All - downgrade to Informational
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("802.1X with Allow All should still flag");
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(2);
+        result.Message.Should().Contain("802.1X");
+        result.Metadata!["is_dot1x_secured"].Should().Be(true);
+        result.Metadata["allows_all_vlans"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_Auto_AllowAll_ReturnsInformational()
+    {
+        // 802.1X auto with Allow All - downgrade to Informational
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "auto");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("802.1X with Allow All should still flag");
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(2);
+        result.Metadata!["is_dot1x_secured"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_ForceAuthorized_NormalRuleApplies()
+    {
+        // force_authorized is not IsDot1xSecured - normal rule applies
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "force_authorized");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("force_authorized is not 802.1X secured");
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(6);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_Null_NormalRuleApplies()
+    {
+        // null Dot1xCtrl - normal rule applies (same as default)
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("null Dot1xCtrl means no 802.1X - normal rule");
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(6);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_NoConnectedClient_AllowAll_ReturnsInformational()
+    {
+        // 802.1X trunk port with no connected client - should still trigger 802.1X path
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPort(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("802.1X with Allow All should flag even without connected client");
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(2);
+        result.Metadata!["is_dot1x_secured"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_NoConnectedClient_CustomVlanSet_ReturnsNull()
+    {
+        // 802.1X trunk port, no client, curated VLAN list - trust admin
+        var networks = CreateVlanNetworks(5);
+        var excludeSome = networks.Skip(3).Select(n => n.Id).ToList();
+        var port = CreateTrunkPort(excludedNetworkIds: excludeSome, dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("802.1X with custom VLAN set should be trusted even without client");
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_PortDown_AllowAll_ReturnsInformational()
+    {
+        // Down 802.1X port with Allow All - rule doesn't gate on IsUp, so should still flag
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+        // CreateTrunkPortWithClient sets IsUp=true, but the rule doesn't check IsUp for 802.1X path.
+        // For a down port we need to use CreateTrunkPort (no client) since down ports typically have no client.
+        var downPort = CreateTrunkPort(excludedNetworkIds: null, dot1xCtrl: "auto");
+
+        var result = _rule.Evaluate(downPort, networks);
+
+        result.Should().NotBeNull("down 802.1X port with Allow All should still flag");
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(2);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_ZeroNetworks_ReturnsNull()
+    {
+        // 802.1X port with no networks at all - nothing to evaluate
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+        var networks = new List<NetworkInfo>();
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("no networks means nothing to evaluate, even with 802.1X");
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_EmptyExcludedList_ReturnsInformational()
+    {
+        // Empty excluded list is also "Allow All" (same as null) - should trigger 802.1X path
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(
+            excludedNetworkIds: new List<string>(), dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("empty excluded list means Allow All on 802.1X port");
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(2);
+        result.Metadata!["allows_all_vlans"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_AllNetworksParameter_UsesAllNetworks()
+    {
+        // When allNetworks is explicitly passed, 802.1X path should use it for VLAN counting
+        var enabledNetworks = CreateVlanNetworks(2);
+        var allNetworks = CreateVlanNetworks(8); // More networks including disabled ones
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, enabledNetworks, allNetworks);
+
+        result.Should().NotBeNull("802.1X with Allow All should flag using allNetworks count");
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.Metadata!["tagged_vlan_count"].Should().Be(8,
+            "should count VLANs from allNetworks, not just enabled networks");
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_AllNetworksParameter_CustomVlanSet_ReturnsNull()
+    {
+        // 802.1X with custom VLAN set should use allNetworks for determining if "Allow All"
+        var enabledNetworks = CreateVlanNetworks(2);
+        var allNetworks = CreateVlanNetworks(8);
+        var excludeSome = allNetworks.Skip(4).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeSome, dot1xCtrl: "auto");
+
+        var result = _rule.Evaluate(port, enabledNetworks, allNetworks);
+
+        result.Should().BeNull("802.1X with custom VLAN set should be trusted even with allNetworks");
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_ServerDevice_AllowAll_ReturnsInformational()
+    {
+        // 802.1X takes priority over server detection - should return Informational, not Recommended
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithServerClient("proxmox-host",
+            excludedNetworkIds: null, dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("802.1X with Allow All should flag even on server");
+        result!.Severity.Should().Be(AuditSeverity.Informational,
+            "802.1X path should take priority over server detection");
+        result.ScoreImpact.Should().Be(2);
+        result.Message.Should().Contain("802.1X");
+        result.Metadata!["is_dot1x_secured"].Should().Be(true);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static List<NetworkInfo> CreateVlanNetworks(int count)
@@ -832,7 +1043,8 @@ public class AccessPortVlanRuleTests
     /// </summary>
     private static PortInfo CreateTrunkPort(
         List<string>? excludedNetworkIds = null,
-        string forwardMode = "custom")
+        string forwardMode = "custom",
+        string? dot1xCtrl = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -854,6 +1066,7 @@ public class AccessPortVlanRuleTests
             ConnectedClient = null,
             LastConnectionMac = null,
             AllowedMacAddresses = null,
+            Dot1xCtrl = dot1xCtrl,
             Switch = switchInfo
         };
     }
@@ -870,7 +1083,8 @@ public class AccessPortVlanRuleTests
         string switchName = "Test Switch",
         string? nativeNetworkId = null,
         string? connectedDeviceType = null,
-        string forwardMode = "custom")
+        string forwardMode = "custom",
+        string? dot1xCtrl = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -889,6 +1103,7 @@ public class AccessPortVlanRuleTests
             NativeNetworkId = nativeNetworkId,
             ExcludedNetworkIds = excludedNetworkIds,
             ConnectedDeviceType = connectedDeviceType,
+            Dot1xCtrl = dot1xCtrl,
             ConnectedClient = new UniFiClientResponse
             {
                 Mac = "aa:bb:cc:dd:ee:ff",
@@ -962,7 +1177,8 @@ public class AccessPortVlanRuleTests
     /// </summary>
     private static PortInfo CreateTrunkPortWithServerClient(
         string hostname,
-        List<string>? excludedNetworkIds = null)
+        List<string>? excludedNetworkIds = null,
+        string? dot1xCtrl = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -980,6 +1196,7 @@ public class AccessPortVlanRuleTests
             IsWan = false,
             ExcludedNetworkIds = excludedNetworkIds,
             ConnectedDeviceType = null,
+            Dot1xCtrl = dot1xCtrl,
             ConnectedClient = new UniFiClientResponse
             {
                 Mac = "aa:bb:cc:dd:ee:ff",
