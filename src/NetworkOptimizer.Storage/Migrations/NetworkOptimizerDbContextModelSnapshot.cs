@@ -1814,6 +1814,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 
+                    b.Property<double>("ManualAdjustmentGb")
+                        .HasColumnType("REAL");
+
                     b.Property<double>("DataCapGb")
                         .HasColumnType("REAL");
 

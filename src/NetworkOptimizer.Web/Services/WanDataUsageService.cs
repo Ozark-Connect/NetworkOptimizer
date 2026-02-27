@@ -222,7 +222,7 @@ public class WanDataUsageService : BackgroundService
             // Calculate billing cycle usage
             var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
             var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, ct);
-            var usedGb = usedBytes / (1024.0 * 1024.0 * 1024.0);
+            var usedGb = usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb;
 
             var summary = new WanUsageSummary
             {

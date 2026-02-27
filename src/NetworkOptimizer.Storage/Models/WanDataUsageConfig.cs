@@ -42,6 +42,14 @@ public class WanDataUsageConfig
     /// </summary>
     public int BillingCycleDayOfMonth { get; set; } = 1;
 
+    /// <summary>
+    /// Manual usage adjustment in GB. Added to the calculated usage from snapshots.
+    /// Allows users to set a starting point when enabling tracking mid-cycle,
+    /// or to correct the calculated total if it's off.
+    /// Resets to 0 when a new billing cycle starts.
+    /// </summary>
+    public double ManualAdjustmentGb { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

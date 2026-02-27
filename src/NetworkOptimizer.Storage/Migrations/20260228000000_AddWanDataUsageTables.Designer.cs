@@ -1823,6 +1823,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double>("DataCapGb")
                         .HasColumnType("REAL");
 
+                    b.Property<double>("ManualAdjustmentGb")
+                        .HasColumnType("REAL");
+
                     b.Property<int>("WarningThresholdPercent")
                         .HasColumnType("INTEGER");
 
@@ -1861,6 +1864,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsCounterReset")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsBaseline")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("Timestamp")

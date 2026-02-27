@@ -464,6 +464,9 @@
                     var warningPct = config?.WarningThresholdPercent ?? 80;
                     var billingDay = config?.BillingCycleDayOfMonth ?? 1;
                     var displayName = config?.Name ?? wan.Name;
+                    var manualAdj = config?.ManualAdjustmentGb ?? 0;
+                    var isAdjustmentUnlocked = _unlockedAdjustmentWans.Contains(wanGroup);
+                    var isDirty = _dirtyConfigs.Contains(wanGroup);
 
                     <div class="schedule-section">
                         <h2 class="schedule-section-title">
@@ -521,35 +524,66 @@
                                         <div class="form-group schedule-field">
                                             <label>Display Name</label>
                                             <input type="text" class="form-control" value="@displayName"
-                                                   @onchange="e => UpdateDataUsageConfig(wanGroup, name: e.Value?.ToString())" />
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, name: e.Value?.ToString())" />
                                         </div>
                                         <div class="form-group schedule-field">
                                             <label>Data Cap (GB)</label>
                                             <input type="number" class="form-control" value="@capGb" min="0" step="1"
-                                                   @onchange="e => UpdateDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)"
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)"
                                                    data-tooltip="0 = tracking only, no cap alerts" />
                                         </div>
                                         <div class="form-group schedule-field">
                                             <label>Warning at (%)</label>
                                             <input type="number" class="form-control" value="@warningPct" min="1" max="100"
-                                                   @onchange="e => UpdateDataUsageConfig(wanGroup, warningPct: int.TryParse(e.Value?.ToString(), out var v) ? v : 80)" />
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, warningPct: int.TryParse(e.Value?.ToString(), out var v) ? v : 80)" />
                                         </div>
                                         <div class="form-group schedule-field">
                                             <label>Billing Cycle Day</label>
                                             <select class="form-control" value="@billingDay"
-                                                    @onchange="e => UpdateDataUsageConfig(wanGroup, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
+                                                    @onchange="e => EditDataUsageConfig(wanGroup, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
                                                 @for (var d = 1; d <= 28; d++)
                                                 {
                                                     <option value="@d">@(DisplayFormatters.FormatOrdinal(d)) of month</option>
                                                 }
                                             </select>
                                         </div>
+                                        <div class="form-group schedule-field">
+                                            <label>
+                                                Usage Adjustment (GB)
+                                                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Add known usage from before tracking started, or correct the total if it's off. Resets each billing cycle.">?</span>
+                                            </label>
+                                            @if (isAdjustmentUnlocked)
+                                            {
+                                                <div style="display: flex; gap: 0.25rem; align-items: center;">
+                                                    <input type="number" class="form-control" value="@manualAdj" min="0" step="0.1"
+                                                           @onchange="e => EditDataUsageConfig(wanGroup, manualAdj: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)" />
+                                                    <button class="btn btn-sm btn-secondary" style="padding: 0.25rem 0.5rem; white-space: nowrap;"
+                                                            @onclick="() => _unlockedAdjustmentWans.Remove(wanGroup)">Lock</button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div style="display: flex; gap: 0.25rem; align-items: center;">
+                                                    <span class="detail-value" style="flex: 1;">@($"{manualAdj:F1}") GB</span>
+                                                    <button class="btn btn-sm btn-outline-primary" style="padding: 0.25rem 0.5rem; white-space: nowrap;"
+                                                            @onclick="() => _unlockedAdjustmentWans.Add(wanGroup)">Edit</button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    @* Save button *@
+                                    <div style="margin-top: 0.75rem;">
+                                        <button class="btn btn-primary btn-sm" disabled="@(!isDirty)"
+                                                @onclick="() => SaveDataUsageConfig(wanGroup)">
+                                            @(isDirty ? "Save Changes" : "Saved")
+                                        </button>
                                     </div>
 
                                     @* Billing cycle status *@
                                     @if (summary != null)
                                     {
-                                        <div class="schedule-status">
+                                        <div class="schedule-status" style="margin-top: 0.75rem;">
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Billing cycle:</span>
                                                 <span class="detail-value">@summary.BillingCycleStart.ToString("MMM d") - @summary.BillingCycleEnd.ToString("MMM d")</span>
@@ -1483,6 +1517,8 @@
     private Dictionary<string, WanDataUsageConfig> _dataUsageConfigs = new();
     private List<NetworkOptimizer.UniFi.NetworkInfo> _dataUsageWanNetworks = [];
     private Dictionary<string, bool> _wanUpStatus = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _unlockedAdjustmentWans = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _dirtyConfigs = new(StringComparer.OrdinalIgnoreCase);
     private bool _dataUsageLoaded;
 
     // Auto-refresh
@@ -2488,25 +2524,36 @@
         }
     }
 
-    private async Task UpdateDataUsageConfig(string wanKey, string? name = null,
-        double? capGb = null, int? warningPct = null, int? billingDay = null)
+    private void EditDataUsageConfig(string wanKey, string? name = null,
+        double? capGb = null, int? warningPct = null, int? billingDay = null, double? manualAdj = null)
+    {
+        if (!_dataUsageConfigs.TryGetValue(wanKey, out var config))
+            return;
+
+        if (name != null) config.Name = name;
+        if (capGb.HasValue) config.DataCapGb = capGb.Value;
+        if (warningPct.HasValue) config.WarningThresholdPercent = warningPct.Value;
+        if (billingDay.HasValue) config.BillingCycleDayOfMonth = billingDay.Value;
+        if (manualAdj.HasValue) config.ManualAdjustmentGb = manualAdj.Value;
+
+        _dirtyConfigs.Add(wanKey);
+    }
+
+    private async Task SaveDataUsageConfig(string wanKey)
     {
         try
         {
             if (!_dataUsageConfigs.TryGetValue(wanKey, out var config))
                 return;
 
-            if (name != null) config.Name = name;
-            if (capGb.HasValue) config.DataCapGb = capGb.Value;
-            if (warningPct.HasValue) config.WarningThresholdPercent = warningPct.Value;
-            if (billingDay.HasValue) config.BillingCycleDayOfMonth = billingDay.Value;
-
             await DataUsageService.SaveConfigAsync(config);
+            _dirtyConfigs.Remove(wanKey);
+            _unlockedAdjustmentWans.Remove(wanKey);
             await LoadDataUsageAsync();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error updating data usage config for {WanKey}", wanKey);
+            Logger.LogError(ex, "Error saving data usage config for {WanKey}", wanKey);
         }
     }
 

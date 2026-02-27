@@ -21,6 +21,7 @@ namespace NetworkOptimizer.Storage.Migrations
                     Name = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
                     Enabled = table.Column<bool>(type: "INTEGER", nullable: false),
                     DataCapGb = table.Column<double>(type: "REAL", nullable: false),
+                    ManualAdjustmentGb = table.Column<double>(type: "REAL", nullable: false),
                     WarningThresholdPercent = table.Column<int>(type: "INTEGER", nullable: false),
                     BillingCycleDayOfMonth = table.Column<int>(type: "INTEGER", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
@@ -41,6 +42,7 @@ namespace NetworkOptimizer.Storage.Migrations
                     RxBytes = table.Column<long>(type: "INTEGER", nullable: false),
                     TxBytes = table.Column<long>(type: "INTEGER", nullable: false),
                     IsCounterReset = table.Column<bool>(type: "INTEGER", nullable: false),
+                    IsBaseline = table.Column<bool>(type: "INTEGER", nullable: false),
                     Timestamp = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
