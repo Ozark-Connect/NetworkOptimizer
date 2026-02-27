@@ -2509,6 +2509,15 @@
             }
 
             await DataUsageService.SaveConfigAsync(config);
+
+            if (enabled)
+            {
+                // Trigger immediate poll to get initial usage data
+                await DataUsageService.TriggerPollAsync();
+                // Show Save button so user can configure cap/billing day
+                _dirtyConfigs.Add(wanKey);
+            }
+
             await LoadDataUsageAsync();
         }
         catch (Exception ex)

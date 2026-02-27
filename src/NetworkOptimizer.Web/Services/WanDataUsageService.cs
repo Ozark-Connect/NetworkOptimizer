@@ -153,6 +153,21 @@ public class WanDataUsageService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Triggers an immediate poll cycle. Used after enabling tracking to get initial data.
+    /// </summary>
+    public async Task TriggerPollAsync()
+    {
+        try
+        {
+            await PollAndRecordAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in triggered poll cycle");
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Wait for app startup
