@@ -80,11 +80,11 @@ public class WanDataUsageService : BackgroundService
             db.WanDataUsageConfigs.Add(config);
         }
 
-        await db.SaveChangesAsync();
-
-        // Auto-enable alert rules when first config is saved
+        // Auto-enable alert rules in the same save so config + rules are atomic
         if (config.Enabled)
             await EnsureAlertRulesEnabledAsync(db);
+
+        await db.SaveChangesAsync();
 
         return existing ?? config;
     }
@@ -154,17 +154,34 @@ public class WanDataUsageService : BackgroundService
             return;
         }
 
-        // Get WAN byte counters from UniFi
+        // Get WAN byte counters from UniFi device data
         var wanInterfaces = await GetWanInterfacesAsync(ct);
         if (wanInterfaces == null)
             return;
+
+        // Build networkgroup-to-byte-counter lookup
+        // WAN keys are "wan1","wan2",... and networkgroups are "WAN","WAN2",...
+        var byteCounterByGroup = new Dictionary<string, UniFi.Models.GatewayWanInterface>(StringComparer.OrdinalIgnoreCase);
+        foreach (var wan in wanInterfaces)
+        {
+            var ng = WanKeyToNetworkGroup(wan.Key);
+            byteCounterByGroup[ng] = wan;
+        }
+
+        // Get WAN network info for status (up/down, type)
+        var wanNetworks = await GetWanNetworksAsync(ct);
+        var networkInfoByGroup = wanNetworks
+            .Where(n => !string.IsNullOrEmpty(n.WanNetworkgroup))
+            .ToDictionary(n => n.WanNetworkgroup!, StringComparer.OrdinalIgnoreCase);
 
         var now = DateTime.UtcNow;
         var summaries = new List<WanUsageSummary>();
 
         foreach (var config in configs)
         {
-            var wan = wanInterfaces.FirstOrDefault(w => w.Key == config.WanKey);
+            // Config.WanKey stores the networkgroup (e.g., "WAN", "WAN2")
+            byteCounterByGroup.TryGetValue(config.WanKey, out var wan);
+            networkInfoByGroup.TryGetValue(config.WanKey, out var networkInfo);
 
             // Store snapshot if we have data
             if (wan != null)
@@ -247,6 +264,35 @@ public class WanDataUsageService : BackgroundService
             _logger.LogDebug(ex, "Could not fetch WAN interfaces for data usage tracking");
             return null;
         }
+    }
+
+    private async Task<List<UniFi.NetworkInfo>> GetWanNetworksAsync(CancellationToken ct)
+    {
+        try
+        {
+            var networks = await _connectionService.GetNetworksAsync(ct);
+            return networks.Where(n => n.IsWan && n.Enabled).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not fetch WAN networks for data usage tracking");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Converts a device-level WAN key (e.g., "wan1", "wan2") to a network group (e.g., "WAN", "WAN2").
+    /// This is the UniFi convention used to correlate device data with network configs.
+    /// </summary>
+    internal static string WanKeyToNetworkGroup(string wanKey)
+    {
+        // "wan1" -> "WAN", "wan2" -> "WAN2", "wan3" -> "WAN3"
+        if (wanKey.StartsWith("wan", StringComparison.OrdinalIgnoreCase) && wanKey.Length > 3)
+        {
+            var suffix = wanKey[3..];
+            return suffix == "1" ? "WAN" : $"WAN{suffix}";
+        }
+        return wanKey.ToUpperInvariant();
     }
 
     /// <summary>
@@ -414,6 +460,10 @@ public class WanDataUsageService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Marks data usage alert rules as enabled. Does NOT call SaveChangesAsync -
+    /// the caller is responsible for saving (allows atomic save with config changes).
+    /// </summary>
     private static async Task EnsureAlertRulesEnabledAsync(NetworkOptimizerDbContext db)
     {
         var patterns = new[] { "wan.data_usage_warning", "wan.data_usage_exceeded" };
@@ -429,9 +479,6 @@ public class WanDataUsageService : BackgroundService
                 rule.UpdatedAt = DateTime.UtcNow;
             }
         }
-
-        if (rules.Count > 0)
-            await db.SaveChangesAsync();
     }
 }
 
