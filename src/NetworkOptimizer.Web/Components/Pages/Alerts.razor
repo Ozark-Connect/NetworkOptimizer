@@ -521,12 +521,6 @@
 
                                     @* Config fields *@
                                     <div class="schedule-config">
-                                        <div class="form-group schedule-field schedule-field-wide">
-                                            <label>Display Name</label>
-                                            <input type="text" class="form-control" value="@displayName"
-                                                   @oninput="() => _dirtyConfigs.Add(wanGroup)"
-                                                   @onchange="e => EditDataUsageConfig(wanGroup, name: e.Value?.ToString())" />
-                                        </div>
                                         <div class="form-group schedule-field schedule-field-compact">
                                             <label>Data Cap (GB)</label>
                                             <input type="number" class="form-control" value="@capGb" min="0" step="1"
@@ -1203,9 +1197,6 @@
         min-width: 110px;
         max-width: 140px;
         flex: 0 0 auto;
-    }
-    .schedule-field-wide {
-        flex: 2;
     }
     .schedule-field label {
         font-size: 0.75rem;
@@ -2524,13 +2515,12 @@
         }
     }
 
-    private void EditDataUsageConfig(string wanKey, string? name = null,
+    private void EditDataUsageConfig(string wanKey,
         double? capGb = null, int? warningPct = null, int? billingDay = null, double? manualAdj = null)
     {
         if (!_dataUsageConfigs.TryGetValue(wanKey, out var config))
             return;
 
-        if (name != null) config.Name = name;
         if (capGb.HasValue) config.DataCapGb = capGb.Value;
         if (warningPct.HasValue) config.WarningThresholdPercent = warningPct.Value;
         if (billingDay.HasValue) config.BillingCycleDayOfMonth = billingDay.Value;
