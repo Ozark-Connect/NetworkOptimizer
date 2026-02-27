@@ -6,6 +6,7 @@
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Core
 @using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Storage.Models
 @using System.Text.Json
 @using NetworkOptimizer.Web.Services.Ssh
@@ -453,23 +454,21 @@
             }
             else
             {
-                @foreach (var wan in _dataUsageWanInterfaces)
+                @foreach (var wan in _dataUsageWanNetworks)
                 {
-                    var config = _dataUsageConfigs.GetValueOrDefault(wan.WanKey);
-                    var summary = _wanUsageSummaries.FirstOrDefault(s => s.WanKey == wan.WanKey);
+                    var wanGroup = wan.WanNetworkgroup ?? "WAN";
+                    var config = _dataUsageConfigs.GetValueOrDefault(wanGroup);
+                    var summary = _wanUsageSummaries.FirstOrDefault(s => s.WanKey == wanGroup);
                     var isEnabled = config?.Enabled ?? false;
                     var capGb = config?.DataCapGb ?? 0;
                     var warningPct = config?.WarningThresholdPercent ?? 80;
                     var billingDay = config?.BillingCycleDayOfMonth ?? 1;
+                    var displayName = config?.Name ?? wan.Name;
 
                     <div class="schedule-section">
                         <h2 class="schedule-section-title">
-                            @(config?.Name ?? wan.FriendlyName)
-                            @if (wan.Type != null)
-                            {
-                                <span class="schedule-detail-tag" style="margin-left: 0.5rem; font-size: 0.75rem;">@GetWanTypeLabel(wan.Type)</span>
-                            }
-                            @if (wan.Up)
+                            @displayName
+                            @if (summary?.IsUp == true)
                             {
                                 <span class="status-dot online" style="margin-left: 0.5rem;" data-tooltip="Connected"></span>
                             }
@@ -484,7 +483,7 @@
                                 <div class="schedule-card-title">
                                     <label class="toggle-switch">
                                         <input type="checkbox" checked="@isEnabled"
-                                               @onchange="e => ToggleDataUsageTracking(wan.WanKey, wan.FriendlyName, (bool)(e.Value ?? false))" />
+                                               @onchange="e => ToggleDataUsageTracking(wanGroup, wan.Name, (bool)(e.Value ?? false))" />
                                         <span class="toggle-slider"></span>
                                     </label>
                                     <span>Track data usage</span>
@@ -521,27 +520,27 @@
                                     <div class="schedule-config">
                                         <div class="form-group schedule-field">
                                             <label>Display Name</label>
-                                            <input type="text" class="form-control" value="@(config?.Name ?? wan.FriendlyName)"
-                                                   @onchange="e => UpdateDataUsageConfig(wan.WanKey, name: e.Value?.ToString())" />
+                                            <input type="text" class="form-control" value="@displayName"
+                                                   @onchange="e => UpdateDataUsageConfig(wanGroup, name: e.Value?.ToString())" />
                                         </div>
                                         <div class="form-group schedule-field">
                                             <label>Data Cap (GB)</label>
                                             <input type="number" class="form-control" value="@capGb" min="0" step="1"
-                                                   @onchange="e => UpdateDataUsageConfig(wan.WanKey, capGb: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)"
+                                                   @onchange="e => UpdateDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)"
                                                    data-tooltip="0 = tracking only, no cap alerts" />
                                         </div>
                                         <div class="form-group schedule-field">
                                             <label>Warning at (%)</label>
                                             <input type="number" class="form-control" value="@warningPct" min="1" max="100"
-                                                   @onchange="e => UpdateDataUsageConfig(wan.WanKey, warningPct: int.TryParse(e.Value?.ToString(), out var v) ? v : 80)" />
+                                                   @onchange="e => UpdateDataUsageConfig(wanGroup, warningPct: int.TryParse(e.Value?.ToString(), out var v) ? v : 80)" />
                                         </div>
                                         <div class="form-group schedule-field">
                                             <label>Billing Cycle Day</label>
                                             <select class="form-control" value="@billingDay"
-                                                    @onchange="e => UpdateDataUsageConfig(wan.WanKey, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
+                                                    @onchange="e => UpdateDataUsageConfig(wanGroup, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
                                                 @for (var d = 1; d <= 28; d++)
                                                 {
-                                                    <option value="@d">@(d == 1 ? "1st" : d == 2 ? "2nd" : d == 3 ? "3rd" : $"{d}th") of month</option>
+                                                    <option value="@d">@(DisplayFormatters.FormatOrdinal(d)) of month</option>
                                                 }
                                             </select>
                                         </div>
@@ -1474,14 +1473,8 @@
     // Data Usage
     private List<WanUsageSummary> _wanUsageSummaries = [];
     private Dictionary<string, WanDataUsageConfig> _dataUsageConfigs = new();
-    private List<DataUsageWanInfo> _dataUsageWanInterfaces = [];
+    private List<NetworkOptimizer.UniFi.NetworkInfo> _dataUsageWanNetworks = [];
     private bool _dataUsageLoaded;
-
-    /// <summary>
-    /// WAN info for the Data Usage tab, combining friendly name from network config
-    /// with live status from device API.
-    /// </summary>
-    private record DataUsageWanInfo(string WanKey, string FriendlyName, string? Type, bool Up);
 
     // Auto-refresh
     private System.Threading.Timer? _refreshTimer;
@@ -2423,52 +2416,22 @@
     {
         try
         {
-            // Load WAN interfaces with friendly names from network config + live status from device
+            // Load WAN networks from controller (same source as WAN Speed Test dropdowns)
             if (!_dataUsageLoaded)
             {
                 try
                 {
-                    // Get friendly names from network config (same source as WAN Speed Test, Adaptive SQM)
                     var networks = await ConnectionService.GetNetworksAsync();
-                    var wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-
-                    // Get live WAN interface status (up/down, type) from device API
-                    var liveWanInterfaces = new List<NetworkOptimizer.UniFi.Models.GatewayWanInterface>();
-                    var client = ConnectionService.Client;
-                    if (client != null)
-                    {
-                        var devices = await client.GetDevicesAsync();
-                        var gateway = devices?.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
-                        if (gateway != null)
-                            liveWanInterfaces = gateway.GetWanInterfaces();
-                    }
-
-                    // Build combined WAN info: friendly name from network config, status from device
-                    // Match by wan key -> network group convention: wan/wan1 -> "WAN", wan2 -> "WAN2"
-                    var wanInfos = new List<DataUsageWanInfo>();
-                    foreach (var wan in liveWanInterfaces)
-                    {
-                        // Derive network group from wan key (same convention as SQM service)
-                        var networkGroup = wan.Key == "wan" || wan.Key == "wan1" ? "WAN" : wan.Key.ToUpperInvariant();
-
-                        // Look up friendly name from network config
-                        var networkConfig = wanNetworks.FirstOrDefault(n =>
-                            string.Equals(n.WanNetworkgroup, networkGroup, StringComparison.OrdinalIgnoreCase));
-                        var friendlyName = networkConfig?.Name ?? networkGroup;
-
-                        wanInfos.Add(new DataUsageWanInfo(wan.Key, friendlyName, wan.Type, wan.Up));
-                    }
-
-                    _dataUsageWanInterfaces = wanInfos;
+                    _dataUsageWanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogDebug(ex, "Could not load WAN interfaces for data usage tab");
+                    Logger.LogDebug(ex, "Could not load WAN networks for data usage tab");
                 }
                 _dataUsageLoaded = true;
             }
 
-            // Load configs
+            // Load configs (keyed by WanNetworkgroup e.g., "WAN", "WAN2")
             var configs = await DataUsageService.GetAllConfigsAsync();
             _dataUsageConfigs = configs.ToDictionary(c => c.WanKey);
 
@@ -2532,14 +2495,6 @@
             Logger.LogError(ex, "Error updating data usage config for {WanKey}", wanKey);
         }
     }
-
-    private static string GetWanTypeLabel(string? wanType) => wanType switch
-    {
-        "wireless_5g" => "5G",
-        "lte" or "wireless_lte" => "LTE",
-        "ethernet" => "Ethernet",
-        _ => wanType ?? "Unknown"
-    };
 
     public void Dispose()
     {

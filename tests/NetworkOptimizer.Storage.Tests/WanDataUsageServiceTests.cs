@@ -189,4 +189,17 @@ public class WanDataUsageServiceTests
         // Rx delta = 2GB, Tx delta = 0.5GB
         result.Should().Be(oneGb * 2 + oneGb / 2);
     }
+
+    // ========== WAN Key to Network Group Mapping ==========
+
+    [Theory]
+    [InlineData("wan1", "WAN")]
+    [InlineData("wan2", "WAN2")]
+    [InlineData("wan3", "WAN3")]
+    [InlineData("wan", "WAN")]
+    public void WanKeyToNetworkGroup_MapsCorrectly(string wanKey, string expectedGroup)
+    {
+        var result = WanDataUsageService.WanKeyToNetworkGroup(wanKey);
+        result.Should().Be(expectedGroup);
+    }
 }

@@ -284,7 +284,7 @@ public class WanDataUsageService : BackgroundService
     /// Converts a device-level WAN key (e.g., "wan1", "wan2") to a network group (e.g., "WAN", "WAN2").
     /// This is the UniFi convention used to correlate device data with network configs.
     /// </summary>
-    internal static string WanKeyToNetworkGroup(string wanKey)
+    public static string WanKeyToNetworkGroup(string wanKey)
     {
         // "wan1" -> "WAN", "wan2" -> "WAN2", "wan3" -> "WAN3"
         if (wanKey.StartsWith("wan", StringComparison.OrdinalIgnoreCase) && wanKey.Length > 3)

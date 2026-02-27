@@ -533,4 +533,27 @@ public static class DisplayFormatters
     }
 
     #endregion
+
+    #region Ordinal Formatting
+
+    /// <summary>
+    /// Formats an integer with its ordinal suffix (e.g., 1 → "1st", 2 → "2nd", 21 → "21st").
+    /// </summary>
+    public static string FormatOrdinal(int number)
+    {
+        // 11, 12, 13 are special cases (not 11st, 12nd, 13th)
+        var lastTwoDigits = number % 100;
+        if (lastTwoDigits is >= 11 and <= 13)
+            return $"{number}th";
+
+        return (number % 10) switch
+        {
+            1 => $"{number}st",
+            2 => $"{number}nd",
+            3 => $"{number}rd",
+            _ => $"{number}th"
+        };
+    }
+
+    #endregion
 }
