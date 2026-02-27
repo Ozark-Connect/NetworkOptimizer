@@ -139,6 +139,26 @@ public static class DefaultAlertRules
             Source = "schedule",
             MinSeverity = AlertSeverity.Error,
             CooldownSeconds = 3600 // 1 hour
+        },
+
+        // --- WAN Data Usage (disabled - needs data usage tracking configured) ---
+        new AlertRule
+        {
+            Name = "WAN Data Usage: Warning",
+            IsEnabled = false,
+            EventTypePattern = "wan.data_usage_warning",
+            Source = "wan",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 86400 // 24 hours
+        },
+        new AlertRule
+        {
+            Name = "WAN Data Usage: Cap Exceeded",
+            IsEnabled = false,
+            EventTypePattern = "wan.data_usage_exceeded",
+            Source = "wan",
+            MinSeverity = AlertSeverity.Error,
+            CooldownSeconds = 86400 // 24 hours
         }
     ];
 }

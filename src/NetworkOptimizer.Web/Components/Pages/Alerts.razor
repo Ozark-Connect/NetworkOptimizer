@@ -6,6 +6,7 @@
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Core
 @using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Storage.Models
 @using System.Text.Json
 @using NetworkOptimizer.Web.Services.Ssh
@@ -18,6 +19,7 @@
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
+@inject WanDataUsageService DataUsageService
 @inject IJSRuntime JS
 @implements IDisposable
 @rendermode InteractiveServer
@@ -40,6 +42,8 @@
                     <button class="wifi-view-tab @(_activeTab == "schedule" ? "active" : "")"
                             @onclick='() => SetActiveTab("schedule")'>Schedule</button>
                 }
+                <button class="wifi-view-tab @(_activeTab == "data-usage" ? "active" : "")"
+                        @onclick='() => SetActiveTab("data-usage")'>Data Usage</button>
                 <button class="wifi-view-tab @(_activeTab == "active" ? "active" : "")"
                         @onclick='() => SetActiveTab("active")'>Active Alerts</button>
                 <button class="wifi-view-tab @(_activeTab == "history" ? "active" : "")"
@@ -430,11 +434,164 @@
                 {
                     <div class="empty-state">
                         <h3>No Devices Available</h3>
-                        <p>Connect to your UniFi controller or add devices on the LAN Speed Test page.</p>
+                        <p>Connect to your UniFi Console or add devices on the LAN Speed Test page.</p>
                         <a href="/speedtest" class="btn btn-sm btn-primary">Go to LAN Speed Test</a>
                     </div>
                 }
             </div>
+        }
+
+        @* ========== Data Usage Tab ========== *@
+        @if (_activeTab == "data-usage")
+        {
+            @if (_dataUsageWanNetworks.Count == 0)
+            {
+                <div class="empty-state">
+                    <span class="empty-icon">&#128202;</span>
+                    <h3>No WAN Interfaces Found</h3>
+                    <p>Connect to your UniFi Console to detect WAN interfaces for data usage tracking.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var wan in _dataUsageWanNetworks)
+                {
+                    var wanGroup = wan.WanNetworkgroup ?? "WAN";
+                    var config = _dataUsageConfigs.GetValueOrDefault(wanGroup);
+                    var summary = _wanUsageSummaries.FirstOrDefault(s => s.WanKey == wanGroup);
+                    var isEnabled = config?.Enabled ?? false;
+                    var capGb = config?.DataCapGb ?? 0;
+                    var warningPct = config?.WarningThresholdPercent ?? 80;
+                    var billingDay = config?.BillingCycleDayOfMonth ?? 1;
+                    var displayName = config?.Name ?? wan.Name;
+                    var manualAdj = config?.ManualAdjustmentGb ?? 0;
+                    var isAdjustmentUnlocked = _unlockedAdjustmentWans.Contains(wanGroup);
+                    var isDirty = _dirtyConfigs.Contains(wanGroup);
+
+                    <div class="schedule-section">
+                        <h2 class="schedule-section-title" style="display: flex; align-items: center;">
+                            @displayName <span style="color: var(--text-muted); font-weight: normal; margin-left: 0.25rem;">(@DisplayFormatters.NormalizeWanDisplay(wanGroup))</span>
+                            @if (_wanUpStatus.TryGetValue(wanGroup, out var isUp) && isUp)
+                            {
+                                <span class="status-dot online" style="margin-left: 0.5rem;" data-tooltip="Connected"></span>
+                            }
+                            else
+                            {
+                                <span class="status-dot offline" style="margin-left: 0.5rem;" data-tooltip="Disconnected"></span>
+                            }
+                        </h2>
+
+                        <div class="schedule-card">
+                            <div class="schedule-card-header">
+                                <div class="schedule-card-title">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked="@isEnabled"
+                                               @onchange="e => ToggleDataUsageTracking(wanGroup, wan.Name, (bool)(e.Value ?? false))" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>Track data usage</span>
+                                </div>
+                            </div>
+                            <div class="schedule-card-body">
+                                @if (isEnabled)
+                                {
+                                    @* Usage bar *@
+                                    @if (summary != null && capGb > 0)
+                                    {
+                                        var fillPct = Math.Min(summary.UsagePercent, 100);
+                                        var barClass = summary.IsOverCap ? "usage-exceeded" : summary.IsOverWarning ? "usage-warning" : "usage-normal";
+                                        var warningLeft = warningPct;
+
+                                        <div class="data-usage-bar">
+                                            <div class="data-usage-bar-fill @barClass" style="width: @($"{fillPct:F1}")%"></div>
+                                            <div class="data-usage-bar-warning" style="left: @warningLeft%"></div>
+                                        </div>
+                                        <div class="data-usage-bar-labels">
+                                            <span>@($"{summary.UsedGb:F1}") GB used</span>
+                                            <span>@($"{capGb:F0}") GB cap</span>
+                                        </div>
+                                    }
+                                    else if (summary != null && capGb == 0)
+                                    {
+                                        <div style="margin-bottom: 0.75rem;">
+                                            <span class="detail-label">Total usage this cycle: </span>
+                                            <span class="detail-value">@($"{summary.UsedGb:F2}") GB</span>
+                                        </div>
+                                    }
+
+                                    @* Config fields *@
+                                    <div class="schedule-config">
+                                        <div class="form-group schedule-field schedule-field-compact">
+                                            <label>Data Cap (GB)</label>
+                                            <input type="number" class="form-control" value="@capGb" min="0" step="1"
+                                                   @oninput="() => _dirtyConfigs.Add(wanGroup)"
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)"
+                                                   data-tooltip="0 = tracking only, no cap alerts" />
+                                        </div>
+                                        <div class="form-group schedule-field schedule-field-compact">
+                                            <label>Warning at (%)</label>
+                                            <input type="number" class="form-control" value="@warningPct" min="1" max="100"
+                                                   @oninput="() => _dirtyConfigs.Add(wanGroup)"
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, warningPct: int.TryParse(e.Value?.ToString(), out var v) ? v : 80)" />
+                                        </div>
+                                        <div class="form-group schedule-field schedule-field-compact" style="max-width: 180px;">
+                                            <label>Usage Resets On <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The day of the month your ISP resets your data usage to zero. Check your carrier account for the renewal or due date.">?</span></label>
+                                            <select class="form-control" value="@billingDay"
+                                                    @onchange="e => EditDataUsageConfig(wanGroup, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
+                                                @for (var d = 1; d <= 28; d++)
+                                                {
+                                                    <option value="@d">@(DisplayFormatters.FormatOrdinal(d)) of month</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="form-group schedule-field schedule-field-compact">
+                                            <label>Prior Usage (GB) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Usage already consumed this billing cycle before tracking was enabled. Added to the tracked total.">?</span></label>
+                                            <input type="number" class="form-control" value="@manualAdj" min="0" step="0.1"
+                                                   readonly="@(!_unlockedAdjustmentWans.Contains(wanGroup))"
+                                                   style="@(!_unlockedAdjustmentWans.Contains(wanGroup) ? "cursor: pointer; opacity: 0.7;" : "")"
+                                                   @onfocus="() => _unlockedAdjustmentWans.Add(wanGroup)"
+                                                   @oninput="() => _dirtyConfigs.Add(wanGroup)"
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, manualAdj: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)" />
+                                        </div>
+                                    </div>
+
+                                    @* Save button - only visible when there are pending changes *@
+                                    @if (isDirty)
+                                    {
+                                        <div style="margin-top: 0.75rem;">
+                                            <button class="btn btn-primary btn-sm"
+                                                    @onclick="() => SaveDataUsageConfig(wanGroup)">Save Changes</button>
+                                        </div>
+                                    }
+
+                                    @* Billing cycle status *@
+                                    @if (summary != null)
+                                    {
+                                        <div class="schedule-status" style="margin-top: 0.75rem;">
+                                            <span class="schedule-status-item">
+                                                <span class="detail-label">Billing cycle:</span>
+                                                <span class="detail-value">@summary.BillingCycleStart.ToString("MMM d") - @summary.BillingCycleEnd.ToString("MMM d")</span>
+                                            </span>
+                                            <span class="schedule-status-item">
+                                                <span class="detail-label">Days remaining:</span>
+                                                <span class="detail-value">@summary.DaysRemaining</span>
+                                            </span>
+                                        </div>
+                                    }
+
+                                    @if (capGb > 0)
+                                    {
+                                        <p style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.75rem;">
+                                            Alert rules for warning (@(warningPct)%) and cap exceeded are managed automatically.
+                                            <a href="/alerts?tab=rules" style="color: var(--primary-color);">View in Rules</a>
+                                        </p>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
         }
 
         @* ========== Active Alerts Tab ========== *@
@@ -1034,11 +1191,18 @@
     .schedule-field {
         margin-bottom: 0;
         min-width: 180px;
+        flex: 1;
+    }
+    .schedule-field-compact {
+        min-width: 110px;
+        max-width: 140px;
+        flex: 0 0 auto;
     }
     .schedule-field label {
         font-size: 0.75rem;
         color: var(--text-secondary);
         margin-bottom: 0.25rem;
+        white-space: nowrap;
     }
     .schedule-status {
         display: flex;
@@ -1183,6 +1347,38 @@
             gap: 0.5rem;
         }
     }
+    /* Data Usage bar */
+    .data-usage-bar {
+        height: 24px;
+        background: var(--bg-tertiary);
+        border-radius: 4px;
+        overflow: hidden;
+        position: relative;
+    }
+    .data-usage-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
+    .data-usage-bar-fill.usage-normal { background: var(--success-color); }
+    .data-usage-bar-fill.usage-warning { background: var(--warning-color); }
+    .data-usage-bar-fill.usage-exceeded { background: var(--danger-color); }
+    .data-usage-bar-warning {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--warning-color);
+        opacity: 0.7;
+    }
+    .data-usage-bar-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        margin-top: 0.25rem;
+        margin-bottom: 0.75rem;
+    }
 </style>
 
 @if (_showEventTypeKey)
@@ -1307,6 +1503,15 @@
     // Incidents
     private List<AlertIncident> _incidents = [];
 
+    // Data Usage
+    private List<WanUsageSummary> _wanUsageSummaries = [];
+    private Dictionary<string, WanDataUsageConfig> _dataUsageConfigs = new();
+    private List<NetworkOptimizer.UniFi.NetworkInfo> _dataUsageWanNetworks = [];
+    private Dictionary<string, bool> _wanUpStatus = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _unlockedAdjustmentWans = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _dirtyConfigs = new(StringComparer.OrdinalIgnoreCase);
+    private bool _dataUsageLoaded;
+
     // Auto-refresh
     private System.Threading.Timer? _refreshTimer;
 
@@ -1315,6 +1520,7 @@
         return param?.ToLowerInvariant() switch
         {
             "schedule" when FeatureFlags.SchedulingEnabled => "schedule",
+            "data-usage" => "data-usage",
             "active" => "active",
             "history" => "history",
             "rules" => "rules",
@@ -1337,6 +1543,7 @@
         {
             switch (_activeTab)
             {
+                case "data-usage": await LoadDataUsageAsync(); break;
                 case "active": await LoadActiveAlerts(); break;
                 case "history": await LoadHistory(); break;
                 case "rules": await LoadRules(); break;
@@ -1355,6 +1562,8 @@
                         await LoadActiveAlerts();
                     else if (_activeTab == "schedule")
                         await LoadSchedules();
+                    else if (_activeTab == "data-usage")
+                        await LoadDataUsageAsync();
                     StateHasChanged();
                 });
             }
@@ -1395,6 +1604,10 @@
             {
                 case "schedule":
                     await LoadSchedules();
+                    await LoadScheduleOptions();
+                    break;
+                case "data-usage":
+                    await LoadDataUsageAsync();
                     break;
                 case "active":
                     await LoadActiveAlerts();
@@ -2235,6 +2448,114 @@
         if (seconds < 60) return $"{seconds}s";
         if (seconds < 3600) return $"{seconds / 60}m";
         return $"{seconds / 3600}h";
+    }
+
+    // ========== Data Usage ==========
+
+    private async Task LoadDataUsageAsync()
+    {
+        try
+        {
+            // Load WAN networks from console (same source as WAN Speed Test dropdowns)
+            if (!_dataUsageLoaded)
+            {
+                try
+                {
+                    var networks = await ConnectionService.GetNetworksAsync();
+                    _dataUsageWanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Could not load WAN networks for data usage tab");
+                }
+                _dataUsageLoaded = true;
+            }
+
+            // Load live WAN up/down status from device API
+            _wanUpStatus = await DataUsageService.GetWanStatusAsync();
+
+            // Load configs (keyed by WanNetworkgroup e.g., "WAN", "WAN2")
+            var configs = await DataUsageService.GetAllConfigsAsync();
+            _dataUsageConfigs = configs.ToDictionary(c => c.WanKey);
+
+            // Load current usage summaries (falls back to DB if background poll hasn't run yet)
+            _wanUsageSummaries = await DataUsageService.GetCurrentUsageAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading data usage");
+        }
+    }
+
+    private async Task ToggleDataUsageTracking(string wanKey, string defaultName, bool enabled)
+    {
+        try
+        {
+            if (!_dataUsageConfigs.TryGetValue(wanKey, out var config))
+            {
+                config = new WanDataUsageConfig
+                {
+                    WanKey = wanKey,
+                    Name = defaultName,
+                    Enabled = enabled,
+                    DataCapGb = 0,
+                    WarningThresholdPercent = 80,
+                    BillingCycleDayOfMonth = 1
+                };
+            }
+            else
+            {
+                config.Enabled = enabled;
+            }
+
+            await DataUsageService.SaveConfigAsync(config);
+
+            if (enabled)
+            {
+                // Trigger immediate poll to get initial usage data
+                await DataUsageService.TriggerPollAsync();
+                // Show Save button so user can configure cap/billing day
+                _dirtyConfigs.Add(wanKey);
+            }
+
+            await LoadDataUsageAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling data usage for {WanKey}", wanKey);
+        }
+    }
+
+    private void EditDataUsageConfig(string wanKey,
+        double? capGb = null, int? warningPct = null, int? billingDay = null, double? manualAdj = null)
+    {
+        if (!_dataUsageConfigs.TryGetValue(wanKey, out var config))
+            return;
+
+        if (capGb.HasValue) config.DataCapGb = capGb.Value;
+        if (warningPct.HasValue) config.WarningThresholdPercent = warningPct.Value;
+        if (billingDay.HasValue) config.BillingCycleDayOfMonth = billingDay.Value;
+        if (manualAdj.HasValue) config.ManualAdjustmentGb = manualAdj.Value;
+
+        _dirtyConfigs.Add(wanKey);
+    }
+
+    private async Task SaveDataUsageConfig(string wanKey)
+    {
+        try
+        {
+            if (!_dataUsageConfigs.TryGetValue(wanKey, out var config))
+                return;
+
+            await DataUsageService.SaveConfigAsync(config);
+            _dirtyConfigs.Remove(wanKey);
+            _unlockedAdjustmentWans.Remove(wanKey);
+            await LoadDataUsageAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving data usage config for {WanKey}", wanKey);
+        }
     }
 
     public void Dispose()

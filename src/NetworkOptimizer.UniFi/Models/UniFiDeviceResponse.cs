@@ -308,6 +308,18 @@ public class GatewayWanInterface
     public int? Availability { get; set; }
 
     /// <summary>
+    /// Cumulative bytes received on this WAN interface since device boot.
+    /// </summary>
+    [JsonPropertyName("rx_bytes")]
+    public long RxBytes { get; set; }
+
+    /// <summary>
+    /// Cumulative bytes transmitted on this WAN interface since device boot.
+    /// </summary>
+    [JsonPropertyName("tx_bytes")]
+    public long TxBytes { get; set; }
+
+    /// <summary>
     /// Whether this is a cellular WAN interface (5G, LTE)
     /// </summary>
     public bool IsCellular => Type is "wireless_5g" or "lte" or "wireless_lte";

@@ -533,4 +533,39 @@ public static class DisplayFormatters
     }
 
     #endregion
+
+    #region Ordinal Formatting
+
+    /// <summary>
+    /// Formats an integer with its ordinal suffix (e.g., 1 → "1st", 2 → "2nd", 21 → "21st").
+    /// </summary>
+    public static string FormatOrdinal(int number)
+    {
+        // Use Math.Abs for modulo so negative numbers work correctly (-11th not -11st)
+        var abs = Math.Abs(number);
+        var lastTwoDigits = abs % 100;
+        if (lastTwoDigits is >= 11 and <= 13)
+            return $"{number}th";
+
+        return (abs % 10) switch
+        {
+            1 => $"{number}st",
+            2 => $"{number}nd",
+            3 => $"{number}rd",
+            _ => $"{number}th"
+        };
+    }
+
+    #endregion
+
+    #region WAN Display
+
+    /// <summary>
+    /// Normalizes a WAN network group for display: "WAN" becomes "WAN1" for consistency.
+    /// "WAN2", "WAN3" etc. are returned unchanged.
+    /// </summary>
+    public static string NormalizeWanDisplay(string value)
+        => string.Equals(value, "WAN", StringComparison.OrdinalIgnoreCase) ? "WAN1" : value;
+
+    #endregion
 }

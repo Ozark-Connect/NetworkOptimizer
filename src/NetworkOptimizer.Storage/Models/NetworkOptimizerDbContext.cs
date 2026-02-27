@@ -44,6 +44,8 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<CrowdSecReputation> CrowdSecReputations { get; set; }
     public DbSet<ThreatNoiseFilter> ThreatNoiseFilters { get; set; }
     public DbSet<ScheduledTask> ScheduledTasks { get; set; }
+    public DbSet<WanDataUsageConfig> WanDataUsageConfigs { get; set; }
+    public DbSet<WanDataUsageSnapshot> WanDataUsageSnapshots { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -304,6 +306,20 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.TaskType);
             entity.HasIndex(e => e.Enabled);
             entity.HasIndex(e => e.NextRunAt);
+        });
+
+        // WanDataUsageConfig configuration (one per WAN interface)
+        modelBuilder.Entity<WanDataUsageConfig>(entity =>
+        {
+            entity.ToTable("WanDataUsageConfigs");
+            entity.HasIndex(e => e.WanKey).IsUnique();
+        });
+
+        // WanDataUsageSnapshot configuration
+        modelBuilder.Entity<WanDataUsageSnapshot>(entity =>
+        {
+            entity.ToTable("WanDataUsageSnapshots");
+            entity.HasIndex(e => new { e.WanKey, e.Timestamp });
         });
     }
 }
