@@ -46,10 +46,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task<List<WanUsageSummary>> GetCurrentUsageAsync()
     {
-        if (_currentUsage.Count > 0)
-            return _currentUsage;
-
-        // Background poll hasn't run yet - calculate from DB snapshots
+        // Always calculate fresh from DB - it's cheap (small table, indexed)
         await using var db = await _dbFactory.CreateDbContextAsync();
         var configs = await db.WanDataUsageConfigs.Where(c => c.Enabled).ToListAsync();
         if (configs.Count == 0)
