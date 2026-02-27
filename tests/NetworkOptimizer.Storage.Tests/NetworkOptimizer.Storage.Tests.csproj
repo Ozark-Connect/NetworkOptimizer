@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NetworkOptimizer.Storage\NetworkOptimizer.Storage.csproj" />
+    <ProjectReference Include="..\..\src\NetworkOptimizer.Web\NetworkOptimizer.Web.csproj" />
   </ItemGroup>
 
 </Project>
