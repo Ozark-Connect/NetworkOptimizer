@@ -42,8 +42,47 @@ public class WanDataUsageService : BackgroundService
 
     /// <summary>
     /// Returns the most recently computed usage summaries for all tracked WANs.
+    /// Falls back to DB calculation if the background poll hasn't run yet.
     /// </summary>
-    public List<WanUsageSummary> GetCurrentUsage() => _currentUsage;
+    public async Task<List<WanUsageSummary>> GetCurrentUsageAsync()
+    {
+        if (_currentUsage.Count > 0)
+            return _currentUsage;
+
+        // Background poll hasn't run yet - calculate from DB snapshots
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var configs = await db.WanDataUsageConfigs.Where(c => c.Enabled).ToListAsync();
+        if (configs.Count == 0)
+            return [];
+
+        var now = DateTime.UtcNow;
+        var summaries = new List<WanUsageSummary>();
+
+        foreach (var config in configs)
+        {
+            var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+            var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, CancellationToken.None);
+            var usedGb = usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb;
+
+            summaries.Add(new WanUsageSummary
+            {
+                WanKey = config.WanKey,
+                Name = config.Name,
+                UsedGb = usedGb,
+                CapGb = config.DataCapGb,
+                WarningThresholdPercent = config.WarningThresholdPercent,
+                UsagePercent = config.DataCapGb > 0 ? usedGb / config.DataCapGb * 100.0 : 0,
+                BillingCycleStart = cycleStart,
+                BillingCycleEnd = cycleEnd,
+                DaysRemaining = Math.Max(0, (int)(cycleEnd - now).TotalDays),
+                IsOverCap = config.DataCapGb > 0 && usedGb >= config.DataCapGb,
+                IsOverWarning = config.DataCapGb > 0 && usedGb >= config.DataCapGb * config.WarningThresholdPercent / 100.0,
+                Enabled = config.Enabled
+            });
+        }
+
+        return summaries;
+    }
 
     /// <summary>
     /// Gets all WAN data usage configurations.
@@ -67,6 +106,7 @@ public class WanDataUsageService : BackgroundService
             existing.Name = config.Name;
             existing.Enabled = config.Enabled;
             existing.DataCapGb = config.DataCapGb;
+            existing.ManualAdjustmentGb = config.ManualAdjustmentGb;
             existing.WarningThresholdPercent = Math.Clamp(config.WarningThresholdPercent, 1, 100);
             existing.BillingCycleDayOfMonth = Math.Clamp(config.BillingCycleDayOfMonth, 1, 28);
             existing.UpdatedAt = DateTime.UtcNow;

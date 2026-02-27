@@ -2477,8 +2477,8 @@
             var configs = await DataUsageService.GetAllConfigsAsync();
             _dataUsageConfigs = configs.ToDictionary(c => c.WanKey);
 
-            // Load current usage summaries
-            _wanUsageSummaries = DataUsageService.GetCurrentUsage();
+            // Load current usage summaries (falls back to DB if background poll hasn't run yet)
+            _wanUsageSummaries = await DataUsageService.GetCurrentUsageAsync();
         }
         catch (Exception ex)
         {
