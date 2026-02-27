@@ -558,7 +558,7 @@
                                                     <input type="number" class="form-control" value="@manualAdj" min="0" step="0.1"
                                                            @onchange="e => EditDataUsageConfig(wanGroup, manualAdj: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)" />
                                                     <button class="btn btn-sm btn-secondary" style="padding: 0.25rem 0.5rem; white-space: nowrap;"
-                                                            @onclick="() => _unlockedAdjustmentWans.Remove(wanGroup)">Lock</button>
+                                                            @onclick="() => _unlockedAdjustmentWans.Remove(wanGroup)">Done</button>
                                                 </div>
                                             }
                                             else
@@ -572,13 +572,14 @@
                                         </div>
                                     </div>
 
-                                    @* Save button *@
-                                    <div style="margin-top: 0.75rem;">
-                                        <button class="btn btn-primary btn-sm" disabled="@(!isDirty)"
-                                                @onclick="() => SaveDataUsageConfig(wanGroup)">
-                                            @(isDirty ? "Save Changes" : "Saved")
-                                        </button>
-                                    </div>
+                                    @* Save button - only visible when there are pending changes *@
+                                    @if (isDirty)
+                                    {
+                                        <div style="margin-top: 0.75rem;">
+                                            <button class="btn btn-primary btn-sm"
+                                                    @onclick="() => SaveDataUsageConfig(wanGroup)">Save Changes</button>
+                                        </div>
+                                    }
 
                                     @* Billing cycle status *@
                                     @if (summary != null)
