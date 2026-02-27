@@ -1562,6 +1562,8 @@
                         await LoadActiveAlerts();
                     else if (_activeTab == "schedule")
                         await LoadSchedules();
+                    else if (_activeTab == "data-usage")
+                        await LoadDataUsageAsync();
                     StateHasChanged();
                 });
             }
