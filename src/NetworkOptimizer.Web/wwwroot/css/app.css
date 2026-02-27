@@ -5013,6 +5013,7 @@ a.path-hop.hop-clickable:hover {
     height: 14px;
     font-size: 10px;
     margin-left: 3px;
+    vertical-align: text-top;
 }
 
 /* Hidden content element (Tippy reads innerHTML from this) */
