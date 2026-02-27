@@ -46,7 +46,7 @@ public class WanDataUsageConfig
     /// Manual usage adjustment in GB. Added to the calculated usage from snapshots.
     /// Allows users to set a starting point when enabling tracking mid-cycle,
     /// or to correct the calculated total if it's off.
-    /// Resets to 0 when a new billing cycle starts.
+    /// Automatically resets to 0 when the background service detects a billing cycle rollover.
     /// </summary>
     public double ManualAdjustmentGb { get; set; }
 

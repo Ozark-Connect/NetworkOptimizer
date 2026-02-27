@@ -20,8 +20,14 @@ public class WanDataUsageService : BackgroundService
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(24);
 
+    // Serializes PollAndRecordAsync to prevent concurrent access from background loop + UI trigger
+    private readonly SemaphoreSlim _pollLock = new(1, 1);
+
     // Per-cycle alert dedup: tracks which WANs have already fired warning/exceeded alerts this cycle
     private readonly Dictionary<string, (DateTime CycleStart, bool WarningSent, bool ExceededSent)> _alertState = new();
+
+    // Tracks last known billing cycle start per WAN to detect cycle rollovers
+    private readonly Dictionary<string, DateTime> _lastCycleStart = new();
 
     private DateTime _lastPruneTime = DateTime.MinValue;
 
@@ -44,11 +50,11 @@ public class WanDataUsageService : BackgroundService
     /// Returns the most recently computed usage summaries for all tracked WANs.
     /// Falls back to DB calculation if the background poll hasn't run yet.
     /// </summary>
-    public async Task<List<WanUsageSummary>> GetCurrentUsageAsync()
+    public async Task<List<WanUsageSummary>> GetCurrentUsageAsync(CancellationToken ct = default)
     {
         // Always calculate fresh from DB - it's cheap (small table, indexed)
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var configs = await db.WanDataUsageConfigs.Where(c => c.Enabled).ToListAsync();
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var configs = await db.WanDataUsageConfigs.Where(c => c.Enabled).ToListAsync(ct);
         if (configs.Count == 0)
             return [];
 
@@ -58,8 +64,8 @@ public class WanDataUsageService : BackgroundService
         foreach (var config in configs)
         {
             var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
-            var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, CancellationToken.None);
-            var usedGb = usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb;
+            var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, ct);
+            var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
 
             summaries.Add(new WanUsageSummary
             {
@@ -71,7 +77,7 @@ public class WanDataUsageService : BackgroundService
                 UsagePercent = config.DataCapGb > 0 ? usedGb / config.DataCapGb * 100.0 : 0,
                 BillingCycleStart = cycleStart,
                 BillingCycleEnd = cycleEnd,
-                DaysRemaining = Math.Max(0, (int)(cycleEnd - now).TotalDays),
+                DaysRemaining = Math.Max(0, (int)Math.Ceiling((cycleEnd - now).TotalDays)),
                 IsOverCap = config.DataCapGb > 0 && usedGb >= config.DataCapGb,
                 IsOverWarning = config.DataCapGb > 0 && usedGb >= config.DataCapGb * config.WarningThresholdPercent / 100.0,
                 Enabled = config.Enabled
@@ -102,7 +108,7 @@ public class WanDataUsageService : BackgroundService
         {
             existing.Name = config.Name;
             existing.Enabled = config.Enabled;
-            existing.DataCapGb = config.DataCapGb;
+            existing.DataCapGb = Math.Max(0, config.DataCapGb);
             existing.ManualAdjustmentGb = config.ManualAdjustmentGb;
             existing.WarningThresholdPercent = Math.Clamp(config.WarningThresholdPercent, 1, 100);
             existing.BillingCycleDayOfMonth = Math.Clamp(config.BillingCycleDayOfMonth, 1, 28);
@@ -110,6 +116,7 @@ public class WanDataUsageService : BackgroundService
         }
         else
         {
+            config.DataCapGb = Math.Max(0, config.DataCapGb);
             config.WarningThresholdPercent = Math.Clamp(config.WarningThresholdPercent, 1, 100);
             config.BillingCycleDayOfMonth = Math.Clamp(config.BillingCycleDayOfMonth, 1, 28);
             config.CreatedAt = DateTime.UtcNow;
@@ -138,14 +145,12 @@ public class WanDataUsageService : BackgroundService
         var config = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == wanKey);
         if (config != null)
         {
-            db.WanDataUsageConfigs.Remove(config);
-
-            // Also remove snapshots for this WAN
-            var snapshots = await db.WanDataUsageSnapshots
+            // Delete snapshots server-side (avoids loading potentially tens of thousands of rows)
+            await db.WanDataUsageSnapshots
                 .Where(s => s.WanKey == wanKey)
-                .ToListAsync();
-            db.WanDataUsageSnapshots.RemoveRange(snapshots);
+                .ExecuteDeleteAsync();
 
+            db.WanDataUsageConfigs.Remove(config);
             await db.SaveChangesAsync();
         }
     }
@@ -155,6 +160,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task TriggerPollAsync()
     {
+        await _pollLock.WaitAsync();
         try
         {
             await PollAndRecordAsync(CancellationToken.None);
@@ -162,6 +168,10 @@ public class WanDataUsageService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in triggered poll cycle");
+        }
+        finally
+        {
+            _pollLock.Release();
         }
     }
 
@@ -174,6 +184,7 @@ public class WanDataUsageService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            await _pollLock.WaitAsync(stoppingToken);
             try
             {
                 await PollAndRecordAsync(stoppingToken);
@@ -185,6 +196,10 @@ public class WanDataUsageService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in WAN data usage poll cycle");
+            }
+            finally
+            {
+                _pollLock.Release();
             }
 
             try
@@ -276,8 +291,18 @@ public class WanDataUsageService : BackgroundService
 
             // Calculate billing cycle usage
             var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+
+            // Reset manual adjustment when a new billing cycle starts
+            if (_lastCycleStart.TryGetValue(config.WanKey, out var prevCycleStart) && prevCycleStart != cycleStart
+                && config.ManualAdjustmentGb != 0)
+            {
+                config.ManualAdjustmentGb = 0;
+                _logger.LogInformation("Billing cycle rolled over for {WanName}, reset manual adjustment to 0", config.Name);
+            }
+            _lastCycleStart[config.WanKey] = cycleStart;
+
             var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, ct);
-            var usedGb = usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb;
+            var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
 
             var summary = new WanUsageSummary
             {
@@ -291,7 +316,7 @@ public class WanDataUsageService : BackgroundService
                 UsagePercent = config.DataCapGb > 0 ? usedGb / config.DataCapGb * 100.0 : 0,
                 BillingCycleStart = cycleStart,
                 BillingCycleEnd = cycleEnd,
-                DaysRemaining = Math.Max(0, (int)(cycleEnd - now).TotalDays),
+                DaysRemaining = Math.Max(0, (int)Math.Ceiling((cycleEnd - now).TotalDays)),
                 IsOverCap = config.DataCapGb > 0 && usedGb >= config.DataCapGb,
                 IsOverWarning = config.DataCapGb > 0 && usedGb >= config.DataCapGb * config.WarningThresholdPercent / 100.0,
                 Enabled = config.Enabled
