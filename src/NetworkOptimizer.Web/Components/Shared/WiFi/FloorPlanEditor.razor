@@ -7,6 +7,7 @@
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
 @using Microsoft.JSInterop
+@using NetworkOptimizer.Core.Helpers
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
 @inject PlannedApService PlannedApSvc
@@ -3514,18 +3515,7 @@
     {
         if (n <= -1) return "Basement " + Math.Abs(n);
         if (n == 0) return "Ground Floor";
-        var suffix = (n % 100) switch
-        {
-            11 or 12 or 13 => "th",
-            _ => (n % 10) switch
-            {
-                1 => "st",
-                2 => "nd",
-                3 => "rd",
-                _ => "th"
-            }
-        };
-        return n + suffix + " Floor";
+        return DisplayFormatters.FormatOrdinal(n) + " Floor";
     }
 
     private async Task CreateFloor()
@@ -3678,15 +3668,7 @@
     private static string GetFloorLabel(int floorNumber)
     {
         if (floorNumber <= -1) return "B" + Math.Abs(floorNumber);
-        var lastTwo = Math.Abs(floorNumber) % 100;
-        var suffix = (lastTwo >= 11 && lastTwo <= 13) ? "th" : (Math.Abs(floorNumber) % 10) switch
-        {
-            1 => "st",
-            2 => "nd",
-            3 => "rd",
-            _ => "th"
-        };
-        return floorNumber + suffix;
+        return DisplayFormatters.FormatOrdinal(floorNumber);
     }
 
     [JSInvokable]
