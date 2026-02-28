@@ -468,7 +468,7 @@
                     var isAdjustmentUnlocked = _unlockedAdjustmentWans.Contains(wanGroup);
                     var isDirty = _dirtyConfigs.Contains(wanGroup);
 
-                    <div class="schedule-section">
+                    <div class="schedule-section" @key="wanGroup">
                         <h2 class="schedule-section-title" style="display: flex; align-items: center;">
                             @displayName <span style="color: var(--text-muted); font-weight: normal; margin-left: 0.25rem;">(@DisplayFormatters.NormalizeWanDisplay(wanGroup))</span>
                             @if (_wanUpStatus.TryGetValue(wanGroup, out var isUp) && isUp)
