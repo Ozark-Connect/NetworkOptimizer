@@ -764,6 +764,7 @@ public class ClientDashboardService
             SignalDbm = client.Signal,
             NoiseDbm = client.Noise,
             Channel = client.Channel,
+            ChannelWidth = client.ChannelWidth,
             Band = client.Radio,
             Protocol = client.RadioProto,
             TxRateKbps = client.TxRate,

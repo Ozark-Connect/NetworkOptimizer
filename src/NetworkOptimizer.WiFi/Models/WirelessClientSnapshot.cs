@@ -29,6 +29,9 @@ public class WirelessClientSnapshot
     /// <summary>Channel number</summary>
     public int? Channel { get; set; }
 
+    /// <summary>Channel width in MHz (20, 40, 80, 160, 320)</summary>
+    public int? ChannelWidth { get; set; }
+
     /// <summary>Signal strength in dBm</summary>
     public int? Signal { get; set; }
 

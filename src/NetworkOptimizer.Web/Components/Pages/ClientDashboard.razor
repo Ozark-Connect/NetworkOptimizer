@@ -197,7 +197,7 @@
                         @(_client.ApName ?? "—")@if (_client.ApModel != null)
                         {<span class="detail-dim"> · @_client.ApModel</span>}
                     </span>
-                    <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")</span>
+                    <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")@(_client.ChannelWidth.HasValue ? $" / {_client.ChannelWidth} MHz" : "")</span>
                     <span class="identity-detail identity-proto">@FormatProtocol(_client.Protocol)</span>
                     @if (_client.RxRateKbps.HasValue)
                     {
