@@ -5,8 +5,8 @@ namespace NetworkOptimizer.WiFi.Rules;
 /// <summary>
 /// Rule that flags wide channel widths on 5 GHz and 6 GHz radios.
 /// - 6 GHz 320 MHz: always suggest 160 MHz (better client performance + AP co-channel separation)
-/// - 5 GHz/6 GHz 160 MHz with weak-signal clients: suggest narrowing to 80 MHz
-/// Severity escalates from Info to Warning when clients have poor signal.
+/// - 5 GHz >= 160 MHz with weak-signal clients: suggest narrowing to 80 MHz
+/// 6 GHz 160 MHz is not flagged (less co-channel interference than 5 GHz).
 /// </summary>
 public class WideChannelWidthRule : IWiFiOptimizerRule
 {
@@ -62,8 +62,9 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                     continue;
                 }
 
-                // 5 GHz or 6 GHz 160 MHz: only flag if weak signal clients
-                if (currentWidth >= 160 && hasWeakSignal)
+                // 5 GHz >= 160 MHz (160, 240): only flag if weak signal clients
+                // 6 GHz 160 MHz is fine - less co-channel interference than 5 GHz
+                if (radio.Band == RadioBand.Band5GHz && currentWidth >= 160 && hasWeakSignal)
                 {
                     yield return BuildWeakSignalIssue(ap.Name, bandName, currentWidth, 80, weakClients, totalClients, weakPct);
                 }
