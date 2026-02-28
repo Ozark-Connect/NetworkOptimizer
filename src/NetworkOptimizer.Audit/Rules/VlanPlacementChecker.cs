@@ -293,7 +293,7 @@ public static class VlanPlacementChecker
         {
             ClientDeviceCategory.StreamingDevice => "streaming-devices",
             ClientDeviceCategory.SmartTV => "smart-tvs",
-            ClientDeviceCategory.SmartSpeaker => "streaming-devices", // Apple HomePod uses same setting
+            ClientDeviceCategory.SmartSpeaker => "media-players", // Smart speakers are media devices
             ClientDeviceCategory.MediaPlayer => "media-players",
             ClientDeviceCategory.Printer => "printers",
             _ => null

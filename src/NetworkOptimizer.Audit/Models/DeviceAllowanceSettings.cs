@@ -56,10 +56,14 @@ public class DeviceAllowanceSettings
 
     /// <summary>
     /// Check if a smart speaker should be allowed on main network based on vendor.
-    /// Apple HomePods are categorized as SmartSpeaker, so we check AllowAppleStreamingOnMainNetwork.
+    /// Smart speakers are covered by AllowMediaPlayersOnMainNetwork (they are media devices).
+    /// Apple HomePods are also covered by AllowAppleStreamingOnMainNetwork.
     /// </summary>
     public bool IsSmartSpeakerAllowed(string? vendor)
     {
+        if (AllowMediaPlayersOnMainNetwork)
+            return true;
+
         if (AllowAppleStreamingOnMainNetwork &&
             !string.IsNullOrEmpty(vendor) &&
             vendor.Contains("Apple", StringComparison.OrdinalIgnoreCase))
