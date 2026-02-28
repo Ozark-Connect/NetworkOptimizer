@@ -407,7 +407,7 @@
                                         {
                                             <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
-                                                <td>@r.TestTime.ToLocalTime().ToString("g")</td>
+                                                <td>@FormatSignalTime(r.TestTime)</td>
                                                 <td><span class="speed-down">@r.DownloadMbps.ToString("F1")</span> Mbps</td>
                                                 <td><span class="speed-up">@r.UploadMbps.ToString("F1")</span> Mbps</td>
                                                 @if (!(_client?.IsWired == true))
