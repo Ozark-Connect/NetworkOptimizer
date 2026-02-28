@@ -82,7 +82,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             Dimensions = { HealthDimension.ChannelHealth },
             Title = $"{bandName} {currentWidth} MHz: {apName}",
             Description = $"{apName} is using {currentWidth} MHz on {bandName}. " +
-                $"Narrowing to {suggestedWidth} MHz often improves client performance and gives better co-channel separation between APs.",
+                $"Narrowing to {suggestedWidth} MHz can improve performance on some devices and gives better co-channel separation between APs.",
             AffectedEntity = apName,
             Recommendation = $"In UniFi Network: Settings > WiFi > (SSID) > Advanced > Channel Width - " +
                 $"consider reducing {bandName} from {currentWidth} MHz to {suggestedWidth} MHz.",
