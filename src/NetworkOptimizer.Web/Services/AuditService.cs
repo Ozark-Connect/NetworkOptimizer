@@ -1888,6 +1888,7 @@ public class AuditService
             Audit.IssueTypes.DnsDnatRestrictedDestination => "DNS: Restricted DNAT Destination",
             Audit.IssueTypes.DnsDmzNetworkInfo => "DNS: DMZ Network Info",
             Audit.IssueTypes.DnsGuestThirdPartyInfo => "DNS: Guest Network Info",
+            Audit.IssueTypes.DnsInfraNetworkInfo => "DNS: Infrastructure Network Info",
             Audit.IssueTypes.DnsExternalBypass => "DNS: External DNS Bypass",
 
             // UPnP security
