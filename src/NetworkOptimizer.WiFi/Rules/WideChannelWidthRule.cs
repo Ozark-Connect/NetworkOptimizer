@@ -85,8 +85,8 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             Description = $"{apName} is using {currentWidth} MHz on {bandName}. " +
                 $"Narrowing to {suggestedWidth} MHz can improve performance on some devices and gives better co-channel separation between APs.",
             AffectedEntity = apName,
-            Recommendation = $"In UniFi Network: Settings > WiFi > (SSID) > Advanced > Channel Width - " +
-                $"consider reducing {bandName} from {currentWidth} MHz to {suggestedWidth} MHz.",
+            Recommendation = $"In UniFi Network: Settings > WiFi > Default WiFi Speeds > Channel Width - " +
+                $"consider setting {bandName} to {suggestedWidth} MHz, then Save and Apply to All APs.",
             ScoreImpact = -2
         };
     }
@@ -108,8 +108,8 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                 $"Wider channels raise the noise floor and reduce effective range. " +
                 $"Narrowing to {suggestedWidth} MHz should improve signal quality and reliability.",
             AffectedEntity = apName,
-            Recommendation = $"In UniFi Network: Settings > WiFi > (SSID) > Advanced > Channel Width - " +
-                $"reduce {bandName} from {currentWidth} MHz to {suggestedWidth} MHz.",
+            Recommendation = $"In UniFi Network: Settings > WiFi > Default WiFi Speeds > Channel Width - " +
+                $"set {bandName} to {suggestedWidth} MHz, then Save and Apply to All APs.",
             ScoreImpact = -5
         };
     }
