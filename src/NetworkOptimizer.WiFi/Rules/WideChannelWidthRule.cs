@@ -12,9 +12,9 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
 {
     public string RuleId => "WIFI-WIDE-CHANNEL-WIDTH-001";
 
-    private const int WeakSignalThreshold = -70;
-    private const double WeakClientPctThreshold = 25;
-    private const int MinClientsForSignalCheck = 2;
+    private const int WeakSignalThreshold = -75;
+    private const double WeakClientPctThreshold = 35;
+    private const int MinClientsForSignalCheck = 3;
 
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx) => null;
 
