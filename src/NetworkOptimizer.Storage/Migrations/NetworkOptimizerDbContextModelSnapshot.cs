@@ -297,6 +297,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int?>("Channel")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("ChannelWidth")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("ClientIp")
                         .HasMaxLength(45)
                         .HasColumnType("TEXT");

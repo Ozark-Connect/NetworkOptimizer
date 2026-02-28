@@ -592,7 +592,7 @@
                                                 <td class="@GetSignalClass(entry.SignalDbm ?? 0)">@(entry.SignalDbm?.ToString() ?? "-") dBm</td>
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "-")</td>
-                                                <td>@(entry.Channel?.ToString() ?? "-")</td>
+                                                <td>@(entry.Channel?.ToString() ?? "-")@(entry.ChannelWidth.HasValue ? $" - {entry.ChannelWidth} MHz" : "")</td>
                                                 <td>@RenderRate(entry.RxRateKbps, "wifi-speed-rx")</td>
                                                 <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
                                             </tr>
