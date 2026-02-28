@@ -555,6 +555,21 @@
                                         </div>
                                     </div>
 
+                                    @* Mid-cycle hint - show when first enabling tracking and billing day is not near today *@
+                                    @if (_newlyEnabledWans.Contains(wanGroup) && manualAdj == 0)
+                                    {
+                                        var today = DateTime.Now.Day;
+                                        var dayDiff = Math.Min(Math.Abs(today - billingDay), Math.Min(Math.Abs(today - billingDay + 28), Math.Abs(today - billingDay - 28)));
+                                        if (dayDiff > 5)
+                                        {
+                                            <div class="alert-info" style="margin-top: 0.75rem; padding: 0.625rem 0.75rem; font-size: 0.8125rem; line-height: 1.5;">
+                                                Your billing cycle started on the @(DisplayFormatters.FormatOrdinal(billingDay)), so you may already have usage this period.
+                                                Use the <strong>Usage Adjustment</strong> field above to add a one-time correction for data used before tracking was enabled.
+                                                Check your carrier account for current usage. The adjustment resets automatically each billing cycle.
+                                            </div>
+                                        }
+                                    }
+
                                     @* Save button - only visible when there are pending changes *@
                                     @if (isDirty)
                                     {
@@ -1510,6 +1525,7 @@
     private Dictionary<string, bool> _wanUpStatus = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _unlockedAdjustmentWans = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _dirtyConfigs = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _newlyEnabledWans = new(StringComparer.OrdinalIgnoreCase);
     private bool _dataUsageLoaded;
 
     // Auto-refresh
@@ -2516,6 +2532,11 @@
                 await DataUsageService.TriggerPollAsync();
                 // Show Save button so user can configure cap/billing day
                 _dirtyConfigs.Add(wanKey);
+                _newlyEnabledWans.Add(wanKey);
+            }
+            else
+            {
+                _newlyEnabledWans.Remove(wanKey);
             }
 
             await LoadDataUsageAsync();
@@ -2550,6 +2571,7 @@
             await DataUsageService.SaveConfigAsync(config);
             _dirtyConfigs.Remove(wanKey);
             _unlockedAdjustmentWans.Remove(wanKey);
+            _newlyEnabledWans.Remove(wanKey);
             await LoadDataUsageAsync();
         }
         catch (Exception ex)
