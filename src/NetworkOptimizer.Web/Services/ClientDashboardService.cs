@@ -488,7 +488,7 @@ public class ClientDashboardService
                         Timestamp = ts,
                         SignalDbm = m.Signal,
                         Channel = m.Channel,
-                        ChannelWidth = m.ChannelWidth,
+                        // ChannelWidth intentionally omitted - historic API returns AP width, not client's negotiated width
                         Band = bandStr,
                         Protocol = m.Protocol,
                         TxRateKbps = m.TxRateKbps,
