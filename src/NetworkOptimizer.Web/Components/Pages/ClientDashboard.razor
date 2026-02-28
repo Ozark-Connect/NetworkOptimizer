@@ -398,8 +398,8 @@
                                                 <th data-tooltip="AP receive rate (from device)">RX Rate</th>
                                                 <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
                                             }
-                                            <th>Ping</th>
-                                            <th>Type</th>
+                                            <th class="hide-mobile">Ping</th>
+                                            <th class="hide-mobile">Type</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -415,8 +415,8 @@
                                                     <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
                                                     <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
                                                 }
-                                                <td>@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
-                                                <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
+                                                <td class="hide-mobile">@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
+                                                <td class="hide-mobile">@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
                                             {
