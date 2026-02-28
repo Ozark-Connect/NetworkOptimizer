@@ -115,6 +115,9 @@ public class UniFiClientResponse
     [JsonPropertyName("channel")]
     public int? Channel { get; set; }
 
+    [JsonPropertyName("channel_width")]
+    public int? ChannelWidth { get; set; }
+
     [JsonPropertyName("radio")]
     public string? Radio { get; set; }
 

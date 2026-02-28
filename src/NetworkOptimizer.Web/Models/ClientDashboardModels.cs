@@ -17,6 +17,7 @@ public class ClientIdentity
     public int? SignalDbm { get; set; }
     public int? NoiseDbm { get; set; }
     public int? Channel { get; set; }
+    public int? ChannelWidth { get; set; }
     public string? Band { get; set; }
     public string? Protocol { get; set; }
     public long? TxRateKbps { get; set; }

@@ -8670,7 +8670,6 @@ a.path-hop.hop-clickable:hover {
 .channel-aps {
     display: flex;
     gap: 2px;
-    margin-top: 4px;
 }
 
 .channel-ap-dot {
@@ -8693,10 +8692,6 @@ a.path-hop.hop-clickable:hover {
 .channel-ap-more {
     font-size: 0.6rem;
     color: var(--text-muted);
-}
-
-.channel-metrics {
-    margin-top: 4px;
 }
 
 .channel-util {

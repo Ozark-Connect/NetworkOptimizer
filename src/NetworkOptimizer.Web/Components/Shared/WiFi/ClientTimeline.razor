@@ -226,7 +226,7 @@
                     </div>
                     <div class="info-item">
                         <span class="info-label">Channel:</span>
-                        <span class="info-value">@(_selectedClient.Channel?.ToString() ?? "-")</span>
+                        <span class="info-value">@(_selectedClient.Channel?.ToString() ?? "-")@(_selectedClient.ChannelWidth.HasValue ? $" - {_selectedClient.ChannelWidth} MHz" : "")</span>
                     </div>
                     <div class="info-item">
                         <span class="info-label">Signal:</span>
