@@ -174,9 +174,8 @@
                                                            placeholder="Add notes..."
                                                            value="@GetNote(GetNoteKey(rule))"
                                                            @oninput="@(e => OnNoteInput(rule, e.Value?.ToString()))"
-                                                           @onkeyup="@(e => OnNoteKeyUp(rule))"
                                                            @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
-                                                           @onblur="@(() => { var k = GetNoteKey(rule); if (currentEditingNote == k) currentEditingNote = null; })" />
+                                                           @onfocusout="@(() => OnNoteBlur(rule))" />
                                                     @if (IsNoteSaving(GetNoteKey(rule)))
                                                     {
                                                         <span class="note-status saving">Saving...</span>
@@ -361,13 +360,14 @@
             notes.Remove(noteKey);
         else
             notes[noteKey] = newNote ?? "";
+
+        DebounceSaveNote(rule);
     }
 
-    private void OnNoteKeyUp(UniFiPortForwardRule rule)
+    private void DebounceSaveNote(UniFiPortForwardRule rule)
     {
         var noteKey = GetNoteKey(rule);
 
-        // Reset debounce timer on each keystroke
         if (_noteDebounceTimers.TryGetValue(noteKey, out var existingTimer))
         {
             existingTimer.Stop();
@@ -375,11 +375,26 @@
         }
         savedNotes.Remove(noteKey);
 
-        var timer = new System.Timers.Timer(800); // Match SpeedTestDetails debounce
+        var timer = new System.Timers.Timer(800);
         timer.AutoReset = false;
         timer.Elapsed += async (s, e) => await InvokeAsync(() => SaveNoteAsync(rule));
         _noteDebounceTimers[noteKey] = timer;
         timer.Start();
+    }
+
+    private async Task OnNoteBlur(UniFiPortForwardRule rule)
+    {
+        var noteKey = GetNoteKey(rule);
+        if (currentEditingNote == noteKey) currentEditingNote = null;
+
+        // Cancel pending debounce and save immediately
+        if (_noteDebounceTimers.TryGetValue(noteKey, out var existingTimer))
+        {
+            existingTimer.Stop();
+            existingTimer.Dispose();
+            _noteDebounceTimers.Remove(noteKey);
+        }
+        await SaveNoteAsync(rule);
     }
 
     private async Task SaveNoteAsync(UniFiPortForwardRule rule)
