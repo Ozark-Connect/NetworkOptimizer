@@ -29,10 +29,16 @@ public sealed record ProtectCamera
     public bool IsNvr { get; init; }
 
     /// <summary>
+    /// MAC address of the switch/AP the camera is connected through (from uplink_mac in Protect API).
+    /// Used for fallback port matching when the camera doesn't appear in stat/sta client data.
+    /// </summary>
+    public string? UplinkMac { get; init; }
+
+    /// <summary>
     /// Create a ProtectCamera from MAC and name
     /// </summary>
-    public static ProtectCamera Create(string mac, string name, string? connectionNetworkId = null, bool isNvr = false)
-        => new() { Mac = mac.ToLowerInvariant(), Name = name, ConnectionNetworkId = connectionNetworkId, IsNvr = isNvr };
+    public static ProtectCamera Create(string mac, string name, string? connectionNetworkId = null, bool isNvr = false, string? uplinkMac = null)
+        => new() { Mac = mac.ToLowerInvariant(), Name = name, ConnectionNetworkId = connectionNetworkId, IsNvr = isNvr, UplinkMac = uplinkMac?.ToLowerInvariant() };
 }
 
 /// <summary>
@@ -66,9 +72,20 @@ public sealed class ProtectCameraCollection
     /// <summary>
     /// Add a camera by MAC, name, and connection network ID
     /// </summary>
-    public void Add(string mac, string name, string? connectionNetworkId, bool isNvr = false)
+    public void Add(string mac, string name, string? connectionNetworkId, bool isNvr = false, string? uplinkMac = null)
     {
-        Add(ProtectCamera.Create(mac, name, connectionNetworkId, isNvr));
+        Add(ProtectCamera.Create(mac, name, connectionNetworkId, isNvr, uplinkMac));
+    }
+
+    /// <summary>
+    /// Try to get the full ProtectCamera by MAC address
+    /// </summary>
+    public bool TryGet(string? mac, out ProtectCamera? camera)
+    {
+        camera = null;
+        if (string.IsNullOrEmpty(mac))
+            return false;
+        return _cameras.TryGetValue(mac, out camera);
     }
 
     /// <summary>

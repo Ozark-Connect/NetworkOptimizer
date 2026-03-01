@@ -1508,4 +1508,264 @@ public class CameraVlanRuleTests
     }
 
     #endregion
+
+    #region Protect Camera Detection (Bypasses ForwardMode Gate)
+
+    [Fact]
+    public void Evaluate_ProtectCamera_OnTrunkPort_StillDetected()
+    {
+        // Arrange - Protect camera on a trunk port (ForwardMode="all") would be skipped
+        // by normal rules, but Protect detection bypasses the ForwardMode gate
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:01", "G6 Pro Bullet", corpNetwork.Id, isNvr: false);
+        _rule.SetProtectCameras(protectCameras);
+
+        var switchInfo = new SwitchInfo { Name = "Loft Switch", MacAddress = "00:aa:bb:cc:dd:01", Model = "USW-Flex-Mini", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 3,
+            Name = "Port 3",
+            IsUp = true,
+            ForwardMode = "all", // Trunk - would be skipped by normal rules
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = null,
+            LastConnectionMac = "aa:bb:cc:dd:ee:01"
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Protect camera detected despite trunk port
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("CAMERA-VLAN-001");
+        result.DeviceName.Should().Be("G6 Pro Bullet on Loft Switch");
+        result.Severity.Should().Be(AuditSeverity.Critical);
+        result.Metadata.Should().ContainKey("source").WhoseValue.Should().Be("ProtectAPI");
+        result.Metadata.Should().ContainKey("confidence").WhoseValue.Should().Be(100);
+    }
+
+    [Fact]
+    public void Evaluate_ProtectCamera_OnNativePort_NoClient_DetectedViaLastConnectionMac()
+    {
+        // Arrange - Protect camera doesn't appear in stat/sta (no ConnectedClient)
+        // but is detected via LastConnectionMac matching the Protect camera collection
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:02", "G4 Doorbell Pro", corpNetwork.Id, isNvr: false);
+        _rule.SetProtectCameras(protectCameras);
+
+        var switchInfo = new SwitchInfo { Name = "Entry Switch", MacAddress = "00:aa:bb:cc:dd:02", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 5,
+            Name = "Doorbell Port",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = null,
+            LastConnectionMac = "aa:bb:cc:dd:ee:02"
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Be("G4 Doorbell Pro on Entry Switch");
+        result.Metadata!["camera_mac"].Should().Be("aa:bb:cc:dd:ee:02");
+    }
+
+    [Fact]
+    public void Evaluate_ProtectCamera_DetectedViaHistoricalClientMac()
+    {
+        // Arrange - Camera MAC found via HistoricalClient (from client history)
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:03", "AI DSLR", corpNetwork.Id, isNvr: false);
+        _rule.SetProtectCameras(protectCameras);
+
+        var switchInfo = new SwitchInfo { Name = "Garage Switch", MacAddress = "00:aa:bb:cc:dd:03", Model = "USW-Flex-Mini", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 8,
+            Name = "Port 8",
+            IsUp = false,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = null,
+            HistoricalClient = new UniFiClientDetailResponse { Mac = "aa:bb:cc:dd:ee:03" }
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Be("AI DSLR on Garage Switch");
+    }
+
+    [Fact]
+    public void Evaluate_ProtectCamera_CorrectlyOnSecurityVlan_ReturnsNull()
+    {
+        // Arrange - Protect camera correctly placed on Security VLAN
+        var securityNetwork = new NetworkInfo { Id = "sec-net", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:04", "G6 Pro Bullet", securityNetwork.Id, isNvr: false);
+        _rule.SetProtectCameras(protectCameras);
+
+        var switchInfo = new SwitchInfo { Name = "Outdoor Switch", MacAddress = "00:aa:bb:cc:dd:04", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Camera Port",
+            IsUp = true,
+            ForwardMode = "all", // Even trunk port - placement is correct
+            NativeNetworkId = securityNetwork.Id,
+            Switch = switchInfo,
+            LastConnectionMac = "aa:bb:cc:dd:ee:04"
+        };
+        var networks = CreateNetworkList(securityNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Correctly placed, no issue
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProtectNvr_DetectedViaProtectCameras_OnCorporateVlan_ShowsNvrMessage()
+    {
+        // Arrange - NVR detected via SetProtectCameras on the rule (not via DetectionService)
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:05", "UNVR-Pro", corpNetwork.Id, isNvr: true);
+        _rule.SetProtectCameras(protectCameras);
+
+        var switchInfo = new SwitchInfo { Name = "Server Switch", MacAddress = "00:aa:bb:cc:dd:05", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 2,
+            Name = "Port 2",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            LastConnectionMac = "aa:bb:cc:dd:ee:05"
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - NVR message format
+        result.Should().NotBeNull();
+        result!.Message.Should().StartWith("NVR");
+        result.Message.Should().Contain("management or security");
+        result.Metadata!["category"].Should().Be("NVR");
+    }
+
+    [Fact]
+    public void Evaluate_ProtectCamera_NoConnectionNetworkId_ReturnsNull()
+    {
+        // Arrange - Protect camera with no ConnectionNetworkId (shouldn't happen, but defensive)
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:06", "G4 Instant", null, isNvr: false);
+        _rule.SetProtectCameras(protectCameras);
+
+        var switchInfo = new SwitchInfo { Name = "Test Switch", MacAddress = "00:aa:bb:cc:dd:06", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            LastConnectionMac = "aa:bb:cc:dd:ee:06"
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - No ConnectionNetworkId means we can't determine placement
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_NonProtectDevice_NotAffectedByProtectCameraCollection()
+    {
+        // Arrange - A non-Protect device should not be matched by the Protect check
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:07", "G6 Pro Bullet", corpNetwork.Id, isNvr: false);
+        _rule.SetProtectCameras(protectCameras);
+
+        // Different MAC - not a Protect camera
+        var switchInfo = new SwitchInfo { Name = "Office Switch", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Workstation",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = new UniFiClientResponse
+            {
+                Mac = "11:22:33:44:55:66", // Not a Protect camera
+                Name = "Desktop PC",
+                IsWired = true,
+                NetworkId = corpNetwork.Id
+            }
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Non-camera device should not be flagged
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_ProtectCamera_OnDisabledPort_DetectedViaHistoricalClient()
+    {
+        // Arrange - Camera on a disabled port (ForwardMode="disabled") with historical client
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:08", "G5 Turret", corpNetwork.Id, isNvr: false);
+        _rule.SetProtectCameras(protectCameras);
+
+        var switchInfo = new SwitchInfo { Name = "Outdoor Switch", MacAddress = "00:aa:bb:cc:dd:08", Model = "USW-Flex-Mini", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 4,
+            Name = "Port 4",
+            IsUp = false,
+            ForwardMode = "disabled", // Would be skipped by normal rules
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            HistoricalClient = new UniFiClientDetailResponse { Mac = "aa:bb:cc:dd:ee:08" }
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Protect camera detected on disabled port
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Be("G5 Turret on Outdoor Switch");
+    }
+
+    #endregion
 }

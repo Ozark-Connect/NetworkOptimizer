@@ -38,7 +38,12 @@ public class PortSecurityAnalyzer
         _protectCameras = protectCameras;
         if (protectCameras != null && protectCameras.Count > 0)
         {
-            _logger.LogDebug("PortSecurityAnalyzer: Protect camera collection set with {Count} devices for network override", protectCameras.Count);
+            // Propagate to rules that need Protect camera data for port-level detection
+            foreach (var rule in _rules.OfType<AuditRuleBase>())
+            {
+                rule.SetProtectCameras(protectCameras);
+            }
+            _logger.LogDebug("PortSecurityAnalyzer: Protect camera collection set with {Count} devices for network override and port detection", protectCameras.Count);
         }
     }
 
@@ -998,5 +1003,140 @@ public class PortSecurityAnalyzer
 
         _logger.LogInformation("Found {IssueCount} wireless client issues", issues.Count);
         return issues;
+    }
+
+    /// <summary>
+    /// Fallback analysis for Protect cameras not matched to any switch port.
+    /// Checks their ConnectionNetworkId directly against the expected Security VLAN.
+    /// Called after port-level analysis to catch cameras that don't appear in port data.
+    /// </summary>
+    public List<AuditIssue> AnalyzeProtectCameraPlacement(
+        List<SwitchInfo> switches,
+        List<NetworkInfo> networks,
+        HashSet<string> alreadyFlaggedMacs)
+    {
+        var issues = new List<AuditIssue>();
+        if (_protectCameras == null || _protectCameras.Count == 0)
+            return issues;
+
+        // Build set of all MACs that appear on any port (already handled by port-level rules)
+        var macsOnPorts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sw in switches)
+        {
+            foreach (var port in sw.Ports)
+            {
+                if (!string.IsNullOrEmpty(port.ConnectedClient?.Mac))
+                    macsOnPorts.Add(port.ConnectedClient.Mac);
+                if (!string.IsNullOrEmpty(port.LastConnectionMac))
+                    macsOnPorts.Add(port.LastConnectionMac);
+                if (!string.IsNullOrEmpty(port.HistoricalClient?.Mac))
+                    macsOnPorts.Add(port.HistoricalClient.Mac);
+            }
+        }
+
+        foreach (var camera in _protectCameras.GetAll())
+        {
+            // Skip if already matched to a port (handled by CameraVlanRule.Evaluate)
+            if (macsOnPorts.Contains(camera.Mac))
+                continue;
+
+            // Skip if already flagged by another path
+            if (alreadyFlaggedMacs.Contains(camera.Mac))
+                continue;
+
+            if (string.IsNullOrEmpty(camera.ConnectionNetworkId))
+                continue;
+
+            var network = networks.FirstOrDefault(n => n.Id == camera.ConnectionNetworkId);
+            if (network == null)
+                continue;
+
+            var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, 8, isNvr: camera.IsNvr);
+            if (placement.IsCorrectlyPlaced)
+                continue;
+
+            // Try to find the switch port for display purposes using UplinkMac
+            string deviceName;
+            string? switchMac = null;
+            string? portStr = null;
+            string? portName = null;
+
+            var portMatch = FindPortByUplinkMac(switches, camera);
+            if (portMatch != null)
+            {
+                deviceName = $"{camera.Name} on {portMatch.Value.Switch.Name}";
+                switchMac = portMatch.Value.Switch.MacAddress;
+                portStr = portMatch.Value.Port.PortIndex.ToString();
+                portName = portMatch.Value.Port.Name;
+            }
+            else
+            {
+                deviceName = camera.Name;
+            }
+
+            var message = camera.IsNvr
+                ? $"NVR on {network.Name} VLAN - should be on management or security VLAN"
+                : $"Camera on {network.Name} VLAN - should be on security VLAN";
+
+            issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.CameraVlan,
+                Severity = placement.Severity,
+                Message = message,
+                DeviceName = deviceName,
+                DeviceMac = switchMac,
+                Port = portStr,
+                PortName = portName,
+                CurrentNetwork = network.Name,
+                CurrentVlan = network.VlanId,
+                RecommendedNetwork = placement.RecommendedNetwork?.Name,
+                RecommendedVlan = placement.RecommendedNetwork?.VlanId,
+                RecommendedAction = VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel),
+                Metadata = new Dictionary<string, object>
+                {
+                    ["category"] = camera.IsNvr ? "NVR" : "Camera",
+                    ["confidence"] = 100,
+                    ["source"] = "ProtectAPI",
+                    ["camera_name"] = camera.Name,
+                    ["camera_mac"] = camera.Mac
+                },
+                RuleId = IssueTypes.CameraVlan,
+                ScoreImpact = placement.ScoreImpact
+            });
+
+            _logger.LogInformation("Protect camera fallback: {Name} ({Mac}) on {Network} VLAN - flagged for wrong placement",
+                camera.Name, camera.Mac, network.Name);
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Find the switch port a Protect camera is connected to using its UplinkMac.
+    /// Scans ports on the matching switch for the camera's MAC in any MAC field.
+    /// </summary>
+    private static (SwitchInfo Switch, PortInfo Port)? FindPortByUplinkMac(
+        List<SwitchInfo> switches, NetworkOptimizer.Core.Models.ProtectCamera camera)
+    {
+        if (string.IsNullOrEmpty(camera.UplinkMac))
+            return null;
+
+        var sw = switches.FirstOrDefault(s =>
+            string.Equals(s.MacAddress, camera.UplinkMac, StringComparison.OrdinalIgnoreCase));
+        if (sw == null)
+            return null;
+
+        // Scan ports for a MAC match
+        foreach (var port in sw.Ports)
+        {
+            if (string.Equals(port.ConnectedClient?.Mac, camera.Mac, StringComparison.OrdinalIgnoreCase))
+                return (sw, port);
+            if (string.Equals(port.LastConnectionMac, camera.Mac, StringComparison.OrdinalIgnoreCase))
+                return (sw, port);
+            if (string.Equals(port.HistoricalClient?.Mac, camera.Mac, StringComparison.OrdinalIgnoreCase))
+                return (sw, port);
+        }
+
+        return null;
     }
 }
