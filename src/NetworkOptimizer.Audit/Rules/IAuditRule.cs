@@ -1,6 +1,7 @@
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 
@@ -81,6 +82,13 @@ public abstract class AuditRuleBase : IAuditRule
     protected DeviceAllowanceSettings AllowanceSettings { get; private set; } = DeviceAllowanceSettings.Default;
 
     /// <summary>
+    /// UniFi Protect camera collection for direct camera detection on ports.
+    /// Cameras detected via Protect API bypass the ForwardMode gate since they
+    /// don't appear in stat/sta client data.
+    /// </summary>
+    protected ProtectCameraCollection? ProtectCameras { get; private set; }
+
+    /// <summary>
     /// Set the detection service for enhanced device type detection
     /// </summary>
     public void SetDetectionService(DeviceTypeDetectionService service)
@@ -94,6 +102,14 @@ public abstract class AuditRuleBase : IAuditRule
     public void SetAllowanceSettings(DeviceAllowanceSettings settings)
     {
         AllowanceSettings = settings;
+    }
+
+    /// <summary>
+    /// Set the Protect camera collection for direct camera detection on ports
+    /// </summary>
+    public void SetProtectCameras(ProtectCameraCollection cameras)
+    {
+        ProtectCameras = cameras;
     }
 
     public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null);

@@ -184,9 +184,9 @@
                     <div class="result-notes" @onclick:stopPropagation="true">
                         <textarea class="notes-input"
                                   placeholder="Add notes..."
-                                  @bind="_notesInput"
-                                  @bind:event="oninput"
-                                  @onkeyup="OnNotesKeyUp"
+                                  value="@_notesInput"
+                                  @oninput="OnNotesInput"
+                                  @onfocusout="OnNotesBlur"
                                   rows="2"></textarea>
                         @if (_notesSaving)
                         {
@@ -1089,17 +1089,30 @@
         builder.AddContent(0, GetHopIcon(hop.Type));
     };
 
-    private void OnNotesKeyUp(KeyboardEventArgs e)
+    private void DebounceSaveNotes()
     {
-        // Reset debounce timer on each keystroke
         _notesDebounceTimer?.Stop();
         _notesDebounceTimer?.Dispose();
         _notesSaved = false;
 
-        _notesDebounceTimer = new System.Timers.Timer(800); // Longer debounce for notes
+        _notesDebounceTimer = new System.Timers.Timer(800);
         _notesDebounceTimer.AutoReset = false;
         _notesDebounceTimer.Elapsed += async (s, e) => await InvokeAsync(SaveNotes);
         _notesDebounceTimer.Start();
+    }
+
+    private void OnNotesInput(ChangeEventArgs e)
+    {
+        _notesInput = e.Value?.ToString() ?? "";
+        DebounceSaveNotes();
+    }
+
+    private async Task OnNotesBlur()
+    {
+        // Cancel any pending debounce and save immediately
+        _notesDebounceTimer?.Stop();
+        _notesDebounceTimer?.Dispose();
+        await SaveNotes();
     }
 
     private async Task SaveNotes()

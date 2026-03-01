@@ -303,6 +303,7 @@ public class ConfigAuditEngine
         ExecutePhase1_ExtractNetworks(ctx);
         ExecutePhase2_ExtractSwitches(ctx);
         ExecutePhase3_AnalyzePortSecurity(ctx);
+        ExecutePhase3a_ProtectCameraFallback(ctx);
         ExecutePhase3b_AnalyzeWirelessClients(ctx);
         ExecutePhase3c_AnalyzeOfflineClients(ctx);
         ExecutePhase4_AnalyzeNetworkConfiguration(ctx);
@@ -532,6 +533,28 @@ public class ConfigAuditEngine
         var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks, allNetworks ?? ctx.Networks);
         ctx.AllIssues.AddRange(portIssues);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
+    }
+
+    /// <summary>
+    /// Fallback: check Protect cameras not matched to any switch port during Phase 3.
+    /// These are cameras the Protect API knows about but that don't appear in port data
+    /// (no ConnectedClient, no LastConnectionMac, no HistoricalClient).
+    /// </summary>
+    private void ExecutePhase3a_ProtectCameraFallback(AuditContext ctx)
+    {
+        // Collect camera MACs already flagged by CameraVlanRule during port analysis
+        var alreadyFlaggedMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var issue in ctx.AllIssues.Where(i => i.Type == IssueTypes.CameraVlan))
+        {
+            if (issue.Metadata?.TryGetValue("camera_mac", out var macObj) == true && macObj is string mac)
+                alreadyFlaggedMacs.Add(mac);
+        }
+
+        var fallbackIssues = ctx.SecurityEngine.AnalyzeProtectCameraPlacement(ctx.Switches, ctx.Networks, alreadyFlaggedMacs);
+        ctx.AllIssues.AddRange(fallbackIssues);
+
+        if (fallbackIssues.Count > 0)
+            _logger.LogInformation("Protect camera fallback found {Count} additional VLAN placement issues", fallbackIssues.Count);
     }
 
     private void ExecutePhase3b_AnalyzeWirelessClients(AuditContext ctx)
@@ -952,6 +975,11 @@ public class ConfigAuditEngine
     /// Phase 5d: Cross-reference port forward rules with threat intelligence data.
     /// Creates additional issues for port forwards that are actively being targeted by threats.
     /// Purely additive - if no ThreatContext, this is a no-op.
+    ///
+    /// Severity logic:
+    /// - Cloudflare-only IP restriction: Info - the port forward is properly locked to Cloudflare IPs
+    /// - Any other IP restriction: Recommended - there's some protection but not Cloudflare-specific
+    /// - No IP restriction: Critical (100+ threats) or Recommended (10-99 threats) - fully exposed
     /// </summary>
     private void ExecutePhase5d_AnalyzeThreatExposure(AuditContext ctx)
     {
@@ -966,6 +994,11 @@ public class ConfigAuditEngine
 
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
 
+        // Build firewall group dictionary for resolving source restriction groups
+        var firewallGroupsDict = ctx.FirewallGroups?
+            .Where(g => !string.IsNullOrEmpty(g.Id))
+            .ToDictionary(g => g.Id, g => g);
+
         foreach (var rule in portForwardRules)
         {
             if (string.IsNullOrEmpty(rule.DstPort)) continue;
@@ -977,23 +1010,103 @@ public class ConfigAuditEngine
 
                 if (ctx.ThreatContext.ThreatCountByDestPort.TryGetValue(port, out var threatCount) && threatCount >= 10)
                 {
+                    // Check source IP restriction status
+                    var restriction = ClassifySourceRestriction(rule, firewallGroupsDict);
+
+                    var threatLink = $"See {{Threat Intelligence|port={port}}} for details.";
+
+                    var (severity, message, scoreImpact, recommendation) = restriction switch
+                    {
+                        SourceRestrictionType.CloudflareOnly => (
+                            Models.AuditSeverity.Informational,
+                            $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days, but is restricted to Cloudflare IP ranges. {threatLink}",
+                            0,
+                            "No action needed - this port forward is already restricted to Cloudflare IPs. Traffic from non-Cloudflare sources will be dropped."),
+
+                        SourceRestrictionType.OtherRestriction => (
+                            Models.AuditSeverity.Recommended,
+                            $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days. Source IP restrictions are in place - consider restricting to Cloudflare IPs if this is behind a Cloudflare proxy. {threatLink}",
+                            3,
+                            "If this service is behind Cloudflare, create a Network List in UniFi Network containing only Cloudflare IP ranges and apply it to this port forwarding rule's source restriction."),
+
+                        _ => (
+                            threatCount >= 100 ? Models.AuditSeverity.Critical : Models.AuditSeverity.Recommended,
+                            $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days. Consider adding source IP restrictions or geo-blocking. {threatLink}",
+                            threatCount >= 100 ? 7 : 3,
+                            "Create a Network List in UniFi Network with allowed source IPs (e.g., Cloudflare IP ranges if behind a Cloudflare proxy) and apply it to this port forwarding rule's source restriction. This limits who can reach the forwarded port.")
+                    };
+
                     ctx.AllIssues.Add(new AuditIssue
                     {
                         Type = IssueTypes.ThreatExposedPortForward,
-                        Severity = threatCount >= 100 ? Models.AuditSeverity.Critical : Models.AuditSeverity.Recommended,
-                        Message = $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days. Consider adding source IP restrictions or geo-blocking.",
+                        Severity = severity,
+                        Message = message,
                         DeviceName = gatewayName,
+                        ScoreImpact = scoreImpact,
+                        RecommendedAction = recommendation,
                         Metadata = new Dictionary<string, object>
                         {
                             ["port"] = port,
                             ["threat_count"] = threatCount,
                             ["rule_name"] = rule.Name ?? "Unnamed",
-                            ["forward_target"] = $"{rule.Fwd}:{rule.FwdPort ?? portStr}"
+                            ["forward_target"] = $"{rule.Fwd}:{rule.FwdPort ?? portStr}",
+                            ["source_restriction"] = restriction.ToString()
                         }
                     });
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Classification of source IP restrictions on a port forward rule.
+    /// </summary>
+    private enum SourceRestrictionType
+    {
+        /// <summary>No source IP restriction configured</summary>
+        None,
+        /// <summary>Restricted to Cloudflare IP ranges only</summary>
+        CloudflareOnly,
+        /// <summary>Some other IP restriction (not Cloudflare-specific)</summary>
+        OtherRestriction
+    }
+
+    /// <summary>
+    /// Classify the source restriction on a port forward rule by resolving the
+    /// configured IPs/groups and checking against known Cloudflare ranges.
+    /// </summary>
+    private SourceRestrictionType ClassifySourceRestriction(
+        UniFiPortForwardRule rule,
+        Dictionary<string, UniFiFirewallGroup>? firewallGroupsDict)
+    {
+        if (rule.SrcLimitingEnabled != true)
+            return SourceRestrictionType.None;
+
+        List<string>? sourceAddresses = null;
+
+        switch (rule.SrcLimitingType)
+        {
+            case "firewall_group" when !string.IsNullOrEmpty(rule.SrcFirewallGroupId):
+                sourceAddresses = FirewallGroupHelper.ResolveAddressGroup(
+                    rule.SrcFirewallGroupId, firewallGroupsDict, _logger);
+                break;
+
+            case "ip" when !string.IsNullOrEmpty(rule.Src):
+                // Single IP or CIDR - wrap in a list
+                sourceAddresses = [rule.Src];
+                break;
+
+            default:
+                return SourceRestrictionType.None;
+        }
+
+        if (sourceAddresses == null || sourceAddresses.Count == 0)
+            return SourceRestrictionType.None;
+
+        if (CloudflareIpRanges.IsCloudflareOnly(sourceAddresses))
+            return SourceRestrictionType.CloudflareOnly;
+
+        return SourceRestrictionType.OtherRestriction;
     }
 
     private void ExecutePhase6_AnalyzeHardeningMeasures(AuditContext ctx)

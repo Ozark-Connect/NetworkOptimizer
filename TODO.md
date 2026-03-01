@@ -68,6 +68,20 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
 - **Severity:** Informational (user may have intentionally blocked bidirectional)
 - **Context:** This is a usability issue, not a security issue - blocking return traffic is actually more secure
 
+### 802.1X / RADIUS MAC Auth Awareness for VLAN Placement Rules
+- Wired VLAN placement rules (`CameraVlanRule`, `IotVlanRule`) use `port.NativeNetworkId` (static port config) to determine which VLAN a device is on
+- Problem: When 802.1X or RADIUS MAC authentication is enabled, the switch dynamically assigns the VLAN based on RADIUS response - this may differ from the port's native VLAN config
+- Result: False positive VLAN placement issues for devices that are correctly placed by RADIUS but whose port native VLAN doesn't match the expected network
+- Neither rule checks `port.IsDot1xSecured` today
+- **Not affected:**
+  - Wireless client rules - use `client.EffectiveNetworkId` (actual runtime network from client data, reflects RADIUS assignment)
+  - Protect camera path - uses `ConnectionNetworkId` from the Protect API (actual runtime VLAN)
+- Implementation options:
+  1. Skip VLAN placement check entirely for 802.1X-secured ports (trust RADIUS)
+  2. Use the connected client's actual network assignment instead of port native VLAN when 802.1X is active
+  3. Lower severity to Informational for 802.1X ports with a note that RADIUS may override
+- Severity: Low priority (most home/prosumer networks don't use 802.1X; affects enterprise deployments)
+
 ### Third-Party DNS Firewall Rule Check
 - When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
 - Without this rule, clients could bypass third-party DNS by using the gateway directly
@@ -369,6 +383,20 @@ The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns mul
 | `connect_devices` | EV chargers, other Connect devices | IoT VLAN | TODO |
 | `talk_devices` | Intercoms, phones | IoT/VoIP VLAN | TODO |
 | `led_devices` | LED controllers, lighting | IoT VLAN | TODO |
+
+### Protect Infrastructure Devices (SuperLink, Sensors, Chimes)
+- Currently excluded from VLAN placement checks: SuperLink Hub, Sensors, Chimes, Bridges
+- These are wired (SuperLink) or wireless Protect devices that aren't cameras/doorbells/NVRs
+- VLAN placement is ambiguous - depends on user's network design:
+  - If Protect Console is on Security VLAN, these should follow
+  - If Protect Console is on Management VLAN, SuperLink could go either way
+  - Sensors and chimes carry security-sensitive data (motion, door open/close) - some users consider this Security VLAN worthy, others treat them as IoT
+- Current `RequiresSecurityVlan` only covers the unambiguous set: cameras, doorbells, NVRs, AI Key
+- Options:
+  1. Add these to `RequiresSecurityVlan` and always recommend Security VLAN
+  2. Tie recommendation to where the Protect Console itself lives (if Console is on Security, recommend Security for all Protect devices)
+  3. Leave it to the Manual Network Purpose Override feature (let users decide)
+- Likely best approach: option 2 (follow the Console) with option 3 as fallback
 
 ### Phase 2: Access Devices (Door Access)
 - [ ] Parse `access_devices` array
