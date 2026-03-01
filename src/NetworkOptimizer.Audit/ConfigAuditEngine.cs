@@ -303,8 +303,8 @@ public class ConfigAuditEngine
         ExecutePhase1_ExtractNetworks(ctx);
         ExecutePhase2_ExtractSwitches(ctx);
         ExecutePhase3_AnalyzePortSecurity(ctx);
-        ExecutePhase3a_ProtectCameraFallback(ctx);
         ExecutePhase3b_AnalyzeWirelessClients(ctx);
+        ExecutePhase3a_ProtectCameraFallback(ctx);
         ExecutePhase3c_AnalyzeOfflineClients(ctx);
         ExecutePhase4_AnalyzeNetworkConfiguration(ctx);
         ExecutePhase5_AnalyzeFirewallRules(ctx);
@@ -548,6 +548,14 @@ public class ConfigAuditEngine
         {
             if (issue.Metadata?.TryGetValue("camera_mac", out var macObj) == true && macObj is string mac)
                 alreadyFlaggedMacs.Add(mac);
+        }
+
+        // Also skip cameras that are wireless clients - Phase 3b will flag them
+        // with richer context (AP name, band, signal strength)
+        foreach (var client in ctx.WirelessClients)
+        {
+            if (!string.IsNullOrEmpty(client.Mac))
+                alreadyFlaggedMacs.Add(client.Mac);
         }
 
         var fallbackIssues = ctx.SecurityEngine.AnalyzeProtectCameraPlacement(ctx.Switches, ctx.Networks, alreadyFlaggedMacs);

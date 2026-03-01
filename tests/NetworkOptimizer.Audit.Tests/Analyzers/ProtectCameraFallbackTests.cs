@@ -272,6 +272,57 @@ public class ProtectCameraFallbackTests
         issues.Select(i => i.Metadata!["camera_name"]).Should().Contain("Garage Camera");
     }
 
+    [Fact]
+    public void AnalyzeProtectCameraPlacement_WirelessCameraMacInAlreadyFlagged_SkippedForDedup()
+    {
+        // Arrange - Camera is a wireless client, so its MAC is in alreadyFlaggedMacs
+        // (the engine adds all wireless client MACs to prevent duplicates with Phase 3b)
+        var iotNetwork = new NetworkInfo { Id = "iot-net", Name = "IoT", VlanId = 64, Purpose = NetworkPurpose.IoT };
+        var securityNetwork = new NetworkInfo { Id = "sec-net", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
+        var networks = new List<NetworkInfo> { iotNetwork, securityNetwork };
+
+        var cameras = new ProtectCameraCollection();
+        cameras.Add("a8:9c:6c:1e:76:e4", "G6 Instant", iotNetwork.Id, isNvr: false);
+        _analyzer.SetProtectCameras(cameras);
+
+        var switches = new List<SwitchInfo>();
+
+        // Wireless client MAC added to skip set (simulates what ConfigAuditEngine does)
+        var alreadyFlagged = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "a8:9c:6c:1e:76:e4" };
+
+        // Act
+        var issues = _analyzer.AnalyzeProtectCameraPlacement(switches, networks, alreadyFlagged);
+
+        // Assert - Skipped because wireless rule (Phase 3b) will handle it with richer context
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeProtectCameraPlacement_MixedWiredAndWirelessCameras_OnlyFlagsNonWireless()
+    {
+        // Arrange - Two cameras on wrong VLAN: one wireless (should be skipped), one not on any port
+        var iotNetwork = new NetworkInfo { Id = "iot-net", Name = "IoT", VlanId = 64, Purpose = NetworkPurpose.IoT };
+        var securityNetwork = new NetworkInfo { Id = "sec-net", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
+        var networks = new List<NetworkInfo> { iotNetwork, securityNetwork };
+
+        var cameras = new ProtectCameraCollection();
+        cameras.Add("aa:bb:cc:dd:ee:01", "G6 Instant WiFi", iotNetwork.Id, isNvr: false);  // Wireless - skip
+        cameras.Add("aa:bb:cc:dd:ee:02", "G5 Turret Wired", iotNetwork.Id, isNvr: false);  // Not wireless - flag
+        _analyzer.SetProtectCameras(cameras);
+
+        var switches = new List<SwitchInfo>();
+
+        // Only the wireless camera MAC is in the skip set
+        var alreadyFlagged = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "aa:bb:cc:dd:ee:01" };
+
+        // Act
+        var issues = _analyzer.AnalyzeProtectCameraPlacement(switches, networks, alreadyFlagged);
+
+        // Assert - Only the wired camera flagged
+        issues.Should().HaveCount(1);
+        issues[0].Metadata!["camera_name"].Should().Be("G5 Turret Wired");
+    }
+
     #endregion
 
     #region Helper Methods
