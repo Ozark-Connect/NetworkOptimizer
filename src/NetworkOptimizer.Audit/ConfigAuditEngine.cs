@@ -1013,22 +1013,25 @@ public class ConfigAuditEngine
                     // Check source IP restriction status
                     var restriction = ClassifySourceRestriction(rule, firewallGroupsDict);
 
-                    var (severity, message, scoreImpact) = restriction switch
+                    var (severity, message, scoreImpact, recommendation) = restriction switch
                     {
                         SourceRestrictionType.CloudflareOnly => (
                             Models.AuditSeverity.Informational,
                             $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days, but is restricted to Cloudflare IP ranges.",
-                            0),
+                            0,
+                            "No action needed - this port forward is already restricted to Cloudflare IPs. Traffic from non-Cloudflare sources will be dropped."),
 
                         SourceRestrictionType.OtherRestriction => (
                             Models.AuditSeverity.Recommended,
                             $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days. Source IP restrictions are in place - consider restricting to Cloudflare IPs if this is behind a Cloudflare proxy.",
-                            3),
+                            3,
+                            "If this service is behind Cloudflare, create a Network List in UniFi Network containing only Cloudflare IP ranges and apply it to this port forwarding rule's source restriction."),
 
                         _ => (
                             threatCount >= 100 ? Models.AuditSeverity.Critical : Models.AuditSeverity.Recommended,
                             $"Port forward for port {port} ({rule.Name ?? "Unnamed"}) has been targeted by {threatCount} threat events in the last 30 days. Consider adding source IP restrictions or geo-blocking.",
-                            threatCount >= 100 ? 7 : 3)
+                            threatCount >= 100 ? 7 : 3,
+                            "Create a Network List in UniFi Network with allowed source IPs (e.g., Cloudflare IP ranges if behind a Cloudflare proxy) and apply it to this port forwarding rule's source restriction. This limits who can reach the forwarded port.")
                     };
 
                     ctx.AllIssues.Add(new AuditIssue
@@ -1038,6 +1041,7 @@ public class ConfigAuditEngine
                         Message = message,
                         DeviceName = gatewayName,
                         ScoreImpact = scoreImpact,
+                        RecommendedAction = recommendation,
                         Metadata = new Dictionary<string, object>
                         {
                             ["port"] = port,
