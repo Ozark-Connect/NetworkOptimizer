@@ -1297,6 +1297,10 @@
         return !string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.Port);
     }
 
+    private static readonly System.Text.RegularExpressions.Regex ThreatIntelLinkRegex = new(
+        @"\{Threat Intelligence\|port=(\d+)\}",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private MarkupString FormatIssueText(string? text)
     {
         if (string.IsNullOrEmpty(text))
@@ -1317,6 +1321,10 @@
         formatted = formatted.Replace(
             "per Settings",
             "per <a href=\"/settings#security-audit\">Settings</a>");
+
+        // Convert "{Threat Intelligence|port=X}" to a drilldown link
+        formatted = ThreatIntelLinkRegex.Replace(formatted,
+            m => $"<a href=\"./threats?tab=drilldown&port={m.Groups[1].Value}\">Threat Intelligence</a>");
 
         return new MarkupString(formatted);
     }
