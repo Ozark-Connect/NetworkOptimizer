@@ -1538,6 +1538,48 @@ public class DnsSecurityAnalyzer
         }
     }
 
+    /// <summary>
+    /// Build a set of all valid DNS targets for infrastructure device validation.
+    /// Includes all gateway IPs (same physical device, different VLAN interfaces) and
+    /// any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.).
+    /// </summary>
+    private static HashSet<string> BuildValidDnsTargets(List<NetworkInfo> networks)
+    {
+        var targets = new HashSet<string>();
+
+        foreach (var network in networks)
+        {
+            // All gateway IPs are valid - the UniFi gateway serves DNS on all its interfaces
+            if (!string.IsNullOrEmpty(network.Gateway))
+                targets.Add(network.Gateway);
+
+            // DHCP DNS servers are admin-configured local DNS (Pi-hole, AdGuard, etc.)
+            if (network.DnsServers != null)
+            {
+                foreach (var dns in network.DnsServers)
+                {
+                    if (!string.IsNullOrEmpty(dns))
+                        targets.Add(dns);
+                }
+            }
+        }
+
+        return targets;
+    }
+
+    /// <summary>
+    /// Get the primary gateway IP for display purposes (management network preferred).
+    /// </summary>
+    private static string GetPrimaryGatewayIp(List<NetworkInfo> networks, HashSet<string> validDnsTargets)
+    {
+        var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
+            ?? networks.FirstOrDefault(n => n.IsNative);
+
+        return managementNetwork?.Gateway
+            ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway
+            ?? validDnsTargets.First();
+    }
+
     private void AnalyzeDeviceDnsConfiguration(List<SwitchInfo> switches, List<NetworkInfo> networks, DnsSecurityResult result)
     {
         // Find the gateway device from switches list
@@ -1548,21 +1590,22 @@ public class DnsSecurityAnalyzer
             return;
         }
 
-        // Find management network (usually VLAN 1 or labeled management)
-        var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
-            ?? networks.FirstOrDefault(n => n.IsNative);
+        // Build set of all valid DNS targets for infrastructure devices:
+        // 1. All gateway IPs across all networks (same physical gateway, different interfaces)
+        // 2. Any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.)
+        var validDnsTargets = BuildValidDnsTargets(networks);
 
-        // Use the internal gateway IP from the management network, not the WAN IP
-        var expectedGatewayIp = managementNetwork?.Gateway
-            ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway;
-
-        if (string.IsNullOrEmpty(expectedGatewayIp))
+        if (validDnsTargets.Count == 0)
         {
-            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation");
+            _logger.LogDebug("Could not determine any valid DNS targets for device DNS validation");
             return;
         }
 
-        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation", expectedGatewayIp);
+        // Use management network's gateway as primary for display purposes
+        var primaryGatewayIp = GetPrimaryGatewayIp(networks, validDnsTargets);
+
+        _logger.LogDebug("Device DNS validation: {Count} valid DNS targets: {Targets}",
+            validDnsTargets.Count, string.Join(", ", validDnsTargets));
 
         // Get all non-gateway devices from switches list
         // Note: This list includes switches but may not include APs (which don't have port_table)
@@ -1586,7 +1629,7 @@ public class DnsSecurityAnalyzer
         // Check devices with static DNS configuration
         foreach (var device in devicesWithStaticDns)
         {
-            var pointsToGateway = device.ConfiguredDns1 == expectedGatewayIp;
+            var pointsToGateway = validDnsTargets.Contains(device.ConfiguredDns1!);
 
             result.DeviceDnsDetails.Add(new DeviceDnsInfo
             {
@@ -1594,7 +1637,7 @@ public class DnsSecurityAnalyzer
                 DeviceType = device.Type ?? "unknown",
                 DeviceIp = device.IpAddress,
                 ConfiguredDns = device.ConfiguredDns1,
-                ExpectedGateway = expectedGatewayIp,
+                ExpectedGateway = primaryGatewayIp,
                 PointsToGateway = pointsToGateway,
                 UsesDhcp = false
             });
@@ -1614,7 +1657,7 @@ public class DnsSecurityAnalyzer
                 DeviceType = device.Type ?? "unknown",
                 DeviceIp = device.IpAddress,
                 ConfiguredDns = null,
-                ExpectedGateway = expectedGatewayIp,
+                ExpectedGateway = primaryGatewayIp,
                 PointsToGateway = true, // Assumed correct if using DHCP
                 UsesDhcp = true
             });
@@ -1640,13 +1683,13 @@ public class DnsSecurityAnalyzer
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
+                    RecommendedAction = $"Configure device DNS to point to gateway ({primaryGatewayIp})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
                     {
                         { "misconfigured_devices", deviceNames },
-                        { "expected_gateway", expectedGatewayIp }
+                        { "expected_gateway", primaryGatewayIp }
                     }
                 });
             }
@@ -1659,20 +1702,22 @@ public class DnsSecurityAnalyzer
     /// </summary>
     private void AnalyzeAllDeviceDnsConfiguration(JsonElement deviceData, List<NetworkInfo> networks, DnsSecurityResult result)
     {
-        // Find management network to get expected gateway IP
-        var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
-            ?? networks.FirstOrDefault(n => n.IsNative);
+        // Build set of all valid DNS targets for infrastructure devices:
+        // 1. All gateway IPs across all networks (same physical gateway, different interfaces)
+        // 2. Any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.)
+        var validDnsTargets = BuildValidDnsTargets(networks);
 
-        var expectedGatewayIp = managementNetwork?.Gateway
-            ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway;
-
-        if (string.IsNullOrEmpty(expectedGatewayIp))
+        if (validDnsTargets.Count == 0)
         {
-            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation");
+            _logger.LogDebug("Could not determine any valid DNS targets for device DNS validation");
             return;
         }
 
-        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation", expectedGatewayIp);
+        // Use management network's gateway as primary for display purposes
+        var primaryGatewayIp = GetPrimaryGatewayIp(networks, validDnsTargets);
+
+        _logger.LogDebug("Device DNS validation: {Count} valid DNS targets: {Targets}",
+            validDnsTargets.Count, string.Join(", ", validDnsTargets));
 
         // Process ALL devices from raw device data
         foreach (var device in deviceData.UnwrapDataArray())
@@ -1697,7 +1742,7 @@ public class DnsSecurityAnalyzer
             if (!string.IsNullOrEmpty(dns1))
             {
                 // Device has static DNS configured
-                var pointsToGateway = dns1 == expectedGatewayIp;
+                var pointsToGateway = validDnsTargets.Contains(dns1);
                 result.TotalDevicesChecked++;
 
                 result.DeviceDnsDetails.Add(new DeviceDnsInfo
@@ -1706,7 +1751,7 @@ public class DnsSecurityAnalyzer
                     DeviceType = deviceType ?? "unknown",
                     DeviceIp = ip,
                     ConfiguredDns = dns1,
-                    ExpectedGateway = expectedGatewayIp,
+                    ExpectedGateway = primaryGatewayIp,
                     PointsToGateway = pointsToGateway,
                     UsesDhcp = false
                 });
@@ -1727,7 +1772,7 @@ public class DnsSecurityAnalyzer
                     DeviceType = deviceType ?? "unknown",
                     DeviceIp = ip,
                     ConfiguredDns = null,
-                    ExpectedGateway = expectedGatewayIp,
+                    ExpectedGateway = primaryGatewayIp,
                     PointsToGateway = true, // Assumed correct via DHCP
                     UsesDhcp = true
                 });
@@ -1757,13 +1802,13 @@ public class DnsSecurityAnalyzer
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
+                    RecommendedAction = $"Configure device DNS to point to gateway ({primaryGatewayIp})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
                     {
                         { "misconfigured_devices", deviceNames },
-                        { "expected_gateway", expectedGatewayIp }
+                        { "expected_gateway", primaryGatewayIp }
                     }
                 });
             }

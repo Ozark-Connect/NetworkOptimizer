@@ -6912,6 +6912,172 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
     }
 
+    [Fact]
+    public async Task Analyze_WithDeviceDnsPointingToNonDefaultVlanGateway_NoIssue()
+    {
+        // Arrange - Management VLAN is NOT VLAN 1, devices use management VLAN gateway as DNS
+        // This is the scenario from GitHub issue #389
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" },
+            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Purpose = NetworkPurpose.Management }
+        };
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "Gateway",
+                "ip": "10.9.0.1"
+            },
+            {
+                "type": "usw",
+                "name": "Switch1",
+                "ip": "10.9.0.10",
+                "config_network": {
+                    "type": "static",
+                    "dns1": "10.9.0.1"
+                }
+            },
+            {
+                "type": "uap",
+                "name": "AP1",
+                "ip": "10.9.0.20",
+                "config_network": {
+                    "type": "static",
+                    "dns1": "10.9.0.1"
+                }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
+
+        // Assert - devices pointing to management VLAN gateway should be correct
+        result.DeviceDnsPointsToGateway.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDeviceDnsPointingToAnyVlanGateway_NoIssue()
+    {
+        // Arrange - Device points to default VLAN gateway even though management VLAN exists
+        // Both are valid since the gateway serves DNS on all interfaces
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" },
+            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Purpose = NetworkPurpose.Management }
+        };
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "Gateway",
+                "ip": "10.9.0.1"
+            },
+            {
+                "type": "usw",
+                "name": "Switch1",
+                "ip": "192.168.1.10",
+                "config_network": {
+                    "type": "static",
+                    "dns1": "192.168.1.1"
+                }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
+
+        // Assert - pointing to any VLAN's gateway is valid
+        result.DeviceDnsPointsToGateway.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDeviceDnsPointingToPihole_NoIssue()
+    {
+        // Arrange - Device DNS points to Pi-hole configured as DHCP DNS on a network
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "Home", VlanId = 10, DhcpEnabled = true,
+                Gateway = "10.10.0.1",
+                DnsServers = new List<string> { "10.10.0.50" }, // Pi-hole
+                Purpose = NetworkPurpose.Home
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true,
+                Gateway = "10.9.0.1",
+                Purpose = NetworkPurpose.Management
+            }
+        };
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "Gateway",
+                "ip": "10.9.0.1"
+            },
+            {
+                "type": "usw",
+                "name": "Switch1",
+                "ip": "10.9.0.10",
+                "config_network": {
+                    "type": "static",
+                    "dns1": "10.10.0.50"
+                }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
+
+        // Assert - Pi-hole is a valid DNS target (admin configured it)
+        result.DeviceDnsPointsToGateway.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDeviceDnsPointingToExternalDns_StillRaisesIssue()
+    {
+        // Arrange - Device DNS points to public DNS (not a gateway or configured DNS)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" },
+            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Purpose = NetworkPurpose.Management }
+        };
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "Gateway",
+                "ip": "10.9.0.1"
+            },
+            {
+                "type": "uap",
+                "name": "RogueAP",
+                "ip": "10.9.0.20",
+                "config_network": {
+                    "type": "static",
+                    "dns1": "8.8.8.8"
+                }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
+
+        // Assert - external DNS is NOT valid for infrastructure devices
+        result.DeviceDnsPointsToGateway.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
     #endregion
 
     #region Legacy LAN_IN DoT/DoH Detection Tests
