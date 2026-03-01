@@ -1539,21 +1539,30 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
-    /// Build a set of all valid DNS targets for infrastructure device validation.
-    /// Includes all gateway IPs (same physical device, different VLAN interfaces) and
-    /// any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.).
+    /// Build a set of valid DNS targets for infrastructure device validation.
+    /// Valid targets are:
+    /// 1. The management network's gateway IP (device's LAN-local gateway)
+    /// 2. The native/VLAN 1 gateway IP (main gateway)
+    /// 3. Any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.)
     /// </summary>
     private static HashSet<string> BuildValidDnsTargets(List<NetworkInfo> networks)
     {
         var targets = new HashSet<string>();
 
+        var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management);
+        var nativeNetwork = networks.FirstOrDefault(n => n.IsNative);
+
+        // 1. Management network gateway (LAN-local gateway for infrastructure devices)
+        if (!string.IsNullOrEmpty(managementNetwork?.Gateway))
+            targets.Add(managementNetwork.Gateway);
+
+        // 2. Native/VLAN 1 gateway (main gateway IP)
+        if (!string.IsNullOrEmpty(nativeNetwork?.Gateway))
+            targets.Add(nativeNetwork.Gateway);
+
+        // 3. Admin-configured DHCP DNS servers (Pi-hole, AdGuard Home, etc.)
         foreach (var network in networks)
         {
-            // All gateway IPs are valid - the UniFi gateway serves DNS on all its interfaces
-            if (!string.IsNullOrEmpty(network.Gateway))
-                targets.Add(network.Gateway);
-
-            // DHCP DNS servers are admin-configured local DNS (Pi-hole, AdGuard, etc.)
             if (network.DnsServers != null)
             {
                 foreach (var dns in network.DnsServers)

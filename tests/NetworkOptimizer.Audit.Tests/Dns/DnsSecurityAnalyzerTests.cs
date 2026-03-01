@@ -6959,10 +6959,10 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_WithDeviceDnsPointingToAnyVlanGateway_NoIssue()
+    public async Task Analyze_WithDeviceDnsPointingToNativeVlanGateway_NoIssue()
     {
-        // Arrange - Device points to default VLAN gateway even though management VLAN exists
-        // Both are valid since the gateway serves DNS on all interfaces
+        // Arrange - Device points to native/VLAN 1 gateway even though management VLAN exists
+        // The native gateway is always a valid DNS target (main gateway IP)
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" },
@@ -6990,7 +6990,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
 
-        // Assert - pointing to any VLAN's gateway is valid
+        // Assert - native VLAN gateway is a valid DNS target
         result.DeviceDnsPointsToGateway.Should().BeTrue();
         result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
     }
