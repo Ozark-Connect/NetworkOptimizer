@@ -303,6 +303,7 @@ public class ConfigAuditEngine
         ExecutePhase1_ExtractNetworks(ctx);
         ExecutePhase2_ExtractSwitches(ctx);
         ExecutePhase3_AnalyzePortSecurity(ctx);
+        ExecutePhase3a_ProtectCameraFallback(ctx);
         ExecutePhase3b_AnalyzeWirelessClients(ctx);
         ExecutePhase3c_AnalyzeOfflineClients(ctx);
         ExecutePhase4_AnalyzeNetworkConfiguration(ctx);
@@ -532,6 +533,28 @@ public class ConfigAuditEngine
         var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks, allNetworks ?? ctx.Networks);
         ctx.AllIssues.AddRange(portIssues);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
+    }
+
+    /// <summary>
+    /// Fallback: check Protect cameras not matched to any switch port during Phase 3.
+    /// These are cameras the Protect API knows about but that don't appear in port data
+    /// (no ConnectedClient, no LastConnectionMac, no HistoricalClient).
+    /// </summary>
+    private void ExecutePhase3a_ProtectCameraFallback(AuditContext ctx)
+    {
+        // Collect camera MACs already flagged by CameraVlanRule during port analysis
+        var alreadyFlaggedMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var issue in ctx.AllIssues.Where(i => i.Type == IssueTypes.CameraVlan))
+        {
+            if (issue.Metadata?.TryGetValue("camera_mac", out var macObj) == true && macObj is string mac)
+                alreadyFlaggedMacs.Add(mac);
+        }
+
+        var fallbackIssues = ctx.SecurityEngine.AnalyzeProtectCameraPlacement(ctx.Switches, ctx.Networks, alreadyFlaggedMacs);
+        ctx.AllIssues.AddRange(fallbackIssues);
+
+        if (fallbackIssues.Count > 0)
+            _logger.LogInformation("Protect camera fallback found {Count} additional VLAN placement issues", fallbackIssues.Count);
     }
 
     private void ExecutePhase3b_AnalyzeWirelessClients(AuditContext ctx)

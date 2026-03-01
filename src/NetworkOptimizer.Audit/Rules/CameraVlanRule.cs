@@ -1,5 +1,6 @@
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 
@@ -20,6 +21,13 @@ public class CameraVlanRule : AuditRuleBase
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
+        // Check if a known Protect camera is on this port (bypasses ForwardMode gate).
+        // Protect cameras don't appear in stat/sta so they have no ConnectedClient with
+        // ForwardMode="native". We detect them by matching port MACs against the Protect API.
+        var protectCamera = FindProtectCameraOnPort(port);
+        if (protectCamera != null)
+            return EvaluateProtectCamera(protectCamera, port, networks);
+
         // Skip uplinks, WAN ports, and non-access ports
         if (port.ForwardMode != "native" || port.IsUplink || port.IsWan)
             return null;
@@ -183,6 +191,77 @@ public class CameraVlanRule : AuditRuleBase
             Metadata = VlanPlacementChecker.BuildMetadata(detection, network),
             RuleId = RuleId,
             ScoreImpact = scoreImpact
+        };
+    }
+
+    /// <summary>
+    /// Check if a known Protect camera is connected to this port.
+    /// Checks ConnectedClient MAC, LastConnectionMac, and HistoricalClient MAC.
+    /// </summary>
+    private ProtectCamera? FindProtectCameraOnPort(PortInfo port)
+    {
+        if (ProtectCameras == null || ProtectCameras.Count == 0)
+            return null;
+
+        // Check connected client MAC
+        if (ProtectCameras.TryGet(port.ConnectedClient?.Mac, out var camera) && camera != null)
+            return camera;
+
+        // Check last connection MAC (for down/offline ports)
+        if (ProtectCameras.TryGet(port.LastConnectionMac, out camera) && camera != null)
+            return camera;
+
+        // Check historical client MAC
+        if (ProtectCameras.TryGet(port.HistoricalClient?.Mac, out camera) && camera != null)
+            return camera;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Evaluate a Protect camera's VLAN placement using the Protect API's ConnectionNetworkId.
+    /// This bypasses the normal detection pipeline since Protect gives us 100% confidence.
+    /// </summary>
+    private AuditIssue? EvaluateProtectCamera(ProtectCamera camera, PortInfo port, List<NetworkInfo> networks)
+    {
+        // Use Protect API's ConnectionNetworkId for authoritative network placement
+        var network = GetNetwork(camera.ConnectionNetworkId, networks);
+        if (network == null)
+            return null;
+
+        var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact, isNvr: camera.IsNvr);
+        if (placement.IsCorrectlyPlaced)
+            return null;
+
+        var deviceName = $"{camera.Name} on {port.Switch.Name}";
+        var message = camera.IsNvr
+            ? $"NVR on {network.Name} VLAN - should be on management or security VLAN"
+            : $"Camera on {network.Name} VLAN - should be on security VLAN";
+
+        return new AuditIssue
+        {
+            Type = RuleId,
+            Severity = placement.Severity,
+            Message = message,
+            DeviceName = deviceName,
+            DeviceMac = port.Switch.MacAddress,
+            Port = port.PortIndex.ToString(),
+            PortName = port.Name,
+            CurrentNetwork = network.Name,
+            CurrentVlan = network.VlanId,
+            RecommendedNetwork = placement.RecommendedNetwork?.Name,
+            RecommendedVlan = placement.RecommendedNetwork?.VlanId,
+            RecommendedAction = VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel),
+            Metadata = new Dictionary<string, object>
+            {
+                ["category"] = camera.IsNvr ? "NVR" : "Camera",
+                ["confidence"] = 100,
+                ["source"] = "ProtectAPI",
+                ["camera_name"] = camera.Name,
+                ["camera_mac"] = camera.Mac
+            },
+            RuleId = RuleId,
+            ScoreImpact = placement.ScoreImpact
         };
     }
 }
