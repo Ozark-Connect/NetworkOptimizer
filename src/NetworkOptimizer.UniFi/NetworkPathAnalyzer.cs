@@ -1390,9 +1390,26 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
-                // Wired uplink - get port speed from upstream switch
-                deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                // Wired uplink - prefer device's reported uplink speed (from API Uplink.Speed),
+                // fall back to upstream switch's port table if not available.
+                // This handles scenarios where there's an unmanaged switch between the device
+                // and the UniFi switch, where the upstream port may report a different speed.
+                // NOTE: Skip for gateways - their UplinkSpeedMbps is WAN speed, not LAN port speed.
+                var portTableSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                var useDeviceSpeed = targetDevice.UplinkSpeedMbps > 0 && targetDevice.Type != DeviceType.Gateway;
+                deviceHop.IngressSpeedMbps = useDeviceSpeed ? targetDevice.UplinkSpeedMbps : portTableSpeed;
                 deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
+
+                if (useDeviceSpeed && portTableSpeed > 0 && targetDevice.UplinkSpeedMbps != portTableSpeed)
+                {
+                    _logger.LogDebug("Wired device {Name}: Using device-reported uplink speed {DeviceSpeed}Mbps (upstream port reports {PortSpeed}Mbps)",
+                        targetDevice.Name, targetDevice.UplinkSpeedMbps, portTableSpeed);
+                }
+                else
+                {
+                    _logger.LogDebug("Wired device {Name}: Uplink speed {Speed}Mbps (device={DeviceSpeed}, port={PortSpeed})",
+                        targetDevice.Name, deviceHop.IngressSpeedMbps, targetDevice.UplinkSpeedMbps, portTableSpeed);
+                }
             }
 
             hops.Add(deviceHop);
@@ -1710,9 +1727,23 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     }
                     else
                     {
+                        // Wired uplink - prefer device's reported uplink speed (from API Uplink.Speed),
+                        // fall back to upstream device's port table if not available.
+                        // This handles scenarios where there's an unmanaged switch between devices.
+                        // NOTE: Only applies when going TOWARD gateway (main loop). Return path
+                        // (after gateway) uses port table since we're going opposite of uplink direction.
+                        // NOTE: Skip for gateways - their UplinkSpeedMbps is WAN speed, not LAN port speed.
                         hop.EgressPort = device.UplinkPort;
-                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                        var portTableSpeed = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                        var useDeviceSpeed = device.UplinkSpeedMbps > 0 && device.Type != DeviceType.Gateway;
+                        hop.EgressSpeedMbps = useDeviceSpeed ? device.UplinkSpeedMbps : portTableSpeed;
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+
+                        if (useDeviceSpeed && portTableSpeed > 0 && device.UplinkSpeedMbps != portTableSpeed)
+                        {
+                            _logger.LogDebug("Wired hop {Name}: Using device-reported uplink speed {DeviceSpeed}Mbps (upstream port reports {PortSpeed}Mbps)",
+                                device.Name, device.UplinkSpeedMbps, portTableSpeed);
+                        }
                     }
                 }
 
