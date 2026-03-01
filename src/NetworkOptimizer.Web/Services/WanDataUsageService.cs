@@ -67,6 +67,13 @@ public class WanDataUsageService : BackgroundService
             var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, ct);
             var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
 
+            // Dynamic baseline check: does any snapshot have a gateway boot time within this cycle?
+            // Fall back to IsBaseline for old snapshots without GatewayBootTime.
+            var hasBaseline = await db.WanDataUsageSnapshots
+                .AnyAsync(s => s.WanKey == config.WanKey && s.Timestamp >= cycleStart
+                    && ((s.GatewayBootTime != null && s.GatewayBootTime >= cycleStart)
+                        || (s.GatewayBootTime == null && s.IsBaseline)), ct);
+
             summaries.Add(new WanUsageSummary
             {
                 WanKey = config.WanKey,
@@ -80,7 +87,8 @@ public class WanDataUsageService : BackgroundService
                 DaysRemaining = Math.Max(0, (int)Math.Ceiling((cycleEnd - now).TotalDays)),
                 IsOverCap = config.DataCapGb > 0 && usedGb >= config.DataCapGb,
                 IsOverWarning = config.DataCapGb > 0 && usedGb >= config.DataCapGb * config.WarningThresholdPercent / 100.0,
-                Enabled = config.Enabled
+                Enabled = config.Enabled,
+                HasBaseline = hasBaseline
             });
         }
 
@@ -254,6 +262,9 @@ public class WanDataUsageService : BackgroundService
             networkInfoByGroup.TryGetValue(config.WanKey, out var networkInfo);
 
             // Store snapshot if we have data
+            var isBaseline = false;
+            DateTime? gatewayBootTime = uptimeSeconds > 0 ? now.AddSeconds(-uptimeSeconds) : null;
+
             if (wan != null)
             {
                 var lastSnapshot = await db.WanDataUsageSnapshots
@@ -266,16 +277,14 @@ public class WanDataUsageService : BackgroundService
 
                 // First snapshot for this WAN: check if gateway booted within current billing cycle.
                 // If so, the raw byte counters represent all usage since boot = all usage this cycle.
-                var isBaseline = false;
-                if (lastSnapshot == null && uptimeSeconds > 0)
+                if (lastSnapshot == null && gatewayBootTime.HasValue)
                 {
                     var (blCycleStart, _) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
-                    var bootTime = now.AddSeconds(-uptimeSeconds);
-                    isBaseline = bootTime >= blCycleStart;
+                    isBaseline = gatewayBootTime.Value >= blCycleStart;
 
                     if (isBaseline)
                         _logger.LogInformation("Using gateway uptime as baseline for {WanKey}: boot {BootTime:u}, cycle start {CycleStart:u}, {RxGb:F2} GB rx + {TxGb:F2} GB tx",
-                            config.WanKey, bootTime, blCycleStart, wan.RxBytes / 1_073_741_824.0, wan.TxBytes / 1_073_741_824.0);
+                            config.WanKey, gatewayBootTime.Value, blCycleStart, wan.RxBytes / 1_073_741_824.0, wan.TxBytes / 1_073_741_824.0);
                 }
 
                 db.WanDataUsageSnapshots.Add(new WanDataUsageSnapshot
@@ -285,6 +294,7 @@ public class WanDataUsageService : BackgroundService
                     TxBytes = wan.TxBytes,
                     IsCounterReset = isReset,
                     IsBaseline = isBaseline,
+                    GatewayBootTime = gatewayBootTime,
                     Timestamp = now
                 });
             }
@@ -304,6 +314,14 @@ public class WanDataUsageService : BackgroundService
             var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, ct);
             var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
 
+            // Check if this cycle has a baseline snapshot (gateway booted after cycle start).
+            // Use GatewayBootTime for dynamic evaluation; fall back to IsBaseline for old snapshots without boot time.
+            // Include current (unsaved) snapshot's boot time since SaveChangesAsync runs after the loop.
+            var hasBaseline = (isBaseline && gatewayBootTime.HasValue && gatewayBootTime.Value >= cycleStart)
+                || await db.WanDataUsageSnapshots.AnyAsync(s => s.WanKey == config.WanKey && s.Timestamp >= cycleStart
+                    && ((s.GatewayBootTime != null && s.GatewayBootTime >= cycleStart)
+                        || (s.GatewayBootTime == null && s.IsBaseline)), ct);
+
             var summary = new WanUsageSummary
             {
                 WanKey = config.WanKey,
@@ -319,7 +337,8 @@ public class WanDataUsageService : BackgroundService
                 DaysRemaining = Math.Max(0, (int)Math.Ceiling((cycleEnd - now).TotalDays)),
                 IsOverCap = config.DataCapGb > 0 && usedGb >= config.DataCapGb,
                 IsOverWarning = config.DataCapGb > 0 && usedGb >= config.DataCapGb * config.WarningThresholdPercent / 100.0,
-                Enabled = config.Enabled
+                Enabled = config.Enabled,
+                HasBaseline = hasBaseline
             };
 
             summaries.Add(summary);
@@ -419,24 +438,32 @@ public class WanDataUsageService : BackgroundService
             .OrderBy(s => s.Timestamp)
             .ToListAsync(ct);
 
-        return CalculateUsageFromSnapshots(snapshots);
+        return CalculateUsageFromSnapshots(snapshots, cycleStart);
     }
 
     /// <summary>
     /// Calculates total bytes from an ordered list of snapshots.
+    /// When cycleStart is provided, baseline is evaluated dynamically using GatewayBootTime.
+    /// Falls back to the stored IsBaseline flag for old snapshots without GatewayBootTime.
     /// Public for testing.
     /// </summary>
-    public static long CalculateUsageFromSnapshots(List<WanDataUsageSnapshot> snapshots)
+    public static long CalculateUsageFromSnapshots(List<WanDataUsageSnapshot> snapshots, DateTime? cycleStart = null)
     {
         if (snapshots.Count == 0)
             return 0;
 
         long totalBytes = 0;
 
-        // If the first snapshot is a baseline, its raw bytes represent all usage since
-        // gateway boot (which is within the billing cycle). Include them as starting usage.
-        if (snapshots[0].IsBaseline)
-            totalBytes = snapshots[0].RxBytes + snapshots[0].TxBytes;
+        // Determine if the first snapshot qualifies as a baseline for this cycle.
+        // Dynamic: gateway booted after cycle start → raw counters = all usage this cycle.
+        // Fallback: use stored IsBaseline flag for old snapshots without GatewayBootTime.
+        var first = snapshots[0];
+        var isBaseline = first.GatewayBootTime.HasValue && cycleStart.HasValue
+            ? first.GatewayBootTime.Value >= cycleStart.Value
+            : first.IsBaseline;
+
+        if (isBaseline)
+            totalBytes = first.RxBytes + first.TxBytes;
 
         for (int i = 1; i < snapshots.Count; i++)
         {
@@ -471,22 +498,40 @@ public class WanDataUsageService : BackgroundService
     {
         billingDay = Math.Clamp(billingDay, 1, 28);
 
+        // Use local time to determine which day of month we're on (ISP billing cycles
+        // align with the user's timezone, not UTC). For a self-hosted app, server
+        // local time = user's timezone. Only convert if the input is explicitly UTC.
+        var localRef = referenceDate.Kind == DateTimeKind.Utc
+            ? referenceDate.ToLocalTime()
+            : referenceDate;
+        var outputKind = referenceDate.Kind == DateTimeKind.Utc ? DateTimeKind.Utc : referenceDate.Kind;
+
         DateTime cycleStart;
-        if (referenceDate.Day >= billingDay)
+        if (localRef.Day >= billingDay)
         {
-            // Cycle started this month
-            cycleStart = new DateTime(referenceDate.Year, referenceDate.Month, billingDay, 0, 0, 0, DateTimeKind.Utc);
+            cycleStart = new DateTime(localRef.Year, localRef.Month, billingDay, 0, 0, 0, DateTimeKind.Local);
         }
         else
         {
-            // Cycle started last month
-            var lastMonth = referenceDate.AddMonths(-1);
-            cycleStart = new DateTime(lastMonth.Year, lastMonth.Month, billingDay, 0, 0, 0, DateTimeKind.Utc);
+            var lastMonth = localRef.AddMonths(-1);
+            cycleStart = new DateTime(lastMonth.Year, lastMonth.Month, billingDay, 0, 0, 0, DateTimeKind.Local);
         }
 
-        // Cycle ends the day before the next billing day
         var nextCycleStart = cycleStart.AddMonths(1);
         var cycleEnd = nextCycleStart.AddDays(-1);
+
+        // Convert output to match caller's expectations
+        if (referenceDate.Kind == DateTimeKind.Utc)
+        {
+            cycleStart = cycleStart.ToUniversalTime();
+            cycleEnd = cycleEnd.ToUniversalTime();
+        }
+        else
+        {
+            // For Unspecified/Local, strip the Local kind to match input convention
+            cycleStart = DateTime.SpecifyKind(cycleStart, outputKind);
+            cycleEnd = DateTime.SpecifyKind(cycleEnd, outputKind);
+        }
 
         return (cycleStart, cycleEnd);
     }
@@ -641,4 +686,9 @@ public record WanUsageSummary
     public bool IsOverCap { get; init; }
     public bool IsOverWarning { get; init; }
     public bool Enabled { get; init; }
+    /// <summary>
+    /// True when the first snapshot used gateway uptime as a baseline, meaning
+    /// port counters captured usage back to the last gateway reboot.
+    /// </summary>
+    public bool HasBaseline { get; init; }
 }

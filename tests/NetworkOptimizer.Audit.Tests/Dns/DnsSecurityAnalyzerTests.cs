@@ -7619,6 +7619,247 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
     #endregion
 
+    #region Infrastructure Network (Security/Management) DNS Exemption Tests
+
+    [Fact]
+    public async Task Analyze_SecurityNetworkWithoutThirdPartyDns_GetsInfoIssueNotInconsistentConfig()
+    {
+        // Arrange - Third-party DNS on one network, Security (cameras) network uses gateway DNS
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Cameras",
+                VlanId = 40,
+                Purpose = NetworkPurpose.Security,
+                DhcpEnabled = true,
+                Gateway = "192.168.40.1",
+                DnsServers = new List<string> { "192.168.40.1" }, // Gateway DNS
+                FirewallZoneId = "zone-internal-001"
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - Security network should NOT get consistency issue, should get Info issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        var infraIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInfraNetworkInfo);
+        infraIssue.Should().NotBeNull();
+        infraIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        infraIssue.ScoreImpact.Should().Be(0);
+        infraIssue.Message.Should().Contain("Cameras");
+        infraIssue.Message.Should().Contain("gateway DNS");
+    }
+
+    [Fact]
+    public async Task Analyze_ManagementNetworkWithoutThirdPartyDns_GetsInfoIssueNotInconsistentConfig()
+    {
+        // Arrange - Third-party DNS on one network, Management network uses gateway DNS
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Network Admin",
+                VlanId = 10,
+                Purpose = NetworkPurpose.Management,
+                DhcpEnabled = true,
+                Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.10.1" }, // Gateway DNS
+                FirewallZoneId = "zone-internal-001"
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - Management network should NOT get consistency issue, should get Info issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        var infraIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInfraNetworkInfo);
+        infraIssue.Should().NotBeNull();
+        infraIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        infraIssue.ScoreImpact.Should().Be(0);
+        infraIssue.Message.Should().Contain("Network Admin");
+        infraIssue.Message.Should().Contain("gateway DNS");
+    }
+
+    [Fact]
+    public async Task Analyze_DnatPartialCoverage_SecurityNetworkGetsInfoNotRecommended()
+    {
+        // Arrange - DNAT covers LAN but not Security network
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                Gateway = "192.168.1.1",
+                DhcpEnabled = true
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Cameras",
+                VlanId = 40,
+                Purpose = NetworkPurpose.Security,
+                Subnet = "192.168.40.0/24",
+                Gateway = "192.168.40.1",
+                DhcpEnabled = true
+            }
+        };
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1")); // Only covers LAN
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - Security network should get Info issue, NOT partial coverage
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+        var infraIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInfraNetworkInfo);
+        infraIssue.Should().NotBeNull();
+        infraIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        infraIssue.ScoreImpact.Should().Be(0);
+        infraIssue.Message.Should().Contain("Cameras");
+    }
+
+    [Fact]
+    public async Task Analyze_DnatPartialCoverage_MixedInfraAndRegularNetworks_SeparatesCorrectly()
+    {
+        // Arrange - DNAT covers LAN but not Security, Management, or IoT networks
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                Gateway = "192.168.1.1",
+                DhcpEnabled = true
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Cameras",
+                VlanId = 40,
+                Purpose = NetworkPurpose.Security,
+                Subnet = "192.168.40.0/24",
+                Gateway = "192.168.40.1",
+                DhcpEnabled = true
+            },
+            new NetworkInfo
+            {
+                Id = "net3",
+                Name = "Network Admin",
+                VlanId = 10,
+                Purpose = NetworkPurpose.Management,
+                Subnet = "192.168.10.0/24",
+                Gateway = "192.168.10.1",
+                DhcpEnabled = true
+            },
+            new NetworkInfo
+            {
+                Id = "net4",
+                Name = "IoT Devices",
+                VlanId = 20,
+                Purpose = NetworkPurpose.IoT,
+                Subnet = "192.168.20.0/24",
+                Gateway = "192.168.20.1",
+                DhcpEnabled = true
+            }
+        };
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1")); // Only covers LAN
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - Security and Management should get Info issue
+        var infraIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInfraNetworkInfo);
+        infraIssue.Should().NotBeNull();
+        infraIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        infraIssue.Message.Should().Contain("Cameras");
+        infraIssue.Message.Should().Contain("Network Admin");
+
+        // IoT should still get the regular partial coverage issue
+        var partialIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+        partialIssue.Should().NotBeNull();
+        partialIssue!.Message.Should().Contain("IoT Devices");
+        partialIssue.Message.Should().NotContain("Cameras");
+        partialIssue.Message.Should().NotContain("Network Admin");
+    }
+
+    #endregion
+
     #region External DNS Bypass Issue Tests
 
     [Fact]

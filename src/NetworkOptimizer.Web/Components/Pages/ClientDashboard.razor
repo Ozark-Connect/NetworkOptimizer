@@ -197,7 +197,7 @@
                         @(_client.ApName ?? "—")@if (_client.ApModel != null)
                         {<span class="detail-dim"> · @_client.ApModel</span>}
                     </span>
-                    <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")</span>
+                    <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")@(_client.ChannelWidth.HasValue ? $" - {_client.ChannelWidth} MHz" : "")</span>
                     <span class="identity-detail identity-proto">@FormatProtocol(_client.Protocol)</span>
                     @if (_client.RxRateKbps.HasValue)
                     {
@@ -398,8 +398,8 @@
                                                 <th data-tooltip="AP receive rate (from device)">RX Rate</th>
                                                 <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
                                             }
-                                            <th>Ping</th>
-                                            <th>Type</th>
+                                            <th class="hide-mobile">Ping</th>
+                                            <th class="hide-mobile">Type</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -407,7 +407,7 @@
                                         {
                                             <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
-                                                <td>@r.TestTime.ToLocalTime().ToString("g")</td>
+                                                <td>@FormatSignalTime(r.TestTime)</td>
                                                 <td><span class="speed-down">@r.DownloadMbps.ToString("F1")</span> Mbps</td>
                                                 <td><span class="speed-up">@r.UploadMbps.ToString("F1")</span> Mbps</td>
                                                 @if (!(_client?.IsWired == true))
@@ -415,8 +415,8 @@
                                                     <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
                                                     <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
                                                 }
-                                                <td>@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
-                                                <td>@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
+                                                <td class="hide-mobile">@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
+                                                <td class="hide-mobile">@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
                                             {
@@ -592,7 +592,7 @@
                                                 <td class="@GetSignalClass(entry.SignalDbm ?? 0)">@(entry.SignalDbm?.ToString() ?? "-") dBm</td>
                                                 <td>@FormatBand(entry.Band)</td>
                                                 <td>@(entry.ApName ?? "-")</td>
-                                                <td>@(entry.Channel?.ToString() ?? "-")</td>
+                                                <td>@(entry.Channel?.ToString() ?? "-")@(entry.ChannelWidth.HasValue ? $" - {entry.ChannelWidth} MHz" : "")</td>
                                                 <td>@RenderRate(entry.RxRateKbps, "wifi-speed-rx")</td>
                                                 <td>@RenderRate(entry.TxRateKbps, "wifi-speed-tx")</td>
                                             </tr>

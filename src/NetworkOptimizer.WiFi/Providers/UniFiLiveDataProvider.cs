@@ -909,6 +909,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Essid = client.Essid ?? "",
             Band = RadioBandExtensions.FromUniFiCode(client.Radio),
             Channel = client.Channel,
+            ChannelWidth = client.ChannelWidth,
             Signal = client.Signal,
             Noise = client.Noise,
             Rssi = client.Rssi,

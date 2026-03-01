@@ -207,6 +207,18 @@ public class DeviceAllowanceSettingsTests
     }
 
     [Fact]
+    public void IsSmartSpeakerAllowed_AllowMediaPlayers_ReturnsTrue_ForAnyVendor()
+    {
+        var settings = new DeviceAllowanceSettings { AllowMediaPlayersOnMainNetwork = true };
+
+        settings.IsSmartSpeakerAllowed("Amazon").Should().BeTrue();
+        settings.IsSmartSpeakerAllowed("Google").Should().BeTrue();
+        settings.IsSmartSpeakerAllowed("Sonos").Should().BeTrue();
+        settings.IsSmartSpeakerAllowed("Apple").Should().BeTrue();
+        settings.IsSmartSpeakerAllowed(null).Should().BeTrue();
+    }
+
+    [Fact]
     public void IsSmartSpeakerAllowed_AllowAppleStreaming_ReturnsFalse_ForNullVendor()
     {
         var settings = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };

@@ -297,6 +297,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int?>("Channel")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("ChannelWidth")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("ClientIp")
                         .HasMaxLength(45)
                         .HasColumnType("TEXT");
@@ -1862,6 +1865,9 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<bool>("IsBaseline")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("GatewayBootTime")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("Timestamp")
                         .HasColumnType("TEXT");

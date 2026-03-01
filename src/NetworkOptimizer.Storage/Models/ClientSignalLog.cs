@@ -38,6 +38,9 @@ public class ClientSignalLog
     /// <summary>Wi-Fi channel number</summary>
     public int? Channel { get; set; }
 
+    /// <summary>Channel width in MHz (20, 40, 80, 160, 320)</summary>
+    public int? ChannelWidth { get; set; }
+
     /// <summary>Radio band - "ng" (2.4GHz), "na" (5GHz), "6e" (6GHz)</summary>
     [MaxLength(10)]
     public string? Band { get; set; }

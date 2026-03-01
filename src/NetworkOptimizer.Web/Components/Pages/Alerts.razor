@@ -444,10 +444,17 @@
         @* ========== Data Usage Tab ========== *@
         @if (_activeTab == "data-usage")
         {
-            @if (_dataUsageWanNetworks.Count == 0)
+            @if (_dataUsageWanNetworks.Count == 0 && !_wanNetworksFetched)
+            {
+                <div class="loading-container">
+                    <div class="spinner"></div>
+                    <p>Connecting to UniFi Console...</p>
+                </div>
+            }
+            else if (_dataUsageWanNetworks.Count == 0)
             {
                 <div class="empty-state">
-                    <span class="empty-icon">&#128202;</span>
+                    <img src="/icons/tools.png" alt="" class="nav-icon-img" style="width:48px; height:48px; opacity:0.5;">
                     <h3>No WAN Interfaces Found</h3>
                     <p>Connect to your UniFi Console to detect WAN interfaces for data usage tracking.</p>
                 </div>
@@ -468,7 +475,7 @@
                     var isAdjustmentUnlocked = _unlockedAdjustmentWans.Contains(wanGroup);
                     var isDirty = _dirtyConfigs.Contains(wanGroup);
 
-                    <div class="schedule-section">
+                    <div class="schedule-section" @key="wanGroup">
                         <h2 class="schedule-section-title" style="display: flex; align-items: center;">
                             @displayName <span style="color: var(--text-muted); font-weight: normal; margin-left: 0.25rem;">(@DisplayFormatters.NormalizeWanDisplay(wanGroup))</span>
                             @if (_wanUpStatus.TryGetValue(wanGroup, out var isUp) && isUp)
@@ -495,8 +502,10 @@
                             <div class="schedule-card-body">
                                 @if (isEnabled)
                                 {
-                                    @* Usage bar *@
-                                    @if (summary != null && capGb > 0)
+                                    @* Usage display *@
+                                    var savedBillingDay = summary?.BillingCycleStart.Day ?? billingDay;
+                                    var billingDayChanged = billingDay != savedBillingDay;
+                                    @if (summary != null && capGb > 0 && !billingDayChanged)
                                     {
                                         var fillPct = Math.Min(summary.UsagePercent, 100);
                                         var barClass = summary.IsOverCap ? "usage-exceeded" : summary.IsOverWarning ? "usage-warning" : "usage-normal";
@@ -511,11 +520,17 @@
                                             <span>@($"{capGb:F0}") GB cap</span>
                                         </div>
                                     }
-                                    else if (summary != null && capGb == 0)
+                                    else if (summary != null && capGb == 0 && !billingDayChanged)
                                     {
                                         <div style="margin-bottom: 0.75rem;">
                                             <span class="detail-label">Total usage this cycle: </span>
                                             <span class="detail-value">@($"{summary.UsedGb:F2}") GB</span>
+                                        </div>
+                                    }
+                                    else if (billingDayChanged)
+                                    {
+                                        <div style="margin-bottom: 0.75rem;">
+                                            <span class="detail-label" style="color: var(--text-muted); font-style: italic;">Usage will recalculate when saved</span>
                                         </div>
                                     }
 
@@ -555,6 +570,38 @@
                                         </div>
                                     </div>
 
+                                    @* Mid-cycle hint - show when first enabling tracking mid-cycle *@
+                                    @if (_newlyEnabledWans.Contains(wanGroup) && manualAdj == 0)
+                                    {
+                                        var now = DateTime.UtcNow;
+                                        var (cycleStart, cycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, now);
+                                        var daysIntoCycle = (int)(now - cycleStart).TotalDays;
+                                        var daysRemaining = (int)Math.Ceiling((cycleEnd - now).TotalDays);
+                                        if (daysIntoCycle > 1 && daysRemaining > 2)
+                                        {
+                                            <div class="alert-info" style="margin-top: 0.75rem; padding: 0.625rem 0.75rem; font-size: 0.8125rem; line-height: 1.5;">
+                                                @if (summary?.HasBaseline == true)
+                                                {
+                                                    <span>
+                                                        You're @daysIntoCycle days into your billing cycle. Your gateway rebooted after the cycle
+                                                        started, so usage since that reboot is already included. If there was usage between the
+                                                        cycle start and the reboot, you can use the <strong>Usage Adjustment</strong> field to
+                                                        add a small correction. The adjustment resets automatically each billing cycle.
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span>
+                                                        You're @daysIntoCycle days into your billing cycle. Since tracking counts from port
+                                                        stats going forward, usage before now won't be included.
+                                                        Use the <strong>Usage Adjustment</strong> field above to add a one-time correction -
+                                                        check your carrier account for current usage. The adjustment resets automatically each billing cycle.
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
+                                    }
+
                                     @* Save button - only visible when there are pending changes *@
                                     @if (isDirty)
                                     {
@@ -564,17 +611,18 @@
                                         </div>
                                     }
 
-                                    @* Billing cycle status *@
-                                    @if (summary != null)
+                                    @* Billing cycle status - computed from in-memory billingDay so it updates live *@
                                     {
+                                        var (dispCycleStart, dispCycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, DateTime.Now);
+                                        var dispDaysRemaining = Math.Max(0, (int)Math.Ceiling((dispCycleEnd - DateTime.UtcNow).TotalDays));
                                         <div class="schedule-status" style="margin-top: 0.75rem;">
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Billing cycle:</span>
-                                                <span class="detail-value">@summary.BillingCycleStart.ToString("MMM d") - @summary.BillingCycleEnd.ToString("MMM d")</span>
+                                                <span class="detail-value">@dispCycleStart.ToLocalTime().ToString("MMM d") - @dispCycleEnd.ToLocalTime().ToString("MMM d")</span>
                                             </span>
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Days remaining:</span>
-                                                <span class="detail-value">@summary.DaysRemaining</span>
+                                                <span class="detail-value">@dispDaysRemaining</span>
                                             </span>
                                         </div>
                                     }
@@ -1507,10 +1555,11 @@
     private List<WanUsageSummary> _wanUsageSummaries = [];
     private Dictionary<string, WanDataUsageConfig> _dataUsageConfigs = new();
     private List<NetworkOptimizer.UniFi.NetworkInfo> _dataUsageWanNetworks = [];
+    private bool _wanNetworksFetched;
     private Dictionary<string, bool> _wanUpStatus = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _unlockedAdjustmentWans = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _dirtyConfigs = new(StringComparer.OrdinalIgnoreCase);
-    private bool _dataUsageLoaded;
+    private HashSet<string> _newlyEnabledWans = new(StringComparer.OrdinalIgnoreCase);
 
     // Auto-refresh
     private System.Threading.Timer? _refreshTimer;
@@ -1533,6 +1582,8 @@
     {
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
+
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
         if (_activeTab == "schedule" && FeatureFlags.SchedulingEnabled)
         {
@@ -1569,6 +1620,20 @@
             }
             catch { /* prevent timer death */ }
         }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async void OnConnectionChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (_activeTab == "data-usage")
+                    await LoadDataUsageAsync();
+                StateHasChanged();
+            });
+        }
+        catch { /* component may be disposed */ }
     }
 
     protected override void OnParametersSet()
@@ -2456,14 +2521,15 @@
     {
         try
         {
-            // Load WAN networks from console (same source as WAN Speed Test dropdowns)
-            if (!_dataUsageLoaded)
+            // Load WAN networks from console. OnConnectionChanged handles the
+            // case where the console isn't ready yet at page load.
+            if (ConnectionService.IsConnected)
             {
                 try
                 {
                     var networks = await ConnectionService.GetNetworksAsync();
                     _dataUsageWanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
-                    _dataUsageLoaded = true;
+                    _wanNetworksFetched = true;
                 }
                 catch (Exception ex)
                 {
@@ -2474,12 +2540,13 @@
             // Load live WAN up/down status from device API
             _wanUpStatus = await DataUsageService.GetWanStatusAsync();
 
-            // Load configs (keyed by WanNetworkgroup e.g., "WAN", "WAN2")
-            var configs = await DataUsageService.GetAllConfigsAsync();
-            _dataUsageConfigs = configs.ToDictionary(c => c.WanKey);
-
-            // Load current usage summaries (falls back to DB if background poll hasn't run yet)
-            _wanUsageSummaries = await DataUsageService.GetCurrentUsageAsync();
+            // Skip config/summary reload when user has unsaved edits to avoid clobbering them
+            if (_dirtyConfigs.Count == 0)
+            {
+                var configs = await DataUsageService.GetAllConfigsAsync();
+                _dataUsageConfigs = configs.ToDictionary(c => c.WanKey);
+                _wanUsageSummaries = await DataUsageService.GetCurrentUsageAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -2514,11 +2581,21 @@
             {
                 // Trigger immediate poll to get initial usage data
                 await DataUsageService.TriggerPollAsync();
+                _newlyEnabledWans.Add(wanKey);
+            }
+            else
+            {
+                _newlyEnabledWans.Remove(wanKey);
+            }
+
+            // Reload configs/summaries BEFORE marking dirty, so the guard doesn't skip the reload
+            await LoadDataUsageAsync();
+
+            if (enabled)
+            {
                 // Show Save button so user can configure cap/billing day
                 _dirtyConfigs.Add(wanKey);
             }
-
-            await LoadDataUsageAsync();
         }
         catch (Exception ex)
         {
@@ -2550,6 +2627,7 @@
             await DataUsageService.SaveConfigAsync(config);
             _dirtyConfigs.Remove(wanKey);
             _unlockedAdjustmentWans.Remove(wanKey);
+            _newlyEnabledWans.Remove(wanKey);
             await LoadDataUsageAsync();
         }
         catch (Exception ex)
@@ -2561,5 +2639,6 @@
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
     }
 }
