@@ -919,9 +919,8 @@ public class DnsSecurityAnalyzer
                 .ToDictionary(n => n.Name, n => n, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, NetworkInfo>(StringComparer.OrdinalIgnoreCase);
 
-            // Separate DMZ, infrastructure, and Guest networks from regular uncovered networks
+            // Separate DMZ and Guest networks with 3rd party LAN DNS from regular uncovered networks
             var dmzNetworks = new List<string>();
-            var infraNetworks = new List<string>();
             var guestNetworksWithThirdPartyDns = new List<string>();
             var regularUncoveredNetworks = new List<string>();
 
@@ -932,10 +931,6 @@ public class DnsSecurityAnalyzer
                     // Check if this is a DMZ network (by firewall zone)
                     var isDmz = zoneLookup?.IsDmzZone(network.FirewallZoneId) ?? false;
 
-                    // Check if this is an infrastructure network (Security cameras, Management)
-                    // These networks contain devices that work best with gateway DNS
-                    var isInfra = network.Purpose is NetworkPurpose.Security or NetworkPurpose.Management;
-
                     // Check if this is a Guest network with 3rd party LAN DNS
                     // Guest networks are identified by IsUniFiGuestNetwork or Purpose == Guest
                     var isGuest = network.IsUniFiGuestNetwork || network.Purpose == NetworkPurpose.Guest;
@@ -944,10 +939,6 @@ public class DnsSecurityAnalyzer
                     if (isDmz)
                     {
                         dmzNetworks.Add(networkName);
-                    }
-                    else if (isInfra)
-                    {
-                        infraNetworks.Add(networkName);
                     }
                     else if (isGuest && hasThirdPartyLanDns)
                     {
@@ -1006,27 +997,7 @@ public class DnsSecurityAnalyzer
                 });
             }
 
-            // Create Info issue for infrastructure networks (Security/Management) that use gateway DNS
-            if (infraNetworks.Any())
-            {
-                result.Issues.Add(new AuditIssue
-                {
-                    Type = IssueTypes.DnsInfraNetworkInfo,
-                    Severity = AuditSeverity.Informational,
-                    DeviceName = result.GatewayName,
-                    Message = $"Infrastructure network(s) ({string.Join(", ", infraNetworks)}) are not covered by DNS DNAT rules. Security and management networks typically use gateway DNS, which is fine for devices like cameras and network infrastructure.",
-                    RecommendedAction = "No action needed. If you want DNS filtering on these networks, add them to your DNAT rules or configure third-party DNS in their DHCP settings.",
-                    RuleId = "DNS-INFRA-001",
-                    ScoreImpact = 0,
-                    Metadata = new Dictionary<string, object>
-                    {
-                        { "infra_networks", infraNetworks },
-                        { "network_type", "infrastructure" }
-                    }
-                });
-            }
-
-            // Only create the regular partial coverage issue if there are non-exempt uncovered networks
+            // Only create the regular partial coverage issue if there are non-DMZ/Guest uncovered networks
             if (regularUncoveredNetworks.Any())
             {
                 var totalNetworks = result.DnatCoveredNetworks.Count + regularUncoveredNetworks.Count;

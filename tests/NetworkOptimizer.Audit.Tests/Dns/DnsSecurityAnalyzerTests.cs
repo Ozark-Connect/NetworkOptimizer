@@ -7752,9 +7752,10 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_DnatPartialCoverage_SecurityNetworkGetsInfoNotRecommended()
+    public async Task Analyze_DnatPartialCoverage_SecurityNetworkIncludedInPartialCoverage()
     {
         // Arrange - DNAT covers LAN but not Security network
+        // Security networks should still require DNAT coverage (cameras hardcode DNS)
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
@@ -7782,20 +7783,18 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
 
-        // Assert - Security network should get Info issue, NOT partial coverage
+        // Assert - Security network should be included in partial coverage, not exempted
         result.HasDnatDnsRules.Should().BeTrue();
-        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
-        var infraIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInfraNetworkInfo);
-        infraIssue.Should().NotBeNull();
-        infraIssue!.Severity.Should().Be(AuditSeverity.Informational);
-        infraIssue.ScoreImpact.Should().Be(0);
-        infraIssue.Message.Should().Contain("Cameras");
+        var partialIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+        partialIssue.Should().NotBeNull();
+        partialIssue!.Message.Should().Contain("Cameras");
     }
 
     [Fact]
-    public async Task Analyze_DnatPartialCoverage_MixedInfraAndRegularNetworks_SeparatesCorrectly()
+    public async Task Analyze_DnatPartialCoverage_SecurityAndManagementIncludedWithOtherNetworks()
     {
         // Arrange - DNAT covers LAN but not Security, Management, or IoT networks
+        // All should appear in partial coverage - DNAT to gateway is valid for infra networks
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
@@ -7843,19 +7842,12 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
 
-        // Assert - Security and Management should get Info issue
-        var infraIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInfraNetworkInfo);
-        infraIssue.Should().NotBeNull();
-        infraIssue!.Severity.Should().Be(AuditSeverity.Informational);
-        infraIssue.Message.Should().Contain("Cameras");
-        infraIssue.Message.Should().Contain("Network Admin");
-
-        // IoT should still get the regular partial coverage issue
+        // Assert - All uncovered networks should be in the partial coverage issue
         var partialIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
         partialIssue.Should().NotBeNull();
-        partialIssue!.Message.Should().Contain("IoT Devices");
-        partialIssue.Message.Should().NotContain("Cameras");
-        partialIssue.Message.Should().NotContain("Network Admin");
+        partialIssue!.Message.Should().Contain("Cameras");
+        partialIssue.Message.Should().Contain("Network Admin");
+        partialIssue.Message.Should().Contain("IoT Devices");
     }
 
     #endregion
