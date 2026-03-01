@@ -6919,8 +6919,8 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // This is the scenario from GitHub issue #389
         var networks = new List<NetworkInfo>
         {
-            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" },
-            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Purpose = NetworkPurpose.Management }
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1", Subnet = "192.168.1.0/24" },
+            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Subnet = "10.9.0.0/24", Purpose = NetworkPurpose.Management }
         };
         var deviceData = JsonDocument.Parse("""
         [
@@ -6965,8 +6965,8 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // The native gateway is always a valid DNS target (main gateway IP)
         var networks = new List<NetworkInfo>
         {
-            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" },
-            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Purpose = NetworkPurpose.Management }
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1", Subnet = "192.168.1.0/24" },
+            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Subnet = "10.9.0.0/24", Purpose = NetworkPurpose.Management }
         };
         var deviceData = JsonDocument.Parse("""
         [
@@ -7004,14 +7004,14 @@ public class DnsSecurityAnalyzerTests : IDisposable
             new NetworkInfo
             {
                 Id = "net1", Name = "Home", VlanId = 10, DhcpEnabled = true,
-                Gateway = "10.10.0.1",
+                Gateway = "10.10.0.1", Subnet = "10.10.0.0/24",
                 DnsServers = new List<string> { "10.10.0.50" }, // Pi-hole
                 Purpose = NetworkPurpose.Home
             },
             new NetworkInfo
             {
                 Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true,
-                Gateway = "10.9.0.1",
+                Gateway = "10.9.0.1", Subnet = "10.9.0.0/24",
                 Purpose = NetworkPurpose.Management
             }
         };
@@ -7048,8 +7048,8 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Arrange - Device DNS points to public DNS (not a gateway or configured DNS)
         var networks = new List<NetworkInfo>
         {
-            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" },
-            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Purpose = NetworkPurpose.Management }
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1", Subnet = "192.168.1.0/24" },
+            new NetworkInfo { Id = "net2", Name = "Management", VlanId = 9, DhcpEnabled = true, Gateway = "10.9.0.1", Subnet = "10.9.0.0/24", Purpose = NetworkPurpose.Management }
         };
         var deviceData = JsonDocument.Parse("""
         [

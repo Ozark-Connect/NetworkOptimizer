@@ -1539,28 +1539,20 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
-    /// Build a set of valid DNS targets for infrastructure device validation.
-    /// Valid targets are:
-    /// 1. The management network's gateway IP (device's LAN-local gateway)
-    /// 2. The native/VLAN 1 gateway IP (main gateway)
-    /// 3. Any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.)
+    /// Build a set of globally valid DNS targets (valid regardless of which subnet the device is on).
+    /// Includes the native/VLAN 1 gateway and any admin-configured DHCP DNS servers (Pi-hole, etc.).
+    /// Per-device subnet gateway checks are handled separately via <see cref="FindDeviceSubnetGateway"/>.
     /// </summary>
-    private static HashSet<string> BuildValidDnsTargets(List<NetworkInfo> networks)
+    private static HashSet<string> BuildGlobalValidDnsTargets(List<NetworkInfo> networks)
     {
         var targets = new HashSet<string>();
 
-        var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management);
+        // Native/VLAN 1 gateway is always valid (main gateway IP)
         var nativeNetwork = networks.FirstOrDefault(n => n.IsNative);
-
-        // 1. Management network gateway (LAN-local gateway for infrastructure devices)
-        if (!string.IsNullOrEmpty(managementNetwork?.Gateway))
-            targets.Add(managementNetwork.Gateway);
-
-        // 2. Native/VLAN 1 gateway (main gateway IP)
         if (!string.IsNullOrEmpty(nativeNetwork?.Gateway))
             targets.Add(nativeNetwork.Gateway);
 
-        // 3. Admin-configured DHCP DNS servers (Pi-hole, AdGuard Home, etc.)
+        // Admin-configured DHCP DNS servers (Pi-hole, AdGuard Home, etc.)
         foreach (var network in networks)
         {
             if (network.DnsServers != null)
@@ -1577,16 +1569,49 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
+    /// Find the gateway IP of the subnet a device belongs to by matching its IP against network subnets.
+    /// </summary>
+    private static string? FindDeviceSubnetGateway(string? deviceIp, List<NetworkInfo> networks)
+    {
+        if (string.IsNullOrEmpty(deviceIp))
+            return null;
+
+        foreach (var network in networks)
+        {
+            if (!string.IsNullOrEmpty(network.Subnet) && !string.IsNullOrEmpty(network.Gateway)
+                && NetworkUtilities.IsIpInSubnet(deviceIp, network.Subnet))
+            {
+                return network.Gateway;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Check if a device's DNS is valid: its own subnet's gateway, the native gateway, or admin-configured DNS.
+    /// </summary>
+    private static bool IsValidDeviceDns(string dns, string? deviceIp, HashSet<string> globalTargets, List<NetworkInfo> networks)
+    {
+        // Check global targets (native gateway + third-party DNS)
+        if (globalTargets.Contains(dns))
+            return true;
+
+        // Check device's own subnet gateway
+        var subnetGateway = FindDeviceSubnetGateway(deviceIp, networks);
+        return subnetGateway != null && dns == subnetGateway;
+    }
+
+    /// <summary>
     /// Get the primary gateway IP for display purposes (management network preferred).
     /// </summary>
-    private static string GetPrimaryGatewayIp(List<NetworkInfo> networks, HashSet<string> validDnsTargets)
+    private static string? GetPrimaryGatewayIp(List<NetworkInfo> networks)
     {
         var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
             ?? networks.FirstOrDefault(n => n.IsNative);
 
         return managementNetwork?.Gateway
-            ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway
-            ?? validDnsTargets.First();
+            ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway;
     }
 
     private void AnalyzeDeviceDnsConfiguration(List<SwitchInfo> switches, List<NetworkInfo> networks, DnsSecurityResult result)
@@ -1599,22 +1624,18 @@ public class DnsSecurityAnalyzer
             return;
         }
 
-        // Build set of all valid DNS targets for infrastructure devices:
-        // 1. All gateway IPs across all networks (same physical gateway, different interfaces)
-        // 2. Any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.)
-        var validDnsTargets = BuildValidDnsTargets(networks);
+        // Build globally valid DNS targets (native gateway + admin-configured DNS like Pi-hole)
+        // Per-device subnet gateway is checked separately
+        var globalTargets = BuildGlobalValidDnsTargets(networks);
+        var primaryGatewayIp = GetPrimaryGatewayIp(networks);
 
-        if (validDnsTargets.Count == 0)
+        if (string.IsNullOrEmpty(primaryGatewayIp) && globalTargets.Count == 0)
         {
             _logger.LogDebug("Could not determine any valid DNS targets for device DNS validation");
             return;
         }
 
-        // Use management network's gateway as primary for display purposes
-        var primaryGatewayIp = GetPrimaryGatewayIp(networks, validDnsTargets);
-
-        _logger.LogDebug("Device DNS validation: {Count} valid DNS targets: {Targets}",
-            validDnsTargets.Count, string.Join(", ", validDnsTargets));
+        _logger.LogDebug("Device DNS validation: global targets: {Targets}", string.Join(", ", globalTargets));
 
         // Get all non-gateway devices from switches list
         // Note: This list includes switches but may not include APs (which don't have port_table)
@@ -1638,7 +1659,7 @@ public class DnsSecurityAnalyzer
         // Check devices with static DNS configuration
         foreach (var device in devicesWithStaticDns)
         {
-            var pointsToGateway = validDnsTargets.Contains(device.ConfiguredDns1!);
+            var pointsToGateway = IsValidDeviceDns(device.ConfiguredDns1!, device.IpAddress, globalTargets, networks);
 
             result.DeviceDnsDetails.Add(new DeviceDnsInfo
             {
@@ -1646,7 +1667,7 @@ public class DnsSecurityAnalyzer
                 DeviceType = device.Type ?? "unknown",
                 DeviceIp = device.IpAddress,
                 ConfiguredDns = device.ConfiguredDns1,
-                ExpectedGateway = primaryGatewayIp,
+                ExpectedGateway = primaryGatewayIp ?? globalTargets.FirstOrDefault() ?? "unknown",
                 PointsToGateway = pointsToGateway,
                 UsesDhcp = false
             });
@@ -1666,7 +1687,7 @@ public class DnsSecurityAnalyzer
                 DeviceType = device.Type ?? "unknown",
                 DeviceIp = device.IpAddress,
                 ConfiguredDns = null,
-                ExpectedGateway = primaryGatewayIp,
+                ExpectedGateway = primaryGatewayIp ?? globalTargets.FirstOrDefault() ?? "unknown",
                 PointsToGateway = true, // Assumed correct if using DHCP
                 UsesDhcp = true
             });
@@ -1687,18 +1708,19 @@ public class DnsSecurityAnalyzer
                     .Select(d => d.DeviceName)
                     .ToList();
 
+                var displayGateway = primaryGatewayIp ?? globalTargets.FirstOrDefault() ?? "gateway";
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({primaryGatewayIp})",
+                    RecommendedAction = $"Configure device DNS to point to gateway ({displayGateway})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
                     {
                         { "misconfigured_devices", deviceNames },
-                        { "expected_gateway", primaryGatewayIp }
+                        { "expected_gateway", displayGateway }
                     }
                 });
             }
@@ -1711,22 +1733,18 @@ public class DnsSecurityAnalyzer
     /// </summary>
     private void AnalyzeAllDeviceDnsConfiguration(JsonElement deviceData, List<NetworkInfo> networks, DnsSecurityResult result)
     {
-        // Build set of all valid DNS targets for infrastructure devices:
-        // 1. All gateway IPs across all networks (same physical gateway, different interfaces)
-        // 2. Any DHCP DNS servers configured by the admin (Pi-hole, AdGuard Home, etc.)
-        var validDnsTargets = BuildValidDnsTargets(networks);
+        // Build globally valid DNS targets (native gateway + admin-configured DNS like Pi-hole)
+        // Per-device subnet gateway is checked separately
+        var globalTargets = BuildGlobalValidDnsTargets(networks);
+        var primaryGatewayIp = GetPrimaryGatewayIp(networks);
 
-        if (validDnsTargets.Count == 0)
+        if (string.IsNullOrEmpty(primaryGatewayIp) && globalTargets.Count == 0)
         {
             _logger.LogDebug("Could not determine any valid DNS targets for device DNS validation");
             return;
         }
 
-        // Use management network's gateway as primary for display purposes
-        var primaryGatewayIp = GetPrimaryGatewayIp(networks, validDnsTargets);
-
-        _logger.LogDebug("Device DNS validation: {Count} valid DNS targets: {Targets}",
-            validDnsTargets.Count, string.Join(", ", validDnsTargets));
+        _logger.LogDebug("Device DNS validation: global targets: {Targets}", string.Join(", ", globalTargets));
 
         // Process ALL devices from raw device data
         foreach (var device in deviceData.UnwrapDataArray())
@@ -1751,7 +1769,7 @@ public class DnsSecurityAnalyzer
             if (!string.IsNullOrEmpty(dns1))
             {
                 // Device has static DNS configured
-                var pointsToGateway = validDnsTargets.Contains(dns1);
+                var pointsToGateway = IsValidDeviceDns(dns1, ip, globalTargets, networks);
                 result.TotalDevicesChecked++;
 
                 result.DeviceDnsDetails.Add(new DeviceDnsInfo
@@ -1760,7 +1778,7 @@ public class DnsSecurityAnalyzer
                     DeviceType = deviceType ?? "unknown",
                     DeviceIp = ip,
                     ConfiguredDns = dns1,
-                    ExpectedGateway = primaryGatewayIp,
+                    ExpectedGateway = primaryGatewayIp ?? globalTargets.FirstOrDefault() ?? "unknown",
                     PointsToGateway = pointsToGateway,
                     UsesDhcp = false
                 });
@@ -1781,7 +1799,7 @@ public class DnsSecurityAnalyzer
                     DeviceType = deviceType ?? "unknown",
                     DeviceIp = ip,
                     ConfiguredDns = null,
-                    ExpectedGateway = primaryGatewayIp,
+                    ExpectedGateway = primaryGatewayIp ?? globalTargets.FirstOrDefault() ?? "unknown",
                     PointsToGateway = true, // Assumed correct via DHCP
                     UsesDhcp = true
                 });
@@ -1806,18 +1824,19 @@ public class DnsSecurityAnalyzer
                     .Select(d => d.DeviceName)
                     .ToList();
 
+                var displayGateway = primaryGatewayIp ?? globalTargets.FirstOrDefault() ?? "gateway";
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({primaryGatewayIp})",
+                    RecommendedAction = $"Configure device DNS to point to gateway ({displayGateway})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
                     {
                         { "misconfigured_devices", deviceNames },
-                        { "expected_gateway", primaryGatewayIp }
+                        { "expected_gateway", displayGateway }
                     }
                 });
             }
