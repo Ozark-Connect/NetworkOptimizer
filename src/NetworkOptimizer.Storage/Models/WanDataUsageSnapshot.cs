@@ -35,8 +35,16 @@ public class WanDataUsageSnapshot
     /// <summary>
     /// True if this is the first snapshot and the gateway booted within the current billing cycle,
     /// meaning the raw byte counters represent all usage since boot (which is all within this cycle).
+    /// Note: This flag is set at creation time. Use GatewayBootTime for dynamic baseline evaluation
+    /// when the billing day may have changed since the snapshot was created.
     /// </summary>
     public bool IsBaseline { get; set; }
+
+    /// <summary>
+    /// When the gateway last booted, derived from uptime at snapshot time.
+    /// Used to dynamically determine baseline eligibility for any billing cycle start date.
+    /// </summary>
+    public DateTime? GatewayBootTime { get; set; }
 
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

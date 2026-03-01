@@ -1866,6 +1866,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<bool>("IsBaseline")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("GatewayBootTime")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("Timestamp")
                         .HasColumnType("TEXT");
 
