@@ -1124,7 +1124,55 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return 0;
         }
 
-        return GetLagAggregateSpeed(device.PortTable, portIndex.Value);
+        var port = device.PortTable.FirstOrDefault(p => p.PortIdx == portIndex.Value);
+        if (port == null)
+        {
+            _logger.LogDebug("Port {Port} not found in port table for {Device}", portIndex.Value, device.Name);
+            return 0;
+        }
+
+        int speed = GetLagAggregateSpeed(device.PortTable, portIndex.Value);
+
+        // Log LAG membership details for debugging
+        if (port.AggregatedBy.HasValue)
+        {
+            var parent = device.PortTable.FirstOrDefault(p => p.PortIdx == port.AggregatedBy.Value);
+            var siblings = device.PortTable.Where(p => p.AggregatedBy == port.AggregatedBy.Value).ToList();
+            _logger.LogDebug("Port {Port} on {Device}: LAG child (aggregated_by={Parent}, lag_idx={LagIdx}), " +
+                "members: {Members} = {Speed} Mbps aggregate",
+                portIndex.Value, device.Name, port.AggregatedBy.Value, port.LagIdx,
+                FormatLagMembers(parent, siblings),
+                speed);
+        }
+        else
+        {
+            var children = device.PortTable.Where(p => p.AggregatedBy == portIndex.Value).ToList();
+            if (children.Count > 0)
+            {
+                _logger.LogDebug("Port {Port} on {Device}: LAG parent (lag_idx={LagIdx}), " +
+                    "members: {Members} = {Speed} Mbps aggregate",
+                    portIndex.Value, device.Name, children[0].LagIdx,
+                    FormatLagMembers(port, children),
+                    speed);
+            }
+            else
+            {
+                _logger.LogDebug("Port {Port} on {Device}: no LAG membership, speed {Speed} Mbps",
+                    portIndex.Value, device.Name, speed);
+            }
+        }
+
+        return speed;
+    }
+
+    private static string FormatLagMembers(SwitchPort? parent, List<SwitchPort> children)
+    {
+        var parts = new List<string>();
+        if (parent != null)
+            parts.Add($"port {parent.PortIdx} ({parent.Speed} Mbps, {(parent.Up ? "Up" : "Down")})");
+        foreach (var child in children)
+            parts.Add($"port {child.PortIdx} ({child.Speed} Mbps, {(child.Up ? "Up" : "Down")})");
+        return string.Join(" + ", parts);
     }
 
     /// <summary>
