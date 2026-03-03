@@ -213,8 +213,13 @@ public class AccessPortVlanRule : AuditRuleBase
     }
 
     /// <summary>
-    /// Get the tagged VLAN count and whether the port allows all VLANs.
+    /// Get the tagged VLAN count and whether the port uses the blanket "Allow All" mode.
     /// Tagged VLANs = allowed networks minus native VLAN (native is untagged).
+    ///
+    /// "Allow All" means forward="all" - a blanket permission that automatically includes
+    /// any future VLANs added to the network. This is distinct from forward="customize" with
+    /// an empty excluded list, which means the admin manually selected every VLAN (deliberate
+    /// choice that does NOT auto-include future VLANs).
     /// </summary>
     private static (int TaggedVlanCount, bool AllowsAllVlans) GetTaggedVlanInfo(
         PortInfo port,
@@ -224,14 +229,18 @@ public class AccessPortVlanRule : AuditRuleBase
         var excludedIds = port.ExcludedNetworkIds ?? new List<string>();
         var nativeNetworkId = port.NativeNetworkId;
 
-        // If excluded list is null or empty, it means "Allow All"
+        // "Allow All" = forward mode is literally "all" (blanket permission including future VLANs).
+        // forward="customize" with empty exclusions means all VLANs were individually selected -
+        // a deliberate choice that does NOT auto-include future VLANs.
+        var allowsAllVlans = string.Equals(port.ForwardMode, "all", StringComparison.OrdinalIgnoreCase);
+
         if (excludedIds.Count == 0)
         {
             // All networks minus native = tagged count
             var taggedCount = string.IsNullOrEmpty(nativeNetworkId)
                 ? allNetworkIds.Count
                 : allNetworkIds.Count - 1; // Subtract native
-            return (taggedCount, true);
+            return (taggedCount, allowsAllVlans);
         }
 
         // Calculate allowed VLANs = All - Excluded - Native (if set)

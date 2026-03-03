@@ -178,8 +178,8 @@ public class AccessPortVlanRuleTests
     [Fact]
     public void Evaluate_TrunkPort_NoDevice_AllowAll_ReturnsIssue()
     {
-        // Trunk port with no device and "Allow All" VLANs - should flag
-        var port = CreateTrunkPort(excludedNetworkIds: null);
+        // Trunk port with no device and forward="all" (blanket Allow All) - should flag
+        var port = CreateTrunkPort(excludedNetworkIds: null, forwardMode: "all");
         var networks = CreateVlanNetworks(5);
 
         var result = _rule.Evaluate(port, networks);
@@ -217,11 +217,11 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_SingleNetwork_AllowAll_ReturnsIssue()
+    public void Evaluate_SingleNetwork_ForwardAll_ReturnsIssue()
     {
-        // Even with just 1 network, "Allow All" is flagged because it's a blanket permission
+        // Even with just 1 network, forward="all" is flagged because it's a blanket permission
         // that will automatically include any future VLANs added to the network
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, forwardMode: "all");
         var networks = new List<NetworkInfo>
         {
             new() { Id = "net-1", Name = "Default", VlanId = 1 }
@@ -229,10 +229,26 @@ public class AccessPortVlanRuleTests
 
         var result = _rule.Evaluate(port, networks);
 
-        // "Allow All" always triggers - it's the permissive config, not the current count, that's the issue
+        // forward="all" always triggers - it's the permissive config, not the current count, that's the issue
         result.Should().NotBeNull();
         result!.Metadata!["allows_all_vlans"].Should().Be(true);
         result.Metadata["tagged_vlan_count"].Should().Be(1);
+    }
+
+    [Fact]
+    public void Evaluate_SingleNetwork_CustomizeAllSelected_ReturnsNull()
+    {
+        // forward="customize" with empty exclusions and only 1 network = 1 tagged VLAN
+        // This is within the threshold so should NOT trigger
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: new List<string>());
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 }
+        };
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("1 tagged VLAN is within threshold even though all VLANs are selected");
     }
 
     #endregion
@@ -314,13 +330,14 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
-    #region Allow All VLANs Detection
+    #region Allow All VLANs Detection (forward="all" vs forward="customize")
 
     [Fact]
-    public void Evaluate_TrunkPort_AllowAllVlans_NullExcludedList_ReturnsIssue()
+    public void Evaluate_TrunkPort_ForwardAll_AllowsAllVlans()
     {
+        // forward="all" = blanket "Allow All" that auto-includes future VLANs
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null); // null = Allow All
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, forwardMode: "all");
 
         var result = _rule.Evaluate(port, networks);
 
@@ -330,15 +347,33 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_TrunkPort_AllowAllVlans_EmptyExcludedList_ReturnsIssue()
+    public void Evaluate_TrunkPort_CustomizeEmptyExclusions_NotAllowAll()
     {
+        // forward="customize" with empty exclusions = admin manually selected all VLANs
+        // This is NOT "Allow All" - it's a deliberate choice that does NOT auto-include future VLANs
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: new List<string>()); // empty = Allow All
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: new List<string>());
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().NotBeNull();
-        result!.Metadata!["allows_all_vlans"].Should().Be(true);
+        result.Should().NotBeNull("5 VLANs exceeds threshold of 2");
+        result!.Metadata!["allows_all_vlans"].Should().Be(false,
+            "forward='custom' with empty exclusions is NOT blanket 'Allow All'");
+        result.Metadata["tagged_vlan_count"].Should().Be(5);
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_CustomNullExclusions_NotAllowAll()
+    {
+        // forward="custom" with null exclusions = all VLANs tagged but NOT blanket "Allow All"
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("5 VLANs exceeds threshold");
+        result!.Metadata!["allows_all_vlans"].Should().Be(false,
+            "only forward='all' should set allows_all_vlans=true");
     }
 
     #endregion
@@ -480,13 +515,14 @@ public class AccessPortVlanRuleTests
     [Fact]
     public void Evaluate_IssueContainsNetworkName()
     {
-        var networks = CreateVlanNetworks(3);
+        var networks = CreateVlanNetworks(5);
         var port = CreateTrunkPortWithClient(
             nativeNetworkId: "net-1",
             excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
+        // 5 networks - 1 native = 4 tagged VLANs, above threshold
         result.Should().NotBeNull();
         result!.Metadata.Should().ContainKey("network");
         result.Metadata!["network"].Should().Be("VLAN 20");
@@ -496,13 +532,29 @@ public class AccessPortVlanRuleTests
     public void Evaluate_IssueContainsRecommendation_AllowAll()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null); // Allow All
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, forwardMode: "all"); // forward="all"
 
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
         result!.RecommendedAction.Should().NotBeNullOrEmpty();
         result.RecommendedAction.Should().Contain("Allow All");
+    }
+
+    [Fact]
+    public void Evaluate_IssueContainsRecommendation_AllManuallySelected()
+    {
+        // forward="customize" with empty exclusions uses count-based message, NOT "Allow All"
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: new List<string>());
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.RecommendedAction.Should().NotBeNullOrEmpty();
+        result.RecommendedAction.Should().Contain("single-device port",
+            "all-manually-selected should use count-based message, not 'Allow All'");
+        result.RecommendedAction.Should().NotContain("Allow All");
     }
 
     [Fact]
@@ -520,15 +572,30 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_IssueMessageDescribesAllVlans()
+    public void Evaluate_IssueMessageDescribesAllVlans_ForwardAll()
     {
+        // Only forward="all" should say "all VLANs tagged"
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, forwardMode: "all");
 
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
         result!.Message.Should().Contain("all VLANs");
+    }
+
+    [Fact]
+    public void Evaluate_IssueMessageDescribesVlanCount_AllManuallySelected()
+    {
+        // forward="customize" with empty exclusions should show count, not "all VLANs"
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: new List<string>());
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("5 VLANs tagged");
+        result.Message.Should().NotContain("all VLANs");
     }
 
     [Fact]
@@ -640,11 +707,30 @@ public class AccessPortVlanRuleTests
         var networks = CreateVlanNetworks(4);
         var port = CreateTrunkPortWithClient(
             nativeNetworkId: "net-0", // This is the native VLAN (untagged)
-            excludedNetworkIds: new List<string>()); // Allow all = triggers issue
+            excludedNetworkIds: new List<string>()); // All manually selected
 
         var result = _rule.Evaluate(port, networks);
 
-        // Should trigger because allow-all, but tagged count should be 3 (4 - 1 native)
+        // Should trigger because 3 tagged VLANs > threshold of 2
+        result.Should().NotBeNull();
+        result!.Metadata!["tagged_vlan_count"].Should().Be(3,
+            "native VLAN should not count as tagged");
+        result.Metadata["allows_all_vlans"].Should().Be(false,
+            "forward='custom' with empty exclusions is not blanket 'Allow All'");
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_ForwardAll_NativeVlanExcludedFromTaggedCount()
+    {
+        // forward="all" with native VLAN set - native shouldn't count as tagged
+        var networks = CreateVlanNetworks(4);
+        var port = CreateTrunkPortWithClient(
+            nativeNetworkId: "net-0",
+            excludedNetworkIds: null,
+            forwardMode: "all");
+
+        var result = _rule.Evaluate(port, networks);
+
         result.Should().NotBeNull();
         result!.Metadata!["tagged_vlan_count"].Should().Be(3,
             "native VLAN should not count as tagged");
@@ -700,18 +786,33 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_ServerDevice_AllowAll_ReturnsIssue()
+    public void Evaluate_ServerDevice_ForwardAll_ReturnsIssue()
     {
-        // Even servers should not have "Allow All" VLANs
+        // Even servers should not have forward="all" (blanket Allow All)
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithServerClient("proxmox-host", excludedNetworkIds: null);
+        var port = CreateTrunkPortWithServerClient("proxmox-host",
+            excludedNetworkIds: null, forwardMode: "all");
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().NotBeNull("'Allow All' should still trigger for servers");
+        result.Should().NotBeNull("forward='all' should still trigger for servers");
         result!.Message.Should().Contain("Server port");
         result.Metadata!["is_server_device"].Should().Be(true);
         result.Metadata["allows_all_vlans"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_AllManuallySelected_AtThreshold_ReturnsNull()
+    {
+        // Server with forward="customize" and all 5 VLANs manually selected
+        // 5 VLANs = server threshold (5) - should NOT trigger
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithServerClient("proxmox-host",
+            excludedNetworkIds: new List<string>());
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("server with 5 VLANs is at server threshold");
     }
 
     [Theory]
@@ -805,15 +906,16 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_Dot1x_MacBased_AllowAll_ReturnsInformational()
+    public void Evaluate_Dot1x_MacBased_ForwardAll_ReturnsInformational()
     {
-        // 802.1X mac_based with Allow All - downgrade to Informational
+        // 802.1X mac_based with forward="all" - downgrade to Informational
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+        var port = CreateTrunkPortWithClient(
+            excludedNetworkIds: null, dot1xCtrl: "mac_based", forwardMode: "all");
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().NotBeNull("802.1X with Allow All should still flag");
+        result.Should().NotBeNull("802.1X with forward='all' should still flag");
         result!.Severity.Should().Be(AuditSeverity.Informational);
         result.ScoreImpact.Should().Be(2);
         result.Message.Should().Contain("802.1X");
@@ -822,18 +924,33 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_Dot1x_Auto_AllowAll_ReturnsInformational()
+    public void Evaluate_Dot1x_Auto_ForwardAll_ReturnsInformational()
     {
-        // 802.1X auto with Allow All - downgrade to Informational
+        // 802.1X auto with forward="all" - downgrade to Informational
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "auto");
+        var port = CreateTrunkPortWithClient(
+            excludedNetworkIds: null, dot1xCtrl: "auto", forwardMode: "all");
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().NotBeNull("802.1X with Allow All should still flag");
+        result.Should().NotBeNull("802.1X with forward='all' should still flag");
         result!.Severity.Should().Be(AuditSeverity.Informational);
         result.ScoreImpact.Should().Be(2);
         result.Metadata!["is_dot1x_secured"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_Dot1x_MacBased_AllManuallySelected_ReturnsNull()
+    {
+        // 802.1X mac_based with forward="customize" and all VLANs manually selected
+        // Admin has curated (selected all deliberately) - trust their intent
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(
+            excludedNetworkIds: new List<string>(), dot1xCtrl: "mac_based");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("802.1X with all VLANs manually selected is admin's deliberate choice");
     }
 
     [Fact]
@@ -865,15 +982,15 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_Dot1x_NoConnectedClient_AllowAll_ReturnsInformational()
+    public void Evaluate_Dot1x_NoConnectedClient_ForwardAll_ReturnsInformational()
     {
         // 802.1X trunk port with no connected client - should still trigger 802.1X path
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPort(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+        var port = CreateTrunkPort(excludedNetworkIds: null, forwardMode: "all", dot1xCtrl: "mac_based");
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().NotBeNull("802.1X with Allow All should flag even without connected client");
+        result.Should().NotBeNull("802.1X with forward='all' should flag even without connected client");
         result!.Severity.Should().Be(AuditSeverity.Informational);
         result.ScoreImpact.Should().Be(2);
         result.Metadata!["is_dot1x_secured"].Should().Be(true);
@@ -893,18 +1010,16 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_Dot1x_PortDown_AllowAll_ReturnsInformational()
+    public void Evaluate_Dot1x_PortDown_ForwardAll_ReturnsInformational()
     {
-        // Down 802.1X port with Allow All - rule doesn't gate on IsUp, so should still flag
+        // Down 802.1X port with forward="all" - rule doesn't gate on IsUp, so should still flag
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "mac_based");
-        // CreateTrunkPortWithClient sets IsUp=true, but the rule doesn't check IsUp for 802.1X path.
         // For a down port we need to use CreateTrunkPort (no client) since down ports typically have no client.
-        var downPort = CreateTrunkPort(excludedNetworkIds: null, dot1xCtrl: "auto");
+        var downPort = CreateTrunkPort(excludedNetworkIds: null, forwardMode: "all", dot1xCtrl: "auto");
 
         var result = _rule.Evaluate(downPort, networks);
 
-        result.Should().NotBeNull("down 802.1X port with Allow All should still flag");
+        result.Should().NotBeNull("down 802.1X port with forward='all' should still flag");
         result!.Severity.Should().Be(AuditSeverity.Informational);
         result.ScoreImpact.Should().Be(2);
     }
@@ -922,32 +1037,33 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_Dot1x_EmptyExcludedList_ReturnsInformational()
+    public void Evaluate_Dot1x_ForwardAll_EmptyExcludedList_ReturnsInformational()
     {
-        // Empty excluded list is also "Allow All" (same as null) - should trigger 802.1X path
+        // forward="all" with empty excluded list on 802.1X port - should trigger
         var networks = CreateVlanNetworks(5);
         var port = CreateTrunkPortWithClient(
-            excludedNetworkIds: new List<string>(), dot1xCtrl: "mac_based");
+            excludedNetworkIds: new List<string>(), dot1xCtrl: "mac_based", forwardMode: "all");
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().NotBeNull("empty excluded list means Allow All on 802.1X port");
+        result.Should().NotBeNull("forward='all' means blanket Allow All on 802.1X port");
         result!.Severity.Should().Be(AuditSeverity.Informational);
         result.ScoreImpact.Should().Be(2);
         result.Metadata!["allows_all_vlans"].Should().Be(true);
     }
 
     [Fact]
-    public void Evaluate_Dot1x_AllNetworksParameter_UsesAllNetworks()
+    public void Evaluate_Dot1x_AllNetworksParameter_ForwardAll_UsesAllNetworks()
     {
         // When allNetworks is explicitly passed, 802.1X path should use it for VLAN counting
         var enabledNetworks = CreateVlanNetworks(2);
         var allNetworks = CreateVlanNetworks(8); // More networks including disabled ones
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null, dot1xCtrl: "mac_based");
+        var port = CreateTrunkPortWithClient(
+            excludedNetworkIds: null, dot1xCtrl: "mac_based", forwardMode: "all");
 
         var result = _rule.Evaluate(port, enabledNetworks, allNetworks);
 
-        result.Should().NotBeNull("802.1X with Allow All should flag using allNetworks count");
+        result.Should().NotBeNull("802.1X with forward='all' should flag using allNetworks count");
         result!.Severity.Should().Be(AuditSeverity.Informational);
         result.Metadata!["tagged_vlan_count"].Should().Be(8,
             "should count VLANs from allNetworks, not just enabled networks");
@@ -968,16 +1084,16 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_Dot1x_ServerDevice_AllowAll_ReturnsInformational()
+    public void Evaluate_Dot1x_ServerDevice_ForwardAll_ReturnsInformational()
     {
         // 802.1X takes priority over server detection - should return Informational, not Recommended
         var networks = CreateVlanNetworks(5);
         var port = CreateTrunkPortWithServerClient("proxmox-host",
-            excludedNetworkIds: null, dot1xCtrl: "mac_based");
+            excludedNetworkIds: null, dot1xCtrl: "mac_based", forwardMode: "all");
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().NotBeNull("802.1X with Allow All should flag even on server");
+        result.Should().NotBeNull("802.1X with forward='all' should flag even on server");
         result!.Severity.Should().Be(AuditSeverity.Informational,
             "802.1X path should take priority over server detection");
         result.ScoreImpact.Should().Be(2);
@@ -1178,7 +1294,8 @@ public class AccessPortVlanRuleTests
     private static PortInfo CreateTrunkPortWithServerClient(
         string hostname,
         List<string>? excludedNetworkIds = null,
-        string? dot1xCtrl = null)
+        string? dot1xCtrl = null,
+        string forwardMode = "custom")
     {
         var switchInfo = new SwitchInfo
         {
@@ -1191,7 +1308,7 @@ public class AccessPortVlanRuleTests
             PortIndex = 1,
             Name = "Port 1",
             IsUp = true,
-            ForwardMode = "custom",
+            ForwardMode = forwardMode,
             IsUplink = false,
             IsWan = false,
             ExcludedNetworkIds = excludedNetworkIds,
