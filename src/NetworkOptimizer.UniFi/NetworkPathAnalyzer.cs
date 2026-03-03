@@ -1133,32 +1133,35 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         int speed = GetLagAggregateSpeed(device.PortTable, portIndex.Value);
 
-        // Log LAG membership details for debugging
-        if (port.AggregatedBy.HasValue)
+        // Log LAG membership details for debugging (guarded to avoid allocations in hot path)
+        if (_logger.IsEnabled(LogLevel.Debug))
         {
-            var parent = device.PortTable.FirstOrDefault(p => p.PortIdx == port.AggregatedBy.Value);
-            var siblings = device.PortTable.Where(p => p.AggregatedBy == port.AggregatedBy.Value).ToList();
-            _logger.LogDebug("Port {Port} on {Device}: LAG child (aggregated_by={Parent}, lag_idx={LagIdx}), " +
-                "members: {Members} = {Speed} Mbps aggregate",
-                portIndex.Value, device.Name, port.AggregatedBy.Value, port.LagIdx,
-                FormatLagMembers(parent, siblings),
-                speed);
-        }
-        else
-        {
-            var children = device.PortTable.Where(p => p.AggregatedBy == portIndex.Value).ToList();
-            if (children.Count > 0)
+            if (port.AggregatedBy.HasValue)
             {
-                _logger.LogDebug("Port {Port} on {Device}: LAG parent (lag_idx={LagIdx}), " +
+                var parent = device.PortTable.FirstOrDefault(p => p.PortIdx == port.AggregatedBy.Value);
+                var siblings = device.PortTable.Where(p => p.AggregatedBy == port.AggregatedBy.Value).ToList();
+                _logger.LogDebug("Port {Port} on {Device}: LAG child (aggregated_by={Parent}, lag_idx={LagIdx}), " +
                     "members: {Members} = {Speed} Mbps aggregate",
-                    portIndex.Value, device.Name, children[0].LagIdx,
-                    FormatLagMembers(port, children),
+                    portIndex.Value, device.Name, port.AggregatedBy.Value, port.LagIdx,
+                    FormatLagMembers(parent, siblings),
                     speed);
             }
             else
             {
-                _logger.LogDebug("Port {Port} on {Device}: no LAG membership, speed {Speed} Mbps",
-                    portIndex.Value, device.Name, speed);
+                var children = device.PortTable.Where(p => p.AggregatedBy == portIndex.Value).ToList();
+                if (children.Count > 0)
+                {
+                    _logger.LogDebug("Port {Port} on {Device}: LAG parent (lag_idx={LagIdx}), " +
+                        "members: {Members} = {Speed} Mbps aggregate",
+                        portIndex.Value, device.Name, children[0].LagIdx,
+                        FormatLagMembers(port, children),
+                        speed);
+                }
+                else
+                {
+                    _logger.LogDebug("Port {Port} on {Device}: no LAG membership, speed {Speed} Mbps",
+                        portIndex.Value, device.Name, speed);
+                }
             }
         }
 

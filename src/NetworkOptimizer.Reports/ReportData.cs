@@ -290,10 +290,10 @@ public class SwitchDetail
     public int TotalPorts => Ports.Count;
     public int DisabledPorts => Ports.Count(p => p.Forward == "disabled");
     public int MacRestrictedPorts => Ports.Count(p => p.MacRestrictionCount > 0);
-    public int Dot1xPorts => Ports.Count(p => p.Dot1xCtrl is ("auto" or "mac_based") && p.Forward == "native" && p.IsUp && !p.IsUplink);
+    public int Dot1xPorts => Ports.Count(p => p.Dot1xCtrl is ("auto" or "mac_based" or "multi_host") && p.Forward == "native" && p.IsUp && !p.IsUplink);
     public int UnprotectedActivePorts => Ports.Count(p =>
         p.Forward == "native" && p.IsUp && p.MacRestrictionCount == 0 && !p.IsUplink
-        && p.Dot1xCtrl is not ("auto" or "mac_based"));
+        && p.Dot1xCtrl is not ("auto" or "mac_based" or "multi_host"));
 }
 
 /// <summary>
@@ -371,7 +371,7 @@ public class PortDetail
         {
             // Warning if no MAC restriction, no 802.1X, and device supports it
             if (IsUp && supportsAcls && MacRestrictionCount == 0 && !IsUplink
-                && Dot1xCtrl is not ("auto" or "mac_based"))
+                && Dot1xCtrl is not ("auto" or "mac_based" or "multi_host"))
                 return ("No MAC", PortStatusType.Warning);
             return ("OK", PortStatusType.Ok);
         }

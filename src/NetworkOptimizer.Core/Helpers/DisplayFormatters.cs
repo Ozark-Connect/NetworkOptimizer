@@ -320,7 +320,7 @@ public static class DisplayFormatters
     {
         if (macCount > 1) return $"{macCount} MAC";
         if (macCount == 1) return "1 MAC";
-        if (dot1xCtrl is "auto" or "mac_based") return "802.1X";
+        if (dot1xCtrl is "auto" or "mac_based" or "multi_host") return "802.1X";
         if (portSecurityEnabled) return "Yes";
         return "-";
     }
