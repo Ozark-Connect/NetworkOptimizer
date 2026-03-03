@@ -73,6 +73,7 @@ public class PortSecurityAnalyzer
 
         // Inject logger into rules that support it
         UnusedPortRule.SetLogger(_logger);
+        AccessPortVlanRule.SetLogger(_logger);
     }
 
     /// <summary>

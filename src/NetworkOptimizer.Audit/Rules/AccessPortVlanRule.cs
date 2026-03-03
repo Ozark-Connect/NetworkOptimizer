@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Enums;
 
@@ -40,6 +41,13 @@ public class AccessPortVlanRule : AuditRuleBase
         ClientDeviceCategory.Server,
         ClientDeviceCategory.NAS
     };
+
+    private static ILogger? _logger;
+
+    /// <summary>
+    /// Set the logger for diagnostic output
+    /// </summary>
+    public static void SetLogger(ILogger logger) => _logger = logger;
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
@@ -116,6 +124,12 @@ public class AccessPortVlanRule : AuditRuleBase
 
         // Calculate allowed tagged VLANs on this port (excluding native VLAN)
         var (taggedVlanCount, allowsAllVlans) = GetTaggedVlanInfo(port, networksForCounting);
+
+        var excludedCount = port.ExcludedNetworkIds?.Count ?? 0;
+        _logger?.LogDebug(
+            "ACCESS-VLAN {Switch} port {Port}: networks={NetworkCount}, excluded={ExcludedCount}, native={NativeId}, tagged={TaggedCount}, allowsAll={AllowsAll}, threshold={Threshold}",
+            port.Switch.Name, port.PortIndex, networksForCounting.Count, excludedCount,
+            port.NativeNetworkId ?? "(none)", taggedVlanCount, allowsAllVlans, effectiveThreshold);
 
         // Check if excessive
         if (!allowsAllVlans && taggedVlanCount <= effectiveThreshold)
