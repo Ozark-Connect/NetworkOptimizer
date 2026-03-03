@@ -137,9 +137,10 @@ public class PortInfo
 
     /// <summary>
     /// Whether this port is secured via 802.1X/RADIUS authentication.
-    /// True when Dot1xCtrl is "auto" (802.1X) or "mac_based" (RADIUS MAC auth).
+    /// True when Dot1xCtrl is "auto" (802.1X), "mac_based" (RADIUS MAC auth),
+    /// or "multi_host" (802.1X authenticates first MAC, then allows subsequent MACs).
     /// </summary>
-    public bool IsDot1xSecured => Dot1xCtrl is "auto" or "mac_based";
+    public bool IsDot1xSecured => Dot1xCtrl is "auto" or "mac_based" or "multi_host";
 
     /// <summary>
     /// The port profile (portconf) assigned to this port, if any.
