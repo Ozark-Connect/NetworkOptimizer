@@ -172,8 +172,9 @@
                                                     <input type="text"
                                                            class="note-input"
                                                            placeholder="Add notes..."
-                                                           value="@GetNote(GetNoteKey(rule))"
-                                                           @oninput="@(e => OnNoteInput(rule, e.Value?.ToString()))"
+                                                           @bind:get="GetNote(GetNoteKey(rule))"
+                                                           @bind:set="@(value => OnNoteInput(rule, value))"
+                                                           @bind:event="oninput"
                                                            @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
                                                            @onfocusout="@(() => OnNoteBlur(rule))" />
                                                     @if (IsNoteSaving(GetNoteKey(rule)))

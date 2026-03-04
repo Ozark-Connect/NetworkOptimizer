@@ -184,8 +184,10 @@
                     <div class="result-notes" @onclick:stopPropagation="true">
                         <textarea class="notes-input"
                                   placeholder="Add notes..."
-                                  value="@_notesInput"
-                                  @oninput="OnNotesInput"
+                                  @bind="_notesInput"
+                                  @bind:event="oninput"
+                                  @bind:after="DebounceSaveNotes"
+                                  @onfocus="OnNotesFocus"
                                   @onfocusout="OnNotesBlur"
                                   rows="2"></textarea>
                         @if (_notesSaving)
@@ -482,6 +484,7 @@
 
     // Notes state
     private string _notesInput = "";
+    private bool _notesFocused;
     private bool _notesSaving;
     private bool _notesSaved;
     private System.Timers.Timer? _notesDebounceTimer;
@@ -532,6 +535,13 @@
             }
             else
             {
+                // Sync notes from Result if changed externally (e.g., edited in another SpeedTestDetails instance)
+                if (!_notesFocused && !_notesSaving)
+                {
+                    var resultNotes = Result.Notes ?? "";
+                    if (_notesInput != resultNotes)
+                        _notesInput = resultNotes;
+                }
                 // Only use Result.PathAnalysis if no separate PathAnalysis was passed
                 PathAnalysis ??= Result.PathAnalysis;
             }
@@ -1101,14 +1111,14 @@
         _notesDebounceTimer.Start();
     }
 
-    private void OnNotesInput(ChangeEventArgs e)
+    private void OnNotesFocus()
     {
-        _notesInput = e.Value?.ToString() ?? "";
-        DebounceSaveNotes();
+        _notesFocused = true;
     }
 
     private async Task OnNotesBlur()
     {
+        _notesFocused = false;
         // Cancel any pending debounce and save immediately
         _notesDebounceTimer?.Stop();
         _notesDebounceTimer?.Dispose();
@@ -1131,8 +1141,10 @@
 
         try
         {
-            await OnNotesChanged.InvokeAsync((Result.Id, string.IsNullOrEmpty(newNotes) ? null : newNotes));
+            // Update Result.Notes before invoking callback so other SpeedTestDetails instances
+            // see the new value when the parent re-renders during the await
             Result.Notes = string.IsNullOrEmpty(newNotes) ? null : newNotes;
+            await OnNotesChanged.InvokeAsync((Result.Id, string.IsNullOrEmpty(newNotes) ? null : newNotes));
             _notesSaved = true;
 
             // Hide "Saved" after 2 seconds
