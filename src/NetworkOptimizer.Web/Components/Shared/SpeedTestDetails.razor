@@ -186,6 +186,7 @@
                                   placeholder="Add notes..."
                                   value="@_notesInput"
                                   @oninput="OnNotesInput"
+                                  @onfocus="OnNotesFocus"
                                   @onfocusout="OnNotesBlur"
                                   rows="2"></textarea>
                         @if (_notesSaving)
@@ -482,6 +483,7 @@
 
     // Notes state
     private string _notesInput = "";
+    private bool _notesFocused;
     private bool _notesSaving;
     private bool _notesSaved;
     private System.Timers.Timer? _notesDebounceTimer;
@@ -532,6 +534,13 @@
             }
             else
             {
+                // Sync notes from Result if changed externally (e.g., edited in another SpeedTestDetails instance)
+                if (!_notesFocused && !_notesSaving)
+                {
+                    var resultNotes = Result.Notes ?? "";
+                    if (_notesInput != resultNotes)
+                        _notesInput = resultNotes;
+                }
                 // Only use Result.PathAnalysis if no separate PathAnalysis was passed
                 PathAnalysis ??= Result.PathAnalysis;
             }
@@ -1107,8 +1116,14 @@
         DebounceSaveNotes();
     }
 
+    private void OnNotesFocus()
+    {
+        _notesFocused = true;
+    }
+
     private async Task OnNotesBlur()
     {
+        _notesFocused = false;
         // Cancel any pending debounce and save immediately
         _notesDebounceTimer?.Stop();
         _notesDebounceTimer?.Dispose();
@@ -1127,7 +1142,8 @@
             return;
 
         _notesSaving = true;
-        StateHasChanged();
+        // Only re-render for status indicators if textarea isn't focused (prevents cursor jump)
+        if (!_notesFocused) StateHasChanged();
 
         try
         {
@@ -1147,7 +1163,7 @@
                     await InvokeAsync(() =>
                     {
                         _notesSaved = false;
-                        StateHasChanged();
+                        if (!_notesFocused) StateHasChanged();
                     });
                 }
             };
@@ -1158,7 +1174,7 @@
             if (!_disposed)
             {
                 _notesSaving = false;
-                StateHasChanged();
+                if (!_notesFocused) StateHasChanged();
             }
         }
     }

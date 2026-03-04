@@ -410,7 +410,8 @@
 
         savingNotes.Add(noteKey);
         savedNotes.Remove(noteKey);
-        StateHasChanged();
+        // Only re-render for status indicators if this note isn't being actively edited (prevents cursor jump)
+        if (currentEditingNote != noteKey) StateHasChanged();
 
         try
         {
@@ -461,7 +462,7 @@
                     await InvokeAsync(() =>
                     {
                         savedNotes.Remove(noteKey);
-                        StateHasChanged();
+                        if (currentEditingNote != noteKey) StateHasChanged();
                     });
                 }
             };
@@ -477,7 +478,7 @@
             if (!_disposed)
             {
                 savingNotes.Remove(noteKey);
-                StateHasChanged();
+                if (currentEditingNote != noteKey) StateHasChanged();
             }
         }
     }
