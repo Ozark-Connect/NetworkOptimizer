@@ -51,8 +51,8 @@ public class UnusedPortRule : AuditRuleBase
         if (port.IsUplink || port.IsWan)
             return null;
 
-        // Check if port is disabled
-        if (port.ForwardMode == "disabled")
+        // Check if port is disabled (either via forward mode or hardware enable flag)
+        if (port.ForwardMode == "disabled" || !port.IsEnabled)
             return null; // Correctly configured
 
         // Skip if port has an intentional unrestricted access profile

@@ -393,8 +393,26 @@ public class PortSecurityAnalyzer
             Capabilities = capabilities
         };
 
+        // Build ifname -> WAN lookup from ethernet_overrides (gateways only)
+        HashSet<string>? wanIfnames = null;
+        if (device.TryGetProperty("ethernet_overrides", out var ethOverrides) &&
+            ethOverrides.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var ov in ethOverrides.EnumerateArray())
+            {
+                var ifn = ov.GetStringOrNull("ifname");
+                var ng = ov.GetStringOrNull("networkgroup");
+                if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng) &&
+                    ng.StartsWith("WAN", StringComparison.OrdinalIgnoreCase))
+                {
+                    wanIfnames ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    wanIfnames.Add(ifn);
+                }
+            }
+        }
+
         var ports = device.GetArrayOrEmpty("port_table")
-            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup))
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup, wanIfnames))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
@@ -488,7 +506,7 @@ public class PortSecurityAnalyzer
     /// Parse a single port from JSON
     /// </summary>
     private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientDetailResponse>? historyByPort = null)
-        => ParsePort(port, switchInfo, networks, clientsByPort, historyByPort, portProfiles: null, deviceUplinkLookup: null);
+        => ParsePort(port, switchInfo, networks, clientsByPort, historyByPort, portProfiles: null, deviceUplinkLookup: null, wanIfnames: null);
 
     /// <summary>
     /// Parse a single port from JSON with port profile resolution and device uplink detection
@@ -500,7 +518,8 @@ public class PortSecurityAnalyzer
         Dictionary<(string, int), UniFiClientResponse> clientsByPort,
         Dictionary<(string, int), UniFiClientDetailResponse>? historyByPort,
         Dictionary<string, UniFiPortProfile>? portProfiles,
-        Dictionary<(string, int), string>? deviceUplinkLookup)
+        Dictionary<(string, int), string>? deviceUplinkLookup,
+        HashSet<string>? wanIfnames = null)
     {
         var portIdx = port.GetIntOrDefault("port_idx", -1);
         if (portIdx < 0)
@@ -599,7 +618,9 @@ public class PortSecurityAnalyzer
             forwardMode = "custom";
 
         var networkName = port.GetStringOrNull("network_name")?.ToLowerInvariant();
-        var isWan = networkName?.StartsWith("wan") ?? false;
+        var ifname = port.GetStringOrNull("ifname");
+        var isWan = (networkName?.StartsWith("wan") ?? false) ||
+                    (wanIfnames != null && !string.IsNullOrEmpty(ifname) && wanIfnames.Contains(ifname));
 
         var poeEnable = port.GetBoolOrDefault("poe_enable");
         var portPoe = port.GetBoolOrDefault("port_poe");
@@ -650,6 +671,7 @@ public class PortSecurityAnalyzer
         {
             PortIndex = portIdx,
             Name = portName,
+            IsEnabled = port.GetBoolOrDefault("enable", defaultValue: true),
             IsUp = port.GetBoolOrDefault("up"),
             Speed = port.GetIntOrDefault("speed"),
             ForwardMode = forwardMode,
