@@ -249,6 +249,11 @@ builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryCha
     new NetworkOptimizer.Alerts.Delivery.TeamsDeliveryChannel(
         sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.TeamsDeliveryChannel>>(),
         sp.GetRequiredService<IHttpClientFactory>().CreateClient()));
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Delivery.IAlertDeliveryChannel>(sp =>
+    new NetworkOptimizer.Alerts.Delivery.NtfyDeliveryChannel(
+        sp.GetRequiredService<ILogger<NetworkOptimizer.Alerts.Delivery.NtfyDeliveryChannel>>(),
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient(),
+        sp.GetRequiredService<NetworkOptimizer.Alerts.Delivery.ISecretDecryptor>()));
 
 // Register Threat Intelligence services
 builder.Services.AddSingleton<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>();

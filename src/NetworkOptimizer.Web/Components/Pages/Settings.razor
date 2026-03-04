@@ -1129,7 +1129,7 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Configure notification channels for the alert engine. Alerts are delivered via email, webhooks, Slack, Discord, or Microsoft Teams.
+                Configure notification channels for the alert engine. Alerts are delivered via email, webhooks, Slack, Discord, Microsoft Teams, or ntfy.sh.
             </p>
 
             @if (alertChannels?.Count > 0)
@@ -1187,6 +1187,7 @@
                             <option value="Slack">Slack</option>
                             <option value="Discord">Discord</option>
                             <option value="Teams">Microsoft Teams</option>
+                            <option value="Ntfy">ntfy.sh</option>
                         </select>
                     </div>
 
@@ -1231,11 +1232,64 @@
                             <small class="form-help">Comma-separated email addresses</small>
                         </div>
                     }
+                    else if (channelFormType == "Ntfy")
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Server URL</label>
+                            <input type="url" class="form-control" @bind="channelNtfyServerUrl" placeholder="https://ntfy.sh" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <small class="form-help">Default is ntfy.sh. Change for self-hosted instances.</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Topic</label>
+                            <input type="text" class="form-control" @bind="channelNtfyTopic" placeholder="my-network-alerts" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Access Token</label>
+                            @if (clearNtfyToken)
+                            {
+                                <div class="alert alert-info" style="padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;">
+                                    Token will be cleared on save.
+                                    <a href="javascript:void(0)" @onclick="() => clearNtfyToken = false" style="margin-left: 0.5rem;">Undo</a>
+                                </div>
+                            }
+                            else
+                            {
+                                <input type="password" class="form-control" @bind="channelNtfyAccessToken" autocomplete="new-password" placeholder="@(hasNtfyToken ? "Saved - enter new to update" : "Optional - for private topics")" data-1p-ignore data-lpignore="true" data-bwignore />
+                                @if (hasNtfyToken && string.IsNullOrEmpty(channelNtfyAccessToken))
+                                {
+                                    <a href="javascript:void(0)" @onclick="() => clearNtfyToken = true" class="form-hint" style="cursor: pointer;">Clear existing token</a>
+                                }
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" @bind="channelNtfyUsername" placeholder="Optional - for basic auth" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password</label>
+                            @if (clearNtfyPassword)
+                            {
+                                <div class="alert alert-info" style="padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;">
+                                    Password will be cleared on save.
+                                    <a href="javascript:void(0)" @onclick="() => clearNtfyPassword = false" style="margin-left: 0.5rem;">Undo</a>
+                                </div>
+                            }
+                            else
+                            {
+                                <input type="password" class="form-control" @bind="channelNtfyPassword" autocomplete="new-password" placeholder="@(hasNtfyPassword ? "Saved - enter new to update" : "Optional - for basic auth")" data-1p-ignore data-lpignore="true" data-bwignore />
+                                @if (hasNtfyPassword && string.IsNullOrEmpty(channelNtfyPassword))
+                                {
+                                    <a href="javascript:void(0)" @onclick="() => clearNtfyPassword = true" class="form-hint" style="cursor: pointer;">Clear existing password</a>
+                                }
+                            }
+                        </div>
+                        <small class="form-help">Use access token OR username/password, not both.</small>
+                    }
                     else
                     {
                         <div class="form-group">
                             <label class="form-label">Webhook URL</label>
-                            <input type="url" class="form-control" @bind="channelWebhookUrl" placeholder="https://hooks.slack.com/services/..." autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="url" class="form-control" @bind="channelWebhookUrl" placeholder="@GetWebhookPlaceholder()" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         @if (channelFormType == "Webhook")
                         {
@@ -1829,6 +1883,15 @@
     private string channelWebhookSecret = "";
     private bool hasWebhookSecret = false;
     private bool clearWebhookSecret = false;
+    private string channelNtfyServerUrl = "https://ntfy.sh";
+    private string channelNtfyTopic = "";
+    private string channelNtfyAccessToken = "";
+    private bool hasNtfyToken = false;
+    private bool clearNtfyToken = false;
+    private string channelNtfyUsername = "";
+    private string channelNtfyPassword = "";
+    private bool hasNtfyPassword = false;
+    private bool clearNtfyPassword = false;
     private string channelMinSeverity = "Warning";
     private bool channelEnabled = true;
     private bool channelDigestEnabled = false;
@@ -3262,6 +3325,14 @@
         channelSmtpPort = channelSmtpStartTls ? 587 : 465;
     }
 
+    private string GetWebhookPlaceholder() => channelFormType switch
+    {
+        "Slack" => "https://hooks.slack.com/services/...",
+        "Discord" => "https://discord.com/api/webhooks/...",
+        "Teams" => "https://outlook.office.com/webhook/...",
+        _ => "https://example.com/webhook"
+    };
+
     private void StartAddChannel()
     {
         editingChannelId = null;
@@ -3279,6 +3350,15 @@
         channelWebhookSecret = "";
         hasWebhookSecret = false;
         clearWebhookSecret = false;
+        channelNtfyServerUrl = "https://ntfy.sh";
+        channelNtfyTopic = "";
+        channelNtfyAccessToken = "";
+        hasNtfyToken = false;
+        clearNtfyToken = false;
+        channelNtfyUsername = "";
+        channelNtfyPassword = "";
+        hasNtfyPassword = false;
+        clearNtfyPassword = false;
         channelMinSeverity = "Warning";
         channelEnabled = true;
         channelDigestEnabled = false;
@@ -3329,6 +3409,22 @@
                 }
                 channelWebhookSecret = ""; // Don't expose stored secret
                 clearWebhookSecret = false;
+            }
+            else if (ch.ChannelType == DeliveryChannelType.Ntfy)
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<NetworkOptimizer.Alerts.Delivery.NtfyChannelConfig>(ch.ConfigJson);
+                if (cfg != null)
+                {
+                    channelNtfyServerUrl = cfg.ServerUrl;
+                    channelNtfyTopic = cfg.Topic;
+                    channelNtfyUsername = cfg.Username ?? "";
+                    hasNtfyToken = !string.IsNullOrEmpty(cfg.AccessToken);
+                    hasNtfyPassword = !string.IsNullOrEmpty(cfg.Password);
+                }
+                channelNtfyAccessToken = "";
+                clearNtfyToken = false;
+                channelNtfyPassword = "";
+                clearNtfyPassword = false;
             }
             else
             {
@@ -3467,6 +3563,15 @@
                     }
                 }
             }
+            else if (channelType == DeliveryChannelType.Ntfy)
+            {
+                if (string.IsNullOrWhiteSpace(channelNtfyTopic))
+                {
+                    alertChannelMessage = "Topic is required.";
+                    alertChannelMessageClass = "warning";
+                    return;
+                }
+            }
             else
             {
                 // Webhook, Slack, Discord, Teams all require a URL
@@ -3573,6 +3678,33 @@
             {
                 Url = channelWebhookUrl,
                 Secret = secret
+            };
+            return System.Text.Json.JsonSerializer.Serialize(cfg);
+        }
+
+        if (type == DeliveryChannelType.Ntfy)
+        {
+            string? token = clearNtfyToken
+                ? null
+                : !string.IsNullOrEmpty(channelNtfyAccessToken)
+                    ? SecretDecryptor.Encrypt(channelNtfyAccessToken)
+                    : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.NtfyChannelConfig>(existingConfigJson, c => c.AccessToken);
+            if (string.IsNullOrEmpty(token)) token = null;
+
+            string? password = clearNtfyPassword
+                ? null
+                : !string.IsNullOrEmpty(channelNtfyPassword)
+                    ? SecretDecryptor.Encrypt(channelNtfyPassword)
+                    : GetExistingSecret<NetworkOptimizer.Alerts.Delivery.NtfyChannelConfig>(existingConfigJson, c => c.Password);
+            if (string.IsNullOrEmpty(password)) password = null;
+
+            var cfg = new NetworkOptimizer.Alerts.Delivery.NtfyChannelConfig
+            {
+                ServerUrl = channelNtfyServerUrl,
+                Topic = channelNtfyTopic,
+                AccessToken = token,
+                Username = string.IsNullOrWhiteSpace(channelNtfyUsername) ? null : channelNtfyUsername,
+                Password = password
             };
             return System.Text.Json.JsonSerializer.Serialize(cfg);
         }

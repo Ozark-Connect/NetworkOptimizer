@@ -11,7 +11,8 @@ public enum DeliveryChannelType
     Webhook,
     Slack,
     Discord,
-    Teams
+    Teams,
+    Ntfy
 }
 
 /// <summary>
