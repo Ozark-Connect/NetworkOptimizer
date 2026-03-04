@@ -172,8 +172,9 @@
                                                     <input type="text"
                                                            class="note-input"
                                                            placeholder="Add notes..."
-                                                           value="@GetNote(GetNoteKey(rule))"
-                                                           @oninput="@(e => OnNoteInput(rule, e.Value?.ToString()))"
+                                                           @bind:get="GetNote(GetNoteKey(rule))"
+                                                           @bind:set="@(value => OnNoteInput(rule, value))"
+                                                           @bind:event="oninput"
                                                            @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
                                                            @onfocusout="@(() => OnNoteBlur(rule))" />
                                                     @if (IsNoteSaving(GetNoteKey(rule)))
@@ -410,8 +411,7 @@
 
         savingNotes.Add(noteKey);
         savedNotes.Remove(noteKey);
-        // Only re-render for status indicators if this note isn't being actively edited (prevents cursor jump)
-        if (currentEditingNote != noteKey) StateHasChanged();
+        StateHasChanged();
 
         try
         {
@@ -462,7 +462,7 @@
                     await InvokeAsync(() =>
                     {
                         savedNotes.Remove(noteKey);
-                        if (currentEditingNote != noteKey) StateHasChanged();
+                        StateHasChanged();
                     });
                 }
             };
@@ -478,7 +478,7 @@
             if (!_disposed)
             {
                 savingNotes.Remove(noteKey);
-                if (currentEditingNote != noteKey) StateHasChanged();
+                StateHasChanged();
             }
         }
     }
