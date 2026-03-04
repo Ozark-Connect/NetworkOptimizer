@@ -650,6 +650,7 @@ public class PortSecurityAnalyzer
         {
             PortIndex = portIdx,
             Name = portName,
+            IsEnabled = port.GetBoolOrDefault("enable", defaultValue: true),
             IsUp = port.GetBoolOrDefault("up"),
             Speed = port.GetIntOrDefault("speed"),
             ForwardMode = forwardMode,

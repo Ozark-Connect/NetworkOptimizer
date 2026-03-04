@@ -51,8 +51,8 @@ public class AccessPortVlanRule : AuditRuleBase
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
-        // Skip infrastructure ports
-        if (port.IsUplink || port.IsWan)
+        // Skip infrastructure ports and hardware-disabled ports
+        if (port.IsUplink || port.IsWan || !port.IsEnabled)
             return null;
 
         // Only check ports configured as trunk/custom (these have tagged VLANs)

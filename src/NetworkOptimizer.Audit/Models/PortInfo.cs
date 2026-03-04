@@ -18,6 +18,12 @@ public class PortInfo
     public string? Name { get; init; }
 
     /// <summary>
+    /// Whether the port is administratively enabled (hardware-level enable/disable).
+    /// Defaults to true when not present in the API response.
+    /// </summary>
+    public bool IsEnabled { get; init; } = true;
+
+    /// <summary>
     /// Whether the port link is up
     /// </summary>
     public bool IsUp { get; init; }

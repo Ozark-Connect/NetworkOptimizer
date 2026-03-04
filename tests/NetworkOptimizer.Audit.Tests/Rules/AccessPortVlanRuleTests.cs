@@ -71,6 +71,77 @@ public class AccessPortVlanRuleTests
         result.Should().BeNull();
     }
 
+    [Fact]
+    public void Evaluate_HardwareDisabledPort_ReturnsNull()
+    {
+        // Port with enable=false should be skipped regardless of forward mode or VLANs
+        var switchInfo = new SwitchInfo
+        {
+            Name = "Test Gateway",
+            Capabilities = new SwitchCapabilities()
+        };
+
+        var port = new PortInfo
+        {
+            PortIndex = 7,
+            Name = "SFP+ 2",
+            IsEnabled = false,
+            IsUp = false,
+            ForwardMode = "all",
+            IsUplink = false,
+            IsWan = false,
+            NativeNetworkId = null,
+            ExcludedNetworkIds = null,
+            ConnectedDeviceType = null,
+            ConnectedClient = null,
+            LastConnectionMac = null,
+            AllowedMacAddresses = null,
+            Switch = switchInfo
+        };
+        var networks = CreateVlanNetworks(9);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("hardware-disabled port (enable=false) should not be flagged for VLAN exposure");
+    }
+
+    [Fact]
+    public void Evaluate_HardwareDisabledTrunkPort_WithClient_ReturnsNull()
+    {
+        // Even a trunk port with a client should be skipped when hardware-disabled
+        var switchInfo = new SwitchInfo
+        {
+            Name = "Test Switch",
+            Capabilities = new SwitchCapabilities()
+        };
+
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsEnabled = false,
+            IsUp = false,
+            ForwardMode = "custom",
+            IsUplink = false,
+            IsWan = false,
+            ExcludedNetworkIds = null,
+            ConnectedDeviceType = null,
+            ConnectedClient = new UniFiClientResponse
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Test Device"
+            },
+            LastConnectionMac = null,
+            AllowedMacAddresses = null,
+            Switch = switchInfo
+        };
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("hardware-disabled port should not be flagged even with connected client data");
+    }
+
     #endregion
 
     #region Ports That Should Be Skipped - Access Ports (Not Trunk)

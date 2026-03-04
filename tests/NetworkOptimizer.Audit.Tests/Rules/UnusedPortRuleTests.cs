@@ -648,6 +648,66 @@ public class UnusedPortRuleTests
 
     #endregion
 
+    #region Evaluate Tests - Hardware-Disabled Ports (enable: false)
+
+    [Fact]
+    public void Evaluate_HardwareDisabledPort_ReturnsNull()
+    {
+        // Arrange - Port with enable=false (hardware-disabled, e.g. prepped SFP+ port)
+        var port = CreatePort(portName: "SFP+ 2", isUp: false, forwardMode: "all", isEnabled: false);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().BeNull("hardware-disabled port (enable=false) should not be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_HardwareDisabledPort_NativeMode_ReturnsNull()
+    {
+        // Arrange - Disabled port with native forward mode
+        var port = CreatePort(portName: "Port 3", isUp: false, forwardMode: "native", isEnabled: false);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().BeNull("hardware-disabled port should not be flagged regardless of forward mode");
+    }
+
+    [Fact]
+    public void Evaluate_HardwareEnabledPort_StillFlagged()
+    {
+        // Arrange - Enabled port that is down and not disabled via forward mode
+        var port = CreatePort(portName: "Port 5", isUp: false, forwardMode: "native", isEnabled: true);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull("enabled port that is down should still be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_IsEnabledDefaultsToTrue()
+    {
+        // Arrange - Port created without specifying IsEnabled (defaults to true)
+        var port = CreatePort(portName: "Port 5", isUp: false, forwardMode: "native");
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull("port with default IsEnabled=true should still be flagged when unused");
+    }
+
+    #endregion
+
     #region Intentional Unrestricted Profile Detection
 
     [Fact]
@@ -736,7 +796,8 @@ public class UnusedPortRuleTests
         string? networkId = "default-net",
         string switchName = "Test Switch",
         long? lastConnectionSeen = null,
-        UniFiPortProfile? assignedProfile = null)
+        UniFiPortProfile? assignedProfile = null,
+        bool isEnabled = true)
     {
         var switchInfo = new SwitchInfo
         {
@@ -749,6 +810,7 @@ public class UnusedPortRuleTests
         {
             PortIndex = portIndex,
             Name = portName,
+            IsEnabled = isEnabled,
             IsUp = isUp,
             ForwardMode = forwardMode,
             IsUplink = isUplink,
