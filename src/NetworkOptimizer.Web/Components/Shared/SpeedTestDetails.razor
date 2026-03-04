@@ -1141,8 +1141,10 @@
 
         try
         {
-            await OnNotesChanged.InvokeAsync((Result.Id, string.IsNullOrEmpty(newNotes) ? null : newNotes));
+            // Update Result.Notes before invoking callback so other SpeedTestDetails instances
+            // see the new value when the parent re-renders during the await
             Result.Notes = string.IsNullOrEmpty(newNotes) ? null : newNotes;
+            await OnNotesChanged.InvokeAsync((Result.Id, string.IsNullOrEmpty(newNotes) ? null : newNotes));
             _notesSaved = true;
 
             // Hide "Saved" after 2 seconds
