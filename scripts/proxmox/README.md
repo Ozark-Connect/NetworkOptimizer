@@ -52,6 +52,7 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 | CPU | 2 cores | Container CPU cores |
 | Disk | 10 GB | Root filesystem size |
 | Storage | `local-lvm` | Proxmox storage for container |
+| VLAN Tag | None | Tag network interface for VLAN-aware bridges |
 | Network | DHCP | Static IP also supported (with DNS) |
 | SSH Access | Disabled | Enable for direct SSH root login |
 | Web Port | 8042 | Network Optimizer web UI (fixed) |
@@ -227,6 +228,12 @@ pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer && docker compose down &&
 
 ## Network Configuration
 
+### VLAN-Aware Bridges
+
+If your Proxmox bridge is VLAN-aware (`bridge-vlan-aware yes` in `/etc/network/interfaces`) and the default untagged VLAN doesn't have internet access, the installer will prompt for a VLAN tag. This tags the container's network interface so it can reach the internet for package downloads and Docker image pulls.
+
+Example: If your management/setup VLAN is 10, enter `10` when prompted. Leave empty if your default VLAN already has internet access.
+
 ### Host Networking
 
 The container uses Docker's host networking mode by default, which provides:
@@ -381,6 +388,7 @@ If you prefer manual installation or the script doesn't work in your environment
        --net0 name=eth0,bridge=vmbr0,ip=dhcp \
        --unprivileged 0 --features nesting=1 --onboot 1
    ```
+   If using a VLAN-aware bridge, add `,tag=<VLAN_ID>` to the `--net0` value (e.g., `...,ip=dhcp,tag=10`).
 2. Start container and install Docker: https://docs.docker.com/engine/install/debian/
 3. Follow the [Docker deployment guide](../../docker/DEPLOYMENT.md)
 

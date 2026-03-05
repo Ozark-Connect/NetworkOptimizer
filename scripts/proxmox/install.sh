@@ -271,6 +271,21 @@ configure_container() {
     read -rp "Network bridge [$DEFAULT_BRIDGE]: " CT_BRIDGE
     CT_BRIDGE=${CT_BRIDGE:-$DEFAULT_BRIDGE}
 
+    # VLAN tag
+    echo -e "\n${WH}VLAN Tag${CL}"
+    echo -e "${DIM}If your bridge is VLAN-aware and the default (untagged) VLAN doesn't have${CL}"
+    echo -e "${DIM}internet access, specify the VLAN ID to tag the container's network interface.${CL}"
+    echo -e "${DIM}Leave empty for untagged (default VLAN).${CL}"
+    read -rp "VLAN tag [none]: " CT_VLAN_TAG
+    CT_VLAN_TAG=${CT_VLAN_TAG:-}
+
+    if [[ -n "$CT_VLAN_TAG" ]]; then
+        if ! [[ "$CT_VLAN_TAG" =~ ^[0-9]+$ ]] || [[ "$CT_VLAN_TAG" -lt 1 ]] || [[ "$CT_VLAN_TAG" -gt 4094 ]]; then
+            msg_error "VLAN tag must be a number between 1 and 4094."
+            exit 1
+        fi
+    fi
+
     echo -e "\n${WH}IP Configuration${CL}"
     echo -e "${DIM}Enter 'dhcp' for DHCP or static IP in CIDR format (e.g., 192.168.1.100/24)${CL}"
     read -rp "IP address [dhcp]: " CT_IP
@@ -451,6 +466,11 @@ confirm_settings() {
     echo -e "  Disk:      ${GN}${CT_DISK}GB${CL}"
     echo -e "  Storage:   ${GN}$CT_STORAGE${CL}"
     echo -e "  Bridge:    ${GN}$CT_BRIDGE${CL}"
+    if [[ -n "${CT_VLAN_TAG:-}" ]]; then
+        echo -e "  VLAN Tag:  ${GN}$CT_VLAN_TAG${CL}"
+    else
+        echo -e "  VLAN Tag:  ${DIM}none (untagged)${CL}"
+    fi
     echo -e "  IP:        ${GN}$CT_IP${CL}"
     if [[ "$CT_IP" != "dhcp" ]]; then
         echo -e "  Gateway:   ${GN}$CT_GW${CL}"
@@ -546,6 +566,11 @@ create_container() {
         net_config="name=eth0,bridge=$CT_BRIDGE,ip=dhcp"
     else
         net_config="name=eth0,bridge=$CT_BRIDGE,ip=$CT_IP,gw=$CT_GW"
+    fi
+
+    # Add VLAN tag if specified
+    if [[ -n "${CT_VLAN_TAG:-}" ]]; then
+        net_config="${net_config},tag=${CT_VLAN_TAG}"
     fi
 
     # Create privileged container with nesting enabled (required for Docker)
