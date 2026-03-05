@@ -138,6 +138,16 @@ validate_ct_id() {
     return 0
 }
 
+validate_hostname() {
+    local hostname=$1
+    if ! [[ "$hostname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ]]; then
+        msg_error "Invalid hostname: $hostname"
+        msg_info "Hostnames may only contain letters, numbers, dots, and hyphens."
+        return 1
+    fi
+    return 0
+}
+
 get_storage_list() {
     pvesm status -content rootdir 2>/dev/null | awk 'NR>1 {print $1}' | tr '\n' ' '
 }
@@ -385,10 +395,16 @@ configure_application() {
             msg_error "Optimizer hostname is required."
             exit 1
         fi
+        if ! validate_hostname "$TRAEFIK_OPTIMIZER_HOSTNAME"; then
+            exit 1
+        fi
 
         read -rp "SpeedTest hostname (e.g., speedtest.example.com): " TRAEFIK_SPEEDTEST_HOSTNAME
         if [[ -z "$TRAEFIK_SPEEDTEST_HOSTNAME" ]]; then
             msg_error "SpeedTest hostname is required."
+            exit 1
+        fi
+        if ! validate_hostname "$TRAEFIK_SPEEDTEST_HOSTNAME"; then
             exit 1
         fi
 
