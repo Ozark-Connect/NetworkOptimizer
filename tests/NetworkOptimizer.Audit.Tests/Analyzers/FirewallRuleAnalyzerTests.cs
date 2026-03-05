@@ -4752,6 +4752,66 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void CheckInterVlanIsolation_LegacyEstablishedRelatedAboveRfc1918Block_NoIssue()
+    {
+        // Simulates a typical legacy firewall setup (issue #251):
+        // 1. Allow Established/Related (index 2000) - matches ALL source/dest but only ESTABLISHED/RELATED states
+        // 2. RFC1918-to-RFC1918 block (index 4000) - blocks all new inter-VLAN traffic
+        // The Allow Established/Related rule should NOT eclipse the block rule because
+        // it doesn't allow NEW connections (ConnectionStateType = CUSTOM without NEW).
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", vlanId: 20, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net", vlanId: 10),
+            CreateNetwork("Security", NetworkPurpose.Security, id: "sec-net", vlanId: 30),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", vlanId: 50),
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net", vlanId: 40),
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Allow Established/Related - higher priority (lower index)
+            // This is how the legacy parser now maps it: ANY/ANY but CUSTOM with ESTABLISHED+RELATED only
+            new FirewallRule
+            {
+                Id = "allow-established",
+                Name = "Allow Established/Related",
+                Action = "accept",
+                Enabled = true,
+                Index = 2000,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" }
+            },
+            // RFC1918-to-RFC1918 block rule - lower priority (higher index)
+            new FirewallRule
+            {
+                Id = "rfc1918-block",
+                Name = "Block RFC1918 to RFC1918",
+                Action = "DROP",
+                Enabled = true,
+                Index = 4000,
+                Protocol = "all",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Where(i => i.Type == "MISSING_ISOLATION").Should().BeEmpty(
+            "RFC1918 block rule should be found as effective isolation rule because " +
+            "Allow Established/Related doesn't allow NEW connections");
+    }
+
+    [Fact]
     public void CheckInterVlanIsolation_NonIsolatedGuest_MissingRule_ReturnsIssue()
     {
         var rules = new List<FirewallRule>();
