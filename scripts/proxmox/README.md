@@ -18,8 +18,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOpt
 
 The script will guide you through:
 1. Container configuration (ID, hostname, resources, network)
-2. Application settings (timezone, ports, reverse proxy, geo location, optional password)
+2. Application settings (timezone, ports, optional HTTPS via Traefik, optional password)
 3. Automatic installation of Docker and Network Optimizer
+4. Optional Traefik HTTPS proxy with automatic Let's Encrypt certificates
 
 ## Requirements
 
@@ -51,14 +52,16 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 | CPU | 2 cores | Container CPU cores |
 | Disk | 10 GB | Root filesystem size |
 | Storage | `local-lvm` | Proxmox storage for container |
+| VLAN Tag | None | Tag network interface for VLAN-aware bridges |
 | Network | DHCP | Static IP also supported (with DNS) |
 | SSH Access | Disabled | Enable for direct SSH root login |
 | Web Port | 8042 | Network Optimizer web UI (fixed) |
 | Speedtest Port | 3005 | OpenSpeedTest web UI (configurable) |
 | iperf3 Server | Disabled | CLI-based speed testing (port 5201) |
 | Host Redirect | Disabled | Redirect IP access to hostname (requires local DNS) |
-| Reverse Proxy | None | Optional hostname for reverse proxy setup |
-| Geo Location | Disabled | GPS tagging for speed tests and signal levels (requires HTTPS) |
+| HTTPS (Traefik) | Disabled | Automatic HTTPS with Let's Encrypt via Cloudflare DNS |
+| Reverse Proxy | None | Optional hostname for reverse proxy setup (skipped if Traefik enabled) |
+| Geo Location | Disabled | GPS tagging for speed tests and signal levels (auto-enabled with Traefik) |
 | Timezone | America/New_York | Container timezone |
 
 ## Post-Installation
@@ -136,6 +139,44 @@ docker compose logs -f
 docker compose pull && docker compose up -d
 ```
 
+## HTTPS with Traefik
+
+During installation, you can optionally enable HTTPS via a built-in [Traefik](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) reverse proxy. This provides:
+
+- Automatic Let's Encrypt certificates via Cloudflare DNS-01 challenge
+- HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results), HTTP/2 for the main app
+- Geo location tagging for speed tests and signal walk tests (browsers require HTTPS for location access)
+
+**Requirements:**
+- A domain managed by Cloudflare (for DNS-01 certificate validation)
+- A Cloudflare API token with Zone > DNS > Edit permission ([create one here](https://dash.cloudflare.com/profile/api-tokens))
+- Two DNS records pointing to your container's IP (e.g., `optimizer.example.com` and `speedtest.example.com`)
+
+**What gets deployed:**
+- Traefik container at `/opt/network-optimizer-proxy/`
+- Dynamic configuration in `/opt/network-optimizer-proxy/dynamic/config.yml`
+- Certificates stored in `/opt/network-optimizer-proxy/acme/acme.json`
+
+**Management commands:**
+
+```bash
+# View Traefik logs
+pct exec <CT_ID> -- docker logs -f traefik-proxy
+
+# Update Traefik
+pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer-proxy && docker compose pull && docker compose up -d"
+
+# Edit proxy configuration
+pct exec <CT_ID> -- nano /opt/network-optimizer-proxy/dynamic/config.yml
+
+# Edit proxy environment (ACME email, API token)
+pct exec <CT_ID> -- nano /opt/network-optimizer-proxy/.env
+```
+
+**Note:** Certificates may take about a minute to issue on first start. If you see certificate errors immediately after installation, wait a moment and refresh.
+
+If you don't enable Traefik during installation, you can still set up a reverse proxy manually later. See the [Deployment Guide](../../docker/DEPLOYMENT.md#https-with-reverse-proxy) for nginx, Caddy, and Traefik examples.
+
 ## Advanced Configuration
 
 ### Static IP Address
@@ -186,6 +227,12 @@ pct exec <CT_ID> -- bash -c "cd /opt/network-optimizer && docker compose down &&
 ```
 
 ## Network Configuration
+
+### VLAN-Aware Bridges
+
+If your Proxmox bridge is VLAN-aware (`bridge-vlan-aware yes` in `/etc/network/interfaces`) and the default untagged VLAN doesn't have internet access, the installer will prompt for a VLAN tag. This tags the container's network interface so it can reach the internet for package downloads and Docker image pulls.
+
+Example: If your management/setup VLAN is 10, enter `10` when prompted. Leave empty if your default VLAN already has internet access.
 
 ### Host Networking
 
@@ -341,6 +388,7 @@ If you prefer manual installation or the script doesn't work in your environment
        --net0 name=eth0,bridge=vmbr0,ip=dhcp \
        --unprivileged 0 --features nesting=1 --onboot 1
    ```
+   If using a VLAN-aware bridge, add `,tag=<VLAN_ID>` to the `--net0` value (e.g., `...,ip=dhcp,tag=10`).
 2. Start container and install Docker: https://docs.docker.com/engine/install/debian/
 3. Follow the [Docker deployment guide](../../docker/DEPLOYMENT.md)
 
