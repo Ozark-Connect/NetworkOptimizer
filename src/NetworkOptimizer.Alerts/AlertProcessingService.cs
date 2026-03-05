@@ -8,6 +8,7 @@ using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Alerts;
 
@@ -64,6 +65,12 @@ public class AlertProcessingService : BackgroundService
             _appBaseUrl = $"http://{hostName}:8042";
         else if (!string.IsNullOrEmpty(hostIp))
             _appBaseUrl = $"http://{hostIp}:8042";
+        else
+        {
+            var detectedIp = NetworkUtilities.DetectLocalIpFromInterfaces();
+            if (!string.IsNullOrEmpty(detectedIp))
+                _appBaseUrl = $"http://{detectedIp}:8042";
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
