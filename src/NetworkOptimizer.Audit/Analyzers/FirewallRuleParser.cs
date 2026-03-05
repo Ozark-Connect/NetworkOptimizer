@@ -396,6 +396,34 @@ public class FirewallRuleParser
             ? protocolProp.GetString()
             : null;
 
+        // Legacy rules use protocol_match_excepted (equivalent to zone-based match_opposite_protocol)
+        var matchOppositeProtocol = rule.GetBoolOrDefault("protocol_match_excepted", false);
+
+        // Legacy rules use individual state booleans instead of zone-based connection_state_type/connection_states.
+        // When ALL four are false, the rule is stateless (matches everything) - leave ConnectionStateType null.
+        // When specific ones are true, the rule only matches those connection states.
+        var stateNew = rule.GetBoolOrDefault("state_new", false);
+        var stateEstablished = rule.GetBoolOrDefault("state_established", false);
+        var stateRelated = rule.GetBoolOrDefault("state_related", false);
+        var stateInvalid = rule.GetBoolOrDefault("state_invalid", false);
+
+        string? connectionStateType = null;
+        List<string>? connectionStates = null;
+        var anyStateTrue = stateNew || stateEstablished || stateRelated || stateInvalid;
+        if (anyStateTrue)
+        {
+            connectionStates = new List<string>();
+            if (stateNew) connectionStates.Add("NEW");
+            if (stateEstablished) connectionStates.Add("ESTABLISHED");
+            if (stateRelated) connectionStates.Add("RELATED");
+            if (stateInvalid) connectionStates.Add("INVALID");
+
+            if (stateNew && stateEstablished && stateRelated && stateInvalid)
+                connectionStateType = "ALL";
+            else
+                connectionStateType = "CUSTOM";
+        }
+
         // Source information
         var sourceType = rule.TryGetProperty("src_type", out var srcTypeProp)
             ? srcTypeProp.GetString()
@@ -435,7 +463,9 @@ public class FirewallRuleParser
             : null;
 
         // Legacy rules may use dst_firewallgroup_ids for port groups and/or address groups
+        // Track whether address group IDs were specified (even if resolution fails)
         List<string>? destIps = null;
+        bool hadDstAddressGroupIds = false;
         if (rule.TryGetProperty("dst_firewallgroup_ids", out var dstGroupIds) &&
             dstGroupIds.ValueKind == JsonValueKind.Array)
         {
@@ -456,6 +486,13 @@ public class FirewallRuleParser
                     if (resolvedAddresses is { Count: > 0 })
                     {
                         resolvedIps.AddRange(resolvedAddresses);
+                        hadDstAddressGroupIds = true;
+                    }
+                    else if (resolvedPort == null)
+                    {
+                        // Group ID was neither a port group nor a resolvable address group -
+                        // it was intended as an address group but failed to resolve
+                        hadDstAddressGroupIds = true;
                     }
                 }
             }
@@ -473,7 +510,9 @@ public class FirewallRuleParser
         }
 
         // Legacy rules may use src_firewallgroup_ids for address groups
+        // Track whether address group IDs were specified (even if resolution fails)
         List<string>? sourceIps = null;
+        bool hadSrcAddressGroupIds = false;
         if (rule.TryGetProperty("src_firewallgroup_ids", out var srcGroupIds) &&
             srcGroupIds.ValueKind == JsonValueKind.Array)
         {
@@ -483,6 +522,7 @@ public class FirewallRuleParser
                 var groupId = groupIdElement.GetString();
                 if (!string.IsNullOrEmpty(groupId))
                 {
+                    hadSrcAddressGroupIds = true;
                     var resolvedAddresses = ResolveAddressGroup(groupId);
                     if (resolvedAddresses is { Count: > 0 })
                     {
@@ -579,6 +619,28 @@ public class FirewallRuleParser
         else if (destinationNetworkIds is { Count: > 0 })
             destMatchingTarget = "NETWORK";
 
+        // For legacy rules: if no source/destination is specified at all (all fields empty),
+        // the ruleset defines the scope. Empty source on LAN_IN means "any internal source",
+        // empty destination means "any destination". This mirrors zone-based rules where
+        // SourceMatchingTarget/DestinationMatchingTarget = "ANY".
+        // Don't set ANY if address group IDs were specified but failed to resolve -
+        // that means the rule tried to reference a specific group, not "any".
+        if (sourceMatchingTarget == null
+            && !hadSrcAddressGroupIds
+            && string.IsNullOrEmpty(srcNetworkConfId)
+            && (string.IsNullOrEmpty(source) || !source.Contains('.')))
+        {
+            sourceMatchingTarget = "ANY";
+        }
+
+        if (destMatchingTarget == null
+            && !hadDstAddressGroupIds
+            && string.IsNullOrEmpty(dstNetworkConfId)
+            && (string.IsNullOrEmpty(destination) || !destination.Contains('.')))
+        {
+            destMatchingTarget = "ANY";
+        }
+
         return new FirewallRule
         {
             Id = id,
@@ -603,9 +665,13 @@ public class FirewallRuleParser
             DestinationMatchingTarget = destMatchingTarget,
             DestinationIps = destIps,
             WebDomains = webDomains,
+            MatchOppositeProtocol = matchOppositeProtocol,
             // Zone IDs derived from ruleset for compatibility with zone-based analysis
             SourceZoneId = sourceZoneId,
-            DestinationZoneId = destZoneId
+            DestinationZoneId = destZoneId,
+            // Connection state matching (from legacy boolean fields)
+            ConnectionStateType = connectionStateType,
+            ConnectionStates = connectionStates
         };
     }
 

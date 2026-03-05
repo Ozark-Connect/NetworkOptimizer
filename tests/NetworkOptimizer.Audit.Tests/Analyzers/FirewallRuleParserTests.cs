@@ -2192,4 +2192,358 @@ public class FirewallRuleParserTests
     }
 
     #endregion
+
+    #region Legacy Connection State Parsing Tests
+
+    [Fact]
+    public void ParseFirewallRule_AllStatesFalse_ConnectionStateTypeNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Stateless Rule"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""state_new"": false,
+            ""state_established"": false,
+            ""state_related"": false,
+            ""state_invalid"": false
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.ConnectionStateType.Should().BeNull();
+        rule.ConnectionStates.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseFirewallRule_AllStatesTrue_ConnectionStateTypeAll()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""All States"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""state_new"": true,
+            ""state_established"": true,
+            ""state_related"": true,
+            ""state_invalid"": true
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.ConnectionStateType.Should().Be("ALL");
+        rule.ConnectionStates.Should().BeEquivalentTo(new[] { "NEW", "ESTABLISHED", "RELATED", "INVALID" });
+    }
+
+    [Fact]
+    public void ParseFirewallRule_EstablishedRelatedOnly_ConnectionStateTypeCustom()
+    {
+        // Classic "Allow Established/Related" rule - should NOT allow new connections
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Allow Established"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""state_new"": false,
+            ""state_established"": true,
+            ""state_related"": true,
+            ""state_invalid"": false
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.ConnectionStateType.Should().Be("CUSTOM");
+        rule.ConnectionStates.Should().BeEquivalentTo(new[] { "ESTABLISHED", "RELATED" });
+        // Critically: this should NOT allow new connections
+        rule.AllowsNewConnections().Should().BeFalse();
+    }
+
+    [Fact]
+    public void ParseFirewallRule_NewAndEstablished_AllowsNewConnections()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Accept New+Established"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""state_new"": true,
+            ""state_established"": true,
+            ""state_related"": false,
+            ""state_invalid"": false
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.ConnectionStateType.Should().Be("CUSTOM");
+        rule.ConnectionStates.Should().BeEquivalentTo(new[] { "NEW", "ESTABLISHED" });
+        rule.AllowsNewConnections().Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParseFirewallRule_NoStateFields_ConnectionStateTypeNull()
+    {
+        // When state fields are missing entirely (not present in JSON)
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""No State Info"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.ConnectionStateType.Should().BeNull();
+        rule.ConnectionStates.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Legacy Empty Source/Destination ANY Mapping Tests
+
+    [Fact]
+    public void ParseFirewallRule_EmptySourceFields_SetsSourceMatchingTargetAny()
+    {
+        // A LAN_IN rule with no source specified means "any internal source"
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Allow Established"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_address"": """",
+            ""src_networkconf_id"": """",
+            ""src_firewallgroup_ids"": [],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": []
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("ANY");
+        rule.DestinationMatchingTarget.Should().Be("ANY");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithSrcNetworkConfId_DoesNotSetAny()
+    {
+        // If src_networkconf_id is set, it should be NETWORK, not ANY
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""From Specific Network"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_address"": """",
+            ""src_networkconf_id"": ""507f1f77bcf86cd799439011"",
+            ""src_firewallgroup_ids"": [],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": []
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("NETWORK");
+        rule.DestinationMatchingTarget.Should().Be("ANY");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithAddressGroupIds_DoesNotSetAny()
+    {
+        // If firewall group IDs are specified (even if unresolvable), don't default to ANY
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""From Address Group"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_address"": """",
+            ""src_networkconf_id"": """",
+            ""src_firewallgroup_ids"": [""nonexistent-group""],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": [""another-nonexistent-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        // Source/Dest had group IDs that failed to resolve - should NOT default to ANY
+        rule!.SourceMatchingTarget.Should().NotBe("ANY");
+        rule.DestinationMatchingTarget.Should().NotBe("ANY");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithSrcAddress_SetsIpMatchingTarget()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""From Specific IP"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_address"": ""192.0.2.100"",
+            ""src_networkconf_id"": """",
+            ""src_firewallgroup_ids"": [],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": []
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("IP");
+        rule.SourceIps.Should().BeEquivalentTo(new[] { "192.0.2.100" });
+        // Destination is empty and should be ANY
+        rule.DestinationMatchingTarget.Should().Be("ANY");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_ResolvedAddressGroup_SetsIpNotAny()
+    {
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["rfc1918-group"] = new UniFiFirewallGroup
+            {
+                Id = "rfc1918-group",
+                Name = "RFC1918",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""RFC1918 Block"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""src_address"": """",
+            ""src_networkconf_id"": """",
+            ""src_firewallgroup_ids"": [""rfc1918-group""],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": [""rfc1918-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("IP");
+        rule.SourceIps.Should().BeEquivalentTo(new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" });
+        rule.DestinationMatchingTarget.Should().Be("IP");
+        rule.DestinationIps.Should().BeEquivalentTo(new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" });
+    }
+
+    #endregion
+
+    #region Legacy protocol_match_excepted Tests
+
+    [Fact]
+    public void ParseFirewallRule_ProtocolMatchExceptedTrue_SetsMatchOppositeProtocol()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block Non-TCP"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""tcp"",
+            ""ruleset"": ""LAN_IN"",
+            ""protocol_match_excepted"": true
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.MatchOppositeProtocol.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParseFirewallRule_ProtocolMatchExceptedFalse_DoesNotSetMatchOppositeProtocol()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block TCP"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""tcp"",
+            ""ruleset"": ""LAN_IN"",
+            ""protocol_match_excepted"": false
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.MatchOppositeProtocol.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Legacy Integration: Established/Related + ANY + RFC1918 Block
+
+    [Fact]
+    public void ParseFirewallRule_EstablishedRelatedAllowWithEmptyFields_CorrectlyMapped()
+    {
+        // This is the critical integration test: a legacy "Allow Established/Related" rule
+        // with empty source/dest should be mapped as ANY source/dest but NOT allowing new connections.
+        // This ensures it doesn't eclipse block rules below it.
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Allow Established/Related"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2000,
+            ""src_address"": """",
+            ""src_networkconf_id"": """",
+            ""src_firewallgroup_ids"": [],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": [],
+            ""state_new"": false,
+            ""state_established"": true,
+            ""state_related"": true,
+            ""state_invalid"": false
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        // Source and dest should be ANY (empty fields on LAN_IN)
+        rule!.SourceMatchingTarget.Should().Be("ANY");
+        rule.DestinationMatchingTarget.Should().Be("ANY");
+        // But it should NOT allow new connections
+        rule.AllowsNewConnections().Should().BeFalse();
+        // And it should have connection state info
+        rule.ConnectionStateType.Should().Be("CUSTOM");
+        rule.ConnectionStates.Should().BeEquivalentTo(new[] { "ESTABLISHED", "RELATED" });
+    }
+
+    #endregion
 }
