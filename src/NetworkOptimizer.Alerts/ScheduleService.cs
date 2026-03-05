@@ -193,7 +193,7 @@ public class ScheduleService : BackgroundService
                     Source = "schedule",
                     Title = $"Scheduled {FormatTaskType(taskType)} completed",
                     Message = summary ?? "Task completed successfully",
-                    SourceUrl = "/alerts"
+                    SourceUrl = "/alerts?tab=schedule"
                 });
             }
             else
@@ -205,7 +205,7 @@ public class ScheduleService : BackgroundService
                     Source = "schedule",
                     Title = $"Scheduled {FormatTaskType(taskType)} failed",
                     Message = error ?? "Task failed with no error message",
-                    SourceUrl = "/alerts"
+                    SourceUrl = "/alerts?tab=schedule"
                 });
             }
         }
@@ -234,7 +234,7 @@ public class ScheduleService : BackgroundService
                     Source = "schedule",
                     Title = $"Scheduled {FormatTaskType(taskType)} failed",
                     Message = ex.Message,
-                    SourceUrl = "/alerts"
+                    SourceUrl = "/alerts?tab=schedule"
                 });
             }
             catch { /* Don't let alert publishing failure cascade */ }
