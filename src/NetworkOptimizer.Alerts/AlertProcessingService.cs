@@ -179,8 +179,9 @@ public class AlertProcessingService : BackgroundService
             return;
         }
 
-        // Deliver to matching channels
-        await DeliverAsync(alertEvent, historyEntry, repository, cancellationToken);
+        // Deliver to matching channels (use resolved absolute URL for delivery)
+        var deliveryEvent = alertEvent with { SourceUrl = historyEntry.SourceUrl };
+        await DeliverAsync(deliveryEvent, historyEntry, repository, cancellationToken);
     }
 
     private async Task DeliverAsync(
