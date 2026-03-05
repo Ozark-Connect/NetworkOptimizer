@@ -561,6 +561,11 @@ if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
 
     scheduleService.AuditExecutor = async (ct) =>
     {
+        // Ensure console connection is fresh for scheduled audits (fingerprint cache expires after 24h)
+        var connService = app.Services.GetRequiredService<UniFiConnectionService>();
+        if (!connService.IsConnected)
+            await connService.ReconnectAsync();
+
         using var scope = app.Services.CreateScope();
         var auditService = scope.ServiceProvider.GetRequiredService<AuditService>();
         if (auditService.IsRunning)
@@ -569,7 +574,10 @@ if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled)
         try
         {
             var result = await auditService.RunAuditAsync(new AuditOptions { IsScheduled = true });
-            return (true, $"Score: {result.Score}", null);
+            var summary = result.CriticalCount > 0 || result.WarningCount > 0
+                ? $"Score: {result.Score} - {result.CriticalCount} critical, {result.WarningCount} recommended"
+                : $"Score: {result.Score}";
+            return (true, summary, null);
         }
         catch (Exception ex)
         {

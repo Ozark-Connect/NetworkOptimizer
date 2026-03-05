@@ -44,6 +44,9 @@ public class TeamsDeliveryChannel : IAlertDeliveryChannel
         foreach (var ctx in alertEvent.Context)
             facts.Add(new { title = ctx.Key, value = ctx.Value });
 
+        if (!string.IsNullOrEmpty(alertEvent.SourceUrl))
+            facts.Add(new { title = "View", value = alertEvent.SourceUrl });
+
         var cardBody = new List<object>
         {
             new

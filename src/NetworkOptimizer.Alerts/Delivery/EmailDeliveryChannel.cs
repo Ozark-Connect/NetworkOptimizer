@@ -44,7 +44,8 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             timestamp = TimestampFormatter.FormatLocal(alertEvent.Timestamp),
             context = alertEvent.Context,
             metric_value = alertEvent.MetricValue,
-            threshold_value = alertEvent.ThresholdValue
+            threshold_value = alertEvent.ThresholdValue,
+            source_url = alertEvent.SourceUrl
         });
 
         return await SendEmailAsync(config, $"[{alertEvent.Severity}] {alertEvent.Title}", body, cancellationToken);

@@ -339,6 +339,7 @@ public abstract class WanSpeedTestServiceBase
                 Source = "wan",
                 Title = $"WAN Speed Test: {downloadMbps:F1} / {uploadMbps:F1} Mbps",
                 Message = $"Download: {downloadMbps:F1} Mbps, Upload: {uploadMbps:F1} Mbps ({Direction})",
+                SourceUrl = $"/wan-speedtest#result-{result.Id}",
                 Context = new Dictionary<string, string>
                 {
                     ["download_mbps"] = downloadMbps.ToString("F1"),
@@ -376,6 +377,7 @@ public abstract class WanSpeedTestServiceBase
                             Message = $"{wanName} download is {dropPercent:F0}% below the recent average of {avgDownload:F0} Mbps",
                             MetricValue = downloadMbps,
                             ThresholdValue = avgDownload,
+                            SourceUrl = $"/wan-speedtest#result-{result.Id}",
                             Context = new Dictionary<string, string>
                             {
                                 ["wan_name"] = wanName,

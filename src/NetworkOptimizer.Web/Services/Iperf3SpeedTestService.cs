@@ -816,6 +816,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 DeviceIp = result.DeviceHost,
                 DeviceName = result.DeviceName,
                 MetricValue = downloadMbps,
+                SourceUrl = $"/speedtest#result-{result.Id}",
                 Context = new Dictionary<string, string>
                 {
                     ["downloadMbps"] = downloadMbps.ToString("F1"),
@@ -855,6 +856,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                             DeviceName = result.DeviceName,
                             MetricValue = downloadMbps,
                             ThresholdValue = avgDownload,
+                            SourceUrl = $"/speedtest#result-{result.Id}",
                             Context = new Dictionary<string, string>
                             {
                                 ["current_mbps"] = downloadMbps.ToString("F1"),

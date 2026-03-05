@@ -168,15 +168,22 @@ public class ScheduleService : BackgroundService
             var status = success ? "success" : "failed";
             var nextRun = CalculateNextRun(frequencyMinutes, startHour, startMinute);
 
-            // Update task status in DB
-            using var scope = _scopeFactory.CreateScope();
-            var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
-            await repo.UpdateRunStatusAsync(taskId, startTime, nextRun, status, error, summary, ct);
+            // DB update - failure here shouldn't change the task's reported status
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
+                await repo.UpdateRunStatusAsync(taskId, startTime, nextRun, status, error, summary, ct);
+            }
+            catch (Exception dbEx)
+            {
+                _logger.LogError(dbEx, "Failed to update run status for task {TaskId}", taskId);
+            }
 
             _logger.LogInformation("Scheduled task {TaskId} ({TaskType}) completed: {Status} - {Summary}",
                 taskId, taskType, status, summary ?? "no summary");
 
-            // Publish alert events
+            // Alert publishing - based on actual task result, not DB update success
             if (success)
             {
                 await _alertEventBus.PublishAsync(new AlertEvent
@@ -185,7 +192,8 @@ public class ScheduleService : BackgroundService
                     Severity = AlertSeverity.Info,
                     Source = "schedule",
                     Title = $"Scheduled {FormatTaskType(taskType)} completed",
-                    Message = summary ?? "Task completed successfully"
+                    Message = summary ?? "Task completed successfully",
+                    SourceUrl = "/alerts"
                 });
             }
             else
@@ -196,7 +204,8 @@ public class ScheduleService : BackgroundService
                     Severity = AlertSeverity.Error,
                     Source = "schedule",
                     Title = $"Scheduled {FormatTaskType(taskType)} failed",
-                    Message = error ?? "Task failed with no error message"
+                    Message = error ?? "Task failed with no error message",
+                    SourceUrl = "/alerts"
                 });
             }
         }
@@ -224,7 +233,8 @@ public class ScheduleService : BackgroundService
                     Severity = AlertSeverity.Error,
                     Source = "schedule",
                     Title = $"Scheduled {FormatTaskType(taskType)} failed",
-                    Message = ex.Message
+                    Message = ex.Message,
+                    SourceUrl = "/alerts"
                 });
             }
             catch { /* Don't let alert publishing failure cascade */ }

@@ -130,6 +130,7 @@ public class AlertProcessingService : BackgroundService
             DeviceId = alertEvent.DeviceId,
             DeviceName = alertEvent.DeviceName,
             DeviceIp = alertEvent.DeviceIp,
+            SourceUrl = alertEvent.SourceUrl,
             RuleId = rule.Id,
             TriggeredAt = DateTime.UtcNow,
             ContextJson = alertEvent.Context.Count > 0
