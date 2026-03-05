@@ -1239,6 +1239,7 @@
     .schedule-field {
         margin-bottom: 0;
         min-width: 180px;
+        max-width: 240px;
         flex: 1;
     }
     .schedule-field-compact {
@@ -1385,14 +1386,37 @@
         .alert-actions {
             flex-direction: row;
             align-items: center;
+            align-self: flex-end;
         }
         .schedule-card-header {
             flex-wrap: wrap;
             gap: 0.5rem;
         }
+        .schedule-card-actions {
+            margin-left: auto;
+        }
+        .schedule-inline-controls {
+            width: 100%;
+            justify-content: flex-end;
+        }
+        .schedule-inline-controls .schedule-toggle {
+            margin-right: auto;
+        }
         .schedule-status {
             flex-direction: column;
             gap: 0.5rem;
+        }
+        .schedule-field label {
+            display: block;
+        }
+        .schedule-config input[type="time"] {
+            max-width: 140px;
+        }
+        .form-actions {
+            justify-content: flex-end;
+        }
+        .incident-actions {
+            justify-content: flex-end;
         }
     }
     /* Data Usage bar */
