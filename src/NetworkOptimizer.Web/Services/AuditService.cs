@@ -1837,6 +1837,7 @@ public class AuditService
             Audit.IssueTypes.SecurityNetworkNotIsolated => "Security Network Not Isolated",
             Audit.IssueTypes.MgmtNetworkNotIsolated => "Management Network Not Isolated",
             Audit.IssueTypes.IotNetworkNotIsolated => "IoT Network Not Isolated",
+            Audit.IssueTypes.MediaNetworkNotIsolated => "Media Network Not Isolated",
             Audit.IssueTypes.SecurityNetworkHasInternet => "Security Network Has Internet",
             Audit.IssueTypes.MgmtNetworkHasInternet => "Management Network Has Internet",
             Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" or "OFFLINE-PRINTER-VLAN" =>

@@ -17,19 +17,24 @@ public class VlanAnalyzer
 
     // Network classification patterns (case-insensitive)
     // Note: "device" removed from IoT - too generic, causes false positives with "Security Devices"
-    // Entertainment patterns (streaming, theater, etc.) classify as IoT - isolated but internet-enabled
-    private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust", "entertainment", "streaming", "theater", "theatre", "recreation", "living room", "a/v" };
-    // IoT patterns requiring word boundary matching (to avoid "Dave" matching "av", etc.)
-    private static readonly string[] IoTWordBoundaryPatterns = { "media", "av", "tv" };
+    private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust" };
+    // IoT patterns requiring word boundary matching
+    private static readonly string[] IoTWordBoundaryPatterns = { };
+    // Media/entertainment patterns - semi-trusted, peers with IoT, accessible from Guest
+    private static readonly string[] MediaPatterns = { "entertainment", "streaming", "theater", "theatre", "recreation", "living room", "a/v" };
+    // Media patterns requiring word boundary matching (to avoid "Dave" matching "av", etc.)
+    private static readonly string[] MediaWordBoundaryPatterns = { "media", "av", "tv" };
     private static readonly string[] SecurityPatterns = { "camera", "security", "nvr", "surveillance", "protect", "cctv" };
     // Patterns that require word boundary matching (to avoid false positives like "Hotspot" matching "not")
     private static readonly string[] SecurityWordBoundaryPatterns = { "not" }; // "NoT" = "Network of Things"
     private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin", "infrastructure" };
     private static readonly string[] GuestPatterns = { "guest", "visitor", "hotspot" };
-    // Gaming patterns classify as Home - game consoles need UPnP and full network access
-    private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private", "gaming", "gamer", "games", "xbox", "playstation", "nintendo", "console", "lan party" };
-    // Home patterns requiring word boundary matching (to avoid "GameChanger" matching "game")
-    private static readonly string[] HomeWordBoundaryPatterns = { "game" };
+    private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private" };
+    private static readonly string[] HomeWordBoundaryPatterns = { };
+    // Gaming networks - same trust level as Home, game consoles need UPnP and full network access
+    private static readonly string[] GamingPatterns = { "gaming", "gamer", "games", "xbox", "playstation", "nintendo", "console", "lan party" };
+    // Gaming patterns requiring word boundary matching (to avoid "GameChanger" matching "game")
+    private static readonly string[] GamingWordBoundaryPatterns = { "game" };
     private static readonly string[] CorporatePatterns = { "corporate", "office", "business", "enterprise", "warehouse" };
     // Word boundary patterns for Corporate (to avoid "network" matching "work")
     private static readonly string[] CorporateWordBoundaryPatterns = { "work", "biz", "branch", "shop", "staff", "employee", "hq", "store" };
@@ -352,9 +357,15 @@ public class VlanAnalyzer
         // Printer networks before IoT (more specific)
         else if (PrinterPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Printer;
+        // Media/entertainment networks (semi-trusted, peers with IoT)
+        else if (MediaPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Media;
+        // Word-boundary patterns for Media (e.g., "Media Room" but not "Dave")
+        else if (MediaWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
+            nameBasedPurpose = NetworkPurpose.Media;
         else if (IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.IoT;
-        // Word-boundary patterns for IoT (e.g., "Media Room" but not "Dave")
+        // Word-boundary patterns for IoT
         else if (IoTWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.IoT;
         else if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
@@ -373,9 +384,15 @@ public class VlanAnalyzer
             nameBasedPurpose = NetworkPurpose.Corporate;
         else if (HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Home;
-        // Word-boundary patterns for Home (e.g., "Game Room" but not "GameChanger")
+        // Word-boundary patterns for Home
         else if (HomeWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.Home;
+        // Gaming networks - same trust level as Home
+        else if (GamingPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Gaming;
+        // Word-boundary patterns for Gaming (e.g., "Game Room" but not "GameChanger")
+        else if (GamingWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
+            nameBasedPurpose = NetworkPurpose.Gaming;
         // Fallback: if name starts with "default" or "main", or is exactly "lan", treat as Home
         else if (networkName.StartsWith("default", StringComparison.OrdinalIgnoreCase) ||
                  networkName.StartsWith("main", StringComparison.OrdinalIgnoreCase) ||
@@ -390,9 +407,9 @@ public class VlanAnalyzer
         // Step 2: Flag-based adjustments
         // Use UniFi's isolation and internet access flags to refine classification
 
-        // Home/Corporate networks should have internet access
+        // Home/Corporate/Gaming networks should have internet access
         // If they don't, the name-based classification is likely wrong
-        if (nameBasedPurpose is NetworkPurpose.Home or NetworkPurpose.Corporate)
+        if (nameBasedPurpose is NetworkPurpose.Home or NetworkPurpose.Corporate or NetworkPurpose.Gaming)
         {
             if (internetAccessEnabled == false)
             {
@@ -449,7 +466,7 @@ public class VlanAnalyzer
         }
 
         // Log when isolation confirms secure VLAN classification (positive indicator)
-        if (nameBasedPurpose is NetworkPurpose.Security or NetworkPurpose.IoT or NetworkPurpose.Management)
+        if (nameBasedPurpose is NetworkPurpose.Security or NetworkPurpose.IoT or NetworkPurpose.Media or NetworkPurpose.Management)
         {
             if (networkIsolationEnabled == true)
             {
@@ -493,7 +510,7 @@ public class VlanAnalyzer
     }
 
     /// <summary>
-    /// Check if a network name suggests IoT usage (includes entertainment/media networks)
+    /// Check if a network name suggests IoT usage
     /// </summary>
     public bool IsIoTNetwork(string? networkName)
     {
@@ -505,7 +522,19 @@ public class VlanAnalyzer
     }
 
     /// <summary>
-    /// Check if a network name suggests home/gaming usage
+    /// Check if a network name suggests media/entertainment usage
+    /// </summary>
+    public bool IsMediaNetwork(string? networkName)
+    {
+        if (string.IsNullOrEmpty(networkName))
+            return false;
+
+        return MediaPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase))
+            || MediaWordBoundaryPatterns.Any(p => ContainsWord(networkName, p));
+    }
+
+    /// <summary>
+    /// Check if a network name suggests home usage
     /// </summary>
     public bool IsHomeNetwork(string? networkName)
     {
@@ -514,6 +543,18 @@ public class VlanAnalyzer
 
         return HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase))
             || HomeWordBoundaryPatterns.Any(p => ContainsWord(networkName, p));
+    }
+
+    /// <summary>
+    /// Check if a network name suggests gaming usage
+    /// </summary>
+    public bool IsGamingNetwork(string? networkName)
+    {
+        if (string.IsNullOrEmpty(networkName))
+            return false;
+
+        return GamingPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase))
+            || GamingWordBoundaryPatterns.Any(p => ContainsWord(networkName, p));
     }
 
     /// <summary>
@@ -815,7 +856,30 @@ public class VlanAnalyzer
                     },
                     RuleId = "NET-ISO-003",
                     ScoreImpact = 10,
-                    RecommendedAction = "Enable network isolation to contain potentially insecure IoT devices. If incorrect, set a different Purpose for the network in Network Reference below."
+                    RecommendedAction = "Enable Isolate Network in Network Settings, or add inter-VLAN blocking Firewall Rules to prevent IoT devices from reaching other VLANs. If incorrect, set a different Purpose for the network in Network Reference below."
+                });
+            }
+
+            // Check Media networks
+            if (network.Purpose == NetworkPurpose.Media && !isEffectivelyIsolated)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.MediaNetworkNotIsolated,
+                    Severity = AuditSeverity.Recommended,
+                    Message = $"Media VLAN '{network.Name}' is not isolated",
+                    DeviceName = gatewayName,
+                    CurrentNetwork = network.Name,
+                    CurrentVlan = network.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", network.Name },
+                        { "vlan", network.VlanId },
+                        { "network_isolation_enabled", network.NetworkIsolationEnabled }
+                    },
+                    RuleId = "NET-ISO-006",
+                    ScoreImpact = 10,
+                    RecommendedAction = "Enable Isolate Network in Network Settings, or add inter-VLAN blocking Firewall Rules to prevent media devices from reaching other VLANs. If incorrect, set a different Purpose for the network in Network Reference below."
                 });
             }
         }
