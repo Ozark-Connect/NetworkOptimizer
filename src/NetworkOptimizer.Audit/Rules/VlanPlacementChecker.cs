@@ -25,7 +25,7 @@ public static class VlanPlacementChecker
         bool IsAllowedBySettings = false);
 
     /// <summary>
-    /// Check if an IoT device is correctly placed on an IoT or Security VLAN.
+    /// Check if an IoT device is correctly placed on an IoT, Security, Media, or Gaming VLAN.
     /// </summary>
     /// <param name="category">Device category from detection</param>
     /// <param name="currentNetwork">The network the device is currently on</param>
@@ -40,7 +40,7 @@ public static class VlanPlacementChecker
         => CheckIoTPlacement(category, currentNetwork, allNetworks, defaultScoreImpact, null, null);
 
     /// <summary>
-    /// Check if an IoT device is correctly placed on an IoT or Security VLAN,
+    /// Check if an IoT device is correctly placed on an IoT, Security, Media, or Gaming VLAN,
     /// with optional device allowance settings.
     /// </summary>
     /// <param name="category">Device category from detection</param>
@@ -58,10 +58,20 @@ public static class VlanPlacementChecker
         DeviceAllowanceSettings? allowanceSettings,
         string? vendorName)
     {
-        // IoT devices can be on IoT or Security networks
+        // IoT devices can be on IoT or Security networks (fully isolated).
+        // Media networks accept entertainment devices (streaming, TVs, media players, speakers, consoles)
+        // but NOT security devices (locks, cameras, hubs) since Guest can access Media.
+        // Game consoles are also correctly placed on Gaming networks (their purpose-built network).
+        var isMediaDevice = category is ClientDeviceCategory.StreamingDevice
+            or ClientDeviceCategory.SmartTV
+            or ClientDeviceCategory.MediaPlayer
+            or ClientDeviceCategory.SmartSpeaker
+            or ClientDeviceCategory.GameConsole;
         var isCorrectlyPlaced = currentNetwork != null &&
             (currentNetwork.Purpose == NetworkPurpose.IoT ||
-             currentNetwork.Purpose == NetworkPurpose.Security);
+             currentNetwork.Purpose == NetworkPurpose.Security ||
+             (currentNetwork.Purpose == NetworkPurpose.Media && isMediaDevice) ||
+             (currentNetwork.Purpose == NetworkPurpose.Gaming && category == ClientDeviceCategory.GameConsole));
 
         // Find the IoT network to recommend (prefer lower VLAN number)
         var iotNetwork = allNetworks

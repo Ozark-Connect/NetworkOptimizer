@@ -100,7 +100,8 @@ public class AlertHistoryEntry
     public string? DeliveryError { get; set; }
 
     /// <summary>
-    /// Relative URL to the source page for this alert (e.g., "/audit", "/wan-speedtest").
+    /// URL to the source page for this alert (e.g., "/audit", "https://host/audit").
+    /// Stored as relative when no base URL is configured, absolute when resolved.
     /// </summary>
     public string? SourceUrl { get; set; }
 }
