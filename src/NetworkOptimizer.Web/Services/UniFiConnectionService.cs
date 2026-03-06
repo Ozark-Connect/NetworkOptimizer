@@ -446,15 +446,6 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         _deviceCacheTime = DateTime.MinValue;
         _cachedNetworks = null;
         _networkCacheTime = DateTime.MinValue;
-
-        // TODO: REMOVE THIS - temporary for testing fingerprint DB unavailable scenario
-        var fpService = _serviceProvider.GetService<FingerprintDatabaseService>();
-        if (fpService != null)
-        {
-            fpService.ClearCache();
-            _logger.LogWarning("TESTING: Cleared fingerprint database cache on disconnect");
-        }
-
         _logger.LogDebug("Cleared device and network caches");
     }
 
