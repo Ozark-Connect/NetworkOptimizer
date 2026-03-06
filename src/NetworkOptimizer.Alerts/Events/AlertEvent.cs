@@ -69,6 +69,12 @@ public record AlertEvent
     public List<string> Tags { get; init; } = [];
 
     /// <summary>
+    /// Relative URL to the source page for this alert (e.g., "/audit", "/wan-speedtest").
+    /// Used to create "View" links in the UI and notification channels.
+    /// </summary>
+    public string? SourceUrl { get; init; }
+
+    /// <summary>
     /// When the event occurred.
     /// </summary>
     public DateTime Timestamp { get; init; } = DateTime.UtcNow;

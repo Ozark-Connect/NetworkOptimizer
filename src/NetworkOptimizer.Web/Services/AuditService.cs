@@ -591,7 +591,9 @@ public class AuditService
             // Filter out dismissed issues so we only alert on active findings
             await EnsureDismissedIssuesLoadedAsync();
             var activeIssues = result.Issues.Where(i => !IsIssueDismissed(i)).ToList();
-            var activeCritical = activeIssues.Count(i => i.Severity == Audit.Models.AuditSeverity.Critical);
+            // Exclude system-level issues (e.g., fingerprint DB unavailable) from severity counts
+            // so they don't inflate audit.completed severity or trigger critical_findings alerts
+            var activeCritical = activeIssues.Count(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System");
             var activeWarning = activeIssues.Count(i => i.Severity == Audit.Models.AuditSeverity.Recommended);
 
             // Publish completed event
@@ -603,6 +605,7 @@ public class AuditService
                 Title = $"Security audit completed - Score: {result.Score}",
                 Message = $"{activeCritical} critical, {activeWarning} recommended findings",
                 MetricValue = result.Score,
+                SourceUrl = "/audit",
                 Context = new Dictionary<string, string>
                 {
                     ["criticalCount"] = activeCritical.ToString(),
@@ -630,6 +633,7 @@ public class AuditService
                         Message = $"Security audit score decreased from {previousScore.Value} to {result.Score}",
                         MetricValue = result.Score,
                         ThresholdValue = previousScore.Value,
+                        SourceUrl = "/audit",
                         Context = new Dictionary<string, string>
                         {
                             ["previousScore"] = previousScore.Value.ToString(),
@@ -655,10 +659,11 @@ public class AuditService
                     Source = "audit",
                     Title = $"{activeCritical} critical security findings detected",
                     Message = string.Join("; ", activeIssues
-                        .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical)
+                        .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System")
                         .Take(5)
                         .Select(i => i.Title)),
                     MetricValue = activeCritical,
+                    SourceUrl = "/audit",
                     Context = new Dictionary<string, string>
                     {
                         ["score"] = result.Score.ToString()

@@ -173,6 +173,9 @@ public class SlackDeliveryChannel : IAlertDeliveryChannel
         foreach (var ctx in alertEvent.Context)
             sb.AppendLine($"*{ctx.Key}:* {ctx.Value}");
 
+        if (!string.IsNullOrEmpty(alertEvent.SourceUrl))
+            sb.AppendLine($"*View:* {alertEvent.SourceUrl}");
+
         return sb.Length > 0 ? sb.ToString().TrimEnd() : alertEvent.EventType;
     }
 

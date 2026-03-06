@@ -53,7 +53,8 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
                 context = alertEvent.Context,
                 tags = alertEvent.Tags,
                 timestamp = alertEvent.Timestamp.ToString("o"),
-                alert_id = historyEntry.Id
+                alert_id = historyEntry.Id,
+                source_url = alertEvent.SourceUrl
             }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
         }
 
@@ -184,6 +185,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
         threshold_value = alertEvent.ThresholdValue,
         context = alertEvent.Context,
         tags = alertEvent.Tags,
-        timestamp = alertEvent.Timestamp.ToString("o")
+        timestamp = alertEvent.Timestamp.ToString("o"),
+        source_url = alertEvent.SourceUrl
     };
 }
