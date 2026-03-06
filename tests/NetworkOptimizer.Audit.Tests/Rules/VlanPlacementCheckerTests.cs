@@ -24,8 +24,10 @@ public class VlanPlacementCheckerTests
     [Theory]
     [InlineData(NetworkPurpose.IoT, true)]
     [InlineData(NetworkPurpose.Security, true)]
+    [InlineData(NetworkPurpose.Media, true)]
     [InlineData(NetworkPurpose.Corporate, false)]
     [InlineData(NetworkPurpose.Guest, false)]
+    [InlineData(NetworkPurpose.Gaming, false)] // SmartTV doesn't belong on Gaming
     public void CheckIoTPlacement_ReturnsCorrectPlacementStatus(NetworkPurpose purpose, bool expectedCorrect)
     {
         var network = new NetworkInfo { Id = "test", Name = "Test", VlanId = 10, Purpose = purpose };
@@ -34,6 +36,63 @@ public class VlanPlacementCheckerTests
             ClientDeviceCategory.SmartTV, network, TestNetworks);
 
         result.IsCorrectlyPlaced.Should().Be(expectedCorrect);
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_GameConsoleOnGamingNetwork_IsCorrectlyPlaced()
+    {
+        var network = new NetworkInfo { Id = "gaming", Name = "Gaming", VlanId = 40, Purpose = NetworkPurpose.Gaming };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.GameConsole, network, TestNetworks);
+
+        result.IsCorrectlyPlaced.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_StreamingDeviceOnMediaNetwork_IsCorrectlyPlaced()
+    {
+        var network = new NetworkInfo { Id = "media", Name = "Media", VlanId = 50, Purpose = NetworkPurpose.Media };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.StreamingDevice, network, TestNetworks);
+
+        result.IsCorrectlyPlaced.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartTVOnMediaNetwork_IsCorrectlyPlaced()
+    {
+        var network = new NetworkInfo { Id = "media", Name = "Media", VlanId = 50, Purpose = NetworkPurpose.Media };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartTV, network, TestNetworks);
+
+        result.IsCorrectlyPlaced.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartLockOnMediaNetwork_IsCorrectlyPlaced()
+    {
+        // Even high-risk devices are correctly placed on Media (it's an isolated network)
+        var network = new NetworkInfo { Id = "media", Name = "Media", VlanId = 50, Purpose = NetworkPurpose.Media };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartLock, network, TestNetworks);
+
+        result.IsCorrectlyPlaced.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartLockOnGamingNetwork_IsNotCorrectlyPlaced()
+    {
+        // Only GameConsole is correctly placed on Gaming - smart locks should be on IoT/Security
+        var network = new NetworkInfo { Id = "gaming", Name = "Gaming", VlanId = 40, Purpose = NetworkPurpose.Gaming };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartLock, network, TestNetworks);
+
+        result.IsCorrectlyPlaced.Should().BeFalse();
     }
 
     [Theory]

@@ -18,8 +18,6 @@ public class VlanAnalyzer
     // Network classification patterns (case-insensitive)
     // Note: "device" removed from IoT - too generic, causes false positives with "Security Devices"
     private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust" };
-    // IoT patterns requiring word boundary matching
-    private static readonly string[] IoTWordBoundaryPatterns = { };
     // Media/entertainment patterns - semi-trusted, peers with IoT, accessible from Guest
     private static readonly string[] MediaPatterns = { "entertainment", "streaming", "theater", "theatre", "recreation", "living room", "a/v" };
     // Media patterns requiring word boundary matching (to avoid "Dave" matching "av", etc.)
@@ -30,7 +28,6 @@ public class VlanAnalyzer
     private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin", "infrastructure" };
     private static readonly string[] GuestPatterns = { "guest", "visitor", "hotspot" };
     private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private" };
-    private static readonly string[] HomeWordBoundaryPatterns = { };
     // Gaming networks - same trust level as Home, game consoles need UPnP and full network access
     private static readonly string[] GamingPatterns = { "gaming", "gamer", "games", "xbox", "playstation", "nintendo", "console", "lan party" };
     // Gaming patterns requiring word boundary matching (to avoid "GameChanger" matching "game")
@@ -365,9 +362,6 @@ public class VlanAnalyzer
             nameBasedPurpose = NetworkPurpose.Media;
         else if (IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.IoT;
-        // Word-boundary patterns for IoT
-        else if (IoTWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
-            nameBasedPurpose = NetworkPurpose.IoT;
         else if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Management;
         else if (ServerPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
@@ -383,9 +377,6 @@ public class VlanAnalyzer
         else if (CorporateWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.Corporate;
         else if (HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
-            nameBasedPurpose = NetworkPurpose.Home;
-        // Word-boundary patterns for Home
-        else if (HomeWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.Home;
         // Gaming networks - same trust level as Home
         else if (GamingPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
@@ -517,8 +508,7 @@ public class VlanAnalyzer
         if (string.IsNullOrEmpty(networkName))
             return false;
 
-        return IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase))
-            || IoTWordBoundaryPatterns.Any(p => ContainsWord(networkName, p));
+        return IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -541,8 +531,7 @@ public class VlanAnalyzer
         if (string.IsNullOrEmpty(networkName))
             return false;
 
-        return HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase))
-            || HomeWordBoundaryPatterns.Any(p => ContainsWord(networkName, p));
+        return HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
