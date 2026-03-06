@@ -612,7 +612,7 @@ public class VlanAnalyzer
         // Find networks that should be isolated but share DNS with corporate
         var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
         var isolatedNetworks = networks.Where(n =>
-            n.Purpose is NetworkPurpose.IoT or NetworkPurpose.Guest or NetworkPurpose.Security).ToList();
+            n.Purpose is NetworkPurpose.IoT or NetworkPurpose.Guest or NetworkPurpose.Security or NetworkPurpose.Media).ToList();
 
         foreach (var isolated in isolatedNetworks)
         {
@@ -656,9 +656,9 @@ public class VlanAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // Check if IoT/Guest networks have routing enabled
+        // Check if IoT/Guest/Media networks have routing enabled
         var isolatedNetworks = networks.Where(n =>
-            n.Purpose is NetworkPurpose.IoT or NetworkPurpose.Guest).ToList();
+            n.Purpose is NetworkPurpose.IoT or NetworkPurpose.Guest or NetworkPurpose.Media).ToList();
 
         foreach (var network in isolatedNetworks)
         {
