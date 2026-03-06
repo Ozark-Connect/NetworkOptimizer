@@ -2507,11 +2507,11 @@ public class FirewallRuleParserTests
     #region Legacy Integration: Established/Related + ANY + RFC1918 Block
 
     [Fact]
-    public void ParseFirewallRule_EstablishedRelatedAllowWithEmptyFields_CorrectlyMapped()
+    public void ParseFirewallRule_EstablishedRelatedAllowWithEmptyFields_MatchingTargetsNull()
     {
-        // This is the critical integration test: a legacy "Allow Established/Related" rule
-        // with empty source/dest should be mapped as ANY source/dest but NOT allowing new connections.
-        // This ensures it doesn't eclipse block rules below it.
+        // A legacy "Allow Established/Related" rule with empty source/dest and specific
+        // connection states should have NULL matching targets (not "ANY"). This makes them
+        // invisible to network-pair matching so they don't eclipse block rules below them.
         var json = JsonDocument.Parse(@"{
             ""_id"": ""rule1"",
             ""name"": ""Allow Established/Related"",
@@ -2535,14 +2535,308 @@ public class FirewallRuleParserTests
         var rule = _parser.ParseFirewallRule(json);
 
         rule.Should().NotBeNull();
-        // Source and dest should be ANY (empty fields on LAN_IN)
-        rule!.SourceMatchingTarget.Should().Be("ANY");
-        rule.DestinationMatchingTarget.Should().Be("ANY");
-        // But it should NOT allow new connections
+        // Source and dest should be NULL (not "ANY") because the rule has connection state restrictions
+        rule!.SourceMatchingTarget.Should().BeNull();
+        rule.DestinationMatchingTarget.Should().BeNull();
+        // It should NOT allow new connections
         rule.AllowsNewConnections().Should().BeFalse();
-        // And it should have connection state info
+        // Connection state info should be preserved
         rule.ConnectionStateType.Should().Be("CUSTOM");
         rule.ConnectionStates.Should().BeEquivalentTo(new[] { "ESTABLISHED", "RELATED" });
+    }
+
+    [Fact]
+    public void ParseFirewallRule_DropInvalidStateWithEmptyFields_MatchingTargetsNull()
+    {
+        // A legacy "Drop Invalid State" rule with empty source/dest and specific
+        // connection states should have NULL matching targets (not "ANY").
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule2"",
+            ""name"": ""Drop Invalid State"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2001,
+            ""src_address"": """",
+            ""src_networkconf_id"": """",
+            ""src_firewallgroup_ids"": [],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": [],
+            ""state_new"": false,
+            ""state_established"": false,
+            ""state_related"": false,
+            ""state_invalid"": true
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().BeNull();
+        rule.DestinationMatchingTarget.Should().BeNull();
+        rule.BlocksNewConnections().Should().BeFalse();
+        rule.ConnectionStateType.Should().Be("CUSTOM");
+        rule.ConnectionStates.Should().BeEquivalentTo(new[] { "INVALID" });
+    }
+
+    [Fact]
+    public void ParseFirewallRule_StatelessBlockWithEmptySource_GetsAnySource()
+    {
+        // A stateless rule (all state_* false) with empty source should get "ANY"
+        // matching target - e.g., "Block All to Gateway Group"
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule3"",
+            ""name"": ""Block All to Gateways"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2002,
+            ""src_address"": """",
+            ""src_networkconf_id"": """",
+            ""src_firewallgroup_ids"": [],
+            ""dst_address"": """",
+            ""dst_networkconf_id"": """",
+            ""dst_firewallgroup_ids"": [""gateway-group""],
+            ""state_new"": false,
+            ""state_established"": false,
+            ""state_related"": false,
+            ""state_invalid"": false
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        // Stateless + empty source = ANY
+        rule!.SourceMatchingTarget.Should().Be("ANY");
+        // Destination has address group ref (even if unresolved), so NOT "ANY"
+        rule.DestinationMatchingTarget.Should().NotBe("ANY");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_StatelessBlockWithAddrGroupSrcAndDst_GetsIpMatching()
+    {
+        // "Block Inter-Network Routing" - RFC1918 src and dst
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["rfc1918"] = new UniFiFirewallGroup
+            {
+                Id = "rfc1918",
+                Name = "RFC1918 Networks",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule4"",
+            ""name"": ""Block Inter-Network Routing"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2023,
+            ""src_firewallgroup_ids"": [""rfc1918""],
+            ""dst_firewallgroup_ids"": [""rfc1918""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("IP");
+        rule.SourceIps.Should().BeEquivalentTo(new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" });
+        rule.DestinationMatchingTarget.Should().Be("IP");
+        rule.DestinationIps.Should().BeEquivalentTo(new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" });
+    }
+
+    [Fact]
+    public void ParseFirewallRule_NetworkconfSrcWithAddrGroupDst_GetsCorrectTargets()
+    {
+        // "Allow Admin to All Networks" - networkconf src, addr grp dst
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["rfc1918"] = new UniFiFirewallGroup
+            {
+                Id = "rfc1918",
+                Name = "RFC1918 Networks",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule5"",
+            ""name"": ""Allow Admin to All Networks"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2003,
+            ""src_networkconf_id"": ""net-admin"",
+            ""dst_firewallgroup_ids"": [""rfc1918""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("NETWORK");
+        rule.SourceNetworkIds.Should().Contain("net-admin");
+        rule.DestinationMatchingTarget.Should().Be("IP");
+        rule.DestinationIps.Should().Contain("10.0.0.0/8");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_NetworkconfSrcAndDst_GetsBothNetwork()
+    {
+        // "Allow Guest to Media" - networkconf src, networkconf dst
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule6"",
+            ""name"": ""Allow Guest to Media"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2010,
+            ""src_networkconf_id"": ""net-guest"",
+            ""dst_networkconf_id"": ""net-media""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("NETWORK");
+        rule.SourceNetworkIds.Should().Contain("net-guest");
+        rule.DestinationMatchingTarget.Should().Be("NETWORK");
+        rule.DestinationNetworkIds.Should().Contain("net-media");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_NetworkconfSrcWithMixedAddrAndPortGroupDst_ResolvesCorrectly()
+    {
+        // "Allow LAN to Printer" - networkconf src, mixed addr+port group dst
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["printer-addr"] = new UniFiFirewallGroup
+            {
+                Id = "printer-addr",
+                Name = "Printer Addresses",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.30.10", "192.168.30.11" }
+            },
+            ["printer-ports"] = new UniFiFirewallGroup
+            {
+                Id = "printer-ports",
+                Name = "Printer Ports",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "9100", "631" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule7"",
+            ""name"": ""Allow LAN to Printer"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""tcp_udp"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2015,
+            ""src_networkconf_id"": ""net-lan"",
+            ""dst_firewallgroup_ids"": [""printer-addr"", ""printer-ports""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("NETWORK");
+        rule.SourceNetworkIds.Should().Contain("net-lan");
+        rule.DestinationMatchingTarget.Should().Be("IP");
+        rule.DestinationIps.Should().BeEquivalentTo(new[] { "192.168.30.10", "192.168.30.11" });
+        rule.DestinationPort.Should().Be("9100,631");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_AddrGroupSrcAndDst_GetsBothIp()
+    {
+        // "Block IoT to Internal" - addr grp src, addr grp dst
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["iot-subnet"] = new UniFiFirewallGroup
+            {
+                Id = "iot-subnet",
+                Name = "IoT Subnet",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.40.0/24" }
+            },
+            ["internal-subnets"] = new UniFiFirewallGroup
+            {
+                Id = "internal-subnets",
+                Name = "Internal Subnets",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.1.0/24", "192.168.2.0/24" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule8"",
+            ""name"": ""Block IoT to Internal"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2020,
+            ""src_firewallgroup_ids"": [""iot-subnet""],
+            ""dst_firewallgroup_ids"": [""internal-subnets""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("IP");
+        rule.SourceIps.Should().BeEquivalentTo(new[] { "192.168.40.0/24" });
+        rule.DestinationMatchingTarget.Should().Be("IP");
+        rule.DestinationIps.Should().BeEquivalentTo(new[] { "192.168.1.0/24", "192.168.2.0/24" });
+    }
+
+    [Fact]
+    public void ParseFirewallRule_NetworkconfSrcWithAddrGroupDst_LegacyAllowRule()
+    {
+        // "Allow Gaming to Servers" - networkconf src, addr grp dst
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["server-addrs"] = new UniFiFirewallGroup
+            {
+                Id = "server-addrs",
+                Name = "Server Addresses",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.10.0/24" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule9"",
+            ""name"": ""Allow Gaming to Servers"",
+            ""action"": ""accept"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""LAN_IN"",
+            ""rule_index"": 2005,
+            ""src_networkconf_id"": ""net-gaming"",
+            ""dst_firewallgroup_ids"": [""server-addrs""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceMatchingTarget.Should().Be("NETWORK");
+        rule.SourceNetworkIds.Should().Contain("net-gaming");
+        rule.DestinationMatchingTarget.Should().Be("IP");
+        rule.DestinationIps.Should().Contain("192.168.10.0/24");
     }
 
     #endregion

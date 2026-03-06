@@ -848,6 +848,8 @@ public class VlanAnalyzer
                 continue;
             if (!rule.ActionType.IsBlockAction())
                 continue;
+            if (!rule.BlocksNewConnections())
+                continue;
             if (!rule.AppliesToSourceNetwork(network))
                 continue;
 

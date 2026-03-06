@@ -623,9 +623,20 @@ public class FirewallRuleParser
         // the ruleset defines the scope. Empty source on LAN_IN means "any internal source",
         // empty destination means "any destination". This mirrors zone-based rules where
         // SourceMatchingTarget/DestinationMatchingTarget = "ANY".
+        //
+        // BUT: only set "ANY" for stateless rules (all four state_* booleans are false).
+        // Rules like "Allow Established/Related" (EST+REL only) or "Drop Invalid State"
+        // (INV only) are infrastructure rules that don't target specific network pairs -
+        // they should remain invisible to network-pair matching (null matching target =
+        // no match in evaluator). Without this guard, these rules get "ANY" and eclipse
+        // the real inter-VLAN block rule further down the chain.
+        //
         // Don't set ANY if address group IDs were specified but failed to resolve -
         // that means the rule tried to reference a specific group, not "any".
+        var isStateless = connectionStateType == null;
+
         if (sourceMatchingTarget == null
+            && isStateless
             && !hadSrcAddressGroupIds
             && string.IsNullOrEmpty(srcNetworkConfId)
             && (string.IsNullOrEmpty(source) || !source.Contains('.')))
@@ -634,6 +645,7 @@ public class FirewallRuleParser
         }
 
         if (destMatchingTarget == null
+            && isStateless
             && !hadDstAddressGroupIds
             && string.IsNullOrEmpty(dstNetworkConfId)
             && (string.IsNullOrEmpty(destination) || !destination.Contains('.')))
