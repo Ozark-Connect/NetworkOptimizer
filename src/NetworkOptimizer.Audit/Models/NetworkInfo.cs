@@ -52,6 +52,16 @@ public enum NetworkPurpose
     Server,
 
     /// <summary>
+    /// Media/entertainment network (streaming devices, Apple TV, A/V receivers)
+    /// </summary>
+    Media,
+
+    /// <summary>
+    /// Gaming network (consoles, PCs) - same trust level as Home
+    /// </summary>
+    Gaming,
+
+    /// <summary>
     /// Unknown or unclassified network
     /// </summary>
     Unknown
@@ -76,6 +86,8 @@ public static class NetworkPurposeExtensions
         NetworkPurpose.Printer => "Printer",
         NetworkPurpose.Dmz => "DMZ",
         NetworkPurpose.Server => "Server",
+        NetworkPurpose.Media => "Media",
+        NetworkPurpose.Gaming => "Gaming",
         NetworkPurpose.Unknown => "Unclassified",
         _ => purpose.ToString()
     };

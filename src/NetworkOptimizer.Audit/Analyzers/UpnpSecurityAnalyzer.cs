@@ -96,8 +96,8 @@ public class UpnpSecurityAnalyzer
         // Find networks with UPnP explicitly enabled (per-network binding)
         // Include disabled networks since they can still have UPnP bindings configured
         var networksWithUpnp = networks.Where(n => n.UpnpLanEnabled).ToList();
-        var homeNetworksWithUpnp = networksWithUpnp.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
-        var nonHomeNetworksWithUpnp = networksWithUpnp.Where(n => n.Purpose != NetworkPurpose.Home).ToList();
+        var homeNetworksWithUpnp = networksWithUpnp.Where(n => n.Purpose is NetworkPurpose.Home or NetworkPurpose.Gaming).ToList();
+        var nonHomeNetworksWithUpnp = networksWithUpnp.Where(n => n.Purpose is not NetworkPurpose.Home and not NetworkPurpose.Gaming).ToList();
 
         _logger.LogInformation("Analyzing UPnP security: GlobalEnabled={Enabled}, UPnP rules={RuleCount}, Networks with UPnP={NetworkCount} (Home={HomeCount}, Non-Home={NonHomeCount})",
             isEnabled, upnpRuleCount, networksWithUpnp.Count, homeNetworksWithUpnp.Count, nonHomeNetworksWithUpnp.Count);
@@ -185,7 +185,7 @@ public class UpnpSecurityAnalyzer
 
         // Analyze static port forwards regardless of UPnP status
         // hasHomeNetwork check is used for static port forwards to determine warning severity
-        var hasHomeNetwork = networks.Any(n => n.Purpose == NetworkPurpose.Home);
+        var hasHomeNetwork = networks.Any(n => n.Purpose is NetworkPurpose.Home or NetworkPurpose.Gaming);
         var staticRules = portForwardRules?.Where(r => r.IsUpnp != 1 && r.Enabled == true).ToList() ?? [];
         if (staticRules.Count > 0)
         {

@@ -4227,6 +4227,149 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region Media Network Isolation Tests
+
+    [Fact]
+    public void CheckInterVlanIsolation_MediaToCorporate_NoBlockRule_FlaggedAsMissing()
+    {
+        // Media to Corporate without a block rule should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Media", NetworkPurpose.Media, id: "media-net-id"),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Media") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_CorporateToMedia_NoBlockRule_NotFlagged()
+    {
+        // Corporate (trusted) → Media: trusted can reach down, no isolation required
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Media", NetworkPurpose.Media, id: "media-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag Corporate → Media (trusted can reach down)
+        // Note: Media → Corporate IS expected to be flagged, so check direction via message start
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.StartsWith("No rule blocking Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToMedia_NoBlockRule_NotFlagged()
+    {
+        // Guest → Media: guests can access media/entertainment, no isolation required
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Media", NetworkPurpose.Media, id: "media-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag Guest → Media
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Media"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTAndMedia_NoPeerIsolation()
+    {
+        // IoT ↔ Media are peers: no isolation required between them
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Media", NetworkPurpose.Media, id: "media-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag IoT → Media or Media → IoT
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Media"));
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Media") && i.Message.Contains("IoT"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_MediaToServer_NoBlockRule_FlaggedAsMissing()
+    {
+        // Media to Server without a block rule should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Media", NetworkPurpose.Media, id: "media-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Media") && i.Message.Contains("Server"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_MediaWithIsolation_ToCorporate_NoIssue()
+    {
+        // Media with isolation enabled can't reach other VLANs, so no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Media", NetworkPurpose.Media, id: "media-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Media") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleMediaToCorporate_FlaggedAsIsolationBypassed()
+    {
+        // Allow rule from Media to Corporate should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Media", NetworkPurpose.Media, id: "media-net-id"),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-media-corp",
+                Name = "Allow Media to Corp",
+                Action = "ALLOW",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "media-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED" &&
+            i.RuleId == "FW-ISOLATION-BYPASS" &&
+            i.Message.Contains("Allow Media to Corp"));
+    }
+
+    #endregion
+
     [Fact]
     public void CheckInterVlanIsolation_BlockRuleWithConnectionStateAll_NoIssue()
     {

@@ -37,6 +37,7 @@ public static class IssueTypes
     public const string SecurityNetworkNotIsolated = "SECURITY_NETWORK_NOT_ISOLATED";
     public const string MgmtNetworkNotIsolated = "MGMT_NETWORK_NOT_ISOLATED";
     public const string IotNetworkNotIsolated = "IOT_NETWORK_NOT_ISOLATED";
+    public const string MediaNetworkNotIsolated = "MEDIA_NOT_ISOLATED";
     public const string SecurityNetworkHasInternet = "SECURITY_NETWORK_HAS_INTERNET";
     public const string MgmtNetworkHasInternet = "MGMT_NETWORK_HAS_INTERNET";
 
