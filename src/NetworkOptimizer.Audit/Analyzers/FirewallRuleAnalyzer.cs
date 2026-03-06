@@ -228,6 +228,12 @@ public class FirewallRuleAnalyzer
             if (rule.Predefined)
                 continue;
 
+            // Skip allow rules that don't allow NEW connections (e.g., "Allow Established/Related").
+            // These are infrastructure rules that handle return traffic and should not be flagged
+            // as permissive or broad.
+            if (rule.ActionType.IsAllowAction() && !rule.AllowsNewConnections())
+                continue;
+
             // Check for any->any rules
             // v2 API uses SourceMatchingTarget/DestinationMatchingTarget = "ANY"
             // Legacy API uses SourceType/DestinationType = "any" or empty Source/Destination
@@ -800,8 +806,11 @@ public class FirewallRuleAnalyzer
         NetworkInfo destNet)
     {
         // Use FirewallRuleEvaluator to find the effective rule for this traffic direction
+        // Use forNewConnections=true to skip infrastructure rules like "Allow Established/Related"
+        // that only handle return traffic and shouldn't be considered as isolation bypasses
         var evalResult = FirewallRuleEvaluator.Evaluate(rules,
-            r => HasNetworkPair(r, sourceNet, destNet));
+            r => HasNetworkPair(r, sourceNet, destNet),
+            forNewConnections: true);
 
         // Only flag if traffic is effectively allowed (allow rule takes effect)
         if (!evalResult.IsAllowed)

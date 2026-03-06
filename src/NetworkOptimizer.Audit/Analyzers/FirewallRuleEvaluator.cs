@@ -83,7 +83,8 @@ public static class FirewallRuleEvaluator
         if (forNewConnections)
         {
             effectiveRule = matchingRules.FirstOrDefault(r =>
-                r.ActionType.IsBlockAction() || r.AllowsNewConnections());
+                (r.ActionType.IsBlockAction() && r.BlocksNewConnections()) ||
+                (r.ActionType.IsAllowAction() && r.AllowsNewConnections()));
 
             if (effectiveRule == null)
             {
