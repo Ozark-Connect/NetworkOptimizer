@@ -7726,6 +7726,367 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region Legacy Firewall Rules with Connection State Tests
+
+    [Fact]
+    public void CheckInterVlanIsolation_LegacyEstRelAllowPlusRfc1918Block_FindsBlockRule()
+    {
+        // Simulates legacy setup: "Allow Established/Related" at low index with null matching
+        // targets (invisible to evaluator) + RFC1918 block at high index provides isolation.
+        // The EST/REL rule should NOT eclipse the RFC1918 block.
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, networkIsolationEnabled: false,
+            firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var corpNet = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+            vlanId: 10, firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var networks = new List<NetworkInfo> { iotNet, corpNet };
+
+        var rules = new List<FirewallRule>
+        {
+            // "Allow Established/Related" - infrastructure rule with null matching targets
+            new FirewallRule
+            {
+                Id = "est-rel-rule",
+                Name = "Allow Established/Related",
+                Action = "accept",
+                Enabled = true,
+                Index = 20000,
+                Protocol = "all",
+                Ruleset = "LAN_IN",
+                SourceMatchingTarget = null,
+                DestinationMatchingTarget = null,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            },
+            // "Block Inter-Network Routing" - RFC1918 block via IP matching
+            new FirewallRule
+            {
+                Id = "rfc1918-block",
+                Name = "Block Inter-Network Routing",
+                Action = "drop",
+                Enabled = true,
+                Index = 20023,
+                Protocol = "all",
+                Ruleset = "LAN_IN",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // RFC1918 block should satisfy isolation - no missing isolation issues
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_LegacyDropInvalidPlusRfc1918Block_FindsBlockRule()
+    {
+        // "Drop Invalid State" at low index with null matching targets should NOT eclipse
+        // the RFC1918 block at higher index.
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, networkIsolationEnabled: false,
+            firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var corpNet = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+            vlanId: 10, firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var networks = new List<NetworkInfo> { iotNet, corpNet };
+
+        var rules = new List<FirewallRule>
+        {
+            // "Drop Invalid State" - infrastructure rule with null matching targets
+            new FirewallRule
+            {
+                Id = "drop-invalid",
+                Name = "Drop Invalid State",
+                Action = "drop",
+                Enabled = true,
+                Index = 20001,
+                Protocol = "all",
+                Ruleset = "LAN_IN",
+                SourceMatchingTarget = null,
+                DestinationMatchingTarget = null,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "INVALID" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            },
+            // "Block Inter-Network Routing" - RFC1918 block
+            new FirewallRule
+            {
+                Id = "rfc1918-block",
+                Name = "Block Inter-Network Routing",
+                Action = "drop",
+                Enabled = true,
+                Index = 20023,
+                Protocol = "all",
+                Ruleset = "LAN_IN",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_LegacyBlockAllToGroup_AnySourceMatchesAllNetworks()
+    {
+        // "Block All to VPN" with empty source (ANY matching target) should match all source networks.
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, networkIsolationEnabled: false,
+            firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var vpnNet = CreateNetwork("VPN", NetworkPurpose.Corporate, id: "vpn-net",
+            vlanId: 50, firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var networks = new List<NetworkInfo> { iotNet, vpnNet };
+
+        var rules = new List<FirewallRule>
+        {
+            // "Block All to VPN" - stateless, empty source = ANY
+            new FirewallRule
+            {
+                Id = "block-to-vpn",
+                Name = "Block All to VPN",
+                Action = "drop",
+                Enabled = true,
+                Index = 20004,
+                Protocol = "all",
+                Ruleset = "LAN_IN",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "192.168.50.0/24" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // The ANY source block rule should prevent IoT->VPN from being flagged
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("IoT") && i.Message.Contains("VPN"));
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_LegacyEstRelAllow_NotFlaggedAsPermissive()
+    {
+        // "Allow Established/Related" should NOT be flagged as permissive ANY->ANY
+        // even if it has null matching targets (which makes IsAnySource/IsAnyDest return true
+        // via legacy fallback), because it doesn't allow NEW connections.
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "est-rel-rule",
+                Name = "Allow Established/Related",
+                Action = "accept",
+                Enabled = true,
+                Index = 20000,
+                Protocol = "all",
+                Ruleset = "LAN_IN",
+                SourceMatchingTarget = null,
+                DestinationMatchingTarget = null,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" }
+            }
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().NotContain(i => i.Type == IssueTypes.PermissiveRule);
+        issues.Should().NotContain(i => i.Type == IssueTypes.BroadRule);
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_FullLegacyRuleChain_OnlyLegitimateIssues()
+    {
+        // Full chain: EST/REL allow + Drop Invalid + specific allows + RFC1918 block
+        // This simulates a realistic legacy firewall setup with infrastructure rules.
+        var iotNet = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+            vlanId: 40, networkIsolationEnabled: false,
+            firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var corpNet = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+            vlanId: 10, firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var guestNet = CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net",
+            vlanId: 20, firewallZoneId: FirewallRuleParser.LegacyInternalZoneId);
+        var networks = new List<NetworkInfo> { iotNet, corpNet, guestNet };
+
+        var rules = new List<FirewallRule>
+        {
+            // Infrastructure: Allow Established/Related (invisible)
+            new FirewallRule
+            {
+                Id = "est-rel",
+                Name = "Allow Established/Related",
+                Action = "accept",
+                Enabled = true,
+                Index = 20000,
+                Protocol = "all",
+                SourceMatchingTarget = null,
+                DestinationMatchingTarget = null,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            },
+            // Infrastructure: Drop Invalid State (invisible)
+            new FirewallRule
+            {
+                Id = "drop-inv",
+                Name = "Drop Invalid State",
+                Action = "drop",
+                Enabled = true,
+                Index = 20001,
+                Protocol = "all",
+                SourceMatchingTarget = null,
+                DestinationMatchingTarget = null,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "INVALID" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            },
+            // Specific allow: IoT can reach Corporate (this SHOULD be flagged as IsolationBypassed)
+            // The analyzer checks IoT->Trusted direction for problematic allow rules
+            new FirewallRule
+            {
+                Id = "allow-iot-corp",
+                Name = "Allow IoT to Corporate",
+                Action = "accept",
+                Enabled = true,
+                Index = 20010,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            },
+            // Block: RFC1918 inter-network routing block
+            new FirewallRule
+            {
+                Id = "rfc1918-block",
+                Name = "Block Inter-Network Routing",
+                Action = "drop",
+                Enabled = true,
+                Index = 20023,
+                Protocol = "all",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" },
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // The specific allow (IoT->Corporate) should be flagged as IsolationBypassed
+        issues.Should().Contain(i => i.Type == IssueTypes.IsolationBypassed &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+
+        // But general isolation should be satisfied by the RFC1918 block -
+        // no MissingIsolation for pairs not covered by specific allows
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Corporate"));
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void Evaluator_ForNewConnections_SkipsDropInvalidBlockRule()
+    {
+        // When forNewConnections=true, a "Drop Invalid" block rule should be skipped
+        // because it doesn't block NEW connections.
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "drop-invalid",
+                Name = "Drop Invalid State",
+                Action = "drop",
+                Enabled = true,
+                Index = 20001,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "INVALID" }
+            },
+            new FirewallRule
+            {
+                Id = "rfc1918-block",
+                Name = "Block Inter-Network Routing",
+                Action = "drop",
+                Enabled = true,
+                Index = 20023,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var result = FirewallRuleEvaluator.Evaluate(
+            rules, _ => true, forNewConnections: true);
+
+        // Should skip "Drop Invalid" (doesn't block NEW) and find "Block Inter-Network Routing"
+        result.EffectiveRule.Should().NotBeNull();
+        result.EffectiveRule!.Name.Should().Be("Block Inter-Network Routing");
+        result.IsBlocked.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluator_ForNewConnections_SkipsEstRelAllowRule()
+    {
+        // When forNewConnections=true, an "Allow Established/Related" rule should be skipped
+        // because it doesn't allow NEW connections.
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "est-rel",
+                Name = "Allow Established/Related",
+                Action = "accept",
+                Enabled = true,
+                Index = 20000,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" }
+            },
+            new FirewallRule
+            {
+                Id = "rfc1918-block",
+                Name = "Block Inter-Network Routing",
+                Action = "drop",
+                Enabled = true,
+                Index = 20023,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var result = FirewallRuleEvaluator.Evaluate(
+            rules, _ => true, forNewConnections: true);
+
+        // Should skip "Allow EST/REL" and find the RFC1918 block
+        result.EffectiveRule.Should().NotBeNull();
+        result.EffectiveRule!.Name.Should().Be("Block Inter-Network Routing");
+        result.IsBlocked.Should().BeTrue();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
