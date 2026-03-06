@@ -133,6 +133,42 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeNetworkIsolation_MediaNetworkNotIsolated_ReturnsRecommendedIssue()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Media", NetworkPurpose.Media, vlanId: 70, networkIsolationEnabled: false)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("MEDIA_NOT_ISOLATED");
+        issues[0].Severity.Should().Be(AuditSeverity.Recommended);
+        issues[0].ScoreImpact.Should().Be(10);
+        issues[0].RuleId.Should().Be("NET-ISO-006");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_MediaNetworkIsolated_ReturnsNoIssues()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Media", NetworkPurpose.Media, vlanId: 70, networkIsolationEnabled: true)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public void AnalyzeNetworkIsolation_NativeVlan_SkipsCheck()
     {
         // Arrange - Native VLAN (ID 1) should be skipped for non-Management purposes
@@ -852,16 +888,16 @@ public class VlanAnalyzerTests
     }
 
     [Theory]
-    [InlineData("Entertainment", NetworkPurpose.IoT)]
-    [InlineData("Entertainment VLAN", NetworkPurpose.IoT)]
-    [InlineData("Streaming Devices", NetworkPurpose.IoT)]
-    [InlineData("Home Theater", NetworkPurpose.IoT)]
-    [InlineData("Theatre Room", NetworkPurpose.IoT)]
-    [InlineData("Recreation Room", NetworkPurpose.IoT)]
-    [InlineData("Living Room", NetworkPurpose.IoT)]
-    public void ClassifyNetwork_EntertainmentPatterns_ReturnsIoT(string networkName, NetworkPurpose expected)
+    [InlineData("Entertainment", NetworkPurpose.Media)]
+    [InlineData("Entertainment VLAN", NetworkPurpose.Media)]
+    [InlineData("Streaming Devices", NetworkPurpose.Media)]
+    [InlineData("Home Theater", NetworkPurpose.Media)]
+    [InlineData("Theatre Room", NetworkPurpose.Media)]
+    [InlineData("Recreation Room", NetworkPurpose.Media)]
+    [InlineData("Living Room", NetworkPurpose.Media)]
+    public void ClassifyNetwork_MediaPatterns_ReturnsMedia(string networkName, NetworkPurpose expected)
     {
-        // Entertainment networks should classify as IoT - isolated but internet-enabled
+        // Entertainment/media networks should classify as Media
         var result = _analyzer.ClassifyNetwork(networkName);
         result.Should().Be(expected);
     }
@@ -873,22 +909,22 @@ public class VlanAnalyzerTests
     [InlineData("A/V Room")]          // Explicit "a/v" pattern match
     [InlineData("TV Network")]        // Word boundary match for "tv"
     [InlineData("Smart TV")]          // Word boundary match for "tv"
-    public void ClassifyNetwork_EntertainmentWordBoundary_ReturnsIoT(string networkName)
+    public void ClassifyNetwork_MediaWordBoundary_ReturnsMedia(string networkName)
     {
-        // Entertainment patterns with word boundary should match IoT
+        // Media patterns with word boundary should match Media
         var result = _analyzer.ClassifyNetwork(networkName);
-        result.Should().Be(NetworkPurpose.IoT);
+        result.Should().Be(NetworkPurpose.Media);
     }
 
     [Theory]
     [InlineData("Dave's Network")]    // "Dave" contains "av" but shouldn't match due to word boundary
     [InlineData("AVLAN")]             // "AVLAN" contains "av" but not as a word
     [InlineData("SocialMedia")]       // "SocialMedia" contains "media" but not as a word
-    public void ClassifyNetwork_FalsePositivePatterns_DoesNotMatchIoT(string networkName)
+    public void ClassifyNetwork_FalsePositivePatterns_DoesNotMatchMedia(string networkName)
     {
-        // These patterns should NOT match IoT due to word boundary requirements
+        // These patterns should NOT match Media due to word boundary requirements
         var result = _analyzer.ClassifyNetwork(networkName);
-        result.Should().NotBe(NetworkPurpose.IoT);
+        result.Should().NotBe(NetworkPurpose.Media);
     }
 
     [Theory]
@@ -1003,17 +1039,17 @@ public class VlanAnalyzerTests
     }
 
     [Theory]
-    [InlineData("Gaming", NetworkPurpose.Home)]
-    [InlineData("Gaming VLAN", NetworkPurpose.Home)]
-    [InlineData("Gamers Network", NetworkPurpose.Home)]
-    [InlineData("Xbox Network", NetworkPurpose.Home)]
-    [InlineData("PlayStation VLAN", NetworkPurpose.Home)]
-    [InlineData("Nintendo Devices", NetworkPurpose.Home)]
-    [InlineData("Console Network", NetworkPurpose.Home)]
-    [InlineData("LAN Party", NetworkPurpose.Home)]
-    public void ClassifyNetwork_GamingPatterns_ReturnsHome(string networkName, NetworkPurpose expected)
+    [InlineData("Gaming", NetworkPurpose.Gaming)]
+    [InlineData("Gaming VLAN", NetworkPurpose.Gaming)]
+    [InlineData("Gamers Network", NetworkPurpose.Gaming)]
+    [InlineData("Xbox Network", NetworkPurpose.Gaming)]
+    [InlineData("PlayStation VLAN", NetworkPurpose.Gaming)]
+    [InlineData("Nintendo Devices", NetworkPurpose.Gaming)]
+    [InlineData("Console Network", NetworkPurpose.Gaming)]
+    [InlineData("LAN Party", NetworkPurpose.Gaming)]
+    public void ClassifyNetwork_GamingPatterns_ReturnsGaming(string networkName, NetworkPurpose expected)
     {
-        // Gaming networks should classify as Home because game consoles need UPnP and full network access
+        // Gaming networks should classify as Gaming - same trust level as Home
         var result = _analyzer.ClassifyNetwork(networkName);
         result.Should().Be(expected);
     }
@@ -1022,11 +1058,11 @@ public class VlanAnalyzerTests
     [InlineData("Game Room")]      // Word boundary match for "game"
     [InlineData("Games")]          // Explicit "games" pattern match
     [InlineData("Game Network")]   // Word boundary match for "game"
-    public void ClassifyNetwork_GameWordBoundary_ReturnsHome(string networkName)
+    public void ClassifyNetwork_GameWordBoundary_ReturnsGaming(string networkName)
     {
-        // "Game" with word boundary should match Home
+        // "Game" with word boundary should match Gaming
         var result = _analyzer.ClassifyNetwork(networkName);
-        result.Should().Be(NetworkPurpose.Home);
+        result.Should().Be(NetworkPurpose.Gaming);
     }
 
     [Fact]
@@ -1180,10 +1216,10 @@ public class VlanAnalyzerTests
     }
 
     [Theory]
-    [InlineData("media-room", NetworkPurpose.IoT)]             // Hyphen delimiter
-    [InlineData("av-equipment", NetworkPurpose.IoT)]           // Hyphen delimiter
-    [InlineData("tv-network", NetworkPurpose.IoT)]             // Hyphen delimiter
-    [InlineData("game-room", NetworkPurpose.Home)]             // Hyphen delimiter
+    [InlineData("media-room", NetworkPurpose.Media)]            // Hyphen delimiter
+    [InlineData("av-equipment", NetworkPurpose.Media)]         // Hyphen delimiter
+    [InlineData("tv-network", NetworkPurpose.Media)]           // Hyphen delimiter
+    [InlineData("game-room", NetworkPurpose.Gaming)]           // Hyphen delimiter
     [InlineData("not-vlan", NetworkPurpose.Security)]          // Hyphen delimiter for "NoT"
     public void ClassifyNetwork_WordBoundary_HyphenDelimiter_OtherPatterns(string networkName, NetworkPurpose expected)
     {
@@ -1485,12 +1521,12 @@ public class VlanAnalyzerTests
     [Theory]
     [InlineData("IoT Devices", true)]
     [InlineData("Smart Home", true)]
-    [InlineData("Entertainment", true)]       // Entertainment patterns classify as IoT
-    [InlineData("Streaming Devices", true)]   // Streaming patterns classify as IoT
-    [InlineData("Media Room", true)]          // Media word boundary match
-    [InlineData("TV Network", true)]          // TV word boundary match
+    [InlineData("Entertainment", false)]      // Entertainment patterns classify as Media, not IoT
+    [InlineData("Streaming Devices", false)]  // Streaming patterns classify as Media, not IoT
+    [InlineData("Media Room", false)]         // Media word boundary → Media, not IoT
+    [InlineData("TV Network", false)]         // TV word boundary → Media, not IoT
     [InlineData("Corporate", false)]
-    [InlineData("Gaming", false)]             // Gaming is Home, not IoT
+    [InlineData("Gaming", false)]             // Gaming is Gaming, not IoT
     [InlineData(null, false)]
     [InlineData("", false)]
     public void IsIoTNetwork_VariousInputs_ReturnsExpected(string? networkName, bool expected)
@@ -1500,21 +1536,60 @@ public class VlanAnalyzerTests
     }
 
     [Theory]
+    [InlineData("Entertainment", true)]
+    [InlineData("Streaming Devices", true)]
+    [InlineData("Media Room", true)]
+    [InlineData("TV Network", true)]
+    [InlineData("AV Equipment", true)]
+    [InlineData("A/V Room", true)]
+    [InlineData("Home Theater", true)]
+    [InlineData("IoT Devices", false)]
+    [InlineData("Corporate", false)]
+    [InlineData("Dave's Network", false)]     // Word boundary prevents match
+    [InlineData("SocialMedia", false)]        // Word boundary prevents match
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    public void IsMediaNetwork_VariousInputs_ReturnsExpected(string? networkName, bool expected)
+    {
+        var result = _analyzer.IsMediaNetwork(networkName);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("Home", true)]
     [InlineData("Main Network", true)]
-    [InlineData("Gaming", true)]              // Gaming patterns classify as Home
-    [InlineData("Game Room", true)]           // Game word boundary match
-    [InlineData("Xbox Network", true)]        // Xbox is gaming = Home
-    [InlineData("PlayStation", true)]         // PlayStation is gaming = Home
-    [InlineData("Console VLAN", true)]        // Console is gaming = Home
+    [InlineData("Gaming", false)]             // Gaming is now its own type
+    [InlineData("Game Room", false)]          // Game word boundary → Gaming, not Home
+    [InlineData("Xbox Network", false)]       // Xbox is Gaming, not Home
+    [InlineData("PlayStation", false)]        // PlayStation is Gaming, not Home
+    [InlineData("Console VLAN", false)]       // Console is Gaming, not Home
     [InlineData("Corporate", false)]
     [InlineData("IoT", false)]
-    [InlineData("Entertainment", false)]      // Entertainment is IoT, not Home
+    [InlineData("Entertainment", false)]      // Entertainment is Media, not Home
     [InlineData(null, false)]
     [InlineData("", false)]
     public void IsHomeNetwork_VariousInputs_ReturnsExpected(string? networkName, bool expected)
     {
         var result = _analyzer.IsHomeNetwork(networkName);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Gaming", true)]
+    [InlineData("Game Room", true)]
+    [InlineData("Xbox Network", true)]
+    [InlineData("PlayStation", true)]
+    [InlineData("Console VLAN", true)]
+    [InlineData("LAN Party", true)]
+    [InlineData("Home", false)]
+    [InlineData("Corporate", false)]
+    [InlineData("IoT", false)]
+    [InlineData("GameChanger", false)]        // Word boundary prevents match
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    public void IsGamingNetwork_VariousInputs_ReturnsExpected(string? networkName, bool expected)
+    {
+        var result = _analyzer.IsGamingNetwork(networkName);
         result.Should().Be(expected);
     }
 

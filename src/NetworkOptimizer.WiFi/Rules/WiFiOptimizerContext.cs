@@ -54,7 +54,7 @@ public class WiFiOptimizerContext
     /// Main networks (Home or Corporate purpose).
     /// </summary>
     public IEnumerable<NetworkInfo> MainNetworks => Networks.Where(n =>
-        n.Enabled && n.Purpose is NetworkPurpose.Home or NetworkPurpose.Corporate);
+        n.Enabled && n.Purpose is NetworkPurpose.Home or NetworkPurpose.Corporate or NetworkPurpose.Gaming);
 
     /// <summary>
     /// Whether any APs have 5 GHz radios active.

@@ -456,7 +456,8 @@ public class FirewallRuleAnalyzer
         var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
         var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
         var serverNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Server).ToList();
-        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(serverNetworks).ToList();
+        var gamingNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Gaming).ToList();
+        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(gamingNetworks).Concat(serverNetworks).ToList();
 
         // IoT should be isolated from: Corporate, Home, Server
         // (IoT → Security and IoT → Management already covered above)
@@ -466,6 +467,18 @@ public class FirewallRuleAnalyzer
             foreach (var trusted in trustedNetworks)
             {
                 CheckAndAddIsolationIssue(issues, rules, iot, trusted, "FW-ISOLATION-IOT");
+            }
+        }
+
+        // Media should be isolated from: Corporate, Home, Server (same as IoT)
+        // Media is a peer of IoT - no isolation between them
+        // Guest → Media is explicitly allowed (guests can access streaming/entertainment)
+        var mediaNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Media && !n.NetworkIsolationEnabled).ToList();
+        foreach (var media in mediaNetworks)
+        {
+            foreach (var trusted in trustedNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, media, trusted, "FW-ISOLATION-MEDIA");
             }
         }
 
@@ -489,7 +502,25 @@ public class FirewallRuleAnalyzer
             }
         }
 
-        // Guest should be isolated from: Corporate, Home, IoT
+        // Corporate <-> Gaming should be isolated from each other (bidirectional, same as Corp <-> Home)
+        var nonIsolatedGaming = gamingNetworks.Where(n => !n.NetworkIsolationEnabled).ToList();
+
+        foreach (var corp in nonIsolatedCorporate)
+        {
+            foreach (var gaming in gamingNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, corp, gaming, "FW-ISOLATION-CORP-GAMING");
+            }
+        }
+        foreach (var gaming in nonIsolatedGaming)
+        {
+            foreach (var corp in corporateNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, gaming, corp, "FW-ISOLATION-GAMING-CORP");
+            }
+        }
+
+        // Guest should be isolated from: Corporate, Home, Gaming, IoT
         // (Guest → Security and Guest → Management already covered above)
         var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled && !n.IsUniFiGuestNetwork).ToList();
         var allIotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT).ToList();
@@ -541,6 +572,16 @@ public class FirewallRuleAnalyzer
             }
         }
 
+        // Check for allow rules between Media and trusted networks
+        var allMediaNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Media).ToList();
+        foreach (var media in allMediaNetworks)
+        {
+            foreach (var trusted in trustedPlusManagement)
+            {
+                CheckForProblematicAllowRules(issues, rules, media, trusted, externalZoneId);
+            }
+        }
+
         // Check for allow rules between Guest and trusted/IoT networks
         foreach (var guest in allGuestNetworks)
         {
@@ -561,6 +602,16 @@ public class FirewallRuleAnalyzer
             {
                 CheckForProblematicAllowRules(issues, rules, corp, home, externalZoneId);
                 CheckForProblematicAllowRules(issues, rules, home, corp, externalZoneId);
+            }
+        }
+
+        // Check for allow rules between Corporate and Gaming networks (bidirectional)
+        foreach (var corp in corporateNetworks)
+        {
+            foreach (var gaming in gamingNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, corp, gaming, externalZoneId);
+                CheckForProblematicAllowRules(issues, rules, gaming, corp, externalZoneId);
             }
         }
 
