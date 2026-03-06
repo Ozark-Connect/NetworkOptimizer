@@ -43,6 +43,9 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
         foreach (var ctx in alertEvent.Context)
             fields.Add(new { name = ctx.Key, value = ctx.Value, inline = true });
 
+        if (!string.IsNullOrEmpty(alertEvent.SourceUrl))
+            fields.Add(new { name = "View", value = alertEvent.SourceUrl, inline = true });
+
         var payload = JsonSerializer.Serialize(new
         {
             embeds = new[]

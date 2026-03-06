@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Alerts;
 
@@ -24,6 +26,7 @@ public class AlertProcessingService : BackgroundService
     private readonly AlertCorrelationService _correlationService;
     private readonly IEnumerable<IAlertDeliveryChannel> _deliveryChannels;
     private readonly AlertCooldownTracker _cooldownTracker;
+    private readonly string? _appBaseUrl;
 
     // In-memory rule cache (refreshed periodically)
     private List<AlertRule> _cachedRules = [];
@@ -39,7 +42,8 @@ public class AlertProcessingService : BackgroundService
         AlertRuleEvaluator ruleEvaluator,
         AlertCorrelationService correlationService,
         IEnumerable<IAlertDeliveryChannel> deliveryChannels,
-        AlertCooldownTracker cooldownTracker)
+        AlertCooldownTracker cooldownTracker,
+        IConfiguration configuration)
     {
         _logger = logger;
         _eventBus = eventBus;
@@ -48,6 +52,25 @@ public class AlertProcessingService : BackgroundService
         _correlationService = correlationService;
         _deliveryChannels = deliveryChannels;
         _cooldownTracker = cooldownTracker;
+
+        // Build base URL using same priority as canonical host redirect in Program.cs:
+        // REVERSE_PROXIED_HOST_NAME (https) > HOST_NAME (http:8042) > HOST_IP (http:8042)
+        var reverseProxy = configuration["REVERSE_PROXIED_HOST_NAME"];
+        var hostName = configuration["HOST_NAME"];
+        var hostIp = configuration["HOST_IP"];
+
+        if (!string.IsNullOrEmpty(reverseProxy))
+            _appBaseUrl = $"https://{reverseProxy}";
+        else if (!string.IsNullOrEmpty(hostName))
+            _appBaseUrl = $"http://{hostName}:8042";
+        else if (!string.IsNullOrEmpty(hostIp))
+            _appBaseUrl = $"http://{hostIp}:8042";
+        else
+        {
+            var detectedIp = NetworkUtilities.DetectLocalIpFromInterfaces();
+            if (!string.IsNullOrEmpty(detectedIp))
+                _appBaseUrl = $"http://{detectedIp}:8042";
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -130,6 +153,7 @@ public class AlertProcessingService : BackgroundService
             DeviceId = alertEvent.DeviceId,
             DeviceName = alertEvent.DeviceName,
             DeviceIp = alertEvent.DeviceIp,
+            SourceUrl = ResolveSourceUrl(alertEvent.SourceUrl),
             RuleId = rule.Id,
             TriggeredAt = DateTime.UtcNow,
             ContextJson = alertEvent.Context.Count > 0
@@ -155,8 +179,9 @@ public class AlertProcessingService : BackgroundService
             return;
         }
 
-        // Deliver to matching channels
-        await DeliverAsync(alertEvent, historyEntry, repository, cancellationToken);
+        // Deliver to matching channels (use resolved absolute URL for delivery)
+        var deliveryEvent = alertEvent with { SourceUrl = historyEntry.SourceUrl };
+        await DeliverAsync(deliveryEvent, historyEntry, repository, cancellationToken);
     }
 
     private async Task DeliverAsync(
@@ -233,6 +258,21 @@ public class AlertProcessingService : BackgroundService
             _logger.LogError(ex, "Failed to refresh alert rule cache");
             // Keep using stale cache rather than failing
         }
+    }
+
+    /// <summary>
+    /// Resolves a relative SourceUrl (e.g., "/audit") to an absolute URL using the app's
+    /// configured hostname. Falls back to the relative path if no hostname is configured.
+    /// </summary>
+    private string? ResolveSourceUrl(string? relativeUrl)
+    {
+        if (string.IsNullOrEmpty(relativeUrl))
+            return null;
+
+        if (_appBaseUrl != null)
+            return $"{_appBaseUrl}{relativeUrl}";
+
+        return relativeUrl;
     }
 
     private void CleanupCooldowns()

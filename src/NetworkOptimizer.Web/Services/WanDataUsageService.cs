@@ -560,6 +560,7 @@ public class WanDataUsageService : BackgroundService
                 Message = $"{config.Name} has used {summary.UsedGb:F1} GB of {config.DataCapGb:F0} GB data cap ({summary.UsagePercent:F0}%)",
                 MetricValue = summary.UsagePercent,
                 ThresholdValue = 100,
+                SourceUrl = "/alerts?tab=data-usage",
                 Context = new Dictionary<string, string>
                 {
                     ["wanKey"] = config.WanKey,
@@ -586,6 +587,7 @@ public class WanDataUsageService : BackgroundService
                 Message = $"{config.Name} has used {summary.UsedGb:F1} GB of {config.DataCapGb:F0} GB data cap ({summary.UsagePercent:F0}%), exceeding the {config.WarningThresholdPercent}% warning threshold",
                 MetricValue = summary.UsagePercent,
                 ThresholdValue = config.WarningThresholdPercent,
+                SourceUrl = "/alerts?tab=data-usage",
                 Context = new Dictionary<string, string>
                 {
                     ["wanKey"] = config.WanKey,

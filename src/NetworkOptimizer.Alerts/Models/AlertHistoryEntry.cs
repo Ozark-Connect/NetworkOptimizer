@@ -98,4 +98,9 @@ public class AlertHistoryEntry
     /// Delivery error message if failed.
     /// </summary>
     public string? DeliveryError { get; set; }
+
+    /// <summary>
+    /// Relative URL to the source page for this alert (e.g., "/audit", "/wan-speedtest").
+    /// </summary>
+    public string? SourceUrl { get; set; }
 }
