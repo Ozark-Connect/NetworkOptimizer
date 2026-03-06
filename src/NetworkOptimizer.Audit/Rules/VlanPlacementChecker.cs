@@ -58,12 +58,19 @@ public static class VlanPlacementChecker
         DeviceAllowanceSettings? allowanceSettings,
         string? vendorName)
     {
-        // IoT devices can be on IoT, Security, or Media networks (all are isolated).
+        // IoT devices can be on IoT or Security networks (fully isolated).
+        // Media networks accept entertainment devices (streaming, TVs, media players, speakers, consoles)
+        // but NOT security devices (locks, cameras, hubs) since Guest can access Media.
         // Game consoles are also correctly placed on Gaming networks (their purpose-built network).
+        var isMediaDevice = category is ClientDeviceCategory.StreamingDevice
+            or ClientDeviceCategory.SmartTV
+            or ClientDeviceCategory.MediaPlayer
+            or ClientDeviceCategory.SmartSpeaker
+            or ClientDeviceCategory.GameConsole;
         var isCorrectlyPlaced = currentNetwork != null &&
             (currentNetwork.Purpose == NetworkPurpose.IoT ||
              currentNetwork.Purpose == NetworkPurpose.Security ||
-             currentNetwork.Purpose == NetworkPurpose.Media ||
+             (currentNetwork.Purpose == NetworkPurpose.Media && isMediaDevice) ||
              (currentNetwork.Purpose == NetworkPurpose.Gaming && category == ClientDeviceCategory.GameConsole));
 
         // Find the IoT network to recommend (prefer lower VLAN number)

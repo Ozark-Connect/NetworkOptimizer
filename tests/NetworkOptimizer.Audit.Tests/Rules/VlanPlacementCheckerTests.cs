@@ -72,15 +72,15 @@ public class VlanPlacementCheckerTests
     }
 
     [Fact]
-    public void CheckIoTPlacement_SmartLockOnMediaNetwork_IsCorrectlyPlaced()
+    public void CheckIoTPlacement_SmartLockOnMediaNetwork_IsNotCorrectlyPlaced()
     {
-        // Even high-risk devices are correctly placed on Media (it's an isolated network)
+        // Smart locks should NOT be on Media - Guest can access Media networks
         var network = new NetworkInfo { Id = "media", Name = "Media", VlanId = 50, Purpose = NetworkPurpose.Media };
 
         var result = VlanPlacementChecker.CheckIoTPlacement(
             ClientDeviceCategory.SmartLock, network, TestNetworks);
 
-        result.IsCorrectlyPlaced.Should().BeTrue();
+        result.IsCorrectlyPlaced.Should().BeFalse();
     }
 
     [Fact]
