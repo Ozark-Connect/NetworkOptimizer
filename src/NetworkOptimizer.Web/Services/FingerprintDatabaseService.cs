@@ -171,6 +171,14 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
         return null;
     }
 
+    // TODO: REMOVE THIS - temporary for testing fingerprint DB unavailable scenario
+    public void ClearCache()
+    {
+        _database = null;
+        _lastFetchTime = null;
+        _lastFetchFailed = false;
+    }
+
     /// <summary>
     /// Check if the database is loaded with data
     /// </summary>
