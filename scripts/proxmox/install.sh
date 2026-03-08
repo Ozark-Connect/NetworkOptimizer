@@ -462,9 +462,9 @@ configure_application() {
 
     # Optional password
     echo -e "\n${WH}Admin Password${CL}"
-    echo -e "${DIM}Leave empty for auto-generated password (shown in logs on first run).${CL}"
-    echo -e "${DIM}Recommended: Set permanent password in Settings > Admin Password after login.${CL}"
-    read -rsp "Admin password (hidden, press Enter to skip): " APP_PASSWORD
+    echo -e "${DIM}If you skip this, a secure password will be auto-generated and displayed in the container logs on first startup.${CL}"
+    echo -e "${DIM}You can change it anytime in Settings > Admin Password.${CL}"
+    read -rsp "Admin password (hidden, press Enter to auto-generate): " APP_PASSWORD
     echo ""
     APP_PASSWORD=${APP_PASSWORD:-}
 }
