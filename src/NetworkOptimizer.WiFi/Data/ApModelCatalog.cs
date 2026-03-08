@@ -117,6 +117,13 @@ public static class ApModelCatalog
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
             ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 8 },
         },
+        ["U7-Mesh"] = new()
+        {
+            // Dual-antenna: omni (6 dBi) + directional (10 dBi) active simultaneously.
+            // Pattern file is the combined shape; gain matches directional peak.
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
+            ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 10 },
+        },
         ["U7-Outdoor"] = new()
         {
             // Website specs: Directional 8/12.5 dBi, OMNI 3/4 dBi
