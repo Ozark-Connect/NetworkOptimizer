@@ -408,7 +408,7 @@ public class PropagationService
     /// <summary>
     /// Determine the native mount orientation of the antenna pattern data.
     /// All directional patterns (base, narrow, wide, panel) are measured flat (ceiling).
-    /// Only omni patterns are measured wall-mounted.
+    /// Omni patterns and mesh AP patterns are measured wall-mounted (vertically).
     /// When the requested omni variant doesn't exist for the band (e.g., U7-Pro-Outdoor
     /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
     /// so we must also fall back to ceiling.
@@ -417,8 +417,15 @@ public class PropagationService
         !string.IsNullOrEmpty(antennaMode) &&
         antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsMeshModel(string model) =>
+        model.Contains("Mesh", StringComparison.OrdinalIgnoreCase);
+
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
+        // Mesh APs have omni patterns measured vertically, same as outdoor omni mode
+        if (IsMeshModel(model))
+            return "wall";
+
         if (IsOmniAntennaMode(antennaMode) && _antennaLoader.HasOmniVariant(model))
         {
             // Check if the omni variant actually has this band. If not, the pattern
