@@ -131,6 +131,7 @@ public class AntennaPatternLoader
 
     /// <summary>
     /// Get antenna gain at a specific elevation angle for a model/band/mode.
+    /// Uses the Elevation 90 deg cut from .ant files.
     /// Returns 0 dBi if pattern not found.
     /// </summary>
     public float GetElevationGain(string model, string band, int elevationDegrees, string? antennaMode = null)
@@ -140,6 +141,20 @@ public class AntennaPatternLoader
 
         var index = Math.Clamp(elevationDegrees, 0, pattern.Elevation.Length - 1);
         return pattern.Elevation[index];
+    }
+
+    /// <summary>
+    /// Get antenna gain from the Elevation 0 deg cut for a model/band/mode.
+    /// Falls back to the standard Elevation (90 deg cut) if Elevation 0 data is not available.
+    /// </summary>
+    public float GetElevation0Gain(string model, string band, int elevationDegrees, string? antennaMode = null)
+    {
+        var pattern = GetPattern(model, band, antennaMode);
+        var arr = pattern?.Elevation0 ?? pattern?.Elevation;
+        if (arr == null || arr.Length == 0) return 0;
+
+        var index = Math.Clamp(elevationDegrees, 0, arr.Length - 1);
+        return arr[index];
     }
 
     /// <summary>
