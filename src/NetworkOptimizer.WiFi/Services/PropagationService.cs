@@ -168,7 +168,7 @@ public class PropagationService
         if (effectiveMount == "desktop" && defaultMount != "desktop")
             azimuthDeg = (azimuthDeg + 180) % 360;
         else if (effectiveMount == "ceiling")
-            azimuthDeg = (360 - azimuthDeg) % 360;
+            azimuthDeg = (180 - azimuthDeg + 360) % 360;
 
         // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
         // OrientationDeg represents U-tips direction, so always add 90° to align.
