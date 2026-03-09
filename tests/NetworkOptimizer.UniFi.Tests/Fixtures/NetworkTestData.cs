@@ -74,7 +74,8 @@ public static class NetworkTestData
         string model = "USW-24-PoE",
         string? uplinkMac = GatewayMac,
         int? uplinkPort = 1,
-        int uplinkSpeed = 1000)
+        int uplinkSpeed = 1000,
+        int? localUplinkPort = null)
     {
         return new DiscoveredDevice
         {
@@ -88,6 +89,7 @@ public static class NetworkTestData
             UplinkMac = uplinkMac,
             UplinkPort = uplinkPort,
             UplinkSpeedMbps = uplinkSpeed,
+            LocalUplinkPort = localUplinkPort,
             UplinkType = "wire",
             IsUplinkConnected = true,
             PortCount = 24
@@ -924,6 +926,7 @@ public static class NetworkTestData
                     State = 1,
                     UplinkMac = GatewayMac,
                     UplinkPort = 1,
+                    LocalUplinkPort = 1,
                     UplinkSpeedMbps = linkSpeedMbps,
                     UplinkType = "wire",
                     IsUplinkConnected = true,
@@ -942,6 +945,7 @@ public static class NetworkTestData
                     State = 1,
                     UplinkMac = Switch1Mac,
                     UplinkPort = 2,
+                    LocalUplinkPort = 1,
                     UplinkSpeedMbps = linkSpeedMbps,
                     UplinkType = "wire",
                     IsUplinkConnected = true,
@@ -1032,6 +1036,124 @@ public static class NetworkTestData
             NetworkName = "Default",
             VlanId = 1,
             IsWired = true
+        };
+    }
+
+    /// <summary>
+    /// Creates a daisy-chain topology with LAG between Switch1 and Switch2:
+    /// Gateway -> Switch1 (Core Agg) -> [LAG 2x10G] -> Switch2 (Core Switch) -> Server
+    ///                               \-> NAS (client)
+    ///
+    /// Switch1 ports: 1 (gateway uplink), 3 (NAS), 5 (LAG parent to Switch2), 7 (LAG child)
+    /// Switch2 ports: 3 (server), 17 (LAG parent to Switch1), 18 (LAG child)
+    /// </summary>
+    public static NetworkTopology CreateLagDaisyChainTopology()
+    {
+        return new NetworkTopology
+        {
+            Devices = new List<DiscoveredDevice>
+            {
+                CreateGateway(lanSpeed: 10000),
+
+                // Switch1 (Core Aggregation) - uplinks to Gateway, LAG to Switch2
+                new DiscoveredDevice
+                {
+                    Mac = Switch1Mac,
+                    IpAddress = Switch1Ip,
+                    Name = "Switch1-CoreAgg",
+                    Model = "USW-Enterprise-XG-24",
+                    Type = DeviceType.Switch,
+                    Adopted = true,
+                    State = 1,
+                    UplinkMac = GatewayMac,
+                    UplinkPort = 1,
+                    LocalUplinkPort = 1,
+                    UplinkSpeedMbps = 10000,
+                    UplinkType = "wire",
+                    IsUplinkConnected = true,
+                    PortCount = 24
+                },
+
+                // Switch2 (Core Switch) - LAG uplink to Switch1
+                new DiscoveredDevice
+                {
+                    Mac = Switch2Mac,
+                    IpAddress = Switch2Ip,
+                    Name = "Switch2-CoreSwitch",
+                    Model = "USW-Pro-Max-24-PoE",
+                    Type = DeviceType.Switch,
+                    Adopted = true,
+                    State = 1,
+                    UplinkMac = Switch1Mac,
+                    UplinkPort = 5,  // Port 5 on Switch1 (LAG parent)
+                    LocalUplinkPort = 17,  // Port 17 on Switch2 (LAG parent)
+                    UplinkSpeedMbps = 10000,
+                    UplinkType = "wire",
+                    IsUplinkConnected = true,
+                    PortCount = 24
+                }
+            },
+            Clients = new List<DiscoveredClient>
+            {
+                new DiscoveredClient
+                {
+                    Mac = NasMac,
+                    IpAddress = NasIp,
+                    Hostname = "nas-server",
+                    Name = "NAS Server",
+                    IsWired = true,
+                    ConnectedToDeviceMac = Switch1Mac,
+                    SwitchPort = 3,
+                    Network = "Default",
+                    NetworkId = "1"
+                }
+            },
+            Networks = new List<NetworkInfo>
+            {
+                new NetworkInfo
+                {
+                    Id = "1",
+                    Name = "Default",
+                    VlanId = 1,
+                    IpSubnet = "192.0.2.0/24",
+                    Purpose = "corporate"
+                }
+            }
+        };
+    }
+
+    /// <summary>
+    /// Creates raw device responses with port tables for the LAG daisy-chain topology.
+    /// Switch1: port 5 (LAG parent, 10G) + port 7 (LAG child, 10G) = 20G aggregate toward Switch2
+    /// Switch2: port 17 (LAG parent, 10G) + port 18 (LAG child, 10G) = 20G aggregate toward Switch1
+    /// </summary>
+    public static Dictionary<string, UniFiDeviceResponse> CreateLagDaisyChainRawDevices()
+    {
+        return new Dictionary<string, UniFiDeviceResponse>(StringComparer.OrdinalIgnoreCase)
+        {
+            [Switch1Mac] = new UniFiDeviceResponse
+            {
+                Mac = Switch1Mac,
+                Name = "Switch1-CoreAgg",
+                PortTable = new List<SwitchPort>
+                {
+                    new SwitchPort { PortIdx = 1, Speed = 10000, Up = true, Name = "Port 1" },
+                    new SwitchPort { PortIdx = 3, Speed = 2500, Up = true, Name = "Port 3" },
+                    new SwitchPort { PortIdx = 5, Speed = 10000, Up = true, Name = "Port 5", LagIdx = 1 },
+                    new SwitchPort { PortIdx = 7, Speed = 10000, Up = true, Name = "Port 7", LagIdx = 1, AggregatedBy = 5 }
+                }
+            },
+            [Switch2Mac] = new UniFiDeviceResponse
+            {
+                Mac = Switch2Mac,
+                Name = "Switch2-CoreSwitch",
+                PortTable = new List<SwitchPort>
+                {
+                    new SwitchPort { PortIdx = 3, Speed = 2500, Up = true, Name = "Port 3" },
+                    new SwitchPort { PortIdx = 17, Speed = 10000, Up = true, Name = "Port 17", LagIdx = 1 },
+                    new SwitchPort { PortIdx = 18, Speed = 10000, Up = true, Name = "Port 18", LagIdx = 1, AggregatedBy = 17 }
+                }
+            }
         };
     }
 
