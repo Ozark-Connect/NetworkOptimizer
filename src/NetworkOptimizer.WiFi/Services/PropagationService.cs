@@ -161,13 +161,14 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((ap.OrientationDeg - azimuth + 360) % 360);
 
-        // Both ceiling and desktop orientations are 180° off from measurement perspective.
-        // Ceiling: looking from above at the back of the AP.
-        // Desktop: flipping the AP over rotates the pattern 180°.
+        // Desktop (non-native): flipping the AP rotates the pattern 180°.
+        // Ceiling: 180° rotation + left/right mirror (looking at the back from above).
         var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
         var isCeilingNative = defaultMount == "ceiling";
-        if (effectiveMount == "ceiling" || (effectiveMount == "desktop" && defaultMount != "desktop"))
+        if (effectiveMount == "desktop" && defaultMount != "desktop")
             azimuthDeg = (azimuthDeg + 180) % 360;
+        else if (effectiveMount == "ceiling")
+            azimuthDeg = (360 - azimuthDeg) % 360;
 
         // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
         // OrientationDeg represents U-tips direction, so always add 90° to align.
