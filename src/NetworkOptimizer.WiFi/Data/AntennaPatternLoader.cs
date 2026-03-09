@@ -150,7 +150,7 @@ public class AntennaPatternLoader
     public float GetElevation0Gain(string model, string band, int elevationDegrees, string? antennaMode = null)
     {
         var pattern = GetPattern(model, band, antennaMode);
-        var arr = pattern?.Elevation0 ?? pattern?.Elevation;
+        var arr = pattern?.Elevation0 ?? pattern?.Azimuth;
         if (arr == null || arr.Length == 0) return 0;
 
         var index = Math.Clamp(elevationDegrees, 0, arr.Length - 1);
