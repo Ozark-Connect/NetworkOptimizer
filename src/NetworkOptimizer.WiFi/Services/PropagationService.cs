@@ -165,11 +165,14 @@ public class PropagationService
         // Ceiling: 180° rotation + left/right mirror (looking at the back from above).
         // Mesh wall/pole: 180° rotation - the pattern is measured face-on but
         // OrientationDeg on the map points opposite to the pattern's 0° reference.
+        // Mesh on ceiling/desktop: skip these transforms - they're designed for the
+        // azimuth pattern, but mesh ceiling/desktop goes through the swap path which
+        // reads the elevation pattern (different angular reference).
         var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
         var isCeilingNative = defaultMount == "ceiling";
-        if (effectiveMount == "desktop" && defaultMount != "desktop")
+        if (effectiveMount == "desktop" && defaultMount != "desktop" && !IsMeshModel(ap.Model))
             azimuthDeg = (azimuthDeg + 180) % 360;
-        else if (effectiveMount == "ceiling")
+        else if (effectiveMount == "ceiling" && !IsMeshModel(ap.Model))
             azimuthDeg = (180 - azimuthDeg + 360) % 360;
         else if (effectiveMount == "wall" && IsMeshModel(ap.Model))
             azimuthDeg = (azimuthDeg + 180) % 360;
