@@ -1593,6 +1593,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     if (chainDevice.Type == DeviceType.Gateway)
                         continue;
 
+                    // Ingress = upstream-facing port (toward gateway), not downstream chainPort
+                    // chainPort is the downstream-facing port (toward server) stored during chain building.
+                    // For LAG setups, the upstream port may have different aggregate speed than downstream.
+                    int? ingressPort = chainDevice.LocalUplinkPort ?? chainPort;
+
                     var hop = new NetworkHop
                     {
                         Order = hopOrder++,
@@ -1602,13 +1607,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname),
                         DeviceFirmware = chainDevice.Firmware,
                         DeviceIp = chainDevice.IpAddress,
-                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
-                        IngressPort = chainPort,
-                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
+                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, ingressPort),
+                        IngressPort = ingressPort,
+                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, ingressPort),
+                        // Egress = downstream-facing port (toward server)
+                        EgressPort = chainPort,
+                        EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
+                        EgressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
                         Notes = "Path from gateway"
                     };
 
-                    // Set egress to server's port if this is server's switch
+                    // Override egress for server's switch (egress to server's specific port)
                     if (chainDevice.Mac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase))
                     {
                         hop.EgressPort = serverPosition.SwitchPort;
@@ -1819,6 +1828,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     var (chainDevice, chainPort) = serverChain[i];
                     hopOrder++;
 
+                    // Ingress = upstream-facing port (toward common ancestor), not downstream chainPort
+                    int? ingressPort = chainDevice.LocalUplinkPort ?? chainPort;
+
                     var hop = new NetworkHop
                     {
                         Order = hopOrder,
@@ -1828,9 +1840,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname),
                         DeviceFirmware = chainDevice.Firmware,
                         DeviceIp = chainDevice.IpAddress,
-                        IngressPort = chainPort,
-                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
-                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort)
+                        IngressPort = ingressPort,
+                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, ingressPort),
+                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, ingressPort)
                     };
 
                     // Set egress based on position in chain
@@ -1860,7 +1872,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // Add server chain in reverse (from gateway down to server's switch)
                 // Note: We DON'T skip devices that appear in target path (except gateway)
                 // because traffic actually traverses them twice in inter-VLAN routing
-                bool isFirstAfterGateway = true;
                 for (int i = serverChain.Count - 1; i >= 0; i--)
                 {
                     var (chainDevice, chainPort) = serverChain[i];
@@ -1871,28 +1882,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                     hopOrder++;
 
-                    // For the first device after gateway, traffic enters via the device's uplink port
-                    // (the port facing the gateway), not the downstream port from serverChain.
-                    // Use LocalUplinkPort and UplinkSpeedMbps which correctly reflect the negotiated
-                    // link speed (e.g., SFP+ running at 1 GbE instead of 10 GbE).
-                    int? ingressPort;
-                    int ingressSpeed;
-                    string? ingressPortName;
-
-                    if (isFirstAfterGateway && chainDevice.LocalUplinkPort.HasValue)
-                    {
-                        ingressPort = chainDevice.LocalUplinkPort;
-                        ingressSpeed = chainDevice.UplinkSpeedMbps;
-                        ingressPortName = GetPortName(rawDevices, chainDevice.Mac, chainDevice.LocalUplinkPort);
-                        isFirstAfterGateway = false;
-                    }
-                    else
-                    {
-                        ingressPort = chainPort;
-                        ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort);
-                        ingressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort);
-                        isFirstAfterGateway = false;
-                    }
+                    // Ingress = upstream-facing port (toward gateway), not downstream chainPort.
+                    // LocalUplinkPort correctly identifies the port facing upstream, which may be
+                    // part of a LAG (e.g., 2x10G aggregate) vs chainPort which faces downstream.
+                    int? ingressPort = chainDevice.LocalUplinkPort ?? chainPort;
+                    int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, ingressPort);
+                    string? ingressPortName = GetPortName(rawDevices, chainDevice.Mac, ingressPort);
 
                     var hop = new NetworkHop
                     {
@@ -1906,10 +1901,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         IngressSpeedMbps = ingressSpeed,
                         IngressPort = ingressPort,
                         IngressPortName = ingressPortName,
+                        // Egress = downstream-facing port (toward server)
+                        EgressPort = chainPort,
+                        EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
+                        EgressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
                         Notes = "Return path from gateway"
                     };
 
-                    // Set egress to server's port if this is server's switch
+                    // Override egress for server's switch (egress to server's specific port)
                     if (chainDevice.Mac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase))
                     {
                         hop.EgressPort = serverPosition.SwitchPort;
