@@ -170,12 +170,14 @@ public class PropagationService
         // reads the elevation pattern (different angular reference).
         var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
         var isCeilingNative = defaultMount == "ceiling";
-        if (effectiveMount == "desktop" && defaultMount != "desktop" && !IsMeshModel(ap.Model))
+        if (effectiveMount == "wall" && IsMeshModel(ap.Model))
             azimuthDeg = (azimuthDeg + 180) % 360;
-        else if (effectiveMount == "ceiling" && !IsMeshModel(ap.Model))
+        else if (IsMeshModel(ap.Model) && (effectiveMount == "ceiling" || effectiveMount == "desktop"))
+            azimuthDeg = (360 - azimuthDeg) % 360; // Y-axis mirror only, no 180° rotation
+        else if (effectiveMount == "desktop" && defaultMount != "desktop")
+            azimuthDeg = (azimuthDeg + 180) % 360;
+        else if (effectiveMount == "ceiling")
             azimuthDeg = (180 - azimuthDeg + 360) % 360;
-        else if (effectiveMount == "wall" && IsMeshModel(ap.Model))
-            azimuthDeg = (azimuthDeg + 180) % 360;
 
         // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
         // OrientationDeg represents U-tips direction, so always add 90° to align.
