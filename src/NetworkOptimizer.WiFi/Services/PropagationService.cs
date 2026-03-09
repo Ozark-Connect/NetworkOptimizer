@@ -203,35 +203,28 @@ public class PropagationService
         // Combine 2D azimuth and elevation cuts into 3D approximation.
         // Both patterns are normalized to 0 dB at peak, so addition in dB = multiplication in linear.
         //
-        // When Elevation 0 deg data is available (digitized from reference images), use it
-        // directly as the elevation component. This avoids the az/el swap and keeps the
-        // azimuth pattern providing the X/Y floor plan shape (which has the directional lobe).
-        //
-        // When only Elevation 90 deg data is available (.ant files), swap azimuth/elevation
-        // when the actual mount rotates the antenna 90° relative to measurement orientation.
-        var pattern = _antennaLoader.GetPattern(ap.Model, band, ap.AntennaMode);
-        var hasElevation0 = pattern?.Elevation0 != null && pattern.Elevation0.Length > 0;
-        var needSwap = !hasElevation0 && (effectiveMount == "wall") != (patternNativeMount == "wall");
+        // Swap azimuth/elevation patterns when the actual mount rotates the antenna
+        // 90° relative to how the pattern was measured. Wall mount rotates the az/el
+        // planes vs ceiling/desktop. If pattern and mount are both wall (e.g., omni
+        // outdoor APs), no swap is needed - the pattern already matches the orientation.
+        var needSwap = (effectiveMount == "wall") != (patternNativeMount == "wall");
         float azGain, elGain;
         if (needSwap)
         {
             // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
-            // Only used when Elevation 0 data is not available.
+            // Use Elevation 0 deg cut when available (more accurate than Elevation 90 deg from .ant files).
             // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
-            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            azGain = _antennaLoader.GetElevation0Gain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
         {
-            // Normal path: azimuth for X/Y shape, elevation for vertical.
-            // Wall APs mirror for top-down floor plan view (looking from above swaps
-            // left/right compared to face-on measurement perspective).
-            // Uses Elevation 0 deg cut when available for more accurate floor plan rendering.
+            // Wall APs using azimuth pattern directly (e.g., outdoor omni): mirror
+            // for top-down floor plan view. Looking from above swaps left/right
+            // compared to face-on measurement perspective.
             var azIdx = effectiveMount == "wall" ? (360 - azimuthDeg) % 360 : azimuthDeg;
             azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
-            elGain = hasElevation0
-                ? _antennaLoader.GetElevation0Gain(ap.Model, band, elevationDeg, ap.AntennaMode)
-                : _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+            elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
         var antennaGain = azGain + elGain;
 
