@@ -430,6 +430,10 @@ public class PropagationService
 
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
+        // Mesh APs have omni patterns measured vertically, same as outdoor omni mode
+        if (IsMeshModel(model))
+            return "wall";
+
         if (IsOmniAntennaMode(antennaMode) && _antennaLoader.HasOmniVariant(model))
         {
             // Check if the omni variant actually has this band. If not, the pattern
@@ -440,10 +444,7 @@ public class PropagationService
                 return "wall"; // true omni pattern loaded, measured wall-mounted
         }
 
-        // Pattern data matches the AP's native mount orientation.
-        // Wall/outdoor/mesh APs have patterns measured wall-mounted (0° = broadside).
-        // Ceiling APs have patterns measured flat (0° = nadir, 90° = horizon).
-        return MountTypeHelper.GetDefaultMountType(model);
+        return "ceiling"; // all directional patterns are measured flat
     }
 
     /// <summary>
