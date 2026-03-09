@@ -6,7 +6,7 @@ the Elevation 0 deg polar plots from Ubiquiti's published reference images to ge
 the missing data.
 
 Usage:
-    python scripts/extract-elevation0-from-images.py <image_path> [--db-max 10] [--debug]
+    python scripts/extract-elevation0-from-images.py <image_path> --db-max 15 --db-min -20 [--debug]
 """
 
 import sys
@@ -20,6 +20,13 @@ import numpy as np
 # Blue pattern line: R~11, G~11, B~253
 def is_pattern_line(r, g, b):
     return int(r) < 50 and int(g) < 50 and int(b) > 200
+
+
+def is_grid_pixel(r, g, b):
+    """Grid lines are lighter blue-gray, NOT the dark pattern line."""
+    return (130 < int(b) < 240 and int(r) < 200 and int(g) < 200 and
+            not is_pattern_line(r, g, b) and
+            abs(int(r) - int(g)) < 40)
 
 
 def find_elevation0_plots(arr):
@@ -76,17 +83,69 @@ def find_elevation0_plots(arr):
         cx = (min(blue_xs) + max(blue_xs)) // 2
         cy = (min(blue_ys) + max(blue_ys)) // 2
 
-        # Radius = half the max extent
+        # Pattern radius (blue pixel extent) - used only as starting point
         rx = (max(blue_xs) - min(blue_xs)) / 2
         ry = (max(blue_ys) - min(blue_ys)) / 2
-        radius = max(rx, ry)
+        pattern_radius = max(rx, ry)
 
-        if radius < 50:  # skip tiny false detections
+        if pattern_radius < 30:
             continue
 
-        plots.append({"cx": cx, "cy": cy, "radius": radius})
+        plots.append({"cx": cx, "cy": cy, "pattern_radius": pattern_radius})
+
+    # Detect grid boundary for each plot, then use the median for all
+    # (all plots in the same image have identical grid size)
+    grid_radii = []
+    for p in plots:
+        gr = detect_grid_boundary(arr, p["cx"], p["cy"], p["pattern_radius"])
+        grid_radii.append(gr)
+
+    if grid_radii:
+        median_gr = sorted(grid_radii)[len(grid_radii) // 2]
+        for p in plots:
+            p["radius"] = median_gr
 
     return plots
+
+
+def detect_grid_boundary(arr, cx, cy, pattern_radius):
+    """Find the outermost grid ring radius by scanning outward from center.
+
+    Stays strictly within the first column (width/4) to avoid picking up
+    grid lines from adjacent Elevation 90 or Azimuth plots.
+    """
+    h, w = arr.shape[:2]
+    col_end = w // 4  # first column boundary
+    max_scan = int(pattern_radius * 3)
+
+    boundary_radii = []
+    for angle in range(0, 360, 5):
+        angle_rad = math.radians(angle - 90)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+
+        outermost_grid_r = 0
+        for r in range(5, max_scan):
+            x = int(cx + r * cos_a)
+            y = int(cy + r * sin_a)
+            # Stay within first column and image bounds
+            if 0 <= x < col_end and 0 <= y < h:
+                rv, gv, bv = arr[y, x, :3]
+                if is_grid_pixel(rv, gv, bv):
+                    outermost_grid_r = r
+            else:
+                break  # hit column or image boundary
+
+        if outermost_grid_r > 0:
+            boundary_radii.append(outermost_grid_r)
+
+    if not boundary_radii:
+        return pattern_radius  # fallback
+
+    # Use 90th percentile - some directions are cut short by labels or row gaps
+    boundary_radii.sort()
+    idx = int(len(boundary_radii) * 0.9)
+    return boundary_radii[min(idx, len(boundary_radii) - 1)]
 
 
 def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range):
@@ -142,17 +201,19 @@ def main():
     debug = "--debug" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
-    # Parse --db-max and --db-range
+    # Parse --db-max and --db-min
     db_max = 10.0
-    db_range_override = None
+    db_min = -20.0
     for i, a in enumerate(sys.argv):
         if a == "--db-max" and i + 1 < len(sys.argv):
             db_max = float(sys.argv[i + 1])
-        if a == "--db-range" and i + 1 < len(sys.argv):
-            db_range_override = float(sys.argv[i + 1])
+        if a == "--db-min" and i + 1 < len(sys.argv):
+            db_min = float(sys.argv[i + 1])
+
+    db_range = db_max - db_min
 
     if not args:
-        print("Usage: python extract-elevation0-from-images.py <image_path> [--db-max 10] [--db-range 20] [--debug]")
+        print("Usage: python extract-elevation0-from-images.py <image_path> --db-max 15 --db-min -20 [--debug]")
         sys.exit(1)
 
     image_path = Path(args[0])
@@ -161,7 +222,7 @@ def main():
         sys.exit(1)
 
     print(f"Processing: {image_path.name}")
-    print(f"  dB max (outer ring): {db_max} dBi")
+    print(f"  dB scale: center={db_min} dBi, outer ring={db_max} dBi, range={db_range} dB")
 
     img = Image.open(image_path)
     arr = np.array(img)
@@ -170,20 +231,9 @@ def main():
     plots = find_elevation0_plots(arr)
     print(f"  Found {len(plots)} plots")
 
-    # Count grid rings to determine dB range
-    # Use the first valid plot
     if not plots:
         print("  ERROR: No plots found!")
         sys.exit(1)
-
-    # Detect grid rings on the first large plot (or use override)
-    p = plots[0]
-    if db_range_override is not None:
-        db_range = db_range_override
-        print(f"  dB range: {db_range} dB (manual override, center = {db_max - db_range} dBi)")
-    else:
-        db_range = detect_db_range(arr, p["cx"], p["cy"], p["radius"])
-        print(f"  dB range: {db_range} dB (auto-detected, center = {db_max - db_range} dBi)")
 
     # Band labels based on count
     n = len(plots)
@@ -202,12 +252,14 @@ def main():
 
     results = {}
     for i, (plot, band) in enumerate(zip(plots, bands)):
-        cx, cy, radius = plot["cx"], plot["cy"], plot["radius"]
-        gains = extract_polar_pattern(arr, cx, cy, radius, db_max, db_range)
+        cx, cy = plot["cx"], plot["cy"]
+        grid_r = plot["radius"]
+        pat_r = plot["pattern_radius"]
+        gains = extract_polar_pattern(arr, cx, cy, grid_r, db_max, db_range)
 
         peak_idx = gains.index(0.0)
         min_val = min(gains)
-        print(f"  {band}: center=({cx},{cy}) r={radius:.0f} peak@{peak_idx}deg min={min_val:.1f}dB")
+        print(f"  {band}: center=({cx},{cy}) grid_r={grid_r:.0f} pat_r={pat_r:.0f} peak@{peak_idx}deg min={min_val:.1f}dB")
 
         if debug:
             for d in range(0, 359, 15):
@@ -232,10 +284,9 @@ def main():
                         ant_el = existing[model][try_band].get("elevation", [])
                         if ant_el:
                             new_el = results[band]
-                            # Compare at key angles
-                            print(f"    {band}: new_el0[0]={new_el[0]:.1f} vs ant_el90[0]={ant_el[0]:.1f}  "
-                                  f"new[90]={new_el[90]:.1f} vs ant[90]={ant_el[90]:.1f}  "
-                                  f"new[180]={new_el[180]:.1f} vs ant[180]={ant_el[180]:.1f}")
+                            print(f"    {band}: el0[0]={new_el[0]:.1f} vs el90[0]={ant_el[0]:.1f}  "
+                                  f"el0[90]={new_el[90]:.1f} vs el90[90]={ant_el[90]:.1f}  "
+                                  f"el0[180]={new_el[180]:.1f} vs el90[180]={ant_el[180]:.1f}")
                         break
 
     output = {model: {"elevation_0": results}}
@@ -244,42 +295,6 @@ def main():
         json.dump(output, f, indent=2)
     print(f"\n  Model: {model}")
     print(f"  Saved: {out_path}")
-
-
-def detect_db_range(arr, cx, cy, outer_radius):
-    """Count grid rings along multiple directions to determine dB range."""
-    h, w = arr.shape[:2]
-    ring_counts = []
-
-    # Check along 4 directions (right, down, left, up)
-    for angle in [0, 90, 180, 270]:
-        angle_rad = math.radians(angle - 90)
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-
-        crossings = 0
-        was_grid = False
-        for r in range(5, int(outer_radius)):
-            x = int(cx + r * cos_a)
-            y = int(cy + r * sin_a)
-            if 0 <= x < w and 0 <= y < h:
-                rv, gv, bv = arr[y, x, :3]
-                # Grid lines: lighter blue/gray, NOT the dark pattern line
-                is_grid = (130 < int(bv) < 240 and int(rv) < 200 and int(gv) < 200 and
-                           not is_pattern_line(rv, gv, bv) and
-                           abs(int(rv) - int(gv)) < 40)  # grid is blue-gray, R~G
-                if is_grid and not was_grid:
-                    crossings += 1
-                was_grid = is_grid
-
-        ring_counts.append(crossings)
-
-    # Use the median count
-    median_rings = sorted(ring_counts)[len(ring_counts) // 2]
-    if median_rings < 3:
-        median_rings = 4  # default: 4 rings = 20 dB
-
-    return median_rings * 5  # 5 dBi per ring
 
 
 if __name__ == "__main__":
