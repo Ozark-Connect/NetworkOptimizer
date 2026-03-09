@@ -10,6 +10,9 @@ Usage:
 
 For images with multiple antenna variants (e.g., E7-Audience narrow + wide):
     python scripts/extract-elevation0-from-images.py <image_path> --db-max 10 --variants narrow,wide
+
+To correct center detection offset (positive = move center down on page):
+    python scripts/extract-elevation0-from-images.py <image_path> --db-max 10 --cy-shift 15
 """
 
 import sys
@@ -639,6 +642,7 @@ def main():
     db_max = None
     db_min = -20.0
     variants = None
+    cy_shift = 0
     for i, a in enumerate(sys.argv):
         if a == "--db-max" and i + 1 < len(sys.argv):
             db_max = float(sys.argv[i + 1])
@@ -646,10 +650,12 @@ def main():
             db_min = float(sys.argv[i + 1])
         if a == "--variants" and i + 1 < len(sys.argv):
             variants = [v.strip() for v in sys.argv[i + 1].split(",")]
+        if a == "--cy-shift" and i + 1 < len(sys.argv):
+            cy_shift = int(sys.argv[i + 1])
 
     if not args:
         print("Usage: python extract-elevation0-from-images.py <image_path> "
-              "--db-max <value> [--variants narrow,wide] [--db-min -20] [--debug]")
+              "--db-max <value> [--variants narrow,wide] [--cy-shift N] [--db-min -20] [--debug]")
         print("\n  --db-max is REQUIRED. Read it from the outer ring label on the polar plot.")
         print("  Common values: 10 (indoor APs), 15 (outdoor APs)")
         print("\n  --variants: Split rows into named variants (e.g., narrow,wide).")
@@ -670,6 +676,8 @@ def main():
 
     print(f"Processing: {image_path.name}")
     print(f"  dB scale: center={db_min} dBi, outer ring={db_max} dBi, range={db_range} dB")
+    if cy_shift:
+        print(f"  Center Y shift: {cy_shift}px (positive = down on page)")
     if variants:
         print(f"  Variants: {variants}")
 
@@ -687,12 +695,17 @@ def main():
         print("  ERROR: No plots found!")
         sys.exit(1)
 
+    # Apply center Y shift if specified
+    if cy_shift:
+        for p in el0_plots:
+            p["cy"] += cy_shift
+
     for i, p in enumerate(el0_plots):
-        shift = math.sqrt((p["cx"] - p["blue_cx"]) ** 2 +
-                           (p["cy"] - p["blue_cy"]) ** 2)
+        shift_dist = math.sqrt((p["cx"] - p["blue_cx"]) ** 2 +
+                                (p["cy"] - p["blue_cy"]) ** 2)
         print(f"    #{i}: grid_center=({p['cx']},{p['cy']}) "
               f"blue_center=({p['blue_cx']},{p['blue_cy']}) "
-              f"shift={shift:.0f}px grid_r={p.get('radius', 0):.0f} "
+              f"shift={shift_dist:.0f}px grid_r={p.get('radius', 0):.0f} "
               f"pat_r={p['pattern_radius']:.0f} "
               f"n_grid={p['n_grid_pixels']}")
 
