@@ -291,11 +291,12 @@ def despike(gains, threshold=5.0):
     """Remove single/double-point spikes from extracted pattern data.
 
     If a point differs from both neighbors by more than threshold dB,
-    replace it with the average of its neighbors. Run multiple passes
-    to collapse multi-degree clusters of ray misses from the outside in.
+    If a point differs from both neighbors by more than threshold dB,
+    replace it with the average of its neighbors. Run twice to catch
+    adjacent spikes (2-degree nulls).
     """
     n = len(gains)
-    for _ in range(4):
+    for _ in range(2):
         smoothed = list(gains)
         for i in range(n):
             prev = gains[(i - 1) % n]
