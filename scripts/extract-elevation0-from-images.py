@@ -1,9 +1,9 @@
 """
 Extract Elevation 0 deg antenna pattern data from Ubiquiti reference images.
 
-Ubiquiti .ant files only include the Elevation 90 deg cut. This script digitizes
-the Elevation 0 deg polar plots from Ubiquiti's published reference images to get
-the missing data.
+Uses Elevation 90 deg plots (column 2) as ground truth to calibrate extraction.
+The .ant files have el90 data, so we extract el90 from the image, compare to .ant,
+and use the match quality to validate center detection, radius, and angular mapping.
 
 Usage:
     python scripts/extract-elevation0-from-images.py <image_path> --db-max 15 --db-min -20 [--debug]
@@ -13,12 +13,14 @@ import sys
 import json
 import math
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 
-# Blue pattern line: R~11, G~11, B~253
+# ── Color detection ──────────────────────────────────────────────────────────
+
 def is_pattern_line(r, g, b):
+    """Blue pattern line: R~11, G~11, B~253."""
     return int(r) < 50 and int(g) < 50 and int(b) > 200
 
 
@@ -29,18 +31,19 @@ def is_grid_pixel(r, g, b):
             abs(int(r) - int(g)) < 40)
 
 
-def find_elevation0_plots(arr):
-    """Find Elevation 0 deg polar plot centers in the first column."""
-    h, w = arr.shape[:2]
-    col_end = w // 4
+# ── Plot detection ───────────────────────────────────────────────────────────
 
-    # Build a mask of blue pattern pixels in the first column
-    mask = np.zeros((h, col_end), dtype=bool)
+def find_row_spans(arr, col_start, col_end):
+    """Find vertical spans containing blue pattern pixels in a column range."""
+    h = arr.shape[0]
+
+    # Build mask of blue pattern pixels
+    mask = np.zeros((h, col_end - col_start), dtype=bool)
     for y in range(h):
-        for x in range(col_end):
+        for x in range(col_start, col_end):
             r, g, b = arr[y, x, :3]
             if is_pattern_line(r, g, b):
-                mask[y, x] = True
+                mask[y, x - col_start] = True
 
     # Find row spans with blue pixels
     row_has_blue = mask.any(axis=1)
@@ -52,13 +55,13 @@ def find_elevation0_plots(arr):
             start = y
             in_span = True
         elif not row_has_blue[y] and in_span:
-            if y - start > 30:  # minimum plot height
+            if y - start > 30:
                 spans.append((start, y))
             in_span = False
     if in_span and h - start > 30:
         spans.append((start, h))
 
-    # Merge spans that are very close (< 100px gap)
+    # Merge spans with < 100px gap
     merged = [spans[0]] if spans else []
     for s, e in spans[1:]:
         if s - merged[-1][1] < 100:
@@ -66,108 +69,190 @@ def find_elevation0_plots(arr):
         else:
             merged.append((s, e))
 
+    return merged, mask
+
+
+def find_grid_center(arr, y_start, y_end, col_start, col_end, rough_cx, rough_cy, pat_r):
+    """Find true plot center using grid pixel centroid.
+
+    Grid circles are symmetric around the center, unlike the pattern which
+    is asymmetric for directional antennas. The centroid of grid pixels
+    gives us the actual polar plot origin.
+    """
+    h = arr.shape[0]
+    margin = int(pat_r * 0.3)
+    scan_y0 = max(0, rough_cy - int(pat_r) - margin)
+    scan_y1 = min(h, rough_cy + int(pat_r) + margin)
+    scan_x0 = max(col_start, rough_cx - int(pat_r) - margin)
+    scan_x1 = min(col_end, rough_cx + int(pat_r) + margin)
+
+    grid_xs, grid_ys = [], []
+    for y in range(scan_y0, scan_y1):
+        for x in range(scan_x0, scan_x1):
+            r, g, b = arr[y, x, :3]
+            if is_grid_pixel(r, g, b):
+                grid_xs.append(x)
+                grid_ys.append(y)
+
+    if len(grid_xs) > 100:
+        return int(np.mean(grid_xs)), int(np.mean(grid_ys)), len(grid_xs)
+    return rough_cx, rough_cy, len(grid_xs)
+
+
+def find_plots_in_column(arr, col_start, col_end):
+    """Find polar plot centers in a column range using grid pixel centroid."""
+    h = arr.shape[0]
+    merged, mask = find_row_spans(arr, col_start, col_end)
+
     plots = []
     for y_start, y_end in merged:
-        # Get blue pixels in this span
-        blue_xs = []
-        blue_ys = []
+        # Blue pixel bounding box (rough center estimate)
+        blue_xs, blue_ys = [], []
         for y in range(y_start, y_end):
-            for x in range(col_end):
-                if mask[y, x]:
+            for x in range(col_start, col_end):
+                if mask[y, x - col_start]:
                     blue_xs.append(x)
                     blue_ys.append(y)
 
         if len(blue_xs) < 20:
             continue
 
-        cx = (min(blue_xs) + max(blue_xs)) // 2
-        cy = (min(blue_ys) + max(blue_ys)) // 2
-
-        # Pattern radius (blue pixel extent) - used only as starting point
+        rough_cx = (min(blue_xs) + max(blue_xs)) // 2
+        rough_cy = (min(blue_ys) + max(blue_ys)) // 2
         rx = (max(blue_xs) - min(blue_xs)) / 2
         ry = (max(blue_ys) - min(blue_ys)) / 2
-        pattern_radius = max(rx, ry)
 
-        if pattern_radius < 30:
+        if max(rx, ry) < 30:
             continue
 
-        plots.append({"cx": cx, "cy": cy, "pattern_radius": pattern_radius})
+        # Use grid pixel centroid for true center
+        cx, cy, n_grid = find_grid_center(arr, y_start, y_end, col_start, col_end,
+                                           rough_cx, rough_cy, max(rx, ry))
 
-    # Detect grid boundary for each plot, then use the median for all
-    # (all plots in the same image have identical grid size)
+        # Pattern radius: 95th percentile distance from grid center to blue pixels.
+        # This excludes outliers like the "AAmp" legend marker at the top of each plot,
+        # which is a small fraction of total blue pixels but inflates bounding box.
+        dists = [math.sqrt((bx - cx) ** 2 + (by - cy) ** 2)
+                 for bx, by in zip(blue_xs, blue_ys)]
+        dists.sort()
+        pat_r = dists[int(len(dists) * 0.95)]
+
+        plots.append({
+            "cx": cx, "cy": cy,
+            "blue_cx": rough_cx, "blue_cy": rough_cy,
+            "pattern_radius": pat_r,
+            "y_range": (y_start, y_end),
+            "n_grid_pixels": n_grid,
+        })
+
+    # Detect grid boundary radius
     grid_radii = []
     for p in plots:
-        gr = detect_grid_boundary(arr, p["cx"], p["cy"], p["pattern_radius"])
+        gr = detect_grid_boundary(arr, p["cx"], p["cy"], p["pattern_radius"],
+                                   col_start, col_end)
         grid_radii.append(gr)
 
     if grid_radii:
         median_gr = sorted(grid_radii)[len(grid_radii) // 2]
-        for p in plots:
+        for i, p in enumerate(plots):
+            p["own_grid_r"] = grid_radii[i]
             p["radius"] = median_gr
 
     return plots
 
 
-def detect_grid_boundary(arr, cx, cy, pattern_radius):
-    """Find the outermost grid ring radius by scanning outward from center.
+def detect_grid_boundary(arr, cx, cy, pattern_radius, col_start, col_end):
+    """Find outermost grid ring using distance histogram of grid pixels.
 
-    Stays strictly within the first column (width/4) to avoid picking up
-    grid lines from adjacent Elevation 90 or Azimuth plots.
+    Collects distances from center to all grid pixels, builds a histogram,
+    and finds peaks. Grid rings create peaks; scattered label pixels don't.
+    The outermost clear peak is the outer grid ring.
     """
-    h, w = arr.shape[:2]
-    col_end = w // 4  # first column boundary
-    max_scan = int(pattern_radius * 3)
+    h = arr.shape[0]
+    margin = int(pattern_radius * 0.5)
+    scan_r = int(pattern_radius) + margin
 
-    boundary_radii = []
-    for angle in range(0, 360, 5):
-        angle_rad = math.radians(angle - 90)
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
+    # Scan region around center for grid pixels and record their distance
+    scan_y0 = max(0, cy - scan_r)
+    scan_y1 = min(h, cy + scan_r)
+    scan_x0 = max(col_start, cx - scan_r)
+    scan_x1 = min(col_end, cx + scan_r)
 
-        outermost_grid_r = 0
-        for r in range(5, max_scan):
-            x = int(cx + r * cos_a)
-            y = int(cy + r * sin_a)
-            # Stay within first column and image bounds
-            if 0 <= x < col_end and 0 <= y < h:
-                rv, gv, bv = arr[y, x, :3]
-                if is_grid_pixel(rv, gv, bv):
-                    outermost_grid_r = r
-            else:
-                break  # hit column or image boundary
+    dist_hist = [0] * (scan_r + 1)
+    for y in range(scan_y0, scan_y1):
+        for x in range(scan_x0, scan_x1):
+            rv, gv, bv = arr[y, x, :3]
+            if is_grid_pixel(rv, gv, bv):
+                d = int(math.sqrt((x - cx) ** 2 + (y - cy) ** 2))
+                if d <= scan_r:
+                    dist_hist[d] += 1
 
-        if outermost_grid_r > 0:
-            boundary_radii.append(outermost_grid_r)
+    # Smooth histogram (5px window) to find ring peaks
+    smoothed = [0] * len(dist_hist)
+    for i in range(2, len(dist_hist) - 2):
+        smoothed[i] = sum(dist_hist[i - 2:i + 3]) / 5
 
-    if not boundary_radii:
-        return pattern_radius  # fallback
+    # Find peaks: local maxima above a threshold.
+    # Grid rings should have more pixels than inter-ring areas.
+    threshold = max(smoothed[10:]) * 0.3 if max(smoothed[10:]) > 0 else 1
+    peaks = []
+    for r in range(10, len(smoothed) - 3):
+        if (smoothed[r] >= threshold and
+                smoothed[r] >= smoothed[r - 3] and
+                smoothed[r] >= smoothed[r + 3]):
+            peaks.append((r, smoothed[r]))
 
-    # Use 90th percentile - some directions are cut short by labels or row gaps
-    boundary_radii.sort()
-    idx = int(len(boundary_radii) * 0.9)
-    return boundary_radii[min(idx, len(boundary_radii) - 1)]
+    # Deduplicate peaks within 5px of each other (keep highest)
+    deduped = []
+    for r, v in peaks:
+        if deduped and r - deduped[-1][0] < 5:
+            if v > deduped[-1][1]:
+                deduped[-1] = (r, v)
+        else:
+            deduped.append((r, v))
+
+    if deduped:
+        # The outermost peak is the outer grid ring.
+        # But check: if the outermost peak is much weaker than inner peaks,
+        # it might be a label artifact. Use the outermost "strong" peak.
+        max_val = max(v for _, v in deduped)
+        strong_peaks = [(r, v) for r, v in deduped if v > max_val * 0.2]
+        outer_r = max(r for r, v in strong_peaks)
+        return outer_r
+
+    return int(pattern_radius)
 
 
-def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range):
+# ── Pattern extraction ───────────────────────────────────────────────────────
+
+def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range,
+                           search_start=None):
     """Extract gain values by ray casting from center outward.
 
+    outer_radius: radius that maps to db_max (the outer grid ring) for dB calculation.
+    search_start: outermost radius to scan from (default: outer_radius + 5).
+                  Set to pattern_radius + margin to avoid hitting legend markers
+                  or other artifacts outside the actual pattern.
+
     Returns 359 values (0-358 degrees), normalized to peak = 0 dB.
-    Matches the elevation array format in antenna-patterns.json.
+    Convention: 0 deg at top of polar plot, clockwise.
     """
     h, w = arr.shape[:2]
     db_min = db_max - db_range
+    if search_start is None:
+        search_start = int(outer_radius) + 5
 
     gains = []
     for angle_deg in range(359):
-        # Polar plots: 0 deg at top, clockwise
-        angle_rad = math.radians(angle_deg - 90)
+        # 0 deg at top (north), clockwise
+        angle_rad = math.radians(-angle_deg - 90)  # CCW from 12 o'clock
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
 
-        # Cast ray from outer edge inward, find outermost blue pixel
-        # Check a 3px wide band for each radius to avoid missing the line
+        # Cast ray from search_start inward, find outermost blue pixel
+        # Check 3px wide band for each radius to avoid missing the line
         found_r = 0
-        for r in range(int(outer_radius) + 5, 2, -1):
+        for r in range(search_start, 2, -1):
             hit = False
             for offset in [-1, 0, 1]:
                 # Perpendicular offset
@@ -193,9 +278,327 @@ def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range):
     # Normalize to peak = 0 dB
     peak = max(gains)
     gains = [round(g - peak, 1) for g in gains]
-
     return gains
 
+
+# ── Calibration ──────────────────────────────────────────────────────────────
+
+def cross_correlate(extracted, reference):
+    """Find angular rotation that best aligns extracted with reference.
+
+    Uses Pearson correlation coefficient instead of RMSE to handle cases where
+    the extracted dynamic range is compressed (pattern doesn't reach grid edge).
+    Returns (best_offset, best_corr, rmse_at_best).
+    """
+    n = len(extracted)
+    best_offset = 0
+    best_corr = -2.0
+
+    # Pre-compute reference stats
+    ref_mean = sum(reference[:n]) / n
+    ref_dev = [b - ref_mean for b in reference[:n]]
+    den_b = math.sqrt(sum(d * d for d in ref_dev))
+    if den_b == 0:
+        return 0, 0.0, 99.0
+
+    for offset in range(n):
+        rotated = extracted[offset:] + extracted[:offset]
+        a_mean = sum(rotated) / n
+        a_dev = [a - a_mean for a in rotated]
+        den_a = math.sqrt(sum(d * d for d in a_dev))
+
+        if den_a > 0:
+            corr = sum(a * b for a, b in zip(a_dev, ref_dev)) / (den_a * den_b)
+            if corr > best_corr:
+                best_corr = corr
+                best_offset = offset
+
+    # Compute RMSE at best offset for reporting
+    rotated = extracted[best_offset:] + extracted[:best_offset]
+    rmse = math.sqrt(sum((a - b) ** 2 for a, b in zip(rotated, reference[:n])) / n)
+
+    return best_offset, best_corr, rmse
+
+
+def calibrate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range,
+                         debug=False):
+    """Extract el90 from column 2, calibrate angular offset AND grid_r.
+
+    Two-phase calibration:
+    1. Find angular offset using Pearson correlation (scale-invariant)
+    2. Optimize grid_r to minimize RMSE given the angular offset
+
+    Uses the best-correlating band (usually 2.4 GHz) for calibration.
+    Returns (angular_offset, calibrated_radius, el90_plots).
+    """
+    h, w = arr.shape[:2]
+    col2_start = w // 4
+    col2_end = w // 2
+
+    print(f"\n  === Calibrating with Elevation 90 (column 2) ===")
+
+    el90_plots = find_plots_in_column(arr, col2_start, col2_end)
+    print(f"  Found {len(el90_plots)} el90 plots in column 2")
+
+    if not el90_plots:
+        print("  WARNING: No el90 plots found! Cannot calibrate.")
+        return 0, None, []
+
+    if len(el90_plots) != len(el0_plots):
+        print(f"  WARNING: el90 count ({len(el90_plots)}) != el0 count ({len(el0_plots)})")
+
+    # Map sub-bands to .ant band keys
+    band_map = {
+        "2.4": "2.4", "2.45": "2.4",
+        "5.15": "5", "5.5": "5", "5.85": "5",
+        "6.0": "6", "6.5": "6", "6.5b": "6", "7.0": "6",
+    }
+
+    # Phase 1: Extract el90 for each band and find angular offset + raw radii
+    band_results = []
+    for i, band in enumerate(bands):
+        if i >= len(el90_plots):
+            break
+
+        plot = el90_plots[i]
+        cx, cy = plot["cx"], plot["cy"]
+        detected_r = plot.get("radius", plot["pattern_radius"])
+
+        ant_band = band_map.get(band, band)
+        if model not in ant_data or ant_band not in ant_data[model]:
+            print(f"    {band}: no .ant ref for '{ant_band}', skip")
+            continue
+
+        ref_el90 = ant_data[model][ant_band].get("elevation", [])
+        if not ref_el90:
+            continue
+
+        # Extract raw radii (for grid_r optimization later)
+        pat_r = plot["pattern_radius"]
+        search_r = int(pat_r) + 10
+        _, radii = extract_pattern_with_radii(arr, cx, cy, detected_r, db_max, db_range,
+                                               search_start=search_r)
+
+        # Initial extraction with detected grid_r for angular offset
+        extracted = extract_polar_pattern(arr, cx, cy, detected_r, db_max, db_range,
+                                           search_start=search_r)
+        offset, corr, rmse = cross_correlate(extracted, ref_el90)
+
+        ext_peak = extracted.index(0.0)
+        ref_peak = ref_el90.index(0.0) if 0.0 in ref_el90 else "?"
+
+        shift = math.sqrt((cx - plot["blue_cx"]) ** 2 +
+                           (cy - plot["blue_cy"]) ** 2)
+
+        print(f"    {band}: center=({cx},{cy}) shift={shift:.0f}px "
+              f"det_r={detected_r:.0f}")
+        print(f"           ext_peak@{ext_peak}deg ref_peak@{ref_peak}deg "
+              f"offset={offset}deg corr={corr:.3f} RMSE={rmse:.1f}dB")
+
+        band_results.append({
+            "band": band, "ref_el90": ref_el90, "radii": radii,
+            "offset": offset, "corr": corr, "detected_r": detected_r,
+        })
+
+    if not band_results:
+        return 0, None, el90_plots
+
+    # Phase 2: Use best-correlating band to calibrate grid_r.
+    # Pearson correlation is scale-invariant, so angular offset is reliable
+    # even with wrong grid_r. Now optimize grid_r to minimize RMSE.
+    best = max(band_results, key=lambda b: b["corr"])
+    print(f"\n  Best calibration band: {best['band']} (corr={best['corr']:.3f})")
+
+    angular_offset = best["offset"]
+    radii = best["radii"]
+    ref = best["ref_el90"]
+    n = min(len(radii), len(ref))
+
+    # Rotate radii to match reference alignment
+    rot_radii = radii[angular_offset:] + radii[:angular_offset]
+
+    # Search for optimal grid_r
+    best_rmse = 999.0
+    best_grid_r = best["detected_r"]
+    db_min = db_max - db_range
+
+    # Constrain search: grid_r can't exceed distance from center to column edge
+    # for EITHER column (el90 for calibration, el0 for actual extraction).
+    det_r = int(best["detected_r"])
+    # Physical limit from el90 column
+    best_cx_90 = el90_plots[0]["cx"] if el90_plots else (col2_start + col2_end) // 2
+    max_r_90 = min(best_cx_90 - col2_start, col2_end - best_cx_90) - 5
+    # Physical limit from el0 column (grid_r must also work there)
+    best_cx_0 = el0_plots[0]["cx"] if el0_plots else col2_start // 2
+    col1_end = col2_start  # el0 column ends where el90 starts
+    max_r_0 = min(best_cx_0, col1_end - best_cx_0) - 5
+    max_physical_r = min(max_r_90, max_r_0)
+    search_lo = max(40, int(det_r * 0.5))
+    search_hi = min(int(det_r * 1.5), max_physical_r)
+    for candidate_r in range(search_lo, search_hi):
+        gains = []
+        for a in range(n):
+            r = rot_radii[a]
+            if r > 0:
+                g = db_min + (r / candidate_r) * db_range
+            else:
+                g = db_min
+            gains.append(g)
+
+        peak = max(gains)
+        norm = [g - peak for g in gains]
+
+        # RMSE against reference (skip angles with no data)
+        total = 0
+        count = 0
+        for a in range(n):
+            if rot_radii[a] > 0:
+                total += (norm[a] - ref[a]) ** 2
+                count += 1
+        if count > 0:
+            rmse = math.sqrt(total / count)
+            if rmse < best_rmse:
+                best_rmse = rmse
+                best_grid_r = candidate_r
+
+    print(f"  Optimal grid_r: {best_grid_r}px (RMSE={best_rmse:.1f}dB)")
+    print(f"  Detected grid_r was: {best['detected_r']:.0f}px")
+
+    # Show calibrated match quality
+    if debug:
+        rot_radii2 = radii[angular_offset:] + radii[:angular_offset]
+        gains = []
+        for a in range(n):
+            r = rot_radii2[a]
+            g = db_min + (r / best_grid_r) * db_range if r > 0 else db_min
+            gains.append(g)
+        peak = max(gains)
+        norm = [round(g - peak, 1) for g in gains]
+        for d in [0, 45, 90, 135, 180, 225, 270, 315]:
+            diff = norm[d] - ref[d]
+            flag = " <<<" if abs(diff) > 5 else ""
+            print(f"    [{d:3d}] calibrated={norm[d]:6.1f} "
+                  f"ref={ref[d]:6.1f} diff={diff:+.1f}{flag}")
+
+    # For all other bands, report correlation at the calibrated grid_r
+    for br in band_results:
+        if br["band"] == best["band"]:
+            continue
+        rot_r = br["radii"][angular_offset:] + br["radii"][:angular_offset]
+        gains = []
+        for a in range(min(len(rot_r), len(br["ref_el90"]))):
+            r = rot_r[a]
+            g = db_min + (r / best_grid_r) * db_range if r > 0 else db_min
+            gains.append(g)
+        peak_g = max(gains)
+        norm = [round(g - peak_g, 1) for g in gains]
+        ref_b = br["ref_el90"][:len(norm)]
+        total = sum((a - b) ** 2 for a, b in zip(norm, ref_b))
+        rmse = math.sqrt(total / len(norm))
+        print(f"    {br['band']}: RMSE={rmse:.1f}dB at calibrated grid_r")
+
+    print(f"\n  Calibration summary:")
+    print(f"    Angular offset: {angular_offset} deg (from best band: {best['band']})")
+    print(f"    Grid radius: {best_grid_r}px")
+
+    return angular_offset, best_grid_r, el90_plots
+
+
+# ── Debug image ──────────────────────────────────────────────────────────────
+
+def extract_pattern_with_radii(arr, cx, cy, outer_radius, db_max, db_range,
+                                search_start=None):
+    """Extract pattern AND return the raw found_r for each angle (for visualization)."""
+    h, w = arr.shape[:2]
+    db_min = db_max - db_range
+    if search_start is None:
+        search_start = int(outer_radius) + 5
+    gains = []
+    radii = []
+
+    for angle_deg in range(359):
+        angle_rad = math.radians(-angle_deg - 90)  # CCW from 12 o'clock
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+
+        found_r = 0
+        for r in range(search_start, 2, -1):
+            hit = False
+            for offset in [-1, 0, 1]:
+                x = int(cx + r * cos_a + offset * sin_a)
+                y = int(cy + r * sin_a - offset * cos_a)
+                if 0 <= x < w and 0 <= y < h:
+                    rv, gv, bv = arr[y, x, :3]
+                    if is_pattern_line(rv, gv, bv):
+                        hit = True
+                        break
+            if hit:
+                found_r = r
+                break
+
+        if found_r > 0:
+            gain = db_min + (found_r / outer_radius) * db_range
+        else:
+            gain = db_min
+        gains.append(round(gain, 1))
+        radii.append(found_r)
+
+    peak = max(gains)
+    gains = [round(g - peak, 1) for g in gains]
+    return gains, radii
+
+
+def save_debug_image(arr, img, el0_plots, el90_plots, calibrated_radius, bands,
+                      db_max, db_range, out_path):
+    """Save annotated image with detected centers, radii, and extracted patterns."""
+    debug_img = img.copy()
+    draw = ImageDraw.Draw(debug_img)
+
+    for plots, col_label, color, dot_color in [
+        (el0_plots, "EL0", "red", "yellow"),
+        (el90_plots, "EL90", "lime", "magenta"),
+    ]:
+        for i, p in enumerate(plots):
+            cx, cy = p["cx"], p["cy"]
+            r = calibrated_radius or p.get("radius", p["pattern_radius"])
+            band = bands[i] if i < len(bands) else f"#{i}"
+
+            # Crosshair at grid center (large)
+            draw.line([(cx - 12, cy), (cx + 12, cy)], fill=color, width=2)
+            draw.line([(cx, cy - 12), (cx, cy + 12)], fill=color, width=2)
+
+            # Circle at grid_r
+            draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)],
+                         outline=color, width=1)
+
+            # Blue center marker (bounding box center)
+            bcx, bcy = p["blue_cx"], p["blue_cy"]
+            draw.line([(bcx - 5, bcy), (bcx + 5, bcy)], fill="cyan", width=1)
+            draw.line([(bcx, bcy - 5), (bcx, bcy + 5)], fill="cyan", width=1)
+
+            # Extract pattern and draw detected points
+            pat_r = p["pattern_radius"]
+            sr = max(int(pat_r) + 10, int(r) + 5)
+            _, radii = extract_pattern_with_radii(arr, cx, cy, r, db_max, db_range,
+                                                   search_start=sr)
+            for angle_deg in range(359):
+                found_r = radii[angle_deg]
+                if found_r > 0:
+                    angle_rad = math.radians(-angle_deg - 90)  # CCW from 12 o'clock
+                    px = int(cx + found_r * math.cos(angle_rad))
+                    py = int(cy + found_r * math.sin(angle_rad))
+                    # Draw small dot
+                    draw.rectangle([(px, py), (px + 1, py + 1)], fill=dot_color)
+
+            # Label
+            label = f"{col_label} {band}"
+            draw.text((cx + 15, cy - 15), label, fill=color)
+
+    debug_img.save(out_path)
+    print(f"  Debug image: {out_path}")
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     debug = "--debug" in sys.argv
@@ -213,7 +616,8 @@ def main():
     db_range = db_max - db_min
 
     if not args:
-        print("Usage: python extract-elevation0-from-images.py <image_path> --db-max 15 --db-min -20 [--debug]")
+        print("Usage: python extract-elevation0-from-images.py <image_path> "
+              "--db-max 15 --db-min -20 [--debug]")
         sys.exit(1)
 
     image_path = Path(args[0])
@@ -226,17 +630,29 @@ def main():
 
     img = Image.open(image_path)
     arr = np.array(img)
-    print(f"  Image: {img.size[0]}x{img.size[1]}")
+    h, w = arr.shape[:2]
+    print(f"  Image: {w}x{h}")
 
-    plots = find_elevation0_plots(arr)
-    print(f"  Found {len(plots)} plots")
+    # ── Phase 1: Find el0 plots in column 1 ──
+    col1_end = w // 4
+    el0_plots = find_plots_in_column(arr, 0, col1_end)
+    print(f"  Found {len(el0_plots)} el0 plots in column 1")
 
-    if not plots:
+    if not el0_plots:
         print("  ERROR: No plots found!")
         sys.exit(1)
 
-    # Band labels based on count
-    n = len(plots)
+    for i, p in enumerate(el0_plots):
+        shift = math.sqrt((p["cx"] - p["blue_cx"]) ** 2 +
+                           (p["cy"] - p["blue_cy"]) ** 2)
+        print(f"    #{i}: grid_center=({p['cx']},{p['cy']}) "
+              f"blue_center=({p['blue_cx']},{p['blue_cy']}) "
+              f"shift={shift:.0f}px grid_r={p.get('radius', 0):.0f} "
+              f"pat_r={p['pattern_radius']:.0f} "
+              f"n_grid={p['n_grid_pixels']}")
+
+    # Band labels based on plot count
+    n = len(el0_plots)
     if n == 8:
         bands = ["2.4", "5.15", "5.5", "5.85", "6.0", "6.5", "6.5b", "7.0"]
     elif n == 7:
@@ -250,16 +666,60 @@ def main():
     else:
         bands = [f"band{i}" for i in range(n)]
 
+    # ── Phase 2: Calibrate with el90 from column 2 ──
+    model = image_path.stem.replace(" Total", "").replace(" ", "-")
+
+    # Search upward for antenna-patterns.json
+    ant_json = None
+    search = image_path.parent
+    for _ in range(8):
+        candidate = search / "src" / "NetworkOptimizer.Web" / "wwwroot" / "data" / "antenna-patterns.json"
+        if candidate.exists():
+            ant_json = candidate
+            break
+        search = search.parent
+
+    angular_offset = 0
+    cal_radius = None
+    el90_plots = []
+
+    ant_data = {}
+    if ant_json:
+        with open(ant_json) as f:
+            ant_data = json.load(f)
+        print(f"  Loaded .ant data from: {ant_json}")
+
+        angular_offset, cal_radius, el90_plots = calibrate_with_el90(
+            arr, el0_plots, ant_data, model, bands, db_max, db_range, debug)
+    else:
+        print(f"\n  No antenna-patterns.json found for calibration")
+
+    # Use calibrated radius for el0, or fall back to detected
+    use_radius = cal_radius if cal_radius else el0_plots[0].get("radius",
+                                                                  el0_plots[0]["pattern_radius"])
+
+    # ── Phase 3: Extract el0 with calibrated parameters ──
+    print(f"\n  === Extracting Elevation 0 (column 1) with calibration ===")
+    print(f"  Using radius={use_radius:.0f}px, angular_offset={angular_offset}deg")
+
     results = {}
-    for i, (plot, band) in enumerate(zip(plots, bands)):
+    for i, (plot, band) in enumerate(zip(el0_plots, bands)):
         cx, cy = plot["cx"], plot["cy"]
-        grid_r = plot["radius"]
         pat_r = plot["pattern_radius"]
-        gains = extract_polar_pattern(arr, cx, cy, grid_r, db_max, db_range)
+        search_r = max(int(pat_r) + 10, int(use_radius) + 5)
+        raw_gains = extract_polar_pattern(arr, cx, cy, use_radius, db_max, db_range,
+                                           search_start=search_r)
+
+        # Apply angular offset from calibration
+        if angular_offset > 0:
+            gains = raw_gains[angular_offset:] + raw_gains[:angular_offset]
+        else:
+            gains = raw_gains
 
         peak_idx = gains.index(0.0)
         min_val = min(gains)
-        print(f"  {band}: center=({cx},{cy}) grid_r={grid_r:.0f} pat_r={pat_r:.0f} peak@{peak_idx}deg min={min_val:.1f}dB")
+        print(f"  {band}: center=({cx},{cy}) r={use_radius:.0f} "
+              f"peak@{peak_idx}deg min={min_val:.1f}dB")
 
         if debug:
             for d in range(0, 359, 15):
@@ -267,34 +727,52 @@ def main():
 
         results[band] = gains
 
-    # Compare with existing .ant data if available
-    ant_json = image_path.parent.parent.parent / "src" / "NetworkOptimizer.Web" / "wwwroot" / "data" / "antenna-patterns.json"
-    model = image_path.stem.replace(" Total", "").replace(" ", "-")
+    # ── Phase 4: Validation - compare el0 vs el90 ──
+    if ant_json and model in ant_data:
+        band_map = {
+            "2.4": "2.4", "2.45": "2.4",
+            "5.15": "5", "5.5": "5", "5.85": "5",
+            "6.0": "6", "6.5": "6", "6.5b": "6", "7.0": "6",
+        }
 
-    if ant_json.exists():
-        with open(ant_json) as f:
-            existing = json.load(f)
-        if model in existing:
-            print(f"\n  Comparison with existing .ant elevation (Elevation 90 deg cut):")
-            for band in results:
-                ant_band = band.replace(".15", "").replace(".5", "").replace(".85", "")
-                # Try exact band match first, then simplified
-                for try_band in [band, ant_band]:
-                    if try_band in existing[model]:
-                        ant_el = existing[model][try_band].get("elevation", [])
-                        if ant_el:
-                            new_el = results[band]
-                            print(f"    {band}: el0[0]={new_el[0]:.1f} vs el90[0]={ant_el[0]:.1f}  "
-                                  f"el0[90]={new_el[90]:.1f} vs el90[90]={ant_el[90]:.1f}  "
-                                  f"el0[180]={new_el[180]:.1f} vs el90[180]={ant_el[180]:.1f}")
-                        break
+        print(f"\n  === Validation: el0 vs el90 (should be within ~25%) ===")
+        for band in results:
+            ant_band = band_map.get(band, band)
+            if ant_band in ant_data.get(model, {}):
+                ref_el90 = ant_data[model][ant_band].get("elevation", [])
+                if ref_el90:
+                    el0 = results[band]
+                    # Count points within 25% (relative to range)
+                    total = 0
+                    close = 0
+                    for a, b in zip(el0, ref_el90):
+                        if a > -25 and b > -25:
+                            total += 1
+                            # "Within 25%" = absolute difference < 25% of dynamic range
+                            if abs(a - b) < db_range * 0.25:
+                                close += 1
+                    pct = (close / total * 100) if total > 0 else 0
+                    print(f"    {band} -> {ant_band}: {close}/{total} points "
+                          f"within 25% ({pct:.0f}%)")
+                    # Show key angles
+                    for d in [0, 90, 180, 270]:
+                        diff = el0[d] - ref_el90[d]
+                        print(f"      [{d:3d}] el0={el0[d]:6.1f} el90={ref_el90[d]:6.1f} "
+                              f"diff={diff:+.1f}")
 
+    # ── Save output ──
     output = {model: {"elevation_0": results}}
     out_path = image_path.with_suffix(".elevation0.json")
     with open(out_path, "w") as f:
         json.dump(output, f, indent=2)
     print(f"\n  Model: {model}")
     print(f"  Saved: {out_path}")
+
+    # ── Save debug image ──
+    if debug:
+        debug_path = image_path.with_suffix(".debug.png")
+        save_debug_image(arr, img, el0_plots, el90_plots, use_radius, bands,
+                          db_max, db_range, debug_path)
 
 
 if __name__ == "__main__":
