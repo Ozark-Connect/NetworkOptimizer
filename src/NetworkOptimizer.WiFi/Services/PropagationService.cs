@@ -215,7 +215,7 @@ public class PropagationService
             // Use Elevation 0 deg cut (digitized from reference images) for the X/Y shape when available,
             // as the .ant Elevation 90 deg cut produces incorrect floor plan shapes for wall-mounted APs.
             // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
-            azGain = _antennaLoader.GetElevation0Gain(ap.Model, band, (360 - azimuthDeg) % 360, ap.AntennaMode);
+            azGain = _antennaLoader.GetElevation0Gain(ap.Model, band, azimuthDeg, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
