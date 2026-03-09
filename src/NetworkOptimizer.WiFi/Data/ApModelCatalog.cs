@@ -117,6 +117,13 @@ public static class ApModelCatalog
             ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
             ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 8 },
         },
+        ["U7-Mesh"] = new()
+        {
+            // Dual-antenna: omni (6 dBi) + directional (10 dBi) active simultaneously.
+            // Pattern file is the combined shape; gain matches directional peak.
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
+            ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 10 },
+        },
         ["U7-Outdoor"] = new()
         {
             // Website specs: Directional 8/12.5 dBi, OMNI 3/4 dBi
@@ -146,9 +153,10 @@ public static class ApModelCatalog
         // === Wi-Fi 6E / Enterprise APs ===
         ["E7"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 4 },
-            ["5"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
-            ["6"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
+            // Spec page: 2.4 GHz 5 dBi / 23 dBm, 5 GHz 6 dBi / 30 dBm, 6 GHz 6 dBi / 24-30 dBm
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 5 },
+            ["5"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
+            ["6"] = new() { DefaultTxPowerDbm = 30, MinTxPowerDbm = 1, MaxTxPowerDbm = 30, AntennaGainDbi = 6 },
         },
         ["E7-Campus"] = new()
         {
