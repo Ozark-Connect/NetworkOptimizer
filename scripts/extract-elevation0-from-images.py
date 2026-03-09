@@ -142,14 +142,17 @@ def main():
     debug = "--debug" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
-    # Parse --db-max
+    # Parse --db-max and --db-range
     db_max = 10.0
+    db_range_override = None
     for i, a in enumerate(sys.argv):
         if a == "--db-max" and i + 1 < len(sys.argv):
             db_max = float(sys.argv[i + 1])
+        if a == "--db-range" and i + 1 < len(sys.argv):
+            db_range_override = float(sys.argv[i + 1])
 
     if not args:
-        print("Usage: python extract-elevation0-from-images.py <image_path> [--db-max 10] [--debug]")
+        print("Usage: python extract-elevation0-from-images.py <image_path> [--db-max 10] [--db-range 20] [--debug]")
         sys.exit(1)
 
     image_path = Path(args[0])
@@ -173,10 +176,14 @@ def main():
         print("  ERROR: No plots found!")
         sys.exit(1)
 
-    # Detect grid rings on the first large plot
+    # Detect grid rings on the first large plot (or use override)
     p = plots[0]
-    db_range = detect_db_range(arr, p["cx"], p["cy"], p["radius"])
-    print(f"  dB range: {db_range} dB (center = {db_max - db_range} dBi)")
+    if db_range_override is not None:
+        db_range = db_range_override
+        print(f"  dB range: {db_range} dB (manual override, center = {db_max - db_range} dBi)")
+    else:
+        db_range = detect_db_range(arr, p["cx"], p["cy"], p["radius"])
+        print(f"  dB range: {db_range} dB (auto-detected, center = {db_max - db_range} dBi)")
 
     # Band labels based on count
     n = len(plots)
