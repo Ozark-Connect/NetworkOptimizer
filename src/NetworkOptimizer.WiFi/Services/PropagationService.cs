@@ -163,12 +163,16 @@ public class PropagationService
 
         // Desktop (non-native): flipping the AP rotates the pattern 180°.
         // Ceiling: 180° rotation + left/right mirror (looking at the back from above).
+        // Mesh wall/pole: 180° rotation - the pattern is measured face-on but
+        // OrientationDeg on the map points opposite to the pattern's 0° reference.
         var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
         var isCeilingNative = defaultMount == "ceiling";
         if (effectiveMount == "desktop" && defaultMount != "desktop")
             azimuthDeg = (azimuthDeg + 180) % 360;
         else if (effectiveMount == "ceiling")
             azimuthDeg = (180 - azimuthDeg + 360) % 360;
+        else if (effectiveMount == "wall" && IsMeshModel(ap.Model))
+            azimuthDeg = (azimuthDeg + 180) % 360;
 
         // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
         // OrientationDeg represents U-tips direction, so always add 90° to align.

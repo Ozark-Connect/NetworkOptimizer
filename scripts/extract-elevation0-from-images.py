@@ -320,29 +320,28 @@ def cross_correlate(extracted, reference):
     return best_offset, best_corr, rmse
 
 
-def calibrate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range,
-                         debug=False):
-    """Extract el90 from column 2, calibrate angular offset AND grid_r.
+def validate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range,
+                        debug=False):
+    """Validate extraction parameters using el90 from column 2 vs .ant reference.
 
-    Two-phase calibration:
-    1. Find angular offset using Pearson correlation (scale-invariant)
-    2. Optimize grid_r to minimize RMSE given the angular offset
+    Extracts el90 from the image using the detected grid_r, compares with .ant
+    reference data, and reports match quality. This is purely validation - the
+    grid_r and angles come from physical detection in the image, not from fitting.
 
-    Uses the best-correlating band (usually 2.4 GHz) for calibration.
-    Returns (angular_offset, calibrated_radius, el90_plots).
+    Returns (detected_grid_r, el90_plots).
     """
     h, w = arr.shape[:2]
     col2_start = w // 4
     col2_end = w // 2
 
-    print(f"\n  === Calibrating with Elevation 90 (column 2) ===")
+    print(f"\n  === Validating with Elevation 90 (column 2) ===")
 
     el90_plots = find_plots_in_column(arr, col2_start, col2_end)
     print(f"  Found {len(el90_plots)} el90 plots in column 2")
 
     if not el90_plots:
-        print("  WARNING: No el90 plots found! Cannot calibrate.")
-        return 0, None, []
+        print("  WARNING: No el90 plots found!")
+        return None, []
 
     if len(el90_plots) != len(el0_plots):
         print(f"  WARNING: el90 count ({len(el90_plots)}) != el0 count ({len(el0_plots)})")
@@ -354,8 +353,7 @@ def calibrate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range
         "6.0": "6", "6.5": "6", "6.5b": "6", "7.0": "6",
     }
 
-    # Phase 1: Extract el90 for each band and find angular offset + raw radii
-    band_results = []
+    # Extract el90 for each band and compare with .ant reference
     for i, band in enumerate(bands):
         if i >= len(el90_plots):
             break
@@ -373,19 +371,18 @@ def calibrate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range
         if not ref_el90:
             continue
 
-        # Extract raw radii (for grid_r optimization later)
         pat_r = plot["pattern_radius"]
         search_r = int(pat_r) + 10
-        _, radii = extract_pattern_with_radii(arr, cx, cy, detected_r, db_max, db_range,
-                                               search_start=search_r)
 
-        # Initial extraction with detected grid_r for angular offset
         extracted = extract_polar_pattern(arr, cx, cy, detected_r, db_max, db_range,
                                            search_start=search_r)
-        offset, corr, rmse = cross_correlate(extracted, ref_el90)
 
         ext_peak = extracted.index(0.0)
         ref_peak = ref_el90.index(0.0) if 0.0 in ref_el90 else "?"
+
+        # Compute RMSE
+        n = min(len(extracted), len(ref_el90))
+        rmse = math.sqrt(sum((a - b) ** 2 for a, b in zip(extracted[:n], ref_el90[:n])) / n)
 
         shift = math.sqrt((cx - plot["blue_cx"]) ** 2 +
                            (cy - plot["blue_cy"]) ** 2)
@@ -393,115 +390,12 @@ def calibrate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range
         print(f"    {band}: center=({cx},{cy}) shift={shift:.0f}px "
               f"det_r={detected_r:.0f}")
         print(f"           ext_peak@{ext_peak}deg ref_peak@{ref_peak}deg "
-              f"offset={offset}deg corr={corr:.3f} RMSE={rmse:.1f}dB")
+              f"RMSE={rmse:.1f}dB")
 
-        band_results.append({
-            "band": band, "ref_el90": ref_el90, "radii": radii,
-            "offset": offset, "corr": corr, "detected_r": detected_r,
-        })
+    grid_r = int(el90_plots[0].get("radius", el90_plots[0]["pattern_radius"]))
+    print(f"\n  Grid radius (detected): {grid_r}px")
 
-    if not band_results:
-        return 0, None, el90_plots
-
-    # Phase 2: Use best-correlating band to calibrate grid_r.
-    # Pearson correlation is scale-invariant, so angular offset is reliable
-    # even with wrong grid_r. Now optimize grid_r to minimize RMSE.
-    best = max(band_results, key=lambda b: b["corr"])
-    print(f"\n  Best calibration band: {best['band']} (corr={best['corr']:.3f})")
-
-    angular_offset = best["offset"]
-    radii = best["radii"]
-    ref = best["ref_el90"]
-    n = min(len(radii), len(ref))
-
-    # Rotate radii to match reference alignment
-    rot_radii = radii[angular_offset:] + radii[:angular_offset]
-
-    # Search for optimal grid_r
-    best_rmse = 999.0
-    best_grid_r = best["detected_r"]
-    db_min = db_max - db_range
-
-    # Constrain search: grid_r can't exceed distance from center to column edge
-    # for EITHER column (el90 for calibration, el0 for actual extraction).
-    det_r = int(best["detected_r"])
-    # Physical limit from el90 column
-    best_cx_90 = el90_plots[0]["cx"] if el90_plots else (col2_start + col2_end) // 2
-    max_r_90 = min(best_cx_90 - col2_start, col2_end - best_cx_90) - 5
-    # Physical limit from el0 column (grid_r must also work there)
-    best_cx_0 = el0_plots[0]["cx"] if el0_plots else col2_start // 2
-    col1_end = col2_start  # el0 column ends where el90 starts
-    max_r_0 = min(best_cx_0, col1_end - best_cx_0) - 5
-    max_physical_r = min(max_r_90, max_r_0)
-    search_lo = max(40, int(det_r * 0.5))
-    search_hi = min(int(det_r * 1.5), max_physical_r)
-    for candidate_r in range(search_lo, search_hi):
-        gains = []
-        for a in range(n):
-            r = rot_radii[a]
-            if r > 0:
-                g = db_min + (r / candidate_r) * db_range
-            else:
-                g = db_min
-            gains.append(g)
-
-        peak = max(gains)
-        norm = [g - peak for g in gains]
-
-        # RMSE against reference (skip angles with no data)
-        total = 0
-        count = 0
-        for a in range(n):
-            if rot_radii[a] > 0:
-                total += (norm[a] - ref[a]) ** 2
-                count += 1
-        if count > 0:
-            rmse = math.sqrt(total / count)
-            if rmse < best_rmse:
-                best_rmse = rmse
-                best_grid_r = candidate_r
-
-    print(f"  Optimal grid_r: {best_grid_r}px (RMSE={best_rmse:.1f}dB)")
-    print(f"  Detected grid_r was: {best['detected_r']:.0f}px")
-
-    # Show calibrated match quality
-    if debug:
-        rot_radii2 = radii[angular_offset:] + radii[:angular_offset]
-        gains = []
-        for a in range(n):
-            r = rot_radii2[a]
-            g = db_min + (r / best_grid_r) * db_range if r > 0 else db_min
-            gains.append(g)
-        peak = max(gains)
-        norm = [round(g - peak, 1) for g in gains]
-        for d in [0, 45, 90, 135, 180, 225, 270, 315]:
-            diff = norm[d] - ref[d]
-            flag = " <<<" if abs(diff) > 5 else ""
-            print(f"    [{d:3d}] calibrated={norm[d]:6.1f} "
-                  f"ref={ref[d]:6.1f} diff={diff:+.1f}{flag}")
-
-    # For all other bands, report correlation at the calibrated grid_r
-    for br in band_results:
-        if br["band"] == best["band"]:
-            continue
-        rot_r = br["radii"][angular_offset:] + br["radii"][:angular_offset]
-        gains = []
-        for a in range(min(len(rot_r), len(br["ref_el90"]))):
-            r = rot_r[a]
-            g = db_min + (r / best_grid_r) * db_range if r > 0 else db_min
-            gains.append(g)
-        peak_g = max(gains)
-        norm = [round(g - peak_g, 1) for g in gains]
-        ref_b = br["ref_el90"][:len(norm)]
-        total = sum((a - b) ** 2 for a, b in zip(norm, ref_b))
-        rmse = math.sqrt(total / len(norm))
-        print(f"    {br['band']}: RMSE={rmse:.1f}dB at calibrated grid_r")
-
-    print(f"\n  Calibration summary:")
-    print(f"    Angular offset: {angular_offset} deg (from best band: {best['band']})")
-    print(f"    Grid radius: {best_grid_r}px")
-
-    return angular_offset, best_grid_r, el90_plots
+    return grid_r, el90_plots
 
 
 # ── Debug image ──────────────────────────────────────────────────────────────
@@ -605,7 +499,7 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
     # Parse --db-max and --db-min
-    db_max = 10.0
+    db_max = None
     db_min = -20.0
     for i, a in enumerate(sys.argv):
         if a == "--db-max" and i + 1 < len(sys.argv):
@@ -613,12 +507,19 @@ def main():
         if a == "--db-min" and i + 1 < len(sys.argv):
             db_min = float(sys.argv[i + 1])
 
-    db_range = db_max - db_min
-
     if not args:
         print("Usage: python extract-elevation0-from-images.py <image_path> "
-              "--db-max 15 --db-min -20 [--debug]")
+              "--db-max <value> --db-min -20 [--debug]")
+        print("\n  --db-max is REQUIRED. Read it from the outer ring label on the polar plot.")
+        print("  Common values: 10 (indoor APs), 15 (outdoor APs)")
         sys.exit(1)
+
+    if db_max is None:
+        print("ERROR: --db-max is required. Read the outer ring dBi label from the polar plot image.")
+        print("  Common values: 10 (indoor APs like U7-Pro-XGS), 15 (outdoor APs like U7-Outdoor)")
+        sys.exit(1)
+
+    db_range = db_max - db_min
 
     image_path = Path(args[0])
     if not image_path.exists():
@@ -666,7 +567,7 @@ def main():
     else:
         bands = [f"band{i}" for i in range(n)]
 
-    # ── Phase 2: Calibrate with el90 from column 2 ──
+    # ── Phase 2: Validate with el90 from column 2 ──
     model = image_path.stem.replace(" Total", "").replace(" ", "-")
 
     # Search upward for antenna-patterns.json
@@ -679,8 +580,6 @@ def main():
             break
         search = search.parent
 
-    angular_offset = 0
-    cal_radius = None
     el90_plots = []
 
     ant_data = {}
@@ -689,32 +588,25 @@ def main():
             ant_data = json.load(f)
         print(f"  Loaded .ant data from: {ant_json}")
 
-        angular_offset, cal_radius, el90_plots = calibrate_with_el90(
+        _, el90_plots = validate_with_el90(
             arr, el0_plots, ant_data, model, bands, db_max, db_range, debug)
     else:
-        print(f"\n  No antenna-patterns.json found for calibration")
+        print(f"\n  No antenna-patterns.json found for validation")
 
-    # Use calibrated radius for el0, or fall back to detected
-    use_radius = cal_radius if cal_radius else el0_plots[0].get("radius",
-                                                                  el0_plots[0]["pattern_radius"])
+    # Use el0's own detected grid_r
+    use_radius = el0_plots[0].get("radius", el0_plots[0]["pattern_radius"])
 
-    # ── Phase 3: Extract el0 with calibrated parameters ──
-    print(f"\n  === Extracting Elevation 0 (column 1) with calibration ===")
-    print(f"  Using radius={use_radius:.0f}px, angular_offset={angular_offset}deg")
+    # ── Phase 3: Extract el0 ──
+    print(f"\n  === Extracting Elevation 0 (column 1) ===")
+    print(f"  Using radius={use_radius:.0f}px")
 
     results = {}
     for i, (plot, band) in enumerate(zip(el0_plots, bands)):
         cx, cy = plot["cx"], plot["cy"]
         pat_r = plot["pattern_radius"]
         search_r = max(int(pat_r) + 10, int(use_radius) + 5)
-        raw_gains = extract_polar_pattern(arr, cx, cy, use_radius, db_max, db_range,
-                                           search_start=search_r)
-
-        # Apply angular offset from calibration
-        if angular_offset > 0:
-            gains = raw_gains[angular_offset:] + raw_gains[:angular_offset]
-        else:
-            gains = raw_gains
+        gains = extract_polar_pattern(arr, cx, cy, use_radius, db_max, db_range,
+                                       search_start=search_r)
 
         # Mirror for "from above" convention: the image shows the pattern from
         # below the AP, but the map/floor plan views from above. This flips
