@@ -184,7 +184,8 @@ public class PropagationService
         int elevationDeg;
         if (floorSeparation == 0)
         {
-            elevationDeg = 90; // horizon - no mount offset on same floor
+            // Wall-native patterns use 0° = broadside (horizon), not 90°.
+            elevationDeg = patternNativeMount == "wall" && effectiveMount == "wall" ? 0 : 90;
         }
         else
         {
