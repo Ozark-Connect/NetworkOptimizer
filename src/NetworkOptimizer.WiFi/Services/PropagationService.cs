@@ -172,9 +172,10 @@ public class PropagationService
         var isCeilingNative = defaultMount == "ceiling";
         if (effectiveMount == "wall" && IsMeshModel(ap.Model))
             azimuthDeg = (azimuthDeg + 180) % 360;
-        else if (IsMeshModel(ap.Model) && (effectiveMount == "ceiling" || effectiveMount == "desktop"))
-            azimuthDeg = (360 - azimuthDeg) % 360; // Y-axis mirror only, no 180° rotation
-        else if (effectiveMount == "desktop" && defaultMount != "desktop")
+        else if (effectiveMount == "ceiling" && IsMeshModel(ap.Model))
+            azimuthDeg = (360 - azimuthDeg) % 360; // Y-axis mirror: looking at back from above
+        // Mesh desktop: face up, looking from above at front = no transform needed
+        else if (effectiveMount == "desktop" && defaultMount != "desktop" && !IsMeshModel(ap.Model))
             azimuthDeg = (azimuthDeg + 180) % 360;
         else if (effectiveMount == "ceiling")
             azimuthDeg = (180 - azimuthDeg + 360) % 360;
