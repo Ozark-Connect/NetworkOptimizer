@@ -300,4 +300,94 @@ public class DaisyChainPathTests
     }
 
     #endregion
+
+    #region LAG Speed Tests
+
+    /// <summary>
+    /// When target is gateway and intermediate switches have LAG uplinks,
+    /// ingress should use LocalUplinkPort (LAG aggregate speed) not downstream chainPort.
+    /// Topology: Gateway -> Switch1 -> [LAG 2x10G] -> Switch2 -> Server
+    /// Switch1 egress toward Switch2 should show LAG aggregate (20 Gbps).
+    /// Switch2 ingress from Switch1 should show LAG aggregate (20 Gbps).
+    /// </summary>
+    [Fact]
+    public void BuildHopList_TargetIsGateway_LagUplink_ShowsAggregateSpeed()
+    {
+        // Arrange
+        var topology = NetworkTestData.CreateLagDaisyChainTopology();
+        var serverPosition = NetworkTestData.CreateDaisyChainServerPosition();
+        var rawDevices = NetworkTestData.CreateLagDaisyChainRawDevices();
+        var gateway = topology.Devices.First(d => d.Type == DeviceType.Gateway);
+        var path = new NetworkPath
+        {
+            SourceHost = serverPosition.IpAddress,
+            DestinationHost = gateway.IpAddress,
+            SourceVlanId = 1,
+            DestinationVlanId = 1,
+            RequiresRouting = false,
+            TargetIsGateway = true
+        };
+
+        // Act
+        _analyzer.BuildHopList(path, serverPosition, gateway, null, topology, rawDevices);
+
+        // Assert
+        path.Hops.Should().NotBeEmpty();
+
+        // Switch1 (Core Agg): egress port 5 is LAG parent (5+7) = 20 Gbps
+        var switch1Hop = path.Hops.FirstOrDefault(h => h.DeviceMac == NetworkTestData.Switch1Mac);
+        switch1Hop.Should().NotBeNull("Switch1 should be in path");
+        switch1Hop!.EgressSpeedMbps.Should().Be(20000,
+            "Switch1 egress port 5 is LAG parent (5+7 = 2x10G = 20 Gbps)");
+
+        // Switch2 (Core Switch): ingress port 17 is LAG parent (17+18) = 20 Gbps
+        var switch2Hop = path.Hops.FirstOrDefault(h => h.DeviceMac == NetworkTestData.Switch2Mac);
+        switch2Hop.Should().NotBeNull("Switch2 should be in path");
+        switch2Hop!.IngressSpeedMbps.Should().Be(20000,
+            "Switch2 ingress port 17 is LAG parent (17+18 = 2x10G = 20 Gbps)");
+
+        // Switch2 egress to server should be 2.5 Gbps (non-LAG port 3)
+        switch2Hop.EgressSpeedMbps.Should().Be(2500,
+            "Switch2 egress port 3 is a regular 2.5G port (server connection)");
+    }
+
+    /// <summary>
+    /// When server is downstream in a daisy-chain with LAG uplinks,
+    /// the reversed server chain should use LocalUplinkPort for ingress speed.
+    /// Topology: Gateway -> Switch1 -> [LAG 2x10G] -> Switch2 -> Server
+    /// NAS client on Switch1, Server on Switch2 (same VLAN = L2 path).
+    /// Switch2 ingress from Switch1 should show LAG aggregate (20 Gbps), not 2.5 Gbps.
+    /// </summary>
+    [Fact]
+    public void BuildHopList_DaisyChain_LagUplink_ShowsAggregateSpeed()
+    {
+        // Arrange
+        var topology = NetworkTestData.CreateLagDaisyChainTopology();
+        var serverPosition = NetworkTestData.CreateDaisyChainServerPosition();
+        var rawDevices = NetworkTestData.CreateLagDaisyChainRawDevices();
+        var client = topology.Clients.First(c => c.Mac == NetworkTestData.NasMac);
+        var path = new NetworkPath
+        {
+            SourceHost = serverPosition.IpAddress,
+            DestinationHost = client.IpAddress,
+            SourceVlanId = 1,
+            DestinationVlanId = 1,
+            RequiresRouting = false
+        };
+
+        // Act
+        _analyzer.BuildHopList(path, serverPosition, null, client, topology, rawDevices);
+
+        // Assert
+        path.Hops.Should().NotBeEmpty();
+
+        // Switch2 is added via the reversed server chain (below common ancestor Switch1).
+        // Its ingress should use LocalUplinkPort=17 (LAG 17+18 = 20 Gbps), not chainPort.
+        var switch2Hop = path.Hops.FirstOrDefault(h => h.DeviceMac == NetworkTestData.Switch2Mac);
+        switch2Hop.Should().NotBeNull("Switch2 should be in path");
+        switch2Hop!.IngressSpeedMbps.Should().Be(20000,
+            "Switch2 ingress should use LAG aggregate (port 17+18 = 20 Gbps) via LocalUplinkPort");
+    }
+
+    #endregion
 }
