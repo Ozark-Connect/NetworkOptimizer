@@ -161,12 +161,11 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((ap.OrientationDeg - azimuth + 360) % 360);
 
-        // Desktop mount flips the AP (logo/face up), reversing apparent rotation.
-        // Applies to ceiling-native and wall-native APs. Desktop-native APs (UDM, UDR)
-        // sit natively on desk so no flip occurs.
+        // Ceiling mount: floor plan looks from above at the back of the AP,
+        // mirroring left/right vs the face-on measurement perspective.
         var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
         var isCeilingNative = defaultMount == "ceiling";
-        if (effectiveMount == "desktop" && defaultMount != "desktop")
+        if (effectiveMount == "ceiling")
             azimuthDeg = (360 - azimuthDeg) % 360;
 
         // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
@@ -212,15 +211,15 @@ public class PropagationService
         {
             // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
             // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
-            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            azGain = _antennaLoader.GetElevationGain(ap.Model, band, (360 - azimuthDeg) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
         {
-            // Wall APs using azimuth pattern directly (e.g., outdoor omni): rotate
-            // 180° for top-down floor plan view. The pattern was measured face-on
-            // but the floor plan looks from above, reversing front/back.
-            var azIdx = effectiveMount == "wall" ? (azimuthDeg + 180) % 360 : azimuthDeg;
+            // Wall APs using azimuth pattern directly (e.g., outdoor omni): mirror
+            // for top-down floor plan view. Looking from above swaps left/right
+            // compared to face-on measurement perspective.
+            var azIdx = effectiveMount == "wall" ? (360 - azimuthDeg) % 360 : azimuthDeg;
             azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
