@@ -234,10 +234,7 @@ public class PropagationService
                 ? (360 - azimuthDeg) % 360
                 : azimuthDeg;
             azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
-            // Same-floor elevation is at the pattern's horizon (near 0 dB); cross-floor
-            // uses the actual elevation angle for above/below attenuation.
-            elGain = floorSeparation == 0 ? 0f
-                : _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+            elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
         var antennaGain = azGain + elGain;
 
