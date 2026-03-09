@@ -218,9 +218,10 @@ public class PropagationService
         {
             // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
             // Use Elevation 0 deg cut when available (more accurate than Elevation 90 deg from .ant files).
-            // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
             azGain = _antennaLoader.GetElevation0Gain(ap.Model, band, azimuthDeg, ap.AntennaMode);
-            elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
+            // Cross-floor: the +90° offset belongs to the azimuth pattern, so apply it to elevationDeg.
+            elGain = floorSeparation == 0 ? 0f
+                : _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
         {
@@ -233,7 +234,10 @@ public class PropagationService
                 ? (360 - azimuthDeg) % 360
                 : azimuthDeg;
             azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
-            elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
+            // Same-floor elevation is at the pattern's horizon (near 0 dB); cross-floor
+            // uses the actual elevation angle for above/below attenuation.
+            elGain = floorSeparation == 0 ? 0f
+                : _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
         var antennaGain = azGain + elGain;
 
