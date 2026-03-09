@@ -7,6 +7,9 @@ and use the match quality to validate center detection, radius, and angular mapp
 
 Usage:
     python scripts/extract-elevation0-from-images.py <image_path> --db-max 15 --db-min -20 [--debug]
+
+For images with multiple antenna variants (e.g., E7-Audience narrow + wide):
+    python scripts/extract-elevation0-from-images.py <image_path> --db-max 10 --variants narrow,wide
 """
 
 import sys
@@ -519,26 +522,138 @@ def save_debug_image(arr, img, el0_plots, el90_plots, calibrated_radius, bands,
     print(f"  Debug image: {out_path}")
 
 
+# ── Band assignment ──────────────────────────────────────────────────────────
+
+def assign_bands(n_plots, filename=""):
+    """Assign band labels to plots based on count and filename hints."""
+    fname = filename.lower()
+
+    if n_plots == 3:
+        # 3 plots: detect from filename
+        if "6ghz" in fname or "6 ghz" in fname:
+            return ["6.0", "6.5", "7.0"]
+        elif "5ghz" in fname or "5 ghz" in fname:
+            return ["5.15", "5.5", "5.85"]
+        elif "2.4" in fname or "2_4" in fname:
+            return ["2.4", "2.4b", "2.4c"]
+        return ["2.4", "5", "6"]
+    elif n_plots == 8:
+        return ["2.4", "5.15", "5.5", "5.85", "6.0", "6.5", "6.5b", "7.0"]
+    elif n_plots == 7:
+        return ["2.4", "5.15", "5.5", "5.85", "6.0", "6.5", "7.0"]
+    elif n_plots == 4:
+        return ["2.4", "5.15", "5.5", "5.85"]
+    elif n_plots == 2:
+        return ["2.4", "5"]
+    return [f"band{i}" for i in range(n_plots)]
+
+
+def extract_model_name(filename):
+    """Extract model name from image filename, stripping suffixes."""
+    name = filename.replace(" Total", "").replace(" ", "-")
+    # Strip -Summary-XGHz suffixes
+    import re
+    name = re.sub(r'-Summary-\d+(\.\d+)?GHz$', '', name, flags=re.IGNORECASE)
+    return name
+
+
+# ── Per-variant processing ──────────────────────────────────────────────────
+
+def process_variant(arr, plots, bands, model_key, ant_data, db_max, db_range,
+                    debug=False):
+    """Extract el0 patterns for a set of plots (one variant).
+
+    Returns dict of {band: gains}.
+    """
+    if not plots:
+        return {}
+
+    # Use this variant group's own median grid_r
+    use_radius = plots[0].get("radius", plots[0]["pattern_radius"])
+
+    print(f"\n  === Extracting Elevation 0 for {model_key} ===")
+    print(f"  Using radius={use_radius:.0f}px, {len(plots)} plots")
+
+    results = {}
+    for i, (plot, band) in enumerate(zip(plots, bands)):
+        cx, cy = plot["cx"], plot["cy"]
+        pat_r = plot["pattern_radius"]
+        search_r = max(int(pat_r) + 10, int(use_radius) + 5)
+        gains = extract_polar_pattern(arr, cx, cy, use_radius, db_max, db_range,
+                                       search_start=search_r)
+
+        # Mirror for "from above" convention
+        gains = [gains[0]] + gains[1:][::-1]
+
+        peak_idx = gains.index(0.0)
+        min_val = min(gains)
+        print(f"  {band}: center=({cx},{cy}) r={use_radius:.0f} "
+              f"peak@{peak_idx}deg min={min_val:.1f}dB")
+
+        if debug:
+            for d in range(0, 359, 15):
+                print(f"    [{d:3d}] = {gains[d]:6.1f} dB")
+
+        results[band] = gains
+
+    # Validation against .ant data
+    band_map = {
+        "2.4": "2.4", "2.45": "2.4",
+        "5.15": "5", "5.5": "5", "5.85": "5",
+        "6.0": "6", "6.5": "6", "6.5b": "6", "7.0": "6",
+    }
+
+    if model_key in ant_data:
+        print(f"\n  === Validation: el0 vs el90 for {model_key} ===")
+        for band in results:
+            ant_band = band_map.get(band, band)
+            if ant_band in ant_data.get(model_key, {}):
+                ref_el90 = ant_data[model_key][ant_band].get("elevation", [])
+                if ref_el90:
+                    el0 = results[band]
+                    total = 0
+                    close = 0
+                    for a, b in zip(el0, ref_el90):
+                        if a > -25 and b > -25:
+                            total += 1
+                            if abs(a - b) < db_range * 0.25:
+                                close += 1
+                    pct = (close / total * 100) if total > 0 else 0
+                    print(f"    {band} -> {ant_band}: {close}/{total} points "
+                          f"within 25% ({pct:.0f}%)")
+                    for d in [0, 90, 180, 270]:
+                        diff = el0[d] - ref_el90[d]
+                        print(f"      [{d:3d}] el0={el0[d]:6.1f} el90={ref_el90[d]:6.1f} "
+                              f"diff={diff:+.1f}")
+
+    return results
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     debug = "--debug" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
-    # Parse --db-max and --db-min
+    # Parse named arguments
     db_max = None
     db_min = -20.0
+    variants = None
     for i, a in enumerate(sys.argv):
         if a == "--db-max" and i + 1 < len(sys.argv):
             db_max = float(sys.argv[i + 1])
         if a == "--db-min" and i + 1 < len(sys.argv):
             db_min = float(sys.argv[i + 1])
+        if a == "--variants" and i + 1 < len(sys.argv):
+            variants = [v.strip() for v in sys.argv[i + 1].split(",")]
 
     if not args:
         print("Usage: python extract-elevation0-from-images.py <image_path> "
-              "--db-max <value> --db-min -20 [--debug]")
+              "--db-max <value> [--variants narrow,wide] [--db-min -20] [--debug]")
         print("\n  --db-max is REQUIRED. Read it from the outer ring label on the polar plot.")
         print("  Common values: 10 (indoor APs), 15 (outdoor APs)")
+        print("\n  --variants: Split rows into named variants (e.g., narrow,wide).")
+        print("    Top rows = first variant, bottom rows = second variant.")
         sys.exit(1)
 
     if db_max is None:
@@ -555,6 +670,8 @@ def main():
 
     print(f"Processing: {image_path.name}")
     print(f"  dB scale: center={db_min} dBi, outer ring={db_max} dBi, range={db_range} dB")
+    if variants:
+        print(f"  Variants: {variants}")
 
     img = Image.open(image_path)
     arr = np.array(img)
@@ -579,25 +696,10 @@ def main():
               f"pat_r={p['pattern_radius']:.0f} "
               f"n_grid={p['n_grid_pixels']}")
 
-    # Band labels based on plot count
-    n = len(el0_plots)
-    if n == 8:
-        bands = ["2.4", "5.15", "5.5", "5.85", "6.0", "6.5", "6.5b", "7.0"]
-    elif n == 7:
-        bands = ["2.4", "5.15", "5.5", "5.85", "6.0", "6.5", "7.0"]
-    elif n == 4:
-        bands = ["2.4", "5.15", "5.5", "5.85"]
-    elif n == 3:
-        bands = ["2.4", "5", "6"]
-    elif n == 2:
-        bands = ["2.4", "5"]
-    else:
-        bands = [f"band{i}" for i in range(n)]
+    # ── Model name ──
+    model = extract_model_name(image_path.stem)
 
-    # ── Phase 2: Validate with el90 from column 2 ──
-    model = image_path.stem.replace(" Total", "").replace(" ", "-")
-
-    # Search upward for antenna-patterns.json
+    # ── Load .ant reference data ──
     ant_json = None
     search = image_path.parent
     for _ in range(8):
@@ -607,95 +709,80 @@ def main():
             break
         search = search.parent
 
-    el90_plots = []
-
     ant_data = {}
     if ant_json:
         with open(ant_json) as f:
             ant_data = json.load(f)
         print(f"  Loaded .ant data from: {ant_json}")
-
-        _, el90_plots = validate_with_el90(
-            arr, el0_plots, ant_data, model, bands, db_max, db_range, debug)
     else:
         print(f"\n  No antenna-patterns.json found for validation")
 
-    # Use el0's own detected grid_r
-    use_radius = el0_plots[0].get("radius", el0_plots[0]["pattern_radius"])
+    # ── Phase 2: Validate with el90 from column 2 ──
+    el90_plots = []
+    n_total = len(el0_plots)
 
-    # ── Phase 3: Extract el0 ──
-    print(f"\n  === Extracting Elevation 0 (column 1) ===")
-    print(f"  Using radius={use_radius:.0f}px")
+    if variants:
+        # Split plots evenly across variants
+        n_per = n_total // len(variants)
+        if n_total % len(variants) != 0:
+            print(f"  WARNING: {n_total} plots doesn't divide evenly by "
+                  f"{len(variants)} variants ({n_per} each, {n_total % len(variants)} extra)")
 
-    results = {}
-    for i, (plot, band) in enumerate(zip(el0_plots, bands)):
-        cx, cy = plot["cx"], plot["cy"]
-        pat_r = plot["pattern_radius"]
-        search_r = max(int(pat_r) + 10, int(use_radius) + 5)
-        gains = extract_polar_pattern(arr, cx, cy, use_radius, db_max, db_range,
-                                       search_start=search_r)
+        bands_per_variant = assign_bands(n_per, image_path.name)
+        # Flat band list for el90 validation (repeated for each variant)
+        all_bands = bands_per_variant * len(variants)
 
-        # Mirror for "from above" convention: the image shows the pattern from
-        # below the AP, but the map/floor plan views from above. This flips
-        # left-right, so we reverse the angular direction (keep 0, reverse 1-358).
-        gains = [gains[0]] + gains[1:][::-1]
+        if ant_json:
+            # Validate using first variant's model key for el90
+            first_key = f"{model}:{variants[0]}"
+            _, el90_plots = validate_with_el90(
+                arr, el0_plots, ant_data, first_key, all_bands, db_max, db_range, debug)
 
-        peak_idx = gains.index(0.0)
-        min_val = min(gains)
-        print(f"  {band}: center=({cx},{cy}) r={use_radius:.0f} "
-              f"peak@{peak_idx}deg min={min_val:.1f}dB")
+        # Process each variant
+        output = {}
+        for vi, variant_name in enumerate(variants):
+            start = vi * n_per
+            end = start + n_per
+            variant_plots = el0_plots[start:end]
+            model_key = f"{model}:{variant_name}"
 
-        if debug:
-            for d in range(0, 359, 15):
-                print(f"    [{d:3d}] = {gains[d]:6.1f} dB")
+            results = process_variant(
+                arr, variant_plots, bands_per_variant, model_key, ant_data,
+                db_max, db_range, debug)
+            output[model_key] = {"elevation_0": results}
 
-        results[band] = gains
+        # Save output
+        out_path = image_path.with_suffix(".elevation0.json")
+        with open(out_path, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"\n  Model: {model} (variants: {', '.join(variants)})")
+        print(f"  Saved: {out_path}")
 
-    # ── Phase 4: Validation - compare el0 vs el90 ──
-    if ant_json and model in ant_data:
-        band_map = {
-            "2.4": "2.4", "2.45": "2.4",
-            "5.15": "5", "5.5": "5", "5.85": "5",
-            "6.0": "6", "6.5": "6", "6.5b": "6", "7.0": "6",
-        }
+    else:
+        # Original single-variant path
+        bands = assign_bands(n_total, image_path.name)
 
-        print(f"\n  === Validation: el0 vs el90 (should be within ~25%) ===")
-        for band in results:
-            ant_band = band_map.get(band, band)
-            if ant_band in ant_data.get(model, {}):
-                ref_el90 = ant_data[model][ant_band].get("elevation", [])
-                if ref_el90:
-                    el0 = results[band]
-                    # Count points within 25% (relative to range)
-                    total = 0
-                    close = 0
-                    for a, b in zip(el0, ref_el90):
-                        if a > -25 and b > -25:
-                            total += 1
-                            # "Within 25%" = absolute difference < 25% of dynamic range
-                            if abs(a - b) < db_range * 0.25:
-                                close += 1
-                    pct = (close / total * 100) if total > 0 else 0
-                    print(f"    {band} -> {ant_band}: {close}/{total} points "
-                          f"within 25% ({pct:.0f}%)")
-                    # Show key angles
-                    for d in [0, 90, 180, 270]:
-                        diff = el0[d] - ref_el90[d]
-                        print(f"      [{d:3d}] el0={el0[d]:6.1f} el90={ref_el90[d]:6.1f} "
-                              f"diff={diff:+.1f}")
+        if ant_json:
+            _, el90_plots = validate_with_el90(
+                arr, el0_plots, ant_data, model, bands, db_max, db_range, debug)
 
-    # ── Save output ──
-    output = {model: {"elevation_0": results}}
-    out_path = image_path.with_suffix(".elevation0.json")
-    with open(out_path, "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"\n  Model: {model}")
-    print(f"  Saved: {out_path}")
+        results = process_variant(
+            arr, el0_plots, bands, model, ant_data, db_max, db_range, debug)
+
+        output = {model: {"elevation_0": results}}
+        out_path = image_path.with_suffix(".elevation0.json")
+        with open(out_path, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"\n  Model: {model}")
+        print(f"  Saved: {out_path}")
 
     # ── Save debug image ──
     if debug:
+        use_radius = el0_plots[0].get("radius", el0_plots[0]["pattern_radius"])
+        all_bands = assign_bands(n_total, image_path.name) if not variants else (
+            assign_bands(n_total // len(variants), image_path.name) * len(variants))
         debug_path = image_path.with_suffix(".debug.png")
-        save_debug_image(arr, img, el0_plots, el90_plots, use_radius, bands,
+        save_debug_image(arr, img, el0_plots, el90_plots, use_radius, all_bands,
                           db_max, db_range, debug_path)
 
 
