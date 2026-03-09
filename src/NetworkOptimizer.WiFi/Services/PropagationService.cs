@@ -226,7 +226,11 @@ public class PropagationService
             // Wall APs using azimuth pattern directly (e.g., outdoor omni): mirror
             // for top-down floor plan view. Looking from above swaps left/right
             // compared to face-on measurement perspective.
-            var azIdx = effectiveMount == "wall" ? (360 - azimuthDeg) % 360 : azimuthDeg;
+            // Mesh APs skip the mirror - their pattern data convention already
+            // matches the top-down map view.
+            var azIdx = effectiveMount == "wall" && !IsMeshModel(ap.Model)
+                ? (360 - azimuthDeg) % 360
+                : azimuthDeg;
             azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }

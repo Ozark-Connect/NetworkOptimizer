@@ -278,6 +278,32 @@ def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range,
     # Normalize to peak = 0 dB
     peak = max(gains)
     gains = [round(g - peak, 1) for g in gains]
+
+    # Despike: replace single/double-degree nulls caused by ray-casting misses.
+    # The pattern line is 1-2px wide; at certain angles the 3px-wide ray can
+    # slip through, producing a sudden deep null surrounded by normal values.
+    gains = despike(gains)
+
+    return gains
+
+
+def despike(gains, threshold=5.0):
+    """Remove single/double-point spikes from extracted pattern data.
+
+    If a point differs from both neighbors by more than threshold dB,
+    replace it with the average of its neighbors. Run multiple passes
+    to collapse multi-degree clusters of ray misses from the outside in.
+    """
+    n = len(gains)
+    for _ in range(4):
+        smoothed = list(gains)
+        for i in range(n):
+            prev = gains[(i - 1) % n]
+            next_ = gains[(i + 1) % n]
+            avg = (prev + next_) / 2
+            if gains[i] - avg < -threshold:  # only fix deep nulls, not peaks
+                smoothed[i] = round(avg, 1)
+        gains = smoothed
     return gains
 
 
