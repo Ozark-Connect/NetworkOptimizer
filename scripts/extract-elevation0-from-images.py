@@ -716,6 +716,11 @@ def main():
         else:
             gains = raw_gains
 
+        # Mirror for "from above" convention: the image shows the pattern from
+        # below the AP, but the map/floor plan views from above. This flips
+        # left-right, so we reverse the angular direction (keep 0, reverse 1-358).
+        gains = [gains[0]] + gains[1:][::-1]
+
         peak_idx = gains.index(0.0)
         min_val = min(gains)
         print(f"  {band}: center=({cx},{cy}) r={use_radius:.0f} "
