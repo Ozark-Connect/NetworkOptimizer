@@ -114,47 +114,150 @@ def find_grid_center(arr, y_start, y_end, col_start, col_end, rough_cx, rough_cy
     return rough_cx, rough_cy, len(grid_xs)
 
 
-def find_crosshair_center(arr, approx_cy, col_start, col_end):
-    """Find the true polar plot center using the horizontal crosshair line.
+def is_grid_tinted(r, g, b):
+    """Relaxed grid pixel test for faint crosshair/ring lines.
 
-    The horizontal crosshair is a dashed/gradient line through the plot center.
-    It contains the densest concentration of blue-tinted grid pixels on any row.
-    The midpoint of its extent gives center X; the row gives center Y.
-
-    Returns (cx, cy, blue_half_span) or None.
+    The standard is_grid_pixel requires B > R+15 and B > G+15 and B > 130,
+    which misses faint grid lines (e.g., U7-Outdoor where B≈121, R≈105).
+    This uses a gentler threshold: B > R+8 and B > G+8 with brightness check.
     """
-    # Find the row with the most blue-tinted grid pixels near the approximate center.
-    # Search ±50px since the blue pixel centroid can be far from the true center
-    # (directional patterns extend much further in one direction).
-    best_count = 0
-    best_y = approx_cy
-    for y in range(max(0, approx_cy - 50), min(arr.shape[0], approx_cy + 50)):
-        count = 0
+    ri, gi, bi = int(r), int(g), int(b)
+    brightness = (ri + gi + bi) / 3
+    if brightness > 215 or brightness < 30:
+        return False
+    if ri < 50 and gi < 50 and bi > 200:  # pattern line
+        return False
+    return bi > ri + 8 and bi > gi + 8
+
+
+def trace_crosshair_extent(arr, cx, cy, col_start, col_end):
+    """Find the outer radius by tracing both horizontal and vertical crosshairs.
+
+    Each crosshair line (horizontal 90-270 and vertical 0-180) extends from
+    center to the edge of the grid. We trace each line outward from center
+    and find where it definitively ends (last non-white pixel before sustained
+    white background). The maximum extent across all 4 directions gives the
+    radius.
+
+    This works regardless of whether the plot has a blue-tinted background.
+    """
+    icx = int(round(cx))
+    icy = int(round(cy))
+    h, w = arr.shape[:2]
+
+    def trace_line(start, step, get_pixel):
+        """Trace a crosshair line outward from center.
+        Only tracks blue-tinted pixels (the grid/crosshair always has blue tint).
+        Gray text labels (R≈G≈B) are ignored so they don't inflate the extent.
+        Returns distance from center to the last blue-tinted pixel."""
+        pos = start
+        last_tinted = 0
+        white_run = 0
+
+        while True:
+            pixel = get_pixel(pos)
+            if pixel is None:
+                break  # out of bounds
+
+            r, g, b = pixel
+            ri, gi, bi = int(r), int(g), int(b)
+            brightness = (ri + gi + bi) / 3
+
+            dist = abs(pos - start) + 20  # +20 because we start 20px from center
+
+            # Only count pixels with blue tint (crosshair/grid always has it)
+            # This skips gray text labels where R≈G≈B
+            has_tint = (bi > ri + 3 and bi > gi + 3) and brightness < 240
+            if has_tint:
+                last_tinted = dist
+                white_run = 0
+            elif brightness >= 245:
+                white_run += 1
+                if white_run > 30:
+                    break  # line has ended
+
+            pos += step
+
+        return last_tinted
+
+    def get_h_pixel(x):
+        if col_start <= x < col_end:
+            return arr[icy, x, :3]
+        return None
+
+    def get_v_pixel(y):
+        if 0 <= y < h:
+            return arr[y, icx, :3]
+        return None
+
+    # Trace all 4 directions, starting 20px from center to skip AP image
+    left_r = trace_line(icx - 20, -1, get_h_pixel)
+    right_r = trace_line(icx + 20, 1, get_h_pixel)
+    down_r = trace_line(icy + 20, 1, get_v_pixel)
+    up_r = trace_line(icy - 20, -1, get_v_pixel)
+
+    best = max(left_r, right_r, down_r, up_r)
+    print(f"        crosshair_trace: L={left_r} R={right_r} "
+          f"U={up_r} D={down_r} -> best={best}")
+
+    return best if best > 40 else None
+
+
+def find_horizontal_crosshairs(arr, col_start, col_end):
+    """Find plot centers and approximate radii by scanning for horizontal crosshairs.
+
+    Each polar plot has a horizontal crosshair (the 90-270 degree line) that
+    spans the full grid diameter. For each row in the column, we measure the
+    extent (leftmost to rightmost) of blue-tinted pixels. The crosshair row
+    has the widest extent for each plot.
+
+    Returns list of (cy, cx, half_diameter, min_x, max_x) sorted by cy.
+    The min_x/max_x are the horizontal extent endpoints for later refinement.
+    """
+    h = arr.shape[0]
+
+    # For each row, find the extent of blue-tinted pixels
+    row_data = []  # (y, min_x, max_x, extent)
+    for y in range(h):
+        min_x = None
+        max_x = None
         for x in range(col_start, col_end):
             r, g, b = arr[y, x, :3]
-            if is_grid_pixel(r, g, b):
-                count += 1
-        if count > best_count:
-            best_count = count
-            best_y = y
+            if is_grid_tinted(r, g, b) or is_grid_pixel(r, g, b):
+                if min_x is None:
+                    min_x = x
+                max_x = x
 
-    if best_count < 50:
-        return None
+        if min_x is not None:
+            extent = max_x - min_x
+            if extent > 40:  # minimum plausible plot diameter
+                row_data.append((y, min_x, max_x, extent))
 
-    # Find extent of blue-tinted pixels on the crosshair row
-    xs = []
-    for x in range(col_start, col_end):
-        r, g, b = arr[best_y, x, :3]
-        if is_grid_pixel(r, g, b):
-            xs.append(x)
+    if not row_data:
+        return []
 
-    if len(xs) < 20:
-        return None
+    # Group into vertical clusters separated by gaps > 30px
+    clusters = [[row_data[0]]]
+    for i in range(1, len(row_data)):
+        if row_data[i][0] - row_data[i - 1][0] > 30:
+            clusters.append([row_data[i]])
+        else:
+            clusters[-1].append(row_data[i])
 
-    cx = (min(xs) + max(xs)) / 2
-    half_span = (max(xs) - min(xs)) / 2
+    # For each cluster, find the row with the widest extent = crosshair row
+    results = []
+    for cluster in clusters:
+        if len(cluster) < 10:
+            continue  # too small to be a plot
 
-    return cx, best_y, half_span
+        best = max(cluster, key=lambda r: r[3])
+        y, min_x, max_x, extent = best
+        cx = (min_x + max_x) / 2
+        half_r = extent / 2
+
+        results.append((y, cx, half_r, min_x, max_x))
+
+    return results
 
 
 def compute_outer_ring_radius(blue_half_span, n_rings):
@@ -170,94 +273,389 @@ def compute_outer_ring_radius(blue_half_span, n_rings):
     return blue_half_span * n_intervals / (n_intervals - 1)
 
 
+def _trace_vertical_crosshair(arr, cx, cy):
+    """Trace the vertical crosshair (0-180 degree line) up and down from center.
+
+    Uses the same blue-tint-only logic as horizontal crosshair tracing.
+    Returns max(up_extent, down_extent), or None if no tinted pixels found.
+    """
+    h = arr.shape[0]
+    icx = int(round(cx))
+    icy = int(round(cy))
+
+    def trace_v(start_y, step):
+        pos = start_y
+        last_tinted = 0
+        white_run = 0
+        while True:
+            if pos < 0 or pos >= h:
+                break
+            r, g, b = arr[pos, icx, :3]
+            ri, gi, bi = int(r), int(g), int(b)
+            brightness = (ri + gi + bi) / 3
+            dist = abs(pos - icy)
+            has_tint = (bi > ri + 3 and bi > gi + 3) and brightness < 240
+            if has_tint:
+                last_tinted = dist
+                white_run = 0
+            elif brightness >= 245:
+                white_run += 1
+                if white_run > 30:
+                    break
+            pos += step
+        return last_tinted
+
+    up_r = trace_v(icy - 20, -1)
+    down_r = trace_v(icy + 20, 1)
+
+    best = max(up_r, down_r)
+    print(f"        vertical_trace: U={up_r} D={down_r} -> best={best}")
+    return best if best > 40 else None
+
+
+def _find_ring_spacing_from_crosshair(arr, cx, cy, current_radius):
+    """Refine center and outer ring radius by detecting ring crossings on the crosshair row.
+
+    Scans LEFT from center along the horizontal crosshair, detecting brightness
+    dips where concentric grid rings cross the line. If 3+ consecutive dips have
+    consistent spacing:
+      1. Snaps current_radius to the nearest ring boundary
+      2. Computes a refined center from the ring positions (each dip should be
+         at an integer multiple of spacing from the true center)
+
+    Returns (outer_radius, refined_cx) or (None, None) if not detected.
+    """
+    icx = int(round(cx))
+    icy = int(round(cy))
+
+    # Scan LEFT from center, collecting brightness dips
+    start_dist = 80  # skip center area
+    max_dist = int(current_radius * 1.3)
+
+    dips = []
+    in_dip = False
+    dip_min_bright = 999
+    dip_min_dist = 0
+
+    for dist in range(start_dist, max_dist):
+        x = icx - dist
+        if x < 0:
+            break
+        r, g, b = arr[icy, x, :3]
+        bright = (int(r) + int(g) + int(b)) / 3
+
+        if bright < 95:
+            if not in_dip:
+                in_dip = True
+                dip_min_bright = bright
+                dip_min_dist = dist
+            elif bright < dip_min_bright:
+                dip_min_bright = bright
+                dip_min_dist = dist
+        else:
+            if in_dip:
+                dips.append(dip_min_dist)
+                in_dip = False
+                dip_min_bright = 999
+
+    # Cluster dips within 4px
+    if not dips:
+        return None, None
+    clustered = [dips[0]]
+    for d in dips[1:]:
+        if d - clustered[-1] < 4:
+            clustered[-1] = (clustered[-1] + d) // 2
+        else:
+            clustered.append(d)
+
+    print(f"        ring_dips LEFT: {clustered}")
+
+    # Find 3+ consecutive dips with consistent spacing
+    spacing = _find_consistent_spacing(clustered, tol=5)
+    if spacing is None or spacing < 15:
+        print(f"        no consistent ring spacing found"
+              f"{f' (spacing={spacing:.1f} too small)' if spacing else ''}")
+        return None, None
+
+    # Snap current_radius to nearest ring boundary
+    n_intervals = round(current_radius / spacing)
+    outer_r = n_intervals * spacing
+
+    # Refine center: each dip at distance d from icx should be at
+    # ring_n * spacing from true center. Compute true_cx from each dip
+    # using the consistent-spacing dips only.
+    # Dip at distance d (going left) means ring is at x = icx - d.
+    # Ring number n (from center) satisfies: true_cx - (icx - d) = n * spacing
+    # So true_cx = icx - d + n * spacing, where n = round(d / spacing).
+    cx_estimates = []
+    for d in clustered:
+        n = round(d / spacing)
+        if n >= 1:
+            est_cx = icx - d + n * spacing
+            cx_estimates.append(est_cx)
+
+    if cx_estimates:
+        import statistics
+        refined_cx = statistics.median(cx_estimates)
+    else:
+        refined_cx = cx
+
+    print(f"        ring_spacing={spacing:.1f}, snap {current_radius:.0f} "
+          f"-> {n_intervals} intervals -> outer_r={outer_r:.0f}, "
+          f"cx {cx:.0f}->{refined_cx:.1f}")
+    return outer_r, refined_cx
+
+
+def _find_consistent_spacing(dips, tol=5):
+    """Find consistent spacing among 3+ consecutive dips.
+
+    Returns the median spacing if found, None otherwise.
+    """
+    if len(dips) < 3:
+        return None
+
+    for i in range(len(dips) - 2):
+        spacings = []
+        for j in range(i, len(dips) - 1):
+            spacings.append(dips[j + 1] - dips[j])
+
+        # Check for 3+ consecutive spacings within tolerance
+        for start in range(len(spacings) - 1):
+            consistent = [spacings[start]]
+            for k in range(start + 1, len(spacings)):
+                if abs(spacings[k] - spacings[start]) <= tol:
+                    consistent.append(spacings[k])
+                else:
+                    break
+            if len(consistent) >= 2:  # 2 spacings = 3 dips
+                import statistics
+                return statistics.median(consistent)
+
+    return None
+
+
 def find_plots_in_column(arr, col_start, col_end, n_expected=None, n_rings=7):
     """Find polar plot centers in a column range.
 
-    Uses two-step detection:
-    1. Horizontal crosshair for center (most reliable)
-    2. Distance histogram for outer ring radius
-    Falls back to grid centroid + circle fitting if crosshair detection fails.
+    Primary method: scan for horizontal crosshair lines. Each plot's crosshair
+    (the 90-270 degree line) spans the full grid diameter. The widest row of
+    grid-tinted pixels per plot gives both center and radius.
+
+    Falls back to blue-pixel span detection if horizontal line scan finds
+    fewer plots than the blue-pixel detection.
     """
     h = arr.shape[0]
+
+    # Primary: find plots via horizontal crosshair lines
+    crosshairs = find_horizontal_crosshairs(arr, col_start, col_end)
+
+    # Also find blue pattern spans (for pattern_radius and fallback)
     merged, mask = find_row_spans(arr, col_start, col_end, n_expected=n_expected)
 
+    # Match each crosshair to its nearest blue pattern span
     plots = []
-    for y_start, y_end in merged:
-        # Blue pixel bounding box (rough center estimate)
+    for ch_cy, ch_cx, ch_half_r, ch_min_x, ch_max_x in crosshairs:
+        cx = int(round(ch_cx))
+        cy = ch_cy
+        radius = ch_half_r
+
+        print(f"      horiz_line: cy={cy} cx={cx} half_diameter={ch_half_r:.0f}"
+              f" min_x={ch_min_x} max_x={ch_max_x}")
+
+        # Find the blue pattern span containing this crosshair
         blue_xs, blue_ys = [], []
-        for y in range(y_start, y_end):
-            for x in range(col_start, col_end):
-                if mask[y, x - col_start]:
-                    blue_xs.append(x)
-                    blue_ys.append(y)
+        best_span = None
+        for y_start, y_end in merged:
+            if y_start - 30 <= cy <= y_end + 30:
+                best_span = (y_start, y_end)
+                for y in range(y_start, y_end):
+                    for x in range(col_start, col_end):
+                        if mask[y, x - col_start]:
+                            blue_xs.append(x)
+                            blue_ys.append(y)
+                break
 
-        if len(blue_xs) < 20:
-            continue
-
-        rough_cx = (min(blue_xs) + max(blue_xs)) // 2
-        rough_cy = (min(blue_ys) + max(blue_ys)) // 2
-        rx = (max(blue_xs) - min(blue_xs)) / 2
-        ry = (max(blue_ys) - min(blue_ys)) / 2
-
-        if max(rx, ry) < 30:
-            continue
-
-        # Use center of the row span as search target for crosshair
-        # (more reliable than blue pixel centroid, which is biased by pattern shape)
-        span_center_y = (y_start + y_end) // 2
-        ch = find_crosshair_center(arr, span_center_y, col_start, col_end)
-        if ch:
-            cx, cy, half_span = ch
-            cx = int(round(cx))
-
-            # Compute outer ring radius from crosshair extent
-            radius = compute_outer_ring_radius(half_span, n_rings)
+        if blue_xs:
+            rough_cx = (min(blue_xs) + max(blue_xs)) // 2
+            rough_cy = (min(blue_ys) + max(blue_ys)) // 2
+            dists = [math.sqrt((bx - cx) ** 2 + (by - cy) ** 2)
+                     for bx, by in zip(blue_xs, blue_ys)]
+            dists.sort()
+            pat_r = dists[int(len(dists) * 0.95)]
         else:
-            # Fallback: grid centroid
-            cx, cy, n_grid = find_grid_center(arr, y_start, y_end, col_start, col_end,
-                                               rough_cx, rough_cy, max(rx, ry))
-            # Try circle fitting for radius
-            fit = fit_outer_ring(arr, cx, cy, max(rx, ry), col_start, col_end)
-            if fit:
-                cx, cy = int(round(fit[0])), int(round(fit[1]))
-                radius = fit[2]
-            else:
-                radius = detect_grid_boundary(arr, cx, cy, max(rx, ry),
-                                               col_start, col_end)
-
-        # Pattern radius: 95th percentile distance from center to blue pixels
-        dists = [math.sqrt((bx - cx) ** 2 + (by - cy) ** 2)
-                 for bx, by in zip(blue_xs, blue_ys)]
-        dists.sort()
-        pat_r = dists[int(len(dists) * 0.95)]
+            rough_cx, rough_cy = cx, cy
+            pat_r = radius * 0.8
 
         plots.append({
             "cx": cx, "cy": cy,
             "blue_cx": rough_cx, "blue_cy": rough_cy,
             "pattern_radius": pat_r,
             "radius": radius,
-            "y_range": (y_start, y_end),
+            "h_min_x": ch_min_x, "h_max_x": ch_max_x,
+            "y_range": best_span or (cy - int(radius), cy + int(radius)),
             "n_grid_pixels": 0,
         })
 
-    # Deduplicate: if two plots are within 100px vertically (center-to-center),
-    # they're from the same row split by a gap. Keep the one from the larger span.
-    if n_expected and len(plots) > n_expected:
-        plots.sort(key=lambda p: p["cy"])
-        deduped = []
-        i = 0
-        while i < len(plots):
-            if i + 1 < len(plots) and abs(plots[i + 1]["cy"] - plots[i]["cy"]) < 100:
-                span_a = plots[i]["y_range"][1] - plots[i]["y_range"][0]
-                span_b = plots[i + 1]["y_range"][1] - plots[i + 1]["y_range"][0]
-                deduped.append(plots[i] if span_a >= span_b else plots[i + 1])
-                i += 2
+    # Deduplicate: if two plots are within 150px vertically, keep wider one
+    plots.sort(key=lambda p: p["cy"])
+    deduped = []
+    i = 0
+    while i < len(plots):
+        if i + 1 < len(plots) and abs(plots[i + 1]["cy"] - plots[i]["cy"]) < 150:
+            deduped.append(plots[i] if plots[i]["radius"] >= plots[i + 1]["radius"]
+                           else plots[i + 1])
+            i += 2
+        else:
+            deduped.append(plots[i])
+            i += 1
+    plots = deduped
+
+    # Enforce consistent cx across plots with similar centers.
+    # Plots with very different raw centers (e.g., 2.4 GHz vs 5 GHz rows with
+    # different plot sizes) keep their own center to avoid offset errors.
+    if len(plots) > 1:
+        median_cx = int(sorted(p["cx"] for p in plots)[len(plots) // 2])
+        for p in plots:
+            old_cx = p["cx"]
+            if abs(old_cx - median_cx) <= 8:
+                p["cx"] = median_cx
+                print(f"      enforce cx {old_cx}->{median_cx}")
             else:
-                deduped.append(plots[i])
-                i += 1
-        plots = deduped
+                print(f"      keep raw cx {old_cx} (median={median_cx}, "
+                      f"diff={abs(old_cx - median_cx)})")
+
+            # Recompute radius from (possibly enforced) center using endpoints
+            left_r = p["cx"] - p["h_min_x"]
+            right_r = p["h_max_x"] - p["cx"]
+            h_radius = max(left_r, right_r)
+            print(f"        H left_r={left_r} right_r={right_r} -> "
+                  f"h_radius={h_radius}")
+            p["radius"] = h_radius
+
+    # Compute scan y_range for each plot: midpoint to adjacent plots (or image edge)
+    h = arr.shape[0]
+    for i, p in enumerate(plots):
+        top = plots[i - 1]["cy"] if i > 0 else 0
+        bot = plots[i + 1]["cy"] if i < len(plots) - 1 else h
+        mid_top = (top + p["cy"]) // 2 if i > 0 else 0
+        mid_bot = (p["cy"] + bot) // 2 if i < len(plots) - 1 else h
+        p["scan_y_range"] = (mid_top, mid_bot)
+
+    # Refine radius using vertical crosshair trace and ring spacing snap
+    for p in plots:
+        # Vertical crosshair trace (blue-tint-only)
+        v_radius = _trace_vertical_crosshair(arr, p["cx"], p["cy"])
+        if v_radius is not None:
+            p["radius"] = max(p["radius"], v_radius)
+
+        # Ring spacing snap: detect ring crossings on crosshair row, then
+        # snap the current radius to the nearest ring boundary and refine cx.
+        ring_r, refined_cx = _find_ring_spacing_from_crosshair(
+            arr, p["cx"], p["cy"], p["radius"])
+        if ring_r is not None:
+            old_r = p["radius"]
+            old_cx = p["cx"]
+            if ring_r != old_r:
+                p["radius"] = int(round(ring_r))
+            if abs(refined_cx - old_cx) > 1:
+                p["cx"] = int(round(refined_cx))
+            if p["radius"] != old_r or p["cx"] != old_cx:
+                print(f"      ring_snap refined cy={p['cy']}: "
+                      f"cx {old_cx}->{p['cx']} r {old_r:.0f}->{p['radius']}")
 
     return plots
+
+
+def detect_outer_from_crosshair_extent(arr, cx, cy, col_start, col_end):
+    """Find outer ring radius by scanning along crosshair lines.
+
+    The horizontal and vertical crosshairs are continuous lines of grid-colored
+    pixels that extend from center to the outer ring. The last grid pixel in
+    each direction is on the outer ring.
+
+    Scans 4 directions (right, left, up, down), takes the median to handle
+    edges or occlusion, and verifies there's a clear gap beyond (white background,
+    not stray grid-colored pixels).
+
+    Returns the computed outer ring radius, or None if detection fails.
+    """
+    h, w = arr.shape[:2]
+    extents = []
+
+    # Scan right along horizontal crosshair
+    last_grid = None
+    gap_after = 0
+    for x in range(cx + 5, min(col_end, cx + 400)):
+        r, g, b = arr[cy, x, :3]
+        if is_grid_pixel(r, g, b):
+            last_grid = x
+            gap_after = 0
+        else:
+            gap_after += 1
+            if gap_after > 15 and last_grid is not None:
+                break  # clear gap after last grid pixel = beyond outer ring
+    if last_grid is not None:
+        extents.append(("right", last_grid - cx))
+
+    # Scan left
+    last_grid = None
+    gap_after = 0
+    for x in range(cx - 5, max(col_start, cx - 400), -1):
+        r, g, b = arr[cy, x, :3]
+        if is_grid_pixel(r, g, b):
+            last_grid = x
+            gap_after = 0
+        else:
+            gap_after += 1
+            if gap_after > 15 and last_grid is not None:
+                break
+    if last_grid is not None:
+        extents.append(("left", cx - last_grid))
+
+    # Scan up along vertical crosshair
+    last_grid = None
+    gap_after = 0
+    for y in range(cy - 5, max(0, cy - 400), -1):
+        r, g, b = arr[y, cx, :3]
+        if is_grid_pixel(r, g, b):
+            last_grid = y
+            gap_after = 0
+        else:
+            gap_after += 1
+            if gap_after > 15 and last_grid is not None:
+                break
+    if last_grid is not None:
+        extents.append(("up", cy - last_grid))
+
+    # Scan down
+    last_grid = None
+    gap_after = 0
+    for y in range(cy + 5, min(h, cy + 400)):
+        r, g, b = arr[y, cx, :3]
+        if is_grid_pixel(r, g, b):
+            last_grid = y
+            gap_after = 0
+        else:
+            gap_after += 1
+            if gap_after > 15 and last_grid is not None:
+                break
+    if last_grid is not None:
+        extents.append(("down", last_grid - cy))
+
+    if not extents:
+        return None
+
+    # Take median of all valid extents
+    values = sorted(v for _, v in extents)
+    if len(values) >= 3:
+        outer_r = values[len(values) // 2]
+    else:
+        outer_r = int(sum(values) / len(values))
+
+    labels = ", ".join(f"{d}={v}" for d, v in extents)
+    print(f"      crosshair_extent: {labels} -> outer_r={outer_r}")
+
+    return outer_r
 
 
 def detect_grid_boundary(arr, cx, cy, pattern_radius, col_start, col_end):
@@ -691,7 +1089,6 @@ def save_debug_image(arr, img, el0_plots, el90_plots, calibrated_radius, bands,
 
     for plots, col_label, color, dot_color in [
         (el0_plots, "EL0", "red", "yellow"),
-        (el90_plots, "EL90", "lime", "magenta"),
     ]:
         for i, p in enumerate(plots):
             cx, cy = p["cx"], p["cy"]
@@ -1020,11 +1417,10 @@ def main():
 
     # ── Save debug image ──
     if debug:
-        use_radius = el0_plots[0].get("radius", el0_plots[0]["pattern_radius"])
         all_bands = assign_bands(n_total, image_path.name) if not variants else (
             assign_bands(n_total // len(variants), image_path.name) * len(variants))
         debug_path = image_path.with_suffix(".debug.png")
-        save_debug_image(arr, img, el0_plots, el90_plots, use_radius, all_bands,
+        save_debug_image(arr, img, el0_plots, el90_plots, None, all_bands,
                           db_max, db_range, debug_path)
 
 
