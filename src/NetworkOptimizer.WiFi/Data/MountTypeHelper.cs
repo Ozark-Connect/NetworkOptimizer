@@ -38,7 +38,8 @@ public static class MountTypeHelper
         // Check for wall-mount indicators in model name
         if (m.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("-Wall", StringComparison.OrdinalIgnoreCase) ||
-            m.Contains("-Outdoor", StringComparison.OrdinalIgnoreCase))
+            m.Contains("-Outdoor", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("Mesh", StringComparison.OrdinalIgnoreCase))
             return "wall";
 
         return "ceiling";
