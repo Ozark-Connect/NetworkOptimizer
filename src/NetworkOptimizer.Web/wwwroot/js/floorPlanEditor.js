@@ -3124,7 +3124,7 @@ window.fpEditor = {
         var vWidth = m.distance(sw, L.latLng(sw.lat, ne.lng));
         var vHeight = m.distance(sw, L.latLng(ne.lat, sw.lng));
         var maxDim = Math.max(vWidth, vHeight);
-        var res = maxDim > 400 ? Math.ceil(maxDim / 400) : 1.0;
+        var res = maxDim > 600 ? Math.ceil(maxDim / 600) : 1.0;
 
         var body = {
             activeFloor: activeFloor, band: band,

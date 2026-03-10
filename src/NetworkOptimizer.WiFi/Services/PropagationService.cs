@@ -73,8 +73,8 @@ public class PropagationService
         var gridHeight = Math.Max(1, (int)(heightMeters / gridResolutionMeters));
 
         // Cap grid size to prevent memory/CPU issues
-        if (gridWidth > 500) gridWidth = 500;
-        if (gridHeight > 500) gridHeight = 500;
+        if (gridWidth > 750) gridWidth = 750;
+        if (gridHeight > 750) gridHeight = 750;
 
         var data = new float[gridWidth * gridHeight];
 
