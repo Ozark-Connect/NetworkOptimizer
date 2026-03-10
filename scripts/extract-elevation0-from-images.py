@@ -492,24 +492,27 @@ def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range,
     return gains
 
 
-def despike(gains, threshold=5.0):
+def despike(gains, threshold=4.0):
     """Remove spike artifacts from extracted pattern data.
 
     Detects points that dip sharply below their wider neighborhood
-    (grid lines, text labels, crosshair artifacts). Compares each point
-    against the average of neighbors 3 degrees away, which skips over
-    multi-degree artifacts. Runs 3 passes to progressively clean wider spikes.
+    (grid lines, text labels, crosshair artifacts). Uses median of
+    multiple neighbor distances to avoid paired artifacts shielding
+    each other. Runs 4 passes to progressively clean.
     """
     n = len(gains)
-    for _ in range(3):
+    for _ in range(4):
         smoothed = list(gains)
         for i in range(n):
-            # Use neighbors 3 apart to look past multi-degree artifacts
-            far_prev = gains[(i - 3) % n]
-            far_next = gains[(i + 3) % n]
-            avg = (far_prev + far_next) / 2
-            if gains[i] - avg < -threshold:  # only fix deep nulls, not peaks
-                smoothed[i] = round(avg, 1)
+            # Median of neighbors at distances 3, 5, 7 to resist paired artifacts
+            neighbors = []
+            for d in (3, 5, 7):
+                neighbors.append(gains[(i - d) % n])
+                neighbors.append(gains[(i + d) % n])
+            neighbors.sort()
+            median = (neighbors[2] + neighbors[3]) / 2  # median of 6
+            if gains[i] - median < -threshold:
+                smoothed[i] = round(median, 1)
         gains = smoothed
     return gains
 
