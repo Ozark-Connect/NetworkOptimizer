@@ -551,7 +551,38 @@
                             <input type="text" class="form-control" @bind="editingDevice.Iperf3BinaryPath" placeholder="iperf3" />
                             <span class="form-help">Full path to iperf3 on the remote device (e.g., /usr/local/bin/iperf3). Leave blank to use "iperf3" from PATH.</span>
                         </div>
+                    }
 
+                    <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); cursor: pointer;" @onclick="() => showAdvancedIperf3 = !showAdvancedIperf3">
+                        <h5 style="margin: 0; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 0.75rem;">@(showAdvancedIperf3 ? "▲" : "▼")</span>
+                            Advanced iperf3 Settings <span style="font-weight: normal; color: var(--text-muted);">(optional)</span>
+                        </h5>
+                    </div>
+
+                    @if (showAdvancedIperf3)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Parallel Streams</label>
+                            <input type="number" class="form-control" min="1" max="128"
+                                   value="@editingDevice.Iperf3ParallelStreams"
+                                   @onchange="@(e => editingDevice.Iperf3ParallelStreams = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value.ToString(), out var v) ? v : null)"
+                                   placeholder="(global default)" />
+                            <span class="form-help">Number of parallel iperf3 streams (-P flag). Leave blank to use the global setting from Settings.</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Duration (seconds)</label>
+                            <input type="number" class="form-control" min="1" max="300"
+                                   value="@editingDevice.Iperf3DurationSeconds"
+                                   @onchange="@(e => editingDevice.Iperf3DurationSeconds = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value.ToString(), out var v) ? v : null)"
+                                   placeholder="(global default)" />
+                            <span class="form-help">Duration of each iperf3 test (-t flag) in seconds. Leave blank to use the global setting from Settings.</span>
+                        </div>
+                    }
+
+                    @if (editingDevice.StartIperf3Server)
+                    {
                         <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
                             <h5 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">SSH Credential Overrides <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></h5>
                             <span class="form-help">Leave blank to use global SSH settings from <a href="/settings">Settings</a>. Only fill in fields you want to override.</span>
@@ -1217,6 +1248,7 @@
     // Saved devices form state
     private bool showAddDevice = false;
     private bool savingDevice = false;
+    private bool showAdvancedIperf3 = false;
     private bool isRunningTest = false;
     private string? runningTestHost;
     private string editingDevicePassword = ""; // Separate field for password input (not bound to encrypted value)
@@ -1547,12 +1579,15 @@
             Enabled = device.Enabled,
             StartIperf3Server = device.StartIperf3Server,
             Iperf3BinaryPath = device.Iperf3BinaryPath,
+            Iperf3ParallelStreams = device.Iperf3ParallelStreams,
+            Iperf3DurationSeconds = device.Iperf3DurationSeconds,
             SshUsername = device.SshUsername,
             SshPrivateKeyPath = device.SshPrivateKeyPath
             // Note: Don't copy SshPassword - leave blank to not change it
         };
         editingDevicePassword = ""; // Clear password field (user must re-enter to change)
         editingDeviceHasSavedPassword = !string.IsNullOrEmpty(device.SshPassword); // Track if device has saved password
+        showAdvancedIperf3 = device.Iperf3ParallelStreams.HasValue || device.Iperf3DurationSeconds.HasValue;
         savedDeviceMessage = "";
         StateHasChanged();
     }
@@ -1575,6 +1610,7 @@
             };
             editingDevicePassword = "";
             editingDeviceHasSavedPassword = false; // New device has no saved password
+            showAdvancedIperf3 = false;
             savedDeviceMessage = "";
             showAddDevice = true;
             StateHasChanged();
@@ -1591,6 +1627,7 @@
         };
         editingDevicePassword = "";
         editingDeviceHasSavedPassword = false;
+        showAdvancedIperf3 = false;
         showAddDevice = false;
         savedDeviceMessage = "";
         StateHasChanged();
