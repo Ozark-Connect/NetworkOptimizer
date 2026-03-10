@@ -1092,7 +1092,12 @@ def save_debug_image(arr, img, el0_plots, el90_plots, calibrated_radius, bands,
     ]:
         for i, p in enumerate(plots):
             cx, cy = p["cx"], p["cy"]
-            r = calibrated_radius or p.get("radius", p["pattern_radius"])
+            if isinstance(calibrated_radius, list):
+                r = calibrated_radius[i] if i < len(calibrated_radius) else calibrated_radius[-1]
+            elif calibrated_radius:
+                r = calibrated_radius
+            else:
+                r = p.get("radius", p["pattern_radius"])
             band = bands[i] if i < len(bands) else f"#{i}"
 
             # Crosshair at grid center (large)
@@ -1185,9 +1190,12 @@ def process_variant(arr, plots, bands, model_key, ant_data, db_max, db_range,
         pat_r = plot["pattern_radius"]
 
         # Use per-band radius (from crosshair/histogram detection)
-        # or override if specified
+        # or override if specified (can be single value or list)
         if grid_radius_override:
-            use_radius = grid_radius_override
+            if isinstance(grid_radius_override, list):
+                use_radius = grid_radius_override[i] if i < len(grid_radius_override) else grid_radius_override[-1]
+            else:
+                use_radius = grid_radius_override
         else:
             use_radius = plot.get("radius", pat_r)
 
@@ -1257,6 +1265,8 @@ def main():
     cy_shift = 0
     n_bands = None
     grid_radius_override = None
+    cx_override = None
+    cy_override = None
     for i, a in enumerate(sys.argv):
         if a == "--db-max" and i + 1 < len(sys.argv):
             db_max = float(sys.argv[i + 1])
@@ -1271,7 +1281,15 @@ def main():
         if a == "--n-bands" and i + 1 < len(sys.argv):
             n_bands = int(sys.argv[i + 1])
         if a == "--grid-radius" and i + 1 < len(sys.argv):
-            grid_radius_override = int(sys.argv[i + 1])
+            val = sys.argv[i + 1]
+            if "," in val:
+                grid_radius_override = [int(v) for v in val.split(",")]
+            else:
+                grid_radius_override = int(val)
+        if a == "--cx" and i + 1 < len(sys.argv):
+            cx_override = int(sys.argv[i + 1])
+        if a == "--cy" and i + 1 < len(sys.argv):
+            cy_override = int(sys.argv[i + 1])
 
     if not args:
         print("Usage: python extract-elevation0-from-images.py <image_path> "
@@ -1319,11 +1337,19 @@ def main():
         print("  ERROR: No plots found!")
         sys.exit(1)
 
-    # Apply center shifts if specified
-    if cx_shift or cy_shift:
+    # Apply center overrides (cx_override sets all plots to same cx)
+    if cx_override is not None or cy_override is not None:
+        for p in el0_plots:
+            if cx_override is not None:
+                p["cx"] = cx_override
+            if cy_override is not None:
+                p["cy"] = cy_override
+        print(f"  Center override: cx={cx_override}, cy={cy_override}")
+
+    # Apply cx_shift (immediately, independent of cy)
+    if cx_shift:
         for p in el0_plots:
             p["cx"] += cx_shift
-            p["cy"] += cy_shift
 
     for i, p in enumerate(el0_plots):
         shift_dist = math.sqrt((p["cx"] - p["blue_cx"]) ** 2 +
@@ -1356,8 +1382,45 @@ def main():
         print(f"\n  No antenna-patterns.json found for validation")
 
     # ── Phase 2: Validate with el90 from column 2 ──
+    # Also use el90 cy values for el0 plots when cx is overridden
+    # (el90 often detects vertical centers more reliably)
     el90_plots = []
     n_total = len(el0_plots)
+
+    # Pre-detect el90 plots to borrow cy values when el0 centering is overridden
+    # Only borrow if el90 spacing is more consistent than el0 spacing
+    if cx_override is not None and len(el0_plots) >= 3:
+        col2_start = w // 4
+        col2_end = w // 2
+        n_rings = int(db_range / 5) + 1
+        el90_pre = find_plots_in_column(arr, col2_start, col2_end, n_rings=n_rings)
+        if len(el90_pre) == len(el0_plots):
+            def _spacing_variance(plots):
+                cys = [p["cy"] for p in plots]
+                spacings = [cys[i+1] - cys[i] for i in range(len(cys)-1)]
+                if not spacings:
+                    return float('inf')
+                mean = sum(spacings) / len(spacings)
+                return sum((s - mean) ** 2 for s in spacings) / len(spacings)
+
+            el0_var = _spacing_variance(el0_plots)
+            el90_var = _spacing_variance(el90_pre)
+            print(f"    cy spacing variance: el0={el0_var:.1f} el90={el90_var:.1f}")
+
+            if el90_var < el0_var:
+                for p0, p90 in zip(el0_plots, el90_pre):
+                    old_cy = p0["cy"]
+                    p0["cy"] = p90["cy"]
+                    if old_cy != p90["cy"]:
+                        print(f"    cy from el90: {old_cy}->{p90['cy']}")
+            else:
+                print(f"    keeping el0 cy (more consistent than el90)")
+
+    # Apply cy_shift after el90 borrowing
+    if cy_shift:
+        for p in el0_plots:
+            p["cy"] += cy_shift
+        print(f"  cy_shift: {cy_shift:+d}")
 
     if variants:
         # Split plots evenly across variants
@@ -1420,8 +1483,8 @@ def main():
         all_bands = assign_bands(n_total, image_path.name) if not variants else (
             assign_bands(n_total // len(variants), image_path.name) * len(variants))
         debug_path = image_path.with_suffix(".debug.png")
-        save_debug_image(arr, img, el0_plots, el90_plots, None, all_bands,
-                          db_max, db_range, debug_path)
+        save_debug_image(arr, img, el0_plots, el90_plots, grid_radius_override,
+                          all_bands, db_max, db_range, debug_path)
 
 
 if __name__ == "__main__":
