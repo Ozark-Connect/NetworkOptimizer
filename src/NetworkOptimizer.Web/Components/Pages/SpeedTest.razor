@@ -1402,7 +1402,8 @@
     {
         gatewayRunning = true;
         gatewayMessage = "";
-        StartProgressTimer();
+        var iperf3Settings = await SpeedTestService.GetSettingsAsync();
+        StartProgressTimer(iperf3Settings.DurationSeconds);
         StateHasChanged();
 
         try
@@ -1734,7 +1735,8 @@
         runningTestHost = device.Host;
         savedDeviceMessage = $"Running speed test to {device.Name}...";
         savedDeviceMessageClass = "info";
-        StartProgressTimer();
+        var iperf3Settings = await SpeedTestService.GetSettingsAsync();
+        StartProgressTimer(device.Iperf3DurationSeconds ?? iperf3Settings.DurationSeconds);
         StateHasChanged();
 
         try
@@ -1940,7 +1942,8 @@
         runningTestHost = device.IpAddress;
         unifiMessage = $"Running speed test to {device.Name}...";
         unifiMessageClass = "info";
-        StartProgressTimer();
+        var iperf3Settings = await SpeedTestService.GetSettingsAsync();
+        StartProgressTimer(iperf3Settings.DurationSeconds);
         StateHasChanged();
 
         try
@@ -1986,12 +1989,14 @@
     }
 
     // Progress indicator helpers
-    // Phases: 0-3s = Starting (13%), 3-13s = From device (43%), 13-23s = To device (100%)
+    // Phases: 0-3s = Starting (13%), 3-(3+duration)s = From device (43%), (3+duration)-(3+2*duration)s = To device (100%)
     private DateTime testStartTime;
+    private int testDurationSeconds = 10; // Effective duration for progress calculation
 
-    private void StartProgressTimer()
+    private void StartProgressTimer(int durationSeconds = 0)
     {
         testStartTime = DateTime.UtcNow;
+        testDurationSeconds = durationSeconds > 0 ? durationSeconds : 10;
         testProgressPercent = 0;
         testProgressPhase = "Starting";
         testProgressPhaseVerbose = "Starting";
@@ -2020,25 +2025,29 @@
         if (progressTimer == null) return;
 
         var elapsed = (DateTime.UtcNow - testStartTime).TotalSeconds;
+        var d = testDurationSeconds;
+        var phaseEnd1 = 3.0;         // End of starting phase
+        var phaseEnd2 = 3.0 + d;     // End of "from device" phase
+        var phaseEnd3 = 3.0 + d * 2; // End of "to device" phase
 
-        if (elapsed < 3)
+        if (elapsed < phaseEnd1)
         {
             // Starting phase: 0-13%
-            testProgressPercent = (int)(elapsed / 3 * 13);
+            testProgressPercent = (int)(elapsed / phaseEnd1 * 13);
             testProgressPhase = "Starting";
             testProgressPhaseVerbose = "Starting";
         }
-        else if (elapsed < 13)
+        else if (elapsed < phaseEnd2)
         {
             // From device phase: 13-56%
-            testProgressPercent = 13 + (int)((elapsed - 3) / 10 * 43);
+            testProgressPercent = 13 + (int)((elapsed - phaseEnd1) / d * 43);
             testProgressPhase = "↓ Testing";
             testProgressPhaseVerbose = "From device";
         }
-        else if (elapsed < 23)
+        else if (elapsed < phaseEnd3)
         {
             // To device phase: 56-100%
-            testProgressPercent = 56 + (int)((elapsed - 13) / 10 * 44);
+            testProgressPercent = 56 + (int)((elapsed - phaseEnd2) / d * 44);
             testProgressPhase = "↑ Testing";
             testProgressPhaseVerbose = "To device";
         }
