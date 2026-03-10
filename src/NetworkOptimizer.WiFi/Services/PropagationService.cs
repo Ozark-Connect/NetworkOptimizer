@@ -73,8 +73,8 @@ public class PropagationService
         var gridHeight = Math.Max(1, (int)(heightMeters / gridResolutionMeters));
 
         // Cap grid size to prevent memory/CPU issues
-        if (gridWidth > 500) gridWidth = 500;
-        if (gridHeight > 500) gridHeight = 500;
+        if (gridWidth > 750) gridWidth = 750;
+        if (gridHeight > 750) gridHeight = 750;
 
         var data = new float[gridWidth * gridHeight];
 
@@ -161,13 +161,23 @@ public class PropagationService
         var azimuth = CalculateBearing(ap.Latitude, ap.Longitude, pointLat, pointLng);
         var azimuthDeg = (int)((ap.OrientationDeg - azimuth + 360) % 360);
 
-        // Desktop mount flips the AP (logo/face up), reversing apparent rotation.
-        // Applies to ceiling-native and wall-native APs. Desktop-native APs (UDM, UDR)
-        // sit natively on desk so no flip occurs.
+        // Desktop (non-native): flipping the AP rotates the pattern 180°.
+        // Ceiling: 180° rotation + left/right mirror (looking at the back from above).
+        // Mesh wall/pole: 180° rotation - the pattern is measured face-on but
+        // OrientationDeg on the map points opposite to the pattern's 0° reference.
+        // Mesh on ceiling/desktop: skip these transforms - they're designed for the
+        // azimuth pattern, but mesh ceiling/desktop goes through the swap path which
+        // reads the elevation pattern (different angular reference).
         var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
-        var isCeilingNative = defaultMount == "ceiling";
-        if (effectiveMount == "desktop" && defaultMount != "desktop")
-            azimuthDeg = (360 - azimuthDeg) % 360;
+        if (effectiveMount == "wall" && IsMeshModel(ap.Model))
+            azimuthDeg = (azimuthDeg + 180) % 360;
+        else if (effectiveMount == "ceiling" && IsMeshModel(ap.Model))
+            azimuthDeg = (360 - azimuthDeg) % 360; // Y-axis mirror: looking at back from above
+        // Mesh desktop: face up, looking from above at front = no transform needed
+        else if (effectiveMount == "desktop" && defaultMount != "desktop" && !IsMeshModel(ap.Model))
+            azimuthDeg = (azimuthDeg + 180) % 360;
+        else if (effectiveMount == "ceiling")
+            azimuthDeg = (180 - azimuthDeg + 360) % 360;
 
         // All Ubiquiti patterns use 0° = 3-o'clock of U logo (90° CW from U-tips).
         // OrientationDeg represents U-tips direction, so always add 90° to align.
@@ -179,7 +189,11 @@ public class PropagationService
         int elevationDeg;
         if (floorSeparation == 0)
         {
-            elevationDeg = 90; // horizon - no mount offset on same floor
+            // All elevation patterns use ceiling convention (0=down, 90=horizon),
+            // including omni patterns measured wall-mounted. Wall-native directional
+            // patterns (e.g., E7-Audience) use 0° = broadside (horizon), not 90°.
+            elevationDeg = patternNativeMount == "wall" && !IsOmniAntennaMode(ap.AntennaMode) && !IsMeshModel(ap.Model)
+                ? 0 : 90;
         }
         else
         {
@@ -211,16 +225,24 @@ public class PropagationService
         if (needSwap)
         {
             // Swapped: physical azimuth → elevation pattern, physical elevation → azimuth pattern.
-            // The +90° offset belongs to the azimuth pattern, so apply it to elevationDeg here.
-            azGain = _antennaLoader.GetElevationGain(ap.Model, band, azimuthDeg, ap.AntennaMode);
-            elGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
+            // Use Elevation 0 deg cut when available (more accurate than Elevation 90 deg from .ant files).
+            azGain = _antennaLoader.GetElevation0Gain(ap.Model, band, azimuthDeg, ap.AntennaMode);
+            // Cross-floor: the +90° offset belongs to the azimuth pattern, so apply it to elevationDeg.
+            elGain = floorSeparation == 0 ? 0f
+                : _antennaLoader.GetAzimuthGain(ap.Model, band, (elevationDeg + azRotOffset) % 360, ap.AntennaMode);
         }
         else
         {
-            // Wall APs using azimuth pattern directly (e.g., outdoor omni): rotate
-            // 180° for top-down floor plan view. The pattern was measured face-on
-            // but the floor plan looks from above, reversing front/back.
-            var azIdx = effectiveMount == "wall" ? (azimuthDeg + 180) % 360 : azimuthDeg;
+            // Wall APs using azimuth pattern directly: mirror for top-down floor
+            // plan view. Looking from above swaps left/right compared to face-on
+            // measurement perspective.
+            // Mesh APs skip the mirror - their pattern data already matches top-down.
+            // Omni patterns need front-to-back flip (180° rotation) instead of LR mirror.
+            var azIdx = effectiveMount == "wall" && !IsMeshModel(ap.Model)
+                ? IsOmniAntennaMode(ap.AntennaMode)
+                    ? (azimuthDeg + 180) % 360
+                    : (360 - azimuthDeg) % 360
+                : azimuthDeg;
             azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
         }
@@ -405,7 +427,7 @@ public class PropagationService
     /// <summary>
     /// Determine the native mount orientation of the antenna pattern data.
     /// All directional patterns (base, narrow, wide, panel) are measured flat (ceiling).
-    /// Only omni patterns are measured wall-mounted.
+    /// Omni patterns and mesh AP patterns are measured wall-mounted (vertically).
     /// When the requested omni variant doesn't exist for the band (e.g., U7-Pro-Outdoor
     /// omni on 6 GHz), the pattern loader falls back to the base directional pattern,
     /// so we must also fall back to ceiling.
@@ -414,8 +436,15 @@ public class PropagationService
         !string.IsNullOrEmpty(antennaMode) &&
         antennaMode.Equals("OMNI", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsMeshModel(string model) =>
+        model.Contains("Mesh", StringComparison.OrdinalIgnoreCase);
+
     private string GetPatternNativeMount(string model, string band, string? antennaMode)
     {
+        // Mesh APs have omni patterns measured vertically, same as outdoor omni mode
+        if (IsMeshModel(model))
+            return "wall";
+
         if (IsOmniAntennaMode(antennaMode) && _antennaLoader.HasOmniVariant(model))
         {
             // Check if the omni variant actually has this band. If not, the pattern

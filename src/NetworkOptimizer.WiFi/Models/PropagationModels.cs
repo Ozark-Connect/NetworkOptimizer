@@ -128,6 +128,10 @@ public class AntennaPattern
     /// <summary>360 gain values indexed by azimuth angle (0-359 degrees)</summary>
     public float[] Azimuth { get; set; } = Array.Empty<float>();
 
-    /// <summary>359 gain values indexed by elevation angle (0-358 degrees)</summary>
+    /// <summary>359 gain values indexed by elevation angle (0-358 degrees). Elevation 90 deg cut from .ant files.</summary>
     public float[] Elevation { get; set; } = Array.Empty<float>();
+
+    /// <summary>359 gain values for the Elevation 0 deg cut, digitized from Ubiquiti reference images.
+    /// Used for wall-mounted AP 2D floor plan rendering where the Elevation 90 deg cut is incorrect.</summary>
+    public float[]? Elevation0 { get; set; }
 }
