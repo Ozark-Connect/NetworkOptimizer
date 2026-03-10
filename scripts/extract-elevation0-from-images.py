@@ -1262,7 +1262,7 @@ def main():
     db_min = -20.0
     variants = None
     cx_shift = 0
-    cy_shift = 0
+    cy_shift = None
     n_bands = None
     grid_radius_override = None
     cx_override = None
@@ -1277,7 +1277,11 @@ def main():
         if a == "--cx-shift" and i + 1 < len(sys.argv):
             cx_shift = int(sys.argv[i + 1])
         if a == "--cy-shift" and i + 1 < len(sys.argv):
-            cy_shift = int(sys.argv[i + 1])
+            val = sys.argv[i + 1]
+            if "," in val:
+                cy_shift = [int(v) for v in val.split(",")]
+            else:
+                cy_shift = int(val)
         if a == "--n-bands" and i + 1 < len(sys.argv):
             n_bands = int(sys.argv[i + 1])
         if a == "--grid-radius" and i + 1 < len(sys.argv):
@@ -1314,7 +1318,7 @@ def main():
 
     print(f"Processing: {image_path.name}")
     print(f"  dB scale: center={db_min} dBi, outer ring={db_max} dBi, range={db_range} dB")
-    if cx_shift or cy_shift:
+    if cx_shift or cy_shift is not None:
         print(f"  Center shift: dx={cx_shift}, dy={cy_shift} (positive = right/down on page)")
     if variants:
         print(f"  Variants: {variants}")
@@ -1417,10 +1421,16 @@ def main():
                 print(f"    keeping el0 cy (more consistent than el90)")
 
     # Apply cy_shift after el90 borrowing
-    if cy_shift:
-        for p in el0_plots:
-            p["cy"] += cy_shift
-        print(f"  cy_shift: {cy_shift:+d}")
+    if cy_shift is not None:
+        if isinstance(cy_shift, list):
+            for i, p in enumerate(el0_plots):
+                shift = cy_shift[i] if i < len(cy_shift) else cy_shift[-1]
+                p["cy"] += shift
+            print(f"  cy_shift (per-plot): {cy_shift}")
+        else:
+            for p in el0_plots:
+                p["cy"] += cy_shift
+            print(f"  cy_shift: {cy_shift:+d}")
 
     if variants:
         # Split plots evenly across variants
