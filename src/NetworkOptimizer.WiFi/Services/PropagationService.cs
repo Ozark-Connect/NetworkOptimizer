@@ -190,8 +190,11 @@ public class PropagationService
         int elevationDeg;
         if (floorSeparation == 0)
         {
-            // Wall-native patterns use 0° = broadside (horizon), not 90°.
-            elevationDeg = patternNativeMount == "wall" && effectiveMount == "wall" ? 0 : 90;
+            // All elevation patterns use ceiling convention (0=down, 90=horizon),
+            // including omni patterns measured wall-mounted. Wall-native directional
+            // patterns (e.g., E7-Audience) use 0° = broadside (horizon), not 90°.
+            elevationDeg = patternNativeMount == "wall" && !IsOmniAntennaMode(ap.AntennaMode) && !IsMeshModel(ap.Model)
+                ? 0 : 90;
         }
         else
         {
