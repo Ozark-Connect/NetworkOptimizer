@@ -114,6 +114,9 @@
                                     <label>Frequency</label>
                                     <select class="form-control" value="@auditTask.FrequencyMinutes"
                                             @onchange="e => UpdateFrequency(auditTask, e)">
+                                        <option value="60">Every 1 hour</option>
+                                        <option value="120">Every 2 hours</option>
+                                        <option value="240">Every 4 hours</option>
                                         <option value="360">Every 6 hours</option>
                                         <option value="720">Every 12 hours</option>
                                         <option value="1440">Every 24 hours</option>
@@ -279,6 +282,9 @@
                             <div class="form-group schedule-field">
                                 <label>Frequency</label>
                                 <select class="form-control" @bind="_newWanFrequency">
+                                    <option value="60">Every 1 hour</option>
+                                    <option value="120">Every 2 hours</option>
+                                    <option value="240">Every 4 hours</option>
                                     <option value="360">Every 6 hours</option>
                                     <option value="720">Every 12 hours</option>
                                     <option value="1440">Every 24 hours</option>
@@ -409,6 +415,9 @@
                                 <div class="form-group schedule-field">
                                     <label>Frequency</label>
                                     <select class="form-control" @bind="_newLanFrequency">
+                                        <option value="60">Every 1 hour</option>
+                                        <option value="120">Every 2 hours</option>
+                                        <option value="240">Every 4 hours</option>
                                         <option value="360">Every 6 hours</option>
                                         <option value="720">Every 12 hours</option>
                                         <option value="1440">Every 24 hours</option>
@@ -2443,6 +2452,9 @@
 
     private static string FormatFrequency(int minutes) => minutes switch
     {
+        60 => "Every 1h",
+        120 => "Every 2h",
+        240 => "Every 4h",
         360 => "Every 6h",
         720 => "Every 12h",
         1440 => "Every 24h",
