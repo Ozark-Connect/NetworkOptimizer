@@ -13,6 +13,9 @@ For images with multiple antenna variants (e.g., E7-Audience narrow + wide):
 
 To correct center detection offset (positive = move center down on page):
     python scripts/extract-elevation0-from-images.py <image_path> --db-max 10 --cy-shift 15
+
+For images where row detection merges adjacent rows (e.g., E7 Summary with 7 bands):
+    python scripts/extract-elevation0-from-images.py <image_path> --db-max 10 --n-bands 7
 """
 
 import sys
@@ -31,16 +34,22 @@ def is_pattern_line(r, g, b):
 
 
 def is_grid_pixel(r, g, b):
-    """Grid lines are lighter blue-gray, NOT the dark pattern line."""
-    return (130 < int(b) < 240 and int(r) < 200 and int(g) < 200 and
-            not is_pattern_line(r, g, b) and
-            abs(int(r) - int(g)) < 40)
+    """Grid lines have a distinct blue tint (B significantly > R and G).
+    Excludes pure gray pixels from AP product images and text."""
+    ri, gi, bi = int(r), int(g), int(b)
+    return (130 < bi < 255 and
+            bi > ri + 15 and bi > gi + 15 and
+            not is_pattern_line(r, g, b))
 
 
 # ── Plot detection ───────────────────────────────────────────────────────────
 
-def find_row_spans(arr, col_start, col_end):
-    """Find vertical spans containing blue pattern pixels in a column range."""
+def find_row_spans(arr, col_start, col_end, n_expected=None):
+    """Find vertical spans containing blue pattern pixels in a column range.
+
+    If n_expected is given, adaptively merges the closest spans until
+    exactly n_expected remain. Otherwise uses a 20px gap threshold.
+    """
     h = arr.shape[0]
 
     # Build mask of blue pattern pixels
@@ -67,10 +76,10 @@ def find_row_spans(arr, col_start, col_end):
     if in_span and h - start > 30:
         spans.append((start, h))
 
-    # Merge spans with < 100px gap
+    # Merge spans with < 20px gap (within-plot pixel noise)
     merged = [spans[0]] if spans else []
     for s, e in spans[1:]:
-        if s - merged[-1][1] < 100:
+        if s - merged[-1][1] < 20:
             merged[-1] = (merged[-1][0], e)
         else:
             merged.append((s, e))
@@ -105,10 +114,72 @@ def find_grid_center(arr, y_start, y_end, col_start, col_end, rough_cx, rough_cy
     return rough_cx, rough_cy, len(grid_xs)
 
 
-def find_plots_in_column(arr, col_start, col_end):
-    """Find polar plot centers in a column range using grid pixel centroid."""
+def find_crosshair_center(arr, approx_cy, col_start, col_end):
+    """Find the true polar plot center using the horizontal crosshair line.
+
+    The horizontal crosshair is a dashed/gradient line through the plot center.
+    It contains the densest concentration of blue-tinted grid pixels on any row.
+    The midpoint of its extent gives center X; the row gives center Y.
+
+    Returns (cx, cy, blue_half_span) or None.
+    """
+    # Find the row with the most blue-tinted grid pixels near the approximate center.
+    # Search ±50px since the blue pixel centroid can be far from the true center
+    # (directional patterns extend much further in one direction).
+    best_count = 0
+    best_y = approx_cy
+    for y in range(max(0, approx_cy - 50), min(arr.shape[0], approx_cy + 50)):
+        count = 0
+        for x in range(col_start, col_end):
+            r, g, b = arr[y, x, :3]
+            if is_grid_pixel(r, g, b):
+                count += 1
+        if count > best_count:
+            best_count = count
+            best_y = y
+
+    if best_count < 50:
+        return None
+
+    # Find extent of blue-tinted pixels on the crosshair row
+    xs = []
+    for x in range(col_start, col_end):
+        r, g, b = arr[best_y, x, :3]
+        if is_grid_pixel(r, g, b):
+            xs.append(x)
+
+    if len(xs) < 20:
+        return None
+
+    cx = (min(xs) + max(xs)) / 2
+    half_span = (max(xs) - min(xs)) / 2
+
+    return cx, best_y, half_span
+
+
+def compute_outer_ring_radius(blue_half_span, n_rings):
+    """Compute the outer ring radius from the crosshair blue-tinted extent.
+
+    The blue-tinted crosshair gradient extends to the second-to-outermost
+    grid ring. The outer ring (at db_max) is one ring-spacing further out:
+        outer_r = blue_half_span * (n_rings - 1) / (n_rings - 2)
+
+    For 7 rings (30 dB range, 5 dB spacing): outer_r = half_span * 6/5
+    """
+    n_intervals = n_rings - 1
+    return blue_half_span * n_intervals / (n_intervals - 1)
+
+
+def find_plots_in_column(arr, col_start, col_end, n_expected=None, n_rings=7):
+    """Find polar plot centers in a column range.
+
+    Uses two-step detection:
+    1. Horizontal crosshair for center (most reliable)
+    2. Distance histogram for outer ring radius
+    Falls back to grid centroid + circle fitting if crosshair detection fails.
+    """
     h = arr.shape[0]
-    merged, mask = find_row_spans(arr, col_start, col_end)
+    merged, mask = find_row_spans(arr, col_start, col_end, n_expected=n_expected)
 
     plots = []
     for y_start, y_end in merged:
@@ -131,13 +202,30 @@ def find_plots_in_column(arr, col_start, col_end):
         if max(rx, ry) < 30:
             continue
 
-        # Use grid pixel centroid for true center
-        cx, cy, n_grid = find_grid_center(arr, y_start, y_end, col_start, col_end,
-                                           rough_cx, rough_cy, max(rx, ry))
+        # Use center of the row span as search target for crosshair
+        # (more reliable than blue pixel centroid, which is biased by pattern shape)
+        span_center_y = (y_start + y_end) // 2
+        ch = find_crosshair_center(arr, span_center_y, col_start, col_end)
+        if ch:
+            cx, cy, half_span = ch
+            cx = int(round(cx))
 
-        # Pattern radius: 95th percentile distance from grid center to blue pixels.
-        # This excludes outliers like the "AAmp" legend marker at the top of each plot,
-        # which is a small fraction of total blue pixels but inflates bounding box.
+            # Compute outer ring radius from crosshair extent
+            radius = compute_outer_ring_radius(half_span, n_rings)
+        else:
+            # Fallback: grid centroid
+            cx, cy, n_grid = find_grid_center(arr, y_start, y_end, col_start, col_end,
+                                               rough_cx, rough_cy, max(rx, ry))
+            # Try circle fitting for radius
+            fit = fit_outer_ring(arr, cx, cy, max(rx, ry), col_start, col_end)
+            if fit:
+                cx, cy = int(round(fit[0])), int(round(fit[1]))
+                radius = fit[2]
+            else:
+                radius = detect_grid_boundary(arr, cx, cy, max(rx, ry),
+                                               col_start, col_end)
+
+        # Pattern radius: 95th percentile distance from center to blue pixels
         dists = [math.sqrt((bx - cx) ** 2 + (by - cy) ** 2)
                  for bx, by in zip(blue_xs, blue_ys)]
         dists.sort()
@@ -147,22 +235,27 @@ def find_plots_in_column(arr, col_start, col_end):
             "cx": cx, "cy": cy,
             "blue_cx": rough_cx, "blue_cy": rough_cy,
             "pattern_radius": pat_r,
+            "radius": radius,
             "y_range": (y_start, y_end),
-            "n_grid_pixels": n_grid,
+            "n_grid_pixels": 0,
         })
 
-    # Detect grid boundary radius
-    grid_radii = []
-    for p in plots:
-        gr = detect_grid_boundary(arr, p["cx"], p["cy"], p["pattern_radius"],
-                                   col_start, col_end)
-        grid_radii.append(gr)
-
-    if grid_radii:
-        median_gr = sorted(grid_radii)[len(grid_radii) // 2]
-        for i, p in enumerate(plots):
-            p["own_grid_r"] = grid_radii[i]
-            p["radius"] = median_gr
+    # Deduplicate: if two plots are within 100px vertically (center-to-center),
+    # they're from the same row split by a gap. Keep the one from the larger span.
+    if n_expected and len(plots) > n_expected:
+        plots.sort(key=lambda p: p["cy"])
+        deduped = []
+        i = 0
+        while i < len(plots):
+            if i + 1 < len(plots) and abs(plots[i + 1]["cy"] - plots[i]["cy"]) < 100:
+                span_a = plots[i]["y_range"][1] - plots[i]["y_range"][0]
+                span_b = plots[i + 1]["y_range"][1] - plots[i + 1]["y_range"][0]
+                deduped.append(plots[i] if span_a >= span_b else plots[i + 1])
+                i += 2
+            else:
+                deduped.append(plots[i])
+                i += 1
+        plots = deduped
 
     return plots
 
@@ -229,6 +322,112 @@ def detect_grid_boundary(arr, cx, cy, pattern_radius, col_start, col_end):
     return int(pattern_radius)
 
 
+def _kasa_circle_fit(points):
+    """Algebraic circle fit (Kasa method) for a list of (x, y) points.
+
+    Returns (cx, cy, radius).
+    """
+    xs = np.array([p[0] for p in points], dtype=float)
+    ys = np.array([p[1] for p in points], dtype=float)
+
+    A = np.column_stack([xs, ys, np.ones(len(xs))])
+    b_vec = xs ** 2 + ys ** 2
+    result, _, _, _ = np.linalg.lstsq(A, b_vec, rcond=None)
+
+    fit_cx = result[0] / 2
+    fit_cy = result[1] / 2
+    fit_r = math.sqrt(abs(result[2] + fit_cx ** 2 + fit_cy ** 2))
+
+    return fit_cx, fit_cy, fit_r
+
+
+def fit_outer_ring(arr, rough_cx, rough_cy, pattern_radius, col_start, col_end):
+    """Find the outer grid ring by scanning from outside inward at many angles.
+
+    The AP product image can occlude inner rings, but the outer ring is always
+    visible. Scans from well outside the plot inward, looking for the first
+    non-white pixel (brightness-based, since grid rings may be gray without
+    blue tint). Uses iterative outlier removal to reject text label hits.
+
+    Returns (fit_cx, fit_cy, fit_radius) or None if insufficient data.
+    """
+    h, w = arr.shape[:2]
+    scan_start = int(pattern_radius) + 30  # well outside plot
+
+    def is_pattern_line_local(r, g, b):
+        return int(r) < 50 and int(g) < 50 and int(b) > 200
+
+    # Scan from outside inward at many angles.
+    # To distinguish ring pixels (thin line, 1-3px) from text (multi-pixel blocks),
+    # we require a "thin line" pattern: the hit pixel should have white within
+    # a few pixels on the inner side (ring is thin, text is thick).
+    ring_points = []
+    for angle_deg in range(0, 360, 2):  # every 2 degrees
+        angle_rad = math.radians(angle_deg)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+
+        for r in range(scan_start, 40, -1):
+            x = int(rough_cx + r * cos_a)
+            y = int(rough_cy + r * sin_a)
+            if not (0 <= x < w and 0 <= y < h):
+                continue
+            rv, gv, bv = arr[y, x, :3]
+            brightness = (int(rv) + int(gv) + int(bv)) / 3
+            if brightness >= 230 or is_pattern_line_local(rv, gv, bv):
+                continue
+
+            # Check that this is a thin line: within 5px inward there should be
+            # a white pixel (ring lines are 1-3px wide, text is wider)
+            is_thin = False
+            for dr in range(1, 6):
+                ix = int(rough_cx + (r - dr) * cos_a)
+                iy = int(rough_cy + (r - dr) * sin_a)
+                if 0 <= ix < w and 0 <= iy < h:
+                    irv, igv, ibv = arr[iy, ix, :3]
+                    ib = (int(irv) + int(igv) + int(ibv)) / 3
+                    if ib > 240:
+                        is_thin = True
+                        break
+
+            if is_thin:
+                ring_points.append((x, y))
+                break
+
+    if len(ring_points) < 30:
+        return None
+
+    # First pass: use median radius from rough center to reject gross outliers
+    radii = [math.sqrt((x - rough_cx) ** 2 + (y - rough_cy) ** 2)
+             for x, y in ring_points]
+    median_r = sorted(radii)[len(radii) // 2]
+    points = [p for p, r in zip(ring_points, radii) if abs(r - median_r) < 10]
+
+    if len(points) < 20:
+        return None
+
+    # Iterative circle fit with outlier removal
+    for _ in range(3):
+        if len(points) < 15:
+            break
+
+        fit_cx, fit_cy, fit_r = _kasa_circle_fit(points)
+
+        residuals = []
+        for px, py in points:
+            d = math.sqrt((px - fit_cx) ** 2 + (py - fit_cy) ** 2)
+            residuals.append(abs(d - fit_r))
+
+        median_res = sorted(residuals)[len(residuals) // 2]
+        threshold = max(median_res * 2.5, 3.0)
+        points = [p for p, res in zip(points, residuals) if res < threshold]
+
+    if len(points) < 15:
+        return None
+
+    return _kasa_circle_fit(points)
+
+
 # ── Pattern extraction ───────────────────────────────────────────────────────
 
 def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range,
@@ -240,7 +439,7 @@ def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range,
                   Set to pattern_radius + margin to avoid hitting legend markers
                   or other artifacts outside the actual pattern.
 
-    Returns 359 values (0-358 degrees), normalized to peak = 0 dB.
+    Returns 359 values (0-358 degrees) in absolute dBi.
     Convention: 0 deg at top of polar plot, clockwise.
     """
     h, w = arr.shape[:2]
@@ -255,12 +454,16 @@ def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range,
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
 
-        # Cast ray from search_start inward, find outermost blue pixel
-        # Check 3px wide band for each radius to avoid missing the line
+        # Cast ray from search_start inward, find outermost blue pixel.
+        # Use wider perpendicular band near horizontal crosshair angles
+        # (85-95° and 265-275°) where the crosshair gradient occludes pattern.
+        near_horizontal = ((85 <= angle_deg <= 95) or (265 <= angle_deg <= 275))
+        offsets = [-3, -2, -1, 0, 1, 2, 3] if near_horizontal else [-1, 0, 1]
+
         found_r = 0
         for r in range(search_start, 2, -1):
             hit = False
-            for offset in [-1, 0, 1]:
+            for offset in offsets:
                 # Perpendicular offset
                 x = int(cx + r * cos_a + offset * sin_a)
                 y = int(cy + r * sin_a - offset * cos_a)
@@ -280,10 +483,6 @@ def extract_polar_pattern(arr, cx, cy, outer_radius, db_max, db_range,
             gain = db_min
 
         gains.append(round(gain, 1))
-
-    # Normalize to peak = 0 dB
-    peak = max(gains)
-    gains = [round(g - peak, 1) for g in gains]
 
     # Despike: replace single/double-degree nulls caused by ray-casting misses.
     # The pattern line is 1-2px wide; at certain angles the 3px-wide ray can
@@ -369,7 +568,8 @@ def validate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range,
 
     print(f"\n  === Validating with Elevation 90 (column 2) ===")
 
-    el90_plots = find_plots_in_column(arr, col2_start, col2_end)
+    n_rings = int(db_range / 5) + 1
+    el90_plots = find_plots_in_column(arr, col2_start, col2_end, n_rings=n_rings)
     print(f"  Found {len(el90_plots)} el90 plots in column 2")
 
     if not el90_plots:
@@ -410,8 +610,10 @@ def validate_with_el90(arr, el0_plots, ant_data, model, bands, db_max, db_range,
         extracted = extract_polar_pattern(arr, cx, cy, detected_r, db_max, db_range,
                                            search_start=search_r)
 
-        ext_peak = extracted.index(0.0)
-        ref_peak = ref_el90.index(0.0) if 0.0 in ref_el90 else "?"
+        ext_peak_val = max(extracted)
+        ext_peak = extracted.index(ext_peak_val)
+        ref_peak_val = max(ref_el90) if ref_el90 else 0
+        ref_peak = ref_el90.index(ref_peak_val) if ref_el90 else "?"
 
         # Compute RMSE
         n = min(len(extracted), len(ref_el90))
@@ -448,10 +650,13 @@ def extract_pattern_with_radii(arr, cx, cy, outer_radius, db_max, db_range,
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
 
+        near_horizontal = ((85 <= angle_deg <= 95) or (265 <= angle_deg <= 275))
+        offsets = [-3, -2, -1, 0, 1, 2, 3] if near_horizontal else [-1, 0, 1]
+
         found_r = 0
         for r in range(search_start, 2, -1):
             hit = False
-            for offset in [-1, 0, 1]:
+            for offset in offsets:
                 x = int(cx + r * cos_a + offset * sin_a)
                 y = int(cy + r * sin_a - offset * cos_a)
                 if 0 <= x < w and 0 <= y < h:
@@ -470,8 +675,7 @@ def extract_pattern_with_radii(arr, cx, cy, outer_radius, db_max, db_range,
         gains.append(round(gain, 1))
         radii.append(found_r)
 
-    peak = max(gains)
-    gains = [round(g - peak, 1) for g in gains]
+    gains = despike(gains)
     return gains, radii
 
 
@@ -563,7 +767,7 @@ def extract_model_name(filename):
 # ── Per-variant processing ──────────────────────────────────────────────────
 
 def process_variant(arr, plots, bands, model_key, ant_data, db_max, db_range,
-                    debug=False):
+                    debug=False, grid_radius_override=None):
     """Extract el0 patterns for a set of plots (one variant).
 
     Returns dict of {band: gains}.
@@ -571,16 +775,21 @@ def process_variant(arr, plots, bands, model_key, ant_data, db_max, db_range,
     if not plots:
         return {}
 
-    # Use this variant group's own median grid_r
-    use_radius = plots[0].get("radius", plots[0]["pattern_radius"])
-
     print(f"\n  === Extracting Elevation 0 for {model_key} ===")
-    print(f"  Using radius={use_radius:.0f}px, {len(plots)} plots")
+    print(f"  {len(plots)} plots")
 
     results = {}
     for i, (plot, band) in enumerate(zip(plots, bands)):
         cx, cy = plot["cx"], plot["cy"]
         pat_r = plot["pattern_radius"]
+
+        # Use per-band radius (from crosshair/histogram detection)
+        # or override if specified
+        if grid_radius_override:
+            use_radius = grid_radius_override
+        else:
+            use_radius = plot.get("radius", pat_r)
+
         search_r = max(int(pat_r) + 10, int(use_radius) + 5)
         gains = extract_polar_pattern(arr, cx, cy, use_radius, db_max, db_range,
                                        search_start=search_r)
@@ -588,10 +797,11 @@ def process_variant(arr, plots, bands, model_key, ant_data, db_max, db_range,
         # Mirror for "from above" convention
         gains = [gains[0]] + gains[1:][::-1]
 
-        peak_idx = gains.index(0.0)
+        peak_val = max(gains)
+        peak_idx = gains.index(peak_val)
         min_val = min(gains)
         print(f"  {band}: center=({cx},{cy}) r={use_radius:.0f} "
-              f"peak@{peak_idx}deg min={min_val:.1f}dB")
+              f"peak={peak_val:.1f}dBi@{peak_idx}deg min={min_val:.1f}dBi")
 
         if debug:
             for d in range(0, 359, 15):
@@ -642,7 +852,10 @@ def main():
     db_max = None
     db_min = -20.0
     variants = None
+    cx_shift = 0
     cy_shift = 0
+    n_bands = None
+    grid_radius_override = None
     for i, a in enumerate(sys.argv):
         if a == "--db-max" and i + 1 < len(sys.argv):
             db_max = float(sys.argv[i + 1])
@@ -650,12 +863,18 @@ def main():
             db_min = float(sys.argv[i + 1])
         if a == "--variants" and i + 1 < len(sys.argv):
             variants = [v.strip() for v in sys.argv[i + 1].split(",")]
+        if a == "--cx-shift" and i + 1 < len(sys.argv):
+            cx_shift = int(sys.argv[i + 1])
         if a == "--cy-shift" and i + 1 < len(sys.argv):
             cy_shift = int(sys.argv[i + 1])
+        if a == "--n-bands" and i + 1 < len(sys.argv):
+            n_bands = int(sys.argv[i + 1])
+        if a == "--grid-radius" and i + 1 < len(sys.argv):
+            grid_radius_override = int(sys.argv[i + 1])
 
     if not args:
         print("Usage: python extract-elevation0-from-images.py <image_path> "
-              "--db-max <value> [--variants narrow,wide] [--cy-shift N] [--db-min -20] [--debug]")
+              "--db-max <value> [--variants narrow,wide] [--cy-shift N] [--n-bands N] [--db-min -20] [--debug]")
         print("\n  --db-max is REQUIRED. Read it from the outer ring label on the polar plot.")
         print("  Common values: 10 (indoor APs), 15 (outdoor APs)")
         print("\n  --variants: Split rows into named variants (e.g., narrow,wide).")
@@ -676,8 +895,8 @@ def main():
 
     print(f"Processing: {image_path.name}")
     print(f"  dB scale: center={db_min} dBi, outer ring={db_max} dBi, range={db_range} dB")
-    if cy_shift:
-        print(f"  Center Y shift: {cy_shift}px (positive = down on page)")
+    if cx_shift or cy_shift:
+        print(f"  Center shift: dx={cx_shift}, dy={cy_shift} (positive = right/down on page)")
     if variants:
         print(f"  Variants: {variants}")
 
@@ -686,18 +905,23 @@ def main():
     h, w = arr.shape[:2]
     print(f"  Image: {w}x{h}")
 
+    # Number of grid rings (5 dB spacing)
+    n_rings = int(db_range / 5) + 1
+
     # ── Phase 1: Find el0 plots in column 1 ──
     col1_end = w // 4
-    el0_plots = find_plots_in_column(arr, 0, col1_end)
+    el0_plots = find_plots_in_column(arr, 0, col1_end, n_expected=n_bands,
+                                      n_rings=n_rings)
     print(f"  Found {len(el0_plots)} el0 plots in column 1")
 
     if not el0_plots:
         print("  ERROR: No plots found!")
         sys.exit(1)
 
-    # Apply center Y shift if specified
-    if cy_shift:
+    # Apply center shifts if specified
+    if cx_shift or cy_shift:
         for p in el0_plots:
+            p["cx"] += cx_shift
             p["cy"] += cy_shift
 
     for i, p in enumerate(el0_plots):
@@ -761,7 +985,7 @@ def main():
 
             results = process_variant(
                 arr, variant_plots, bands_per_variant, model_key, ant_data,
-                db_max, db_range, debug)
+                db_max, db_range, debug, grid_radius_override)
             output[model_key] = {"elevation_0": results}
 
         # Save output
@@ -780,7 +1004,8 @@ def main():
                 arr, el0_plots, ant_data, model, bands, db_max, db_range, debug)
 
         results = process_variant(
-            arr, el0_plots, bands, model, ant_data, db_max, db_range, debug)
+            arr, el0_plots, bands, model, ant_data, db_max, db_range, debug,
+            grid_radius_override)
 
         output = {model: {"elevation_0": results}}
         out_path = image_path.with_suffix(".elevation0.json")
