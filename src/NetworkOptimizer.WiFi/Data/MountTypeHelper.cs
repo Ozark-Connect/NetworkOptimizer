@@ -39,7 +39,6 @@ public static class MountTypeHelper
         if (m.Contains("-IW", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("-Wall", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("-Outdoor", StringComparison.OrdinalIgnoreCase) ||
-            m.Contains("-Mesh", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("Mesh", StringComparison.OrdinalIgnoreCase))
             return "wall";
 

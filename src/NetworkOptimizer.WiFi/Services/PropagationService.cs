@@ -169,7 +169,6 @@ public class PropagationService
         // azimuth pattern, but mesh ceiling/desktop goes through the swap path which
         // reads the elevation pattern (different angular reference).
         var defaultMount = MountTypeHelper.GetDefaultMountType(ap.Model);
-        var isCeilingNative = defaultMount == "ceiling";
         if (effectiveMount == "wall" && IsMeshModel(ap.Model))
             azimuthDeg = (azimuthDeg + 180) % 360;
         else if (effectiveMount == "ceiling" && IsMeshModel(ap.Model))
