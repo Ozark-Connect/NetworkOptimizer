@@ -236,10 +236,12 @@ public class PropagationService
             // Wall APs using azimuth pattern directly: mirror for top-down floor
             // plan view. Looking from above swaps left/right compared to face-on
             // measurement perspective.
-            // Mesh APs and omni antenna patterns skip the mirror - their pattern
-            // data convention already matches the top-down map view.
-            var azIdx = effectiveMount == "wall" && !IsMeshModel(ap.Model) && !IsOmniAntennaMode(ap.AntennaMode)
-                ? (360 - azimuthDeg) % 360
+            // Mesh APs skip the mirror - their pattern data already matches top-down.
+            // Omni patterns need front-to-back flip (180° rotation) instead of LR mirror.
+            var azIdx = effectiveMount == "wall" && !IsMeshModel(ap.Model)
+                ? IsOmniAntennaMode(ap.AntennaMode)
+                    ? (azimuthDeg + 180) % 360
+                    : (360 - azimuthDeg) % 360
                 : azimuthDeg;
             azGain = _antennaLoader.GetAzimuthGain(ap.Model, band, (azIdx + azRotOffset) % 360, ap.AntennaMode);
             elGain = _antennaLoader.GetElevationGain(ap.Model, band, elevationDeg, ap.AntennaMode);
