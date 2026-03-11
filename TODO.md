@@ -15,6 +15,14 @@
 
 ### ✅ ~~LAN Speed Test Schedule: UniFi Device Targets~~ (done)
 
+### DST-Aware Schedule Time Display
+- Schedule start times are stored as UTC hour/minute and converted to local for display using `DateTime.UtcNow.Date.ToLocalTime()`
+- This uses the current day's DST offset, so a schedule created at 6:00 AM CDT (UTC-5) displays as 5:00 AM during CST (UTC-6)
+- The read-only view (`FormatStartTime`) and edit form (`UtcToLocalTimeOnly`) are consistent with each other, but both shift by an hour across DST transitions
+- Actual execution time is correct (UTC-based) - only the displayed local time drifts
+- **Affected code:** `Alerts.razor: FormatStartTime()`, `UtcToLocalTimeOnly()`, `ParseTimeInput()`
+- **Options:** Store IANA timezone per schedule, use `TimeZoneInfo.ConvertTimeFromUtc`, or store local time + timezone
+
 ### Threat Alert Dedup Tuning (if users report noise)
 
 Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAlertId, pattern-level dedup via DedupKey with 6h merge window, rule-level cooldown at 1h. No spam reported yet, but here are levers to pull if it gets noisy:
