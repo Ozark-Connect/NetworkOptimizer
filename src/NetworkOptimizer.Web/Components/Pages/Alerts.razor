@@ -125,17 +125,20 @@
                                     </select>
                                 </div>
                             </div>
-                            @if (auditTask.LastRunAt.HasValue)
+                            @if (auditTask.LastRunAt.HasValue || (auditTask.NextRunAt.HasValue && auditTask.Enabled))
                             {
                                 <div class="schedule-status">
-                                    <span class="schedule-status-item">
-                                        <span class="detail-label">Last run:</span>
-                                        <span class="detail-value">@FormatTime(auditTask.LastRunAt.Value)</span>
-                                        @if (!string.IsNullOrEmpty(auditTask.LastStatus))
-                                        {
-                                            <span class="status-badge @GetScheduleStatusClass(auditTask.LastStatus)">@auditTask.LastStatus</span>
-                                        }
-                                    </span>
+                                    @if (auditTask.LastRunAt.HasValue)
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Last run:</span>
+                                            <span class="detail-value">@FormatTime(auditTask.LastRunAt.Value)</span>
+                                            @if (!string.IsNullOrEmpty(auditTask.LastStatus))
+                                            {
+                                                <span class="status-badge @GetScheduleStatusClass(auditTask.LastStatus)">@auditTask.LastStatus</span>
+                                            }
+                                        </span>
+                                    }
                                     @if (!string.IsNullOrEmpty(auditTask.LastResultSummary))
                                     {
                                         <span class="schedule-status-item">
@@ -214,17 +217,20 @@
                                         <span class="schedule-detail-tag tag-muted">@FormatStartTime(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)</span>
                                     }
                                 </div>
-                                @if (task.LastRunAt.HasValue)
+                                @if (task.LastRunAt.HasValue || (task.NextRunAt.HasValue && task.Enabled))
                                 {
                                     <div class="schedule-status">
-                                        <span class="schedule-status-item">
-                                            <span class="detail-label">Last run:</span>
-                                            <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
-                                            @if (!string.IsNullOrEmpty(task.LastStatus))
-                                            {
-                                                <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
-                                            }
-                                        </span>
+                                        @if (task.LastRunAt.HasValue)
+                                        {
+                                            <span class="schedule-status-item">
+                                                <span class="detail-label">Last run:</span>
+                                                <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
+                                                @if (!string.IsNullOrEmpty(task.LastStatus))
+                                                {
+                                                    <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
+                                                }
+                                            </span>
+                                        }
                                         @if (!string.IsNullOrEmpty(task.LastResultSummary))
                                         {
                                             <span class="schedule-status-item">
@@ -364,17 +370,20 @@
                                     <span class="schedule-detail-tag">@task.TargetId</span>
                                 }
                             </div>
-                            @if (task.LastRunAt.HasValue)
+                            @if (task.LastRunAt.HasValue || (task.NextRunAt.HasValue && task.Enabled))
                             {
                                 <div class="schedule-status">
-                                    <span class="schedule-status-item">
-                                        <span class="detail-label">Last run:</span>
-                                        <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
-                                        @if (!string.IsNullOrEmpty(task.LastStatus))
-                                        {
-                                            <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
-                                        }
-                                    </span>
+                                    @if (task.LastRunAt.HasValue)
+                                    {
+                                        <span class="schedule-status-item">
+                                            <span class="detail-label">Last run:</span>
+                                            <span class="detail-value">@FormatTime(task.LastRunAt.Value)</span>
+                                            @if (!string.IsNullOrEmpty(task.LastStatus))
+                                            {
+                                                <span class="status-badge @GetScheduleStatusClass(task.LastStatus)">@task.LastStatus</span>
+                                            }
+                                        </span>
+                                    }
                                     @if (!string.IsNullOrEmpty(task.LastResultSummary))
                                     {
                                         <span class="schedule-status-item">
