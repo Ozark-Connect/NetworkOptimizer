@@ -1542,11 +1542,11 @@
                         </label>
                         @if (_editingWanScheduleId.HasValue)
                         {
-                            <button class="btn btn-sm btn-secondary" @onclick="CancelEditWanSchedule">Cancel</button>
                             <button class="btn btn-sm btn-primary" @onclick="SaveWanSchedule"
                                     disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
                                 Save
                             </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="CancelEditWanSchedule">Cancel</button>
                         }
                         else
                         {
@@ -1600,11 +1600,11 @@
                     <div class="schedule-inline-controls">
                         @if (_editingLanScheduleId.HasValue)
                         {
-                            <button class="btn btn-sm btn-secondary" @onclick="CancelEditLanSchedule">Cancel</button>
                             <button class="btn btn-sm btn-primary" @onclick="SaveLanSchedule"
                                     disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
                                 Save
                             </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="CancelEditLanSchedule">Cancel</button>
                         }
                         else
                         {
