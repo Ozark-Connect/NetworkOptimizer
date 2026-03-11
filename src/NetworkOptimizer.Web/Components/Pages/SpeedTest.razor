@@ -565,7 +565,8 @@
                         <div class="form-group">
                             <label class="form-label">Parallel Streams</label>
                             <input type="number" class="form-control" min="1" max="16"
-                                   @bind="editingDevice.Iperf3ParallelStreams"
+                                   @bind:get="editingDevice.Iperf3ParallelStreams"
+                                   @bind:set="v => editingDevice.Iperf3ParallelStreams = v.HasValue ? Math.Clamp(v.Value, 1, 16) : null"
                                    placeholder="(global default)" />
                             <span class="form-help">Number of parallel iperf3 streams (-P flag). Leave blank to use the global setting from Settings.</span>
                         </div>
@@ -573,7 +574,8 @@
                         <div class="form-group">
                             <label class="form-label">Duration (seconds)</label>
                             <input type="number" class="form-control" min="1" max="300"
-                                   @bind="editingDevice.Iperf3DurationSeconds"
+                                   @bind:get="editingDevice.Iperf3DurationSeconds"
+                                   @bind:set="v => editingDevice.Iperf3DurationSeconds = v.HasValue ? Math.Clamp(v.Value, 1, 300) : null"
                                    placeholder="(global default)" />
                             <span class="form-help">Duration of each iperf3 test (-t flag) in seconds. Leave blank to use the global setting from Settings.</span>
                         </div>
