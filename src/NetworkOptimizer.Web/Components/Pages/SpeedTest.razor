@@ -551,7 +551,38 @@
                             <input type="text" class="form-control" @bind="editingDevice.Iperf3BinaryPath" placeholder="iperf3" />
                             <span class="form-help">Full path to iperf3 on the remote device (e.g., /usr/local/bin/iperf3). Leave blank to use "iperf3" from PATH.</span>
                         </div>
+                    }
 
+                    <div class="form-section-header" style="margin-bottom: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color); cursor: pointer;" @onclick="() => showAdvancedIperf3 = !showAdvancedIperf3">
+                        <h5 style="margin: 0; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 0.75rem;">@(showAdvancedIperf3 ? "▲" : "▼")</span>
+                            Advanced iperf3 Settings <span style="font-weight: normal; color: var(--text-muted);">(optional)</span>
+                        </h5>
+                    </div>
+
+                    @if (showAdvancedIperf3)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Parallel Streams</label>
+                            <input type="number" class="form-control" min="1" max="128"
+                                   value="@editingDevice.Iperf3ParallelStreams"
+                                   @onchange="@(e => editingDevice.Iperf3ParallelStreams = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value.ToString(), out var v) ? v : null)"
+                                   placeholder="(global default)" />
+                            <span class="form-help">Number of parallel iperf3 streams (-P flag). Leave blank to use the global setting from Settings.</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Duration (seconds)</label>
+                            <input type="number" class="form-control" min="1" max="300"
+                                   value="@editingDevice.Iperf3DurationSeconds"
+                                   @onchange="@(e => editingDevice.Iperf3DurationSeconds = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value.ToString(), out var v) ? v : null)"
+                                   placeholder="(global default)" />
+                            <span class="form-help">Duration of each iperf3 test (-t flag) in seconds. Leave blank to use the global setting from Settings.</span>
+                        </div>
+                    }
+
+                    @if (editingDevice.StartIperf3Server)
+                    {
                         <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
                             <h5 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">SSH Credential Overrides <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></h5>
                             <span class="form-help">Leave blank to use global SSH settings from <a href="/settings">Settings</a>. Only fill in fields you want to override.</span>
@@ -1217,6 +1248,7 @@
     // Saved devices form state
     private bool showAddDevice = false;
     private bool savingDevice = false;
+    private bool showAdvancedIperf3 = false;
     private bool isRunningTest = false;
     private string? runningTestHost;
     private string editingDevicePassword = ""; // Separate field for password input (not bound to encrypted value)
@@ -1370,7 +1402,8 @@
     {
         gatewayRunning = true;
         gatewayMessage = "";
-        StartProgressTimer();
+        var iperf3Settings = await SpeedTestService.GetSettingsAsync();
+        StartProgressTimer(iperf3Settings.DurationSeconds);
         StateHasChanged();
 
         try
@@ -1547,12 +1580,15 @@
             Enabled = device.Enabled,
             StartIperf3Server = device.StartIperf3Server,
             Iperf3BinaryPath = device.Iperf3BinaryPath,
+            Iperf3ParallelStreams = device.Iperf3ParallelStreams,
+            Iperf3DurationSeconds = device.Iperf3DurationSeconds,
             SshUsername = device.SshUsername,
             SshPrivateKeyPath = device.SshPrivateKeyPath
             // Note: Don't copy SshPassword - leave blank to not change it
         };
         editingDevicePassword = ""; // Clear password field (user must re-enter to change)
         editingDeviceHasSavedPassword = !string.IsNullOrEmpty(device.SshPassword); // Track if device has saved password
+        showAdvancedIperf3 = device.Iperf3ParallelStreams.HasValue || device.Iperf3DurationSeconds.HasValue;
         savedDeviceMessage = "";
         StateHasChanged();
     }
@@ -1575,6 +1611,7 @@
             };
             editingDevicePassword = "";
             editingDeviceHasSavedPassword = false; // New device has no saved password
+            showAdvancedIperf3 = false;
             savedDeviceMessage = "";
             showAddDevice = true;
             StateHasChanged();
@@ -1591,6 +1628,7 @@
         };
         editingDevicePassword = "";
         editingDeviceHasSavedPassword = false;
+        showAdvancedIperf3 = false;
         showAddDevice = false;
         savedDeviceMessage = "";
         StateHasChanged();
@@ -1697,7 +1735,8 @@
         runningTestHost = device.Host;
         savedDeviceMessage = $"Running speed test to {device.Name}...";
         savedDeviceMessageClass = "info";
-        StartProgressTimer();
+        var iperf3Settings = await SpeedTestService.GetSettingsAsync();
+        StartProgressTimer(device.Iperf3DurationSeconds ?? iperf3Settings.DurationSeconds);
         StateHasChanged();
 
         try
@@ -1903,7 +1942,8 @@
         runningTestHost = device.IpAddress;
         unifiMessage = $"Running speed test to {device.Name}...";
         unifiMessageClass = "info";
-        StartProgressTimer();
+        var iperf3Settings = await SpeedTestService.GetSettingsAsync();
+        StartProgressTimer(iperf3Settings.DurationSeconds);
         StateHasChanged();
 
         try
@@ -1949,12 +1989,14 @@
     }
 
     // Progress indicator helpers
-    // Phases: 0-3s = Starting (13%), 3-13s = From device (43%), 13-23s = To device (100%)
+    // Phases: 0-3s = Starting (13%), 3-(3+duration)s = From device (43%), (3+duration)-(3+2*duration)s = To device (100%)
     private DateTime testStartTime;
+    private int testDurationSeconds = 10; // Effective duration for progress calculation
 
-    private void StartProgressTimer()
+    private void StartProgressTimer(int durationSeconds = 0)
     {
         testStartTime = DateTime.UtcNow;
+        testDurationSeconds = durationSeconds > 0 ? durationSeconds : 10;
         testProgressPercent = 0;
         testProgressPhase = "Starting";
         testProgressPhaseVerbose = "Starting";
@@ -1983,25 +2025,29 @@
         if (progressTimer == null) return;
 
         var elapsed = (DateTime.UtcNow - testStartTime).TotalSeconds;
+        var d = testDurationSeconds;
+        var phaseEnd1 = 3.0;         // End of starting phase
+        var phaseEnd2 = 3.0 + d;     // End of "from device" phase
+        var phaseEnd3 = 3.0 + d * 2; // End of "to device" phase
 
-        if (elapsed < 3)
+        if (elapsed < phaseEnd1)
         {
             // Starting phase: 0-13%
-            testProgressPercent = (int)(elapsed / 3 * 13);
+            testProgressPercent = (int)(elapsed / phaseEnd1 * 13);
             testProgressPhase = "Starting";
             testProgressPhaseVerbose = "Starting";
         }
-        else if (elapsed < 13)
+        else if (elapsed < phaseEnd2)
         {
             // From device phase: 13-56%
-            testProgressPercent = 13 + (int)((elapsed - 3) / 10 * 43);
+            testProgressPercent = 13 + (int)((elapsed - phaseEnd1) / d * 43);
             testProgressPhase = "↓ Testing";
             testProgressPhaseVerbose = "From device";
         }
-        else if (elapsed < 23)
+        else if (elapsed < phaseEnd3)
         {
             // To device phase: 56-100%
-            testProgressPercent = 56 + (int)((elapsed - 13) / 10 * 44);
+            testProgressPercent = 56 + (int)((elapsed - phaseEnd2) / d * 44);
             testProgressPhase = "↑ Testing";
             testProgressPhaseVerbose = "To device";
         }

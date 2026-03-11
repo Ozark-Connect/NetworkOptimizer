@@ -630,6 +630,12 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("Iperf3DurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Iperf3ParallelStreams")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
