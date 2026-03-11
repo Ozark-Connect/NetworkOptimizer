@@ -245,8 +245,7 @@
                         var radio = ap.Radios.FirstOrDefault(r => r.Band == _selectedBand);
                         @if (radio != null)
                         {
-                            <div class="aps-row clickable" @onclick="() => SelectApChannel(radio.Channel)"
-                                 data-tooltip="Click to view channel details">
+                            <div class="aps-row clickable" @onclick="() => SelectApChannel(radio.Channel)">
                                 <div class="ap-col ap-name-col">
                                     <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
                                     <span class="ap-model">@ap.Model</span>

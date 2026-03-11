@@ -98,7 +98,8 @@
                     {
                         <div class="your-channel-chip @GetBandClass(channel.Band) @(channel.ApMac == selectedApMac ? "active" : "")"
                              @onclick="() => OnChannelChipClick(channel)"
-                             data-tooltip="Click to filter to @channel.ApName">
+                             data-tooltip="@(channel.ApMac == selectedApMac ? "Click to show all APs" : "Click to filter to " + channel.ApName)"
+                             data-tooltip-hover-only>
                             <span class="channel-number">Ch @channel.Channel</span>
                             <span class="channel-width">@(channel.Width ?? 20) MHz</span>
                             @if (!string.IsNullOrEmpty(channel.ApName))
