@@ -2435,7 +2435,7 @@
         try
         {
             var opt = _lanDeviceOptions.FirstOrDefault(o => o.Host == _newLanDevice);
-            var label = opt.Host != null ? opt.Label.Split(" (")[0] : _newLanDevice;
+            var label = opt.Host != null ? opt.Label?.Split(" (")[0] ?? _newLanDevice : _newLanDevice;
             var name = $"LAN Speed Test ({label})";
 
             var (startHour, startMinute) = ParseTimeInput(_newLanStartTime);
@@ -2655,7 +2655,7 @@
             if (existing == null) return;
 
             var opt = _lanDeviceOptions.FirstOrDefault(o => o.Host == _newLanDevice);
-            var label = opt.Host != null ? opt.Label.Split(" (")[0] : _newLanDevice;
+            var label = opt.Host != null ? opt.Label?.Split(" (")[0] ?? _newLanDevice : _newLanDevice;
             var (startHour, startMinute) = ParseTimeInput(_newLanStartTime);
 
             existing.Name = $"LAN Speed Test ({label})";
