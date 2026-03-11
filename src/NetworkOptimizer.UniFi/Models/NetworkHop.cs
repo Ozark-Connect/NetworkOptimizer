@@ -38,6 +38,9 @@ public class NetworkHop
     /// <summary>Whether flow control is enabled on this device at test time</summary>
     public bool? FlowControlEnabled { get; set; }
 
+    /// <summary>Whether Smart Queues (SQM) is enabled on the WAN connection. Only on WAN hops.</summary>
+    public bool? SmartQueueEnabled { get; set; }
+
     /// <summary>IP address of the device</summary>
     public string DeviceIp { get; set; } = "";
 
