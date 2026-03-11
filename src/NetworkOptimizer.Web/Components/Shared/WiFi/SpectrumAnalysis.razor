@@ -1183,9 +1183,30 @@
             .ToList();
 
         // Add own APs as interference sources (co-located = strong interference)
-        // Exclude the selected AP since we're recommending a channel for it
+        // Exclude the selected AP since we're recommending a channel for it.
+        // Also exclude its mesh partner - mesh pairs share a channel by design,
+        // so the partner isn't "interference" for the selected AP.
+        var excludedMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedApMac };
+        if (!string.IsNullOrEmpty(selectedApMac))
+        {
+            var selectedAp = accessPoints.FirstOrDefault(a => a.Mac == selectedApMac);
+            if (selectedAp != null)
+            {
+                // If selected AP is a mesh child, exclude its parent
+                if (selectedAp.IsMeshChild && !string.IsNullOrEmpty(selectedAp.MeshParentMac))
+                    excludedMacs.Add(selectedAp.MeshParentMac);
+
+                // If selected AP is a mesh parent, exclude its children
+                foreach (var child in accessPoints.Where(a => a.IsMeshChild &&
+                    selectedApMac.Equals(a.MeshParentMac, StringComparison.OrdinalIgnoreCase)))
+                {
+                    excludedMacs.Add(child.Mac);
+                }
+            }
+        }
+
         var ownApRadios = accessPoints
-            .Where(ap => string.IsNullOrEmpty(selectedApMac) || ap.Mac != selectedApMac)
+            .Where(ap => !excludedMacs.Contains(ap.Mac))
             .SelectMany(ap => ap.Radios)
             .Where(r => r.Band == selectedBand && r.Channel.HasValue);
 
