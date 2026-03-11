@@ -3711,6 +3711,7 @@ select.form-control {
 
 .path-analysis .path-hop .hop-icon {
     font-size: 0.9rem;
+    cursor: default;
 }
 
 .path-analysis .path-hop .hop-name {
