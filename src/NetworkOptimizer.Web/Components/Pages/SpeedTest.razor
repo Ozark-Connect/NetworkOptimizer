@@ -565,8 +565,7 @@
                         <div class="form-group">
                             <label class="form-label">Parallel Streams</label>
                             <input type="number" class="form-control" min="1" max="16"
-                                   value="@editingDevice.Iperf3ParallelStreams"
-                                   @onchange="@(e => editingDevice.Iperf3ParallelStreams = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value.ToString(), out var v) ? Math.Clamp(v, 1, 16) : null)"
+                                   @bind="editingDevice.Iperf3ParallelStreams"
                                    placeholder="(global default)" />
                             <span class="form-help">Number of parallel iperf3 streams (-P flag). Leave blank to use the global setting from Settings.</span>
                         </div>
@@ -574,8 +573,7 @@
                         <div class="form-group">
                             <label class="form-label">Duration (seconds)</label>
                             <input type="number" class="form-control" min="1" max="300"
-                                   value="@editingDevice.Iperf3DurationSeconds"
-                                   @onchange="@(e => editingDevice.Iperf3DurationSeconds = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value.ToString(), out var v) ? Math.Clamp(v, 1, 300) : null)"
+                                   @bind="editingDevice.Iperf3DurationSeconds"
                                    placeholder="(global default)" />
                             <span class="form-help">Duration of each iperf3 test (-t flag) in seconds. Leave blank to use the global setting from Settings.</span>
                         </div>
