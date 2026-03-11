@@ -196,6 +196,7 @@
                                             <text>Run Now</text>
                                         }
                                     </button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => EditWanSchedule(task)">Edit</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
                                 </div>
                             </div>
@@ -308,10 +309,21 @@
                                     <span class="toggle-slider"></span>
                                     <span class="toggle-label">Max Load</span>
                                 </label>
-                                <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
-                                        disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
-                                    Add Schedule
-                                </button>
+                                @if (_editingWanScheduleId.HasValue)
+                                {
+                                    <button class="btn btn-sm btn-secondary" @onclick="CancelEditWanSchedule">Cancel</button>
+                                    <button class="btn btn-sm btn-primary" @onclick="SaveWanSchedule"
+                                            disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
+                                        Save
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-primary" @onclick="CreateWanSchedule"
+                                            disabled="@(!CanCreateWanSchedule || _creatingSchedule)">
+                                        Add Schedule
+                                    </button>
+                                }
                             </div>
                         </div>
                         @if (!_gatewayAvailable && _newWanTestType != "server")
@@ -355,6 +367,7 @@
                                         <text>Run Now</text>
                                     }
                                 </button>
+                                <button class="btn btn-sm btn-secondary" @onclick="() => EditLanSchedule(task)">Edit</button>
                                 <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
                             </div>
                         </div>
@@ -439,10 +452,21 @@
                                     <input type="time" class="form-control" @bind="_newLanStartTime" />
                                 </div>
                                 <div class="schedule-inline-controls">
-                                    <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
-                                            disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
-                                        Add Schedule
-                                    </button>
+                                    @if (_editingLanScheduleId.HasValue)
+                                    {
+                                        <button class="btn btn-sm btn-secondary" @onclick="CancelEditLanSchedule">Cancel</button>
+                                        <button class="btn btn-sm btn-primary" @onclick="SaveLanSchedule"
+                                                disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
+                                            Save
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-primary" @onclick="CreateLanSchedule"
+                                                disabled="@(string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule)">
+                                            Add Schedule
+                                        </button>
+                                    }
                                 </div>
                             </div>
                         </div>
@@ -1567,6 +1591,8 @@
     private int _newWanFrequency = 1440;
     private int _newLanFrequency = 1440;
     private bool _creatingSchedule;
+    private int? _editingWanScheduleId;
+    private int? _editingLanScheduleId;
     private string? _scheduleMessage;
     private string _scheduleMessageClass = "info";
     private bool CanCreateWanSchedule => _newWanTestType == "server" || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
@@ -2425,6 +2451,181 @@
         while (candidate <= now.AddMinutes(1))
             candidate = candidate.AddMinutes(frequencyMinutes);
         return candidate;
+    }
+
+    private static TimeOnly UtcToLocalTimeOnly(int utcHour, int utcMinute)
+    {
+        var utcDt = DateTime.UtcNow.Date.AddHours(utcHour).AddMinutes(utcMinute);
+        var localDt = utcDt.ToLocalTime();
+        return new TimeOnly(localDt.Hour, localDt.Minute);
+    }
+
+    private void EditWanSchedule(ScheduledTask task)
+    {
+        _editingWanScheduleId = task.Id;
+        var config = ParseTargetConfig(task.TargetConfig);
+        _newWanTestType = GetConfigValue(config, "testType") ?? "gateway";
+        _newWanMaxMode = GetConfigBool(config, "maxMode");
+        _newWanFrequency = task.FrequencyMinutes;
+        _newWanStartTime = task.CustomMorningHour.HasValue
+            ? UtcToLocalTimeOnly(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)
+            : new TimeOnly(6, 0);
+
+        // Try to match WAN selection from config
+        if (_newWanTestType == "gateway")
+        {
+            var wanGroup = GetConfigValue(config, "wanGroup");
+            var matched = _wanSelectorOptions.FirstOrDefault(o =>
+                !o.IsSeparator && o.Indices.Length == 1 &&
+                o.Indices[0] < _wanInterfaces.Count &&
+                (_wanInterfaces[o.Indices[0]].NetworkGroup ?? "WAN") == wanGroup);
+            _newWanSelection = matched?.Value ?? "0";
+        }
+    }
+
+    private void CancelEditWanSchedule()
+    {
+        _editingWanScheduleId = null;
+        _newWanTestType = "gateway";
+        _newWanSelection = "0";
+        _newWanMaxMode = false;
+        _newWanFrequency = 1440;
+        _newWanStartTime = new(6, 0);
+    }
+
+    private async Task SaveWanSchedule()
+    {
+        if (!_editingWanScheduleId.HasValue || !CanCreateWanSchedule || _creatingSchedule) return;
+        _creatingSchedule = true;
+
+        try
+        {
+            var existing = await ScheduleRepository.GetByIdAsync(_editingWanScheduleId.Value);
+            if (existing == null) return;
+
+            // Rebuild name and config (same logic as CreateWanSchedule)
+            string taskName;
+            string? targetId = null;
+            var config = new Dictionary<string, object>();
+            config["testType"] = _newWanTestType;
+            if (_newWanMaxMode)
+                config["maxMode"] = true;
+
+            if (_newWanTestType == "server")
+            {
+                taskName = _newWanMaxMode ? "WAN Speed Test (Server, Max Load)" : "WAN Speed Test (Server)";
+            }
+            else
+            {
+                var selected = _wanSelectorOptions.FirstOrDefault(o => o.Value == _newWanSelection);
+                if (selected == null || selected.IsSeparator) return;
+
+                var selectedInterfaces = selected.Indices.Select(i => _wanInterfaces[i]).ToList();
+
+                if (selectedInterfaces.Count == 1)
+                {
+                    targetId = selectedInterfaces[0].Interface;
+                    var wanGroup = selectedInterfaces[0].NetworkGroup;
+                    var wanName = selectedInterfaces[0].Name;
+                    config["wanGroup"] = wanGroup ?? "WAN";
+                    config["wanName"] = wanName ?? "WAN";
+                    var suffix = _newWanMaxMode ? ", Max Load" : "";
+                    taskName = $"WAN Speed Test ({wanName ?? wanGroup ?? "Gateway"}{suffix})";
+                }
+                else
+                {
+                    targetId = "";
+                    var groups = selectedInterfaces
+                        .Select(w => w.NetworkGroup ?? "WAN")
+                        .Distinct().OrderBy(g => g);
+                    var wanGroup = string.Join("+", groups);
+                    var wanName = string.Join(" + ", selectedInterfaces
+                        .Select(w => !string.IsNullOrEmpty(w.Name) ? w.Name : w.NetworkGroup ?? "WAN")
+                        .Distinct().OrderBy(n => n));
+
+                    config["wanGroup"] = wanGroup;
+                    config["wanName"] = wanName;
+                    config["interfaces"] = selectedInterfaces.Select(w => w.Interface).ToArray();
+                    var suffix = _newWanMaxMode ? ", Max Load" : "";
+                    taskName = $"WAN Speed Test ({wanName}{suffix})";
+                }
+            }
+
+            var (startHour, startMinute) = ParseTimeInput(_newWanStartTime);
+
+            existing.Name = taskName;
+            existing.TargetId = targetId;
+            existing.TargetConfig = JsonSerializer.Serialize(config);
+            existing.FrequencyMinutes = _newWanFrequency;
+            existing.CustomMorningHour = startHour;
+            existing.CustomMorningMinute = startMinute;
+            existing.NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute);
+
+            await ScheduleRepository.UpdateAsync(existing);
+            CancelEditWanSchedule();
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating WAN speed test schedule");
+        }
+        finally
+        {
+            _creatingSchedule = false;
+        }
+    }
+
+    private void EditLanSchedule(ScheduledTask task)
+    {
+        _editingLanScheduleId = task.Id;
+        _newLanDevice = task.TargetId;
+        _newLanFrequency = task.FrequencyMinutes;
+        _newLanStartTime = task.CustomMorningHour.HasValue
+            ? UtcToLocalTimeOnly(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)
+            : new TimeOnly(6, 0);
+    }
+
+    private void CancelEditLanSchedule()
+    {
+        _editingLanScheduleId = null;
+        _newLanDevice = null;
+        _newLanFrequency = 1440;
+        _newLanStartTime = new(6, 0);
+    }
+
+    private async Task SaveLanSchedule()
+    {
+        if (!_editingLanScheduleId.HasValue || string.IsNullOrEmpty(_newLanDevice) || _creatingSchedule) return;
+        _creatingSchedule = true;
+
+        try
+        {
+            var existing = await ScheduleRepository.GetByIdAsync(_editingLanScheduleId.Value);
+            if (existing == null) return;
+
+            var opt = _lanDeviceOptions.FirstOrDefault(o => o.Host == _newLanDevice);
+            var label = opt.Host != null ? opt.Label.Split(" (")[0] : _newLanDevice;
+            var (startHour, startMinute) = ParseTimeInput(_newLanStartTime);
+
+            existing.Name = $"LAN Speed Test ({label})";
+            existing.TargetId = _newLanDevice;
+            existing.FrequencyMinutes = _newLanFrequency;
+            existing.CustomMorningHour = startHour;
+            existing.CustomMorningMinute = startMinute;
+            existing.NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute);
+
+            await ScheduleRepository.UpdateAsync(existing);
+            CancelEditLanSchedule();
+            await LoadSchedules();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating LAN speed test schedule");
+        }
+        finally
+        {
+            _creatingSchedule = false;
+        }
     }
 
     private async Task DeleteSchedule(ScheduledTask task)
