@@ -3711,11 +3711,13 @@ select.form-control {
 
 .path-analysis .path-hop .hop-icon {
     font-size: 0.9rem;
+    cursor: default;
 }
 
 .path-analysis .path-hop .hop-name {
     color: var(--text-primary);
     font-weight: 500;
+    cursor: default;
 }
 
 .path-analysis .path-hop.bottleneck {
@@ -3752,6 +3754,7 @@ select.form-control {
     font-size: 0.6rem;
     color: var(--primary-lighter);
     white-space: nowrap;
+    cursor: default;
 }
 
 .path-analysis .path-connector.bottleneck .connector-line {
