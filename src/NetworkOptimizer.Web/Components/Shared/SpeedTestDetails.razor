@@ -667,6 +667,13 @@
                 return GetWifiTooltip(hop, adjacentHop, hop.IsBottleneck);
         }
 
+        // WAN hops: show Smart Queues status if available
+        if (hop.Type == HopType.Wan && hop.SmartQueueEnabled.HasValue)
+        {
+            var sqmStatus = hop.SmartQueueEnabled.Value ? "Enabled" : "Disabled";
+            return $"<div class='device-tooltip-row'><span class='device-tooltip-label'>Smart Queues:</span> {sqmStatus}</div>";
+        }
+
         // Only show tooltip for UniFi devices (those with a model)
         if (string.IsNullOrEmpty(hop.DeviceModel))
             return null;

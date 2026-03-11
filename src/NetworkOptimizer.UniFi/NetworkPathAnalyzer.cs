@@ -537,6 +537,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             var rawDevices = await GetRawDevicesAsync(cancellationToken);
             var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices, resolvedWanGroup: resolvedWanGroup);
+            var wanNetwork = topology.Networks.FirstOrDefault(n =>
+                n.IsWan && n.WanNetworkgroup != null &&
+                n.WanNetworkgroup.Equals(resolvedWanGroup ?? "WAN", StringComparison.OrdinalIgnoreCase));
 
             var wanHop = new NetworkHop
             {
@@ -547,6 +550,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 IngressPortName = "WAN",
                 EgressPortName = "WAN",
+                SmartQueueEnabled = wanNetwork?.WanSmartqEnabled,
                 Notes = wanUploadMbps > 0
                     ? $"Gateway direct (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
                     : "Gateway direct"
@@ -2054,6 +2058,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         if (isExternalIp)
         {
+            var wanNetwork = topology.Networks.FirstOrDefault(n =>
+                n.IsWan && n.WanNetworkgroup != null &&
+                n.WanNetworkgroup.Equals(resolvedWanGroup ?? "WAN", StringComparison.OrdinalIgnoreCase));
+
             // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
             return new NetworkHop
             {
@@ -2064,6 +2072,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 IngressPortName = "WAN",
                 EgressPortName = "WAN",
+                SmartQueueEnabled = wanNetwork?.WanSmartqEnabled,
                 Notes = wanUploadMbps > 0
                     ? $"External (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
                     : "External connection"

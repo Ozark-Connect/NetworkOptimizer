@@ -337,7 +337,8 @@ public class UniFiDiscovery
                 IsNat = n.IsNat,
                 WanUploadMbps = n.WanProviderCapabilities?.UploadMbps,
                 WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps,
-                WanNetworkgroup = n.WanNetworkgroup
+                WanNetworkgroup = n.WanNetworkgroup,
+                WanSmartqEnabled = n.WanSmartqEnabled
             }).ToList() ?? new List<NetworkInfo>(),
             DiscoveredAt = DateTime.UtcNow
         };
@@ -784,6 +785,9 @@ public class NetworkInfo
 
     /// <summary>Whether this is a WAN network</summary>
     public bool IsWan => Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether Smart Queues (SQM) is enabled on this WAN</summary>
+    public bool WanSmartqEnabled { get; set; }
 
     /// <summary>Whether this is the primary WAN (wan_networkgroup = "WAN")</summary>
     public bool IsPrimaryWan => WanNetworkgroup?.Equals("WAN", StringComparison.OrdinalIgnoreCase) == true;
