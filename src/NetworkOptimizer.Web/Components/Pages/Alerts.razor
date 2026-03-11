@@ -1492,6 +1492,14 @@
     private RenderFragment WanScheduleForm => __builder =>
     {
         <div class="schedule-card">
+            @if (!_editingWanScheduleId.HasValue)
+            {
+                <div class="schedule-card-header">
+                    <div class="schedule-card-title">
+                        <span class="detail-label">New Schedule</span>
+                    </div>
+                </div>
+            }
             <div class="schedule-card-body">
                 <div class="schedule-config">
                     <div class="form-group schedule-field">
@@ -1574,6 +1582,14 @@
     private RenderFragment LanScheduleForm => __builder =>
     {
         <div class="schedule-card">
+            @if (!_editingLanScheduleId.HasValue)
+            {
+                <div class="schedule-card-header">
+                    <div class="schedule-card-title">
+                        <span class="detail-label">New Schedule</span>
+                    </div>
+                </div>
+            }
             <div class="schedule-card-body">
                 <div class="schedule-config">
                     <div class="form-group schedule-field">
