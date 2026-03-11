@@ -236,9 +236,7 @@
                                     var linkSpeed = GetLinkSpeed(lastHop, nextHopGlobal);
                                     var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var isBottleneckLink = IsBottleneckLink(lastHop, nextHopGlobal, isWirelessLink, linkSpeed);
-                                    var turnTooltip = isWirelessLink
-                                        ? GetWifiTooltip(lastHop, nextHopGlobal, isBottleneckLink)
-                                        : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
+                                    var turnTooltip = GetConnectorTooltip(lastHop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
                                     <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
@@ -271,9 +269,7 @@
                                     var linkSpeed = GetLinkSpeed(hop, nextHopGlobal);
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var isBottleneckLink = IsBottleneckLink(hop, nextHopGlobal, isWirelessLink, linkSpeed);
-                                    var connectorTooltip1 = isWirelessLink
-                                        ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
-                                        : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
+                                    var connectorTooltip1 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
                                     <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
@@ -327,9 +323,7 @@
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var isBottleneckLink = IsBottleneckLink(hop, nextHopGlobal, isWirelessLink, linkSpeed);
                                     var needsTurn = isLastHopInRow && !isLastRow;
-                                    var connectorTooltip2 = isWirelessLink
-                                        ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
-                                        : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
+                                    var connectorTooltip2 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
                                     <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
@@ -811,6 +805,24 @@
             nextHop.Type == HopType.Wan || nextHop.Type == HopType.Vpn;
 
         return !isAsymmetricLink && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
+    }
+
+    private string? GetConnectorTooltip(NetworkHop hop, NetworkHop nextHop, bool isWirelessLink, bool isBottleneckLink)
+    {
+        if (isWirelessLink)
+            return GetWifiTooltip(hop, nextHop, isBottleneckLink);
+
+        var wanHop = hop.Type == HopType.Wan ? hop : (nextHop.Type == HopType.Wan ? nextHop : null);
+        if (wanHop?.SmartQueueEnabled.HasValue == true)
+        {
+            var sqmStatus = wanHop.SmartQueueEnabled!.Value ? "Enabled" : "Disabled";
+            var sqmLine = $"<div class='device-tooltip-row'><span class='device-tooltip-label'>Smart Queues:</span> {sqmStatus}</div>";
+            if (isBottleneckLink)
+                return sqmLine + "<div class='device-tooltip-row' style='color: var(--danger-color);'>Bottleneck: slowest link in path</div>";
+            return sqmLine;
+        }
+
+        return isBottleneckLink ? "Bottleneck: slowest link in path" : null;
     }
 
     /// <summary>
