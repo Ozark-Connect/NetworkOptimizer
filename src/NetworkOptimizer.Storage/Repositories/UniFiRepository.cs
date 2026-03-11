@@ -209,6 +209,8 @@ public class UniFiRepository : IUniFiRepository
                     existing.Enabled = config.Enabled;
                     existing.StartIperf3Server = config.StartIperf3Server;
                     existing.Iperf3BinaryPath = config.Iperf3BinaryPath;
+                    existing.Iperf3ParallelStreams = config.Iperf3ParallelStreams;
+                    existing.Iperf3DurationSeconds = config.Iperf3DurationSeconds;
                     existing.SshUsername = config.SshUsername;
                     existing.SshPassword = config.SshPassword;
                     existing.SshPrivateKeyPath = config.SshPrivateKeyPath;

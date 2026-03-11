@@ -36,6 +36,12 @@ public class DeviceSshConfiguration
     [MaxLength(500)]
     public string? Iperf3BinaryPath { get; set; }
 
+    /// <summary>Optional per-device parallel streams override (-P flag). Null = use global default.</summary>
+    public int? Iperf3ParallelStreams { get; set; }
+
+    /// <summary>Optional per-device duration override (-t flag) in seconds. Null = use global default.</summary>
+    public int? Iperf3DurationSeconds { get; set; }
+
     /// <summary>Optional SSH username override (uses global settings if null/empty)</summary>
     [MaxLength(100)]
     public string? SshUsername { get; set; }
