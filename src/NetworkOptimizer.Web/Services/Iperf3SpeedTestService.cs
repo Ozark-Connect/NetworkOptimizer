@@ -284,7 +284,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     public async Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device)
     {
         var settings = await _settingsService.GetIperf3SettingsAsync();
-        var parallelStreams = Math.Clamp(device.Iperf3ParallelStreams ?? GetParallelStreamsForDevice(device.DeviceType, settings), 1, 25);
+        var parallelStreams = Math.Clamp(device.Iperf3ParallelStreams ?? GetParallelStreamsForDevice(device.DeviceType, settings), 1, 16);
         var duration = Math.Clamp(device.Iperf3DurationSeconds ?? settings.DurationSeconds, 1, 300);
         return await RunSpeedTestAsync(device, duration, parallelStreams);
     }

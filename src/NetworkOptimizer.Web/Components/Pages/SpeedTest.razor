@@ -564,7 +564,7 @@
                     {
                         <div class="form-group">
                             <label class="form-label">Parallel Streams</label>
-                            <input type="number" class="form-control" min="1" max="128"
+                            <input type="number" class="form-control" min="1" max="16"
                                    value="@editingDevice.Iperf3ParallelStreams"
                                    @onchange="@(e => editingDevice.Iperf3ParallelStreams = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value.ToString(), out var v) ? v : null)"
                                    placeholder="(global default)" />
