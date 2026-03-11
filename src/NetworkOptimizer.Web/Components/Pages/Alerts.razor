@@ -196,7 +196,10 @@
                                             <text>Run Now</text>
                                         }
                                     </button>
-                                    <button class="btn btn-sm btn-secondary" @onclick="() => EditWanSchedule(task)">Edit</button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => EditWanSchedule(task)"
+                                            disabled="@(_editingWanScheduleId == task.Id)">
+                                        @(_editingWanScheduleId == task.Id ? "Editing..." : "Edit")
+                                    </button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
                                 </div>
                             </div>
@@ -297,7 +300,10 @@
                                         <text>Run Now</text>
                                     }
                                 </button>
-                                <button class="btn btn-sm btn-secondary" @onclick="() => EditLanSchedule(task)">Edit</button>
+                                <button class="btn btn-sm btn-secondary" @onclick="() => EditLanSchedule(task)"
+                                        disabled="@(_editingLanScheduleId == task.Id)">
+                                    @(_editingLanScheduleId == task.Id ? "Editing..." : "Edit")
+                                </button>
                                 <button class="btn btn-sm btn-danger" @onclick="() => DeleteSchedule(task)">Delete</button>
                             </div>
                         </div>
