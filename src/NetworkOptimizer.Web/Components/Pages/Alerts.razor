@@ -2501,11 +2501,19 @@
         // Try to match WAN selection from config
         if (_newWanTestType == "gateway")
         {
-            var wanGroup = GetConfigValue(config, "wanGroup");
+            // Build set of interface names from config (single or multi-WAN)
+            var configInterfaces = new HashSet<string>();
+            if (task.TargetId is { Length: > 0 })
+                configInterfaces.Add(task.TargetId);
+            if (config?.TryGetValue("interfaces", out var ifArr) == true && ifArr.ValueKind == JsonValueKind.Array)
+                foreach (var el in ifArr.EnumerateArray())
+                    if (el.GetString() is string s) configInterfaces.Add(s);
+
             var matched = _wanSelectorOptions.FirstOrDefault(o =>
-                !o.IsSeparator && o.Indices.Length == 1 &&
-                o.Indices[0] < _wanInterfaces.Count &&
-                (_wanInterfaces[o.Indices[0]].NetworkGroup ?? "WAN") == wanGroup);
+                !o.IsSeparator &&
+                o.Indices.All(i => i < _wanInterfaces.Count) &&
+                o.Indices.Length == configInterfaces.Count &&
+                o.Indices.All(i => configInterfaces.Contains(_wanInterfaces[i].Interface)));
             _newWanSelection = matched?.Value ?? "0";
         }
     }
@@ -2659,6 +2667,8 @@
     {
         try
         {
+            if (_editingWanScheduleId == task.Id) CancelEditWanSchedule();
+            if (_editingLanScheduleId == task.Id) CancelEditLanSchedule();
             await ScheduleRepository.DeleteAsync(task.Id);
             await LoadSchedules();
         }
