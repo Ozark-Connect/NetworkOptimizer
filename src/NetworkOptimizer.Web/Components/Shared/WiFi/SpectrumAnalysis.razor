@@ -1133,25 +1133,35 @@
 
     private int GetNetworksOnYourChannels()
     {
-        var yourChannels = accessPoints
+        // Build width-aware spans for your AP channels
+        var yourSpans = accessPoints
             .SelectMany(ap => ap.Radios)
-            .Where(r => r.Channel.HasValue)
-            .Select(r => r.Channel!.Value)
-            .ToHashSet();
+            .Where(r => r.Channel.HasValue && r.Band == selectedBand)
+            .Select(r => GetChannelSpan(r.Channel!.Value, r.ChannelWidth ?? 20))
+            .ToList();
 
         return filteredNeighbors
-                        .Count(n => yourChannels.Contains(n.Network.Channel));
+            .Count(n =>
+            {
+                var neighborSpan = GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20);
+                return yourSpans.Any(s => SpansOverlap(s, neighborSpan));
+            });
     }
 
     private int GetAvailableDfsChannels()
     {
         var dfsChannels = new[] { 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144 };
-        var occupiedDfs = filteredNeighbors
-            .Where(n => n.Band == RadioBand.Band5GHz && dfsChannels.Contains(n.Network.Channel))
-            .Select(n => n.Network.Channel)
-            .ToHashSet();
 
-        return dfsChannels.Length - occupiedDfs.Count;
+        // Build width-aware spans for all 5 GHz neighbors
+        var neighborSpans = filteredNeighbors
+            .Where(n => n.Band == RadioBand.Band5GHz)
+            .Select(n => GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20))
+            .ToList();
+
+        var occupiedCount = dfsChannels
+            .Count(ch => neighborSpans.Any(s => s.Low <= ch && ch <= s.High));
+
+        return dfsChannels.Length - occupiedCount;
     }
 
     private List<int> _cleanestChannelList = new();
@@ -1569,17 +1579,24 @@
             .Select(r => r.Channel!.Value)
             .ToHashSet();
 
-        var channelCounts = filteredNeighbors
-            .Where(n => n.Band == RadioBand.Band5GHz )
-            .GroupBy(n => n.Network.Channel)
-            .ToDictionary(g => g.Key, g => g.Count());
+        // Build width-aware spans for all 5 GHz neighbors
+        var neighborSpans = filteredNeighbors
+            .Where(n => n.Band == RadioBand.Band5GHz)
+            .Select(n => (
+                Span: GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20),
+                Network: n))
+            .ToList();
 
-        return dfsChannels.Select(ch => new DfsChannelStatus
+        return dfsChannels.Select(ch =>
         {
-            Channel = ch,
-            NetworkCount = channelCounts.GetValueOrDefault(ch, 0),
-            IsAvailable = !channelCounts.ContainsKey(ch) || channelCounts[ch] == 0,
-            IsYourChannel = yourChannels.Contains(ch)
+            var overlapping = neighborSpans.Count(ns => ns.Span.Low <= ch && ch <= ns.Span.High);
+            return new DfsChannelStatus
+            {
+                Channel = ch,
+                NetworkCount = overlapping,
+                IsAvailable = overlapping == 0,
+                IsYourChannel = yourChannels.Contains(ch)
+            };
         });
     }
 
