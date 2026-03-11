@@ -94,4 +94,7 @@ public class NeighborNetwork
 
     /// <summary>Last seen timestamp</summary>
     public DateTimeOffset? LastSeen { get; set; }
+
+    /// <summary>OUI (manufacturer) resolved from BSSID</summary>
+    public string? Oui { get; set; }
 }

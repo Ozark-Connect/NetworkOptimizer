@@ -96,7 +96,9 @@
                 <div class="your-channels-row">
                     @foreach (var channel in GetYourChannels())
                     {
-                        <div class="your-channel-chip @GetBandClass(channel.Band)">
+                        <div class="your-channel-chip @GetBandClass(channel.Band) @(channel.ApMac == selectedApMac ? "active" : "")"
+                             @onclick="() => OnChannelChipClick(channel)"
+                             data-tooltip="Click to filter to @channel.ApName">
                             <span class="channel-number">Ch @channel.Channel</span>
                             <span class="channel-width">@(channel.Width ?? 20) MHz</span>
                             @if (!string.IsNullOrEmpty(channel.ApName))
@@ -208,6 +210,7 @@
                             <tr>
                                 <th class="sortable @GetSortClass("ssid")" @onclick='() => SetSort("ssid")'>SSID</th>
                                 <th class="sortable @GetSortClass("bssid")" @onclick='() => SetSort("bssid")'>BSSID</th>
+                                <th class="sortable @GetSortClass("vendor")" @onclick='() => SetSort("vendor")'>Vendor</th>
                                 <th class="sortable @GetSortClass("channel")" @onclick='() => SetSort("channel")'>Channel</th>
                                 <th class="sortable @GetSortClass("width")" @onclick='() => SetSort("width")'>Width</th>
                                 <th class="sortable @GetSortClass("signal")" @onclick='() => SetSort("signal")'>Signal</th>
@@ -230,6 +233,7 @@
                                         }
                                     </td>
                                     <td class="monospace">@item.Network.Bssid</td>
+                                    <td class="vendor-col">@(item.Network.Oui ?? "")</td>
                                     <td>
                                         <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel, item.Band) ? "dfs" : "")">
                                             @item.Network.Channel
@@ -411,6 +415,16 @@
         border-radius: 8px;
         background: var(--bg-primary);
         border: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .your-channel-chip:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .your-channel-chip.active {
+        box-shadow: 0 0 0 2px var(--primary-color);
     }
 
     .your-channel-chip.band-2_4 {
@@ -847,6 +861,15 @@
         padding: 0 0.5rem;
     }
 
+    .vendor-col {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     /* Responsive */
     @@media (max-width: 768px) {
         .spectrum-header {
@@ -1065,6 +1088,23 @@
         UpdateChannelDensity();
     }
 
+    private void OnChannelChipClick(YourChannelInfo channel)
+    {
+        if (string.IsNullOrEmpty(channel.ApMac)) return;
+
+        // Toggle: if already filtering to this AP, clear the filter
+        if (selectedApMac == channel.ApMac)
+        {
+            selectedApMac = "";
+        }
+        else
+        {
+            selectedApMac = channel.ApMac;
+        }
+        _currentPage = 1;
+        UpdateChannelDensity();
+    }
+
     private string GetSelectedApLabel()
     {
         if (string.IsNullOrEmpty(selectedApMac))
@@ -1072,7 +1112,7 @@
         return accessPoints.FirstOrDefault(ap => ap.Mac == selectedApMac)?.Name ?? "Selected AP";
     }
 
-    private record YourChannelInfo(int Channel, int? Width, RadioBand Band, string? ApName);
+    private record YourChannelInfo(int Channel, int? Width, RadioBand Band, string? ApName, string? ApMac);
 
     private List<YourChannelInfo> GetYourChannels()
     {
@@ -1084,7 +1124,7 @@
         return aps
             .SelectMany(ap => ap.Radios
                 .Where(r => r.Channel.HasValue && r.Band == selectedBand)
-                .Select(r => new YourChannelInfo(r.Channel!.Value, r.ChannelWidth, r.Band, ap.Name)))
+                .Select(r => new YourChannelInfo(r.Channel!.Value, r.ChannelWidth, r.Band, ap.Name, ap.Mac)))
             .OrderBy(c => c.Channel)
             .ThenBy(c => c.ApName)
             .ToList();
@@ -1443,6 +1483,7 @@
         {
             "ssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Ssid) : networks.OrderBy(n => n.Network.Ssid),
             "bssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Bssid) : networks.OrderBy(n => n.Network.Bssid),
+            "vendor" => sortDescending ? networks.OrderByDescending(n => n.Network.Oui) : networks.OrderBy(n => n.Network.Oui),
             "channel" => sortDescending ? networks.OrderByDescending(n => n.Network.Channel) : networks.OrderBy(n => n.Network.Channel),
             "width" => sortDescending ? networks.OrderByDescending(n => n.Network.Width) : networks.OrderBy(n => n.Network.Width),
             // Sort by display signal (AP-specific when filtered, or strongest overall)

@@ -8885,6 +8885,10 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-tertiary);
 }
 
+.aps-row.clickable {
+    cursor: pointer;
+}
+
 .ap-name-col {
     display: flex;
     flex-direction: column;

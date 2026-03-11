@@ -743,7 +743,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                             Security = neighbor.Security,
                             LastSeen = neighbor.LastSeen.HasValue
                                 ? DateTimeOffset.FromUnixTimeSeconds(neighbor.LastSeen.Value)
-                                : null
+                                : null,
+                            Oui = neighbor.Oui
                         });
                     }
                 }
