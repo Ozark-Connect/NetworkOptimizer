@@ -496,6 +496,12 @@ a:hover {
     margin-bottom: 1.5rem;
 }
 
+@media (max-width: 768px) {
+    .card-full-width > .card-body {
+        padding: 0;
+    }
+}
+
 /* Clickable card */
 .clickable-card {
     cursor: pointer;
