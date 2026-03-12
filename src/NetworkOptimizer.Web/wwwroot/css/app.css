@@ -7314,12 +7314,12 @@ a.path-hop.hop-clickable:hover {
 }
 
 .client-timeline-controls .view-all-btn {
-    padding: 0.5rem 0.75rem;
+    padding: 0.35rem 0.75rem;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     cursor: pointer;
     white-space: nowrap;
     transition: all 0.15s ease;
