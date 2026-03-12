@@ -127,6 +127,10 @@
                     </div>
                 }
 
+                @if (HasActiveFilters)
+                {
+                    <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
+                }
                 <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
                     @if (_refreshing)
                     {
@@ -791,6 +795,15 @@
     private void SetBandFilter(RadioBand? band)
     {
         _bandFilter = band;
+        _currentPage = 1;
+    }
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(_apFilter) || _bandFilter.HasValue;
+
+    private void ClearFilters()
+    {
+        _apFilter = "";
+        _bandFilter = null;
         _currentPage = 1;
     }
 

@@ -7219,8 +7219,6 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     gap: 1rem;
-    flex-wrap: wrap;
-    flex: 1;
 }
 
 .client-selector {
