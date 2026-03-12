@@ -125,7 +125,7 @@
                     }
                 </div>
             }
-            @if (HasActiveFilters)
+            @if (HasActiveFilters && string.IsNullOrEmpty(_selectedClientMac))
             {
                 <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
             }
