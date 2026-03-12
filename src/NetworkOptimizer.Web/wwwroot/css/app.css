@@ -9570,6 +9570,11 @@ a.path-hop.hop-clickable:hover {
         gap: 0.5rem;
     }
 
+    .filterable-select {
+        min-width: 250px;
+        max-width: 250px;
+    }
+
     .client-filter-group {
         margin-left: 0;
     }
