@@ -99,6 +99,24 @@ public class ScheduleRepository : IScheduleRepository
         }
     }
 
+    public async Task UpdateNextRunAsync(int id, DateTime nextRun, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var task = await _context.ScheduledTasks.FindAsync([id], cancellationToken);
+            if (task != null)
+            {
+                task.NextRunAt = nextRun;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update next run time for task {TaskId}", id);
+            throw;
+        }
+    }
+
     public async Task UpdateRunStatusAsync(int id, DateTime lastRun, DateTime? nextRun, string status, string? error, string? summary, CancellationToken cancellationToken = default)
     {
         try

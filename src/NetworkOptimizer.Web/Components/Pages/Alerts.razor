@@ -403,7 +403,7 @@
                     var capGb = config?.DataCapGb ?? 0;
                     var warningPct = config?.WarningThresholdPercent ?? 80;
                     var billingDay = config?.BillingCycleDayOfMonth ?? 1;
-                    var displayName = config?.Name ?? wan.Name;
+                    var displayName = wan.Name;
                     var manualAdj = config?.ManualAdjustmentGb ?? 0;
                     var isAdjustmentUnlocked = _unlockedAdjustmentWans.Contains(wanGroup);
                     var isDirty = _dirtyConfigs.Contains(wanGroup);
@@ -2486,11 +2486,20 @@
         return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
     }
 
-    private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute)
+    private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute,
+        bool isEdit = false)
     {
         var now = DateTime.UtcNow;
         var anchor = now.Date.AddHours(startHour).AddMinutes(startMinute);
         var candidate = anchor;
+        // For edits, walk backward to find intermediate slots (e.g., hourly task
+        // with anchor at 23:45 should find 20:45, not jump to 23:45).
+        // For new schedules, wait for the first anchor time.
+        if (isEdit)
+        {
+            while (candidate > now)
+                candidate = candidate.AddMinutes(-frequencyMinutes);
+        }
         while (candidate <= now.AddMinutes(1))
             candidate = candidate.AddMinutes(frequencyMinutes);
         return candidate;
@@ -2610,7 +2619,7 @@
             existing.FrequencyMinutes = _newWanFrequency;
             existing.CustomMorningHour = startHour;
             existing.CustomMorningMinute = startMinute;
-            existing.NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute);
+            existing.NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute, isEdit: true);
 
             await ScheduleRepository.UpdateAsync(existing);
             CancelEditWanSchedule();
@@ -2663,7 +2672,7 @@
             existing.FrequencyMinutes = _newLanFrequency;
             existing.CustomMorningHour = startHour;
             existing.CustomMorningMinute = startMinute;
-            existing.NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute);
+            existing.NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute, isEdit: true);
 
             await ScheduleRepository.UpdateAsync(existing);
             CancelEditLanSchedule();
@@ -2860,6 +2869,18 @@
                 var configs = await DataUsageService.GetAllConfigsAsync();
                 _dataUsageConfigs = configs.ToDictionary(c => c.WanKey);
                 _wanUsageSummaries = await DataUsageService.GetCurrentUsageAsync();
+
+                // Sync stored WAN names with live names from UniFi console
+                foreach (var wan in _dataUsageWanNetworks)
+                {
+                    var wanGroup = wan.WanNetworkgroup ?? "WAN";
+                    if (_dataUsageConfigs.TryGetValue(wanGroup, out var config)
+                        && config.Name != wan.Name)
+                    {
+                        config.Name = wan.Name;
+                        await DataUsageService.SaveConfigAsync(config);
+                    }
+                }
             }
         }
         catch (Exception ex)
