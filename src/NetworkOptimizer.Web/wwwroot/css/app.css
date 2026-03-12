@@ -7215,7 +7215,7 @@ a.path-hop.hop-clickable:hover {
     width: 100%;
 }
 
-@media (max-width: 1500px) {
+@media (max-width: 1700px) {
     .client-timeline-title {
         width: auto;
     }
@@ -7228,7 +7228,7 @@ a.path-hop.hop-clickable:hover {
     gap: 0.75rem;
 }
 
-@media (max-width: 1500px) {
+@media (max-width: 1700px) {
     .client-timeline-controls {
         justify-content: flex-end;
     }
