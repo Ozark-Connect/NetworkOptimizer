@@ -24,7 +24,7 @@
 
         @if (!string.IsNullOrEmpty(_selectedClientMac))
         {
-            <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
+            <button class="view-all-btn" @onclick="ViewAllClients">@(HasActiveFilters ? "Back" : "View All Clients")</button>
         }
 
         <!-- Client Selector -->
@@ -920,9 +920,7 @@
         _selectedClient = null;
         _clientMetrics.Clear();
         _connectionEvents.Clear();
-        _apFilter = "";
-        _bandFilter = null;
-        // Keep _currentPage so user returns to same page in list
+        // Keep _apFilter, _bandFilter, and _currentPage so user returns to same filtered list
     }
 
     private void SelectClient(string mac)
