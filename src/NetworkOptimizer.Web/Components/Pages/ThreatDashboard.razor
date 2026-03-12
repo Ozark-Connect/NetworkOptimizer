@@ -983,10 +983,18 @@ else
                     </span>
                     @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase) && !_drilldownCtiLookedUp)
                     {
-                        <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
-                                data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
-                            Look up
-                        </button>
+                        @if (_crowdSecRateLimited)
+                        {
+                            <span style="color:var(--text-muted); font-size:0.75rem;"
+                                  data-tooltip="CrowdSec daily quota reached - will retry automatically">Quota reached</span>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
+                                    data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
+                                Look up
+                            </button>
+                        }
                     }
                 }
                 else if (hasDrilldownCti)
