@@ -74,48 +74,6 @@
             </div>
         </div>
 
-        <!-- Time Range (different state for list vs client view) -->
-        @if (string.IsNullOrEmpty(_selectedClientMac))
-        {
-            <div class="time-range-selector">
-                @foreach (var range in _timeRanges)
-                {
-                    <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
-                            @onclick="() => SelectListTimeRange(range.Key)"
-                            disabled="@(_statusFilter == "online")">
-                        @range.Key
-                    </button>
-                }
-            </div>
-        }
-        else
-        {
-            <div class="time-range-selector">
-                @foreach (var range in _timeRanges)
-                {
-                    <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
-                            @onclick="() => SelectTimeRange(range.Key)">
-                        @range.Key
-                    </button>
-                }
-            </div>
-        }
-
-        @if (HasActiveFilters)
-        {
-            <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
-        }
-        <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
-            @if (_refreshing)
-            {
-                <span class="spinner-sm"></span>
-            }
-            else
-            {
-                <span>Refresh</span>
-            }
-        </button>
-
         <!-- AP & Band Filters (only show on list view) -->
         @if (string.IsNullOrEmpty(_selectedClientMac))
         {
@@ -139,6 +97,49 @@
                 </div>
             </div>
         }
+
+        <!-- Time Range + Actions (right side) -->
+        <div class="client-timeline-actions">
+            @if (string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <div class="time-range-selector">
+                    @foreach (var range in _timeRanges)
+                    {
+                        <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
+                                @onclick="() => SelectListTimeRange(range.Key)"
+                                disabled="@(_statusFilter == "online")">
+                            @range.Key
+                        </button>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="time-range-selector">
+                    @foreach (var range in _timeRanges)
+                    {
+                        <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
+                                @onclick="() => SelectTimeRange(range.Key)">
+                            @range.Key
+                        </button>
+                    }
+                </div>
+            }
+            @if (HasActiveFilters)
+            {
+                <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
+            }
+            <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
+                @if (_refreshing)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
     </div>
 
     @if (string.IsNullOrEmpty(_selectedClientMac))
