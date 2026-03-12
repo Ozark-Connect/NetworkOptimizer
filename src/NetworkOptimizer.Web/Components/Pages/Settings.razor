@@ -3970,7 +3970,8 @@
         {
             await SystemSettings.SetAsync("crowdsec.enabled", crowdsecEnabled ? "true" : "false");
 
-            if (!string.IsNullOrEmpty(crowdsecApiKey))
+            var newKeyProvided = !string.IsNullOrEmpty(crowdsecApiKey);
+            if (newKeyProvided)
             {
                 var encrypted = CredentialService.Encrypt(crowdsecApiKey);
                 await SystemSettings.SetAsync("crowdsec.api_key", encrypted);
@@ -3980,10 +3981,11 @@
 
             await SystemSettings.SetAsync("crowdsec.daily_quota", crowdsecDailyQuota.ToString());
 
-            // Update the rate limiter with the new quota
-            var state = CrowdSecClient.GetRateLimitState();
-            CrowdSecClient.LoadRateLimitState(state.RequestsToday, state.RequestsDate, crowdsecDailyQuota);
-            crowdsecUsageDisplay = $"{state.RequestsToday}/{crowdsecDailyQuota}";
+            // Update the rate limiter. Reset counter when a new API key is saved
+            // since the new key has its own fresh quota on CrowdSec's side.
+            var requestsToday = newKeyProvided ? 0 : CrowdSecClient.GetRateLimitState().RequestsToday;
+            CrowdSecClient.LoadRateLimitState(requestsToday, DateOnly.FromDateTime(DateTime.UtcNow), crowdsecDailyQuota);
+            crowdsecUsageDisplay = $"{requestsToday}/{crowdsecDailyQuota}";
 
             crowdsecMessage = "CrowdSec settings saved.";
             crowdsecMessageClass = "success";

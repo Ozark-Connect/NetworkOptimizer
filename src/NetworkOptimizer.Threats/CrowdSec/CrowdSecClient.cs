@@ -54,6 +54,8 @@ public class CrowdSecClient
             _requestsToday = requestsToday;
             _requestsDate = requestsDate;
             _dailyLimit = dailyLimit >= 1 ? dailyLimit : DefaultDailyLimit;
+            _dailyLimitExceededUntil = null;
+            _consecutiveBurstThrottles = 0;
         }
     }
 
