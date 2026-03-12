@@ -243,7 +243,10 @@ public class ThreatDashboardService
                     source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
 
                 if (outcome == CrowdSecLookupOutcome.RateLimited)
-                    return true; // signal rate limit hit - stop enriching
+                    return true; // daily quota exhausted - stop enriching and show banner
+
+                if (outcome == CrowdSecLookupOutcome.BurstThrottled)
+                    continue; // burst throttle - skip this IP, throttle delay is built into client
 
                 source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
                 source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
