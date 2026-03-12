@@ -242,6 +242,9 @@
 </div>
 
 @code {
+    [Parameter] public string? InitialApMac { get; set; }
+    [Parameter] public RadioBand? InitialBand { get; set; }
+
     private bool _loading = true;
     private string _selectedRange = "1D";
     private string _selectedApMac = "";  // Empty = all APs (site-wide)
@@ -313,6 +316,16 @@
 
     protected override void OnInitialized()
     {
+        // Apply initial filters from parent navigation
+        if (!string.IsNullOrEmpty(InitialApMac))
+            _selectedApMac = InitialApMac;
+        if (InitialBand.HasValue)
+        {
+            _show24 = InitialBand.Value == RadioBand.Band2_4GHz;
+            _show5 = InitialBand.Value == RadioBand.Band5GHz;
+            _show6 = InitialBand.Value == RadioBand.Band6GHz;
+        }
+
         InitializeChartOptions();
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
     }

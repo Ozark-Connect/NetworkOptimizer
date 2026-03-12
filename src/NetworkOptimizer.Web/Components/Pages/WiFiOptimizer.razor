@@ -202,7 +202,7 @@
         <!-- Metrics - Time Series Charts -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics InitialApMac="@_initialApMac" InitialBand="@_initialBand" />
             </div>
         </div>
     }
@@ -211,7 +211,7 @@
         <!-- Client Stats Timeline -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand" />
             </div>
         </div>
     }
@@ -246,7 +246,7 @@
         <!-- Channel Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" InitialBand="@_initialBand" InitialChannel="@_initialChannel" />
             </div>
         </div>
     }
@@ -514,7 +514,7 @@
                                     </div>
                                 </div>
                                 <div class="ap-stats">
-                                    <div class="ap-stat">
+                                    <div class="ap-stat clickable" @onclick="@(() => NavigateToTab("client", ap.Mac))" @onclick:stopPropagation="true">
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
                                     </div>
@@ -530,13 +530,27 @@
                                     @foreach (var radio in ap.Radios)
                                     {
                                         <div class="ap-radio">
-                                            <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
-                                            <span class="radio-channel">Ch @radio.Channel</span>
+                                            <span class="radio-band clickable @GetBandCssClass(radio.Band)"
+                                                  @onclick="@(() => NavigateToTab("metrics", ap.Mac, radio.Band))"
+                                                  @onclick:stopPropagation="true">@radio.Band.ToDisplayString()</span>
+                                            <span class="radio-channel clickable"
+                                                  @onclick="@(() => NavigateToTab("channels", null, radio.Band, radio.Channel))"
+                                                  @onclick:stopPropagation="true">Ch @radio.Channel</span>
                                             @if (radio.ChannelUtilization.HasValue)
                                             {
-                                                <span class="radio-util @GetUtilizationClass(radio.ChannelUtilization.Value)">@radio.ChannelUtilization%</span>
+                                                <span class="radio-util clickable @GetUtilizationClass(radio.ChannelUtilization.Value)"
+                                                      @onclick="@(() => NavigateToTab("metrics", ap.Mac, radio.Band))"
+                                                      @onclick:stopPropagation="true">@radio.ChannelUtilization% util</span>
                                             }
-                                            <span class="radio-clients">@radio.ClientCount clients</span>
+                                            @if (radio.Eirp.HasValue)
+                                            {
+                                                <span class="radio-eirp clickable"
+                                                      @onclick="@(() => NavigateToTab("power"))"
+                                                      @onclick:stopPropagation="true">@(radio.Eirp) dBm</span>
+                                            }
+                                            <span class="radio-clients clickable"
+                                                  @onclick="@(() => NavigateToTab("client", ap.Mac, radio.Band))"
+                                                  @onclick:stopPropagation="true">@radio.ClientCount clients</span>
                                         </div>
                                     }
                                 </div>
@@ -568,12 +582,24 @@
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "ap")]
+    public string? ApQueryParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "band")]
+    public string? BandQueryParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "channel")]
+    public int? ChannelQueryParam { get; set; }
+
     private string? _lastTabParam;
 
     private bool _loading = true;
     private bool _refreshing = false;
     private string _activeTab = "overview";
     private string? _initialClientMac;
+    private string? _initialApMac;
+    private RadioBand? _initialBand;
+    private int? _initialChannel;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -592,18 +618,58 @@
     private async Task SetActiveTab(string tab)
     {
         _activeTab = tab;
-        // Clear client filter when manually switching tabs
+        // Clear all drill-down filters when manually switching tabs
         _initialClientMac = null;
+        _initialApMac = null;
+        _initialBand = null;
+        _initialChannel = null;
 
         // Reload AP markers when entering Speed Map tab (may have been edited on Signal Map)
         if (tab == "coverage")
             await LoadApMarkers();
 
-        // Build clean URL - drop client param when leaving client tab
+        // Build clean URL - drop filter params when manually switching
         var uri = "/wifi-optimizer?tab=" + tab;
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
+
+    private void NavigateToTab(string tab, string? apMac = null, RadioBand? band = null, int? channel = null)
+    {
+        _activeTab = tab;
+        _initialApMac = apMac;
+        _initialBand = band;
+        _initialChannel = channel;
+        _initialClientMac = null;
+
+        // Build URL with filter params
+        var uri = "/wifi-optimizer?tab=" + tab;
+        if (!string.IsNullOrEmpty(apMac))
+            uri += "&ap=" + Uri.EscapeDataString(apMac);
+        if (band.HasValue)
+            uri += "&band=" + BandToQueryString(band.Value);
+        if (channel.HasValue)
+            uri += "&channel=" + channel.Value;
+
+        NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+        _lastTabParam = tab;
+    }
+
+    private static string BandToQueryString(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "2.4",
+        RadioBand.Band5GHz => "5",
+        RadioBand.Band6GHz => "6",
+        _ => ""
+    };
+
+    private static RadioBand? BandFromQueryString(string? value) => value switch
+    {
+        "2.4" => RadioBand.Band2_4GHz,
+        "5" => RadioBand.Band5GHz,
+        "6" => RadioBand.Band6GHz,
+        _ => null
+    };
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
@@ -625,6 +691,11 @@
         {
             _activeTab = ResolveTab(TabParam);
             _lastTabParam = TabParam;
+
+            // Parse drill-down filter params
+            _initialApMac = ApQueryParam;
+            _initialBand = BandFromQueryString(BandQueryParam);
+            _initialChannel = ChannelQueryParam;
         }
         else
         {

@@ -6625,6 +6625,8 @@ a.path-hop.hop-clickable:hover {
     padding: 0.125rem 0.5rem;
     border-radius: var(--border-radius);
     font-size: 0.7rem;
+    min-width: 52px;
+    text-align: center;
 }
 
 .radio-band.band-2ghz {
@@ -6644,10 +6646,17 @@ a.path-hop.hop-clickable:hover {
 
 .radio-channel {
     color: var(--text-secondary);
+    min-width: 42px;
+}
+
+.radio-eirp {
+    color: var(--text-muted);
+    font-size: 0.75rem;
 }
 
 .radio-util {
     font-weight: 500;
+    min-width: 62px;
 }
 
 .radio-util.util-low { color: #22c55e; }
@@ -6659,8 +6668,108 @@ a.path-hop.hop-clickable:hover {
     margin-left: auto;
 }
 
+/* Clickable elements in AP cards */
+.ap-card .clickable {
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+}
+
+.ap-card .clickable:hover {
+    background-color: var(--bg-hover);
+}
+
+.ap-stat.clickable:hover {
+    background-color: var(--bg-hover);
+    border-radius: 6px;
+    padding: 0 4px;
+    margin: 0 -4px;
+}
+
+/* Client Timeline AP & Band Filters */
+.client-filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.client-filter-group .ap-filter-select {
+    max-width: 160px;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+}
+
+.band-pill-selector {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    padding: 2px;
+}
+
+.band-pill {
+    padding: 0.15rem 0.5rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.band-pill:hover {
+    color: var(--text-secondary);
+}
+
+.band-pill.active {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.band-pill-2ghz.active {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.band-pill-5ghz.active {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+.band-pill-6ghz.active {
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
+    .radio-eirp {
+        display: none;
+    }
+
+    .radio-band {
+        min-width: unset;
+    }
+
+    .radio-channel,
+    .radio-util {
+        min-width: unset;
+    }
+
+    .client-filter-group {
+        flex-wrap: wrap;
+    }
+
+    .client-filter-group .ap-filter-select {
+        max-width: 130px;
+    }
+
     .dimension-row {
         grid-template-columns: 100px 1fr 35px;
         gap: 0.5rem;

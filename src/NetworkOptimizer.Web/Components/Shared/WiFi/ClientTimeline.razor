@@ -24,6 +24,30 @@
                 </div>
             }
 
+            <!-- AP & Band Filters (only show on list view) -->
+            @if (string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <div class="client-filter-group">
+                    <select class="ap-filter-select" @bind="_apFilter" @bind:after="OnListFilterChanged">
+                        <option value="">All APs</option>
+                        @foreach (var ap in GetUniqueAps())
+                        {
+                            <option value="@ap.Mac">@ap.Name</option>
+                        }
+                    </select>
+                    <div class="band-pill-selector">
+                        <button class="band-pill @(_bandFilter == null ? "active" : "")"
+                                @onclick="() => SetBandFilter(null)">All</button>
+                        <button class="band-pill band-pill-2ghz @(_bandFilter == RadioBand.Band2_4GHz ? "active" : "")"
+                                @onclick="() => SetBandFilter(RadioBand.Band2_4GHz)">2.4</button>
+                        <button class="band-pill band-pill-5ghz @(_bandFilter == RadioBand.Band5GHz ? "active" : "")"
+                                @onclick="() => SetBandFilter(RadioBand.Band5GHz)">5</button>
+                        <button class="band-pill band-pill-6ghz @(_bandFilter == RadioBand.Band6GHz ? "active" : "")"
+                                @onclick="() => SetBandFilter(RadioBand.Band6GHz)">6</button>
+                    </div>
+                </div>
+            }
+
             <!-- View All / Client Selector -->
             <div class="client-selector-combo">
                 @if (!string.IsNullOrEmpty(_selectedClientMac))
@@ -331,6 +355,8 @@
 
 @code {
     [Parameter] public string? InitialClientMac { get; set; }
+    [Parameter] public string? InitialApMac { get; set; }
+    [Parameter] public RadioBand? InitialBand { get; set; }
 
     private bool _loading = false;
     private string _selectedClientMac = "";
@@ -351,6 +377,8 @@
     // Search/Filter
     private string _clientSearchText = "";
     private string _statusFilter = "all"; // "all", "online", "offline"
+    private string _apFilter = "";  // Empty = all APs
+    private RadioBand? _bandFilter;  // null = all bands
     private bool _dropdownOpen = false;
     private bool _refreshing = false;
     private ElementReference _filterInput;
@@ -377,6 +405,13 @@
     protected override async Task OnInitializedAsync()
     {
         InitializeChartOptions();
+
+        // Apply initial filters from parent navigation
+        if (!string.IsNullOrEmpty(InitialApMac))
+            _apFilter = InitialApMac;
+        if (InitialBand.HasValue)
+            _bandFilter = InitialBand.Value;
+
         await LoadClientsAsync();
 
         // Auto-select client from deep link parameter
@@ -722,6 +757,19 @@
             filtered = filtered.Where(c => c.IsOnline || (c.LastSeen.HasValue && c.LastSeen.Value >= cutoff));
         }
 
+        // Apply AP filter
+        if (!string.IsNullOrEmpty(_apFilter))
+        {
+            filtered = filtered.Where(c =>
+                c.ApMac != null && c.ApMac.Equals(_apFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Apply band filter
+        if (_bandFilter.HasValue)
+        {
+            filtered = filtered.Where(c => c.Band == _bandFilter.Value);
+        }
+
         // Apply search text filter
         if (!string.IsNullOrWhiteSpace(_clientSearchText))
         {
@@ -738,6 +786,26 @@
     {
         _statusFilter = filter;
         _currentPage = 1;
+    }
+
+    private void SetBandFilter(RadioBand? band)
+    {
+        _bandFilter = band;
+        _currentPage = 1;
+    }
+
+    private void OnListFilterChanged()
+    {
+        _currentPage = 1;
+    }
+
+    private IEnumerable<(string Mac, string Name)> GetUniqueAps()
+    {
+        return _clients
+            .Where(c => !string.IsNullOrEmpty(c.ApMac) && !string.IsNullOrEmpty(c.ApName))
+            .Select(c => (c.ApMac, c.ApName!))
+            .Distinct()
+            .OrderBy(a => a.Item2, StringComparer.OrdinalIgnoreCase);
     }
 
     private IEnumerable<WirelessClientSnapshot> GetSortedClients()
@@ -842,6 +910,8 @@
         _selectedClient = null;
         _clientMetrics.Clear();
         _connectionEvents.Clear();
+        _apFilter = "";
+        _bandFilter = null;
         // Keep _currentPage so user returns to same page in list
     }
 
