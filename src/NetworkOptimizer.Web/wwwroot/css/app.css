@@ -6700,7 +6700,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .client-filter-group .ap-filter-select {
-    max-width: 160px;
+    max-width: 120px;
     font-size: 0.8rem;
     padding: 0.25rem 0.5rem;
     background: var(--bg-tertiary);
@@ -7201,24 +7201,25 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
 }
 
-.timeline-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
-}
-
-.timeline-header h3 {
+.client-timeline-title {
     margin: 0;
     font-size: 1.25rem;
     font-weight: 600;
 }
 
-.timeline-controls {
+.client-timeline-controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
+}
+
+.client-timeline-controls .pill-selector {
+    gap: 0.25rem;
+}
+
+.client-timeline-controls .pill-btn {
+    padding: 0.35rem 0.5rem;
 }
 
 .client-selector {
@@ -7240,8 +7241,8 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-primary);
 }
 
-.timeline-loading,
-.timeline-empty {
+.client-timeline-loading,
+.client-timeline-empty {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -7624,7 +7625,7 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.75rem;
 }
 
-.timeline-chart-section {
+.client-timeline-chart-section {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
@@ -9553,14 +9554,14 @@ a.path-hop.hop-clickable:hover {
 }
 
 @media (max-width: 768px) {
-    .timeline-header {
+    .client-timeline-controls {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
+        gap: 0.5rem;
     }
 
-    .timeline-controls {
-        width: 100%;
-        flex-direction: column;
+    .client-filter-group {
+        margin-left: 0;
     }
 
     .client-selector {

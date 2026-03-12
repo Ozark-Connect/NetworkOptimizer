@@ -7,142 +7,138 @@
 @inject ILogger<ClientTimeline> Logger
 
 <div class="client-timeline-container wifi-sections">
-    <div class="timeline-header">
-        <h3>Client Stats</h3>
+    <h3 class="client-timeline-title">Client Stats</h3>
 
-        <div class="timeline-controls">
-            <!-- Status Filter (only show when no client selected) -->
-            @if (string.IsNullOrEmpty(_selectedClientMac))
-            {
-                <div class="pill-selector">
-                    <button class="pill-btn @(_statusFilter == "all" ? "active" : "")"
-                            @onclick='() => SetStatusFilter("all")'>All</button>
-                    <button class="pill-btn @(_statusFilter == "online" ? "active" : "")"
-                            @onclick='() => SetStatusFilter("online")'>Online</button>
-                    <button class="pill-btn @(_statusFilter == "offline" ? "active" : "")"
-                            @onclick='() => SetStatusFilter("offline")'>Offline</button>
-                </div>
-            }
-
-            <!-- AP & Band Filters (only show on list view) -->
-            @if (string.IsNullOrEmpty(_selectedClientMac))
-            {
-                <div class="client-filter-group">
-                    <select class="ap-filter-select" @bind="_apFilter" @bind:after="OnListFilterChanged">
-                        <option value="">All APs</option>
-                        @foreach (var ap in GetUniqueAps())
-                        {
-                            <option value="@ap.Mac">@ap.Name</option>
-                        }
-                    </select>
-                    <div class="band-pill-selector">
-                        <button class="band-pill @(_bandFilter == null ? "active" : "")"
-                                @onclick="() => SetBandFilter(null)">All</button>
-                        <button class="band-pill band-pill-2ghz @(_bandFilter == RadioBand.Band2_4GHz ? "active" : "")"
-                                @onclick="() => SetBandFilter(RadioBand.Band2_4GHz)">2.4 GHz</button>
-                        <button class="band-pill band-pill-5ghz @(_bandFilter == RadioBand.Band5GHz ? "active" : "")"
-                                @onclick="() => SetBandFilter(RadioBand.Band5GHz)">5 GHz</button>
-                        <button class="band-pill band-pill-6ghz @(_bandFilter == RadioBand.Band6GHz ? "active" : "")"
-                                @onclick="() => SetBandFilter(RadioBand.Band6GHz)">6 GHz</button>
-                    </div>
-                </div>
-            }
-
-            <!-- View All / Client Selector -->
-            <div class="client-selector-combo">
-                @if (!string.IsNullOrEmpty(_selectedClientMac))
-                {
-                    <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
-                }
-                <div class="filterable-select @(_dropdownOpen ? "open" : "")">
-                    @if (_selectedClient != null && !_dropdownOpen)
-                    {
-                        <!-- Display mode: show selected client -->
-                        <div class="filterable-select-display" @onclick="OpenDropdownForEdit">
-                            <span class="status-dot @(_selectedClient.IsOnline ? "online" : "offline")"></span>
-                            <span class="option-text">@_selectedClient.Name</span>
-                            <span class="option-mac">@_selectedClient.Mac</span>
-                        </div>
-                    }
-                    else
-                    {
-                        <!-- Edit mode: text input for filtering -->
-                        <input @ref="_filterInput"
-                               type="text" class="form-select filterable-select-input"
-                               placeholder="Select a client..."
-                               @bind="_clientSearchText"
-                               @bind:event="oninput"
-                               @onclick="OpenDropdown"
-                               @onfocus="OpenDropdown"
-                               @onblur="CloseDropdownDelayed" />
-                    }
-                    @if (_dropdownOpen)
-                    {
-                        <div class="filterable-select-overlay" @onclick="CloseDropdown"></div>
-                        <div class="filterable-select-dropdown">
-                            @foreach (var client in GetDropdownClients().Take(50))
-                            {
-                                <div class="filterable-select-option @(client.IsOnline ? "" : "offline")"
-                                     @onmousedown="() => SelectClientFromDropdown(client)"
-                                     @onmousedown:preventDefault>
-                                    <span class="status-dot @(client.IsOnline ? "online" : "offline")"></span>
-                                    <span class="option-text">@client.Name</span>
-                                    <span class="option-mac">@client.Mac</span>
-                                </div>
-                            }
-                            @if (!GetDropdownClients().Any())
-                            {
-                                <div class="filterable-select-empty">No clients found</div>
-                            }
-                        </div>
-                    }
-                </div>
+    <div class="client-timeline-controls">
+        <!-- Status Filter (only show when no client selected) -->
+        @if (string.IsNullOrEmpty(_selectedClientMac))
+        {
+            <div class="pill-selector">
+                <button class="pill-btn @(_statusFilter == "all" ? "active" : "")"
+                        @onclick='() => SetStatusFilter("all")'>All</button>
+                <button class="pill-btn @(_statusFilter == "online" ? "active" : "")"
+                        @onclick='() => SetStatusFilter("online")'>Online</button>
+                <button class="pill-btn @(_statusFilter == "offline" ? "active" : "")"
+                        @onclick='() => SetStatusFilter("offline")'>Offline</button>
             </div>
+        }
 
-            <!-- Time Range (different state for list vs client view) -->
-            <div class="time-refresh-group">
-                @if (string.IsNullOrEmpty(_selectedClientMac))
+        <!-- View All / Client Selector -->
+        <div class="client-selector-combo">
+            @if (!string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
+            }
+            <div class="filterable-select @(_dropdownOpen ? "open" : "")">
+                @if (_selectedClient != null && !_dropdownOpen)
                 {
-                    <div class="time-range-selector">
-                        @foreach (var range in _timeRanges)
-                        {
-                            <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
-                                    @onclick="() => SelectListTimeRange(range.Key)"
-                                    disabled="@(_statusFilter == "online")">
-                                @range.Key
-                            </button>
-                        }
+                    <!-- Display mode: show selected client -->
+                    <div class="filterable-select-display" @onclick="OpenDropdownForEdit">
+                        <span class="status-dot @(_selectedClient.IsOnline ? "online" : "offline")"></span>
+                        <span class="option-text">@_selectedClient.Name</span>
+                        <span class="option-mac">@_selectedClient.Mac</span>
                     </div>
                 }
                 else
                 {
-                    <div class="time-range-selector">
-                        @foreach (var range in _timeRanges)
+                    <!-- Edit mode: text input for filtering -->
+                    <input @ref="_filterInput"
+                           type="text" class="form-select filterable-select-input"
+                           placeholder="Select a client..."
+                           @bind="_clientSearchText"
+                           @bind:event="oninput"
+                           @onclick="OpenDropdown"
+                           @onfocus="OpenDropdown"
+                           @onblur="CloseDropdownDelayed" />
+                }
+                @if (_dropdownOpen)
+                {
+                    <div class="filterable-select-overlay" @onclick="CloseDropdown"></div>
+                    <div class="filterable-select-dropdown">
+                        @foreach (var client in GetDropdownClients().Take(50))
                         {
-                            <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
-                                    @onclick="() => SelectTimeRange(range.Key)">
-                                @range.Key
-                            </button>
+                            <div class="filterable-select-option @(client.IsOnline ? "" : "offline")"
+                                 @onmousedown="() => SelectClientFromDropdown(client)"
+                                 @onmousedown:preventDefault>
+                                <span class="status-dot @(client.IsOnline ? "online" : "offline")"></span>
+                                <span class="option-text">@client.Name</span>
+                                <span class="option-mac">@client.Mac</span>
+                            </div>
+                        }
+                        @if (!GetDropdownClients().Any())
+                        {
+                            <div class="filterable-select-empty">No clients found</div>
                         }
                     </div>
                 }
-
-                @if (HasActiveFilters)
-                {
-                    <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
-                }
-                <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
-                    @if (_refreshing)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
             </div>
         </div>
+
+        <!-- Time Range (different state for list vs client view) -->
+        @if (string.IsNullOrEmpty(_selectedClientMac))
+        {
+            <div class="time-range-selector">
+                @foreach (var range in _timeRanges)
+                {
+                    <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
+                            @onclick="() => SelectListTimeRange(range.Key)"
+                            disabled="@(_statusFilter == "online")">
+                        @range.Key
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="time-range-selector">
+                @foreach (var range in _timeRanges)
+                {
+                    <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
+                            @onclick="() => SelectTimeRange(range.Key)">
+                        @range.Key
+                    </button>
+                }
+            </div>
+        }
+
+        @if (HasActiveFilters)
+        {
+            <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
+        }
+        <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
+            @if (_refreshing)
+            {
+                <span class="spinner-sm"></span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+
+        <!-- AP & Band Filters (only show on list view) -->
+        @if (string.IsNullOrEmpty(_selectedClientMac))
+        {
+            <div class="client-filter-group">
+                <select class="ap-filter-select" @bind="_apFilter" @bind:after="OnListFilterChanged">
+                    <option value="">All APs</option>
+                    @foreach (var ap in GetUniqueAps())
+                    {
+                        <option value="@ap.Mac">@ap.Name</option>
+                    }
+                </select>
+                <div class="band-pill-selector">
+                    <button class="band-pill @(_bandFilter == null ? "active" : "")"
+                            @onclick="() => SetBandFilter(null)">All</button>
+                    <button class="band-pill band-pill-2ghz @(_bandFilter == RadioBand.Band2_4GHz ? "active" : "")"
+                            @onclick="() => SetBandFilter(RadioBand.Band2_4GHz)">2.4 GHz</button>
+                    <button class="band-pill band-pill-5ghz @(_bandFilter == RadioBand.Band5GHz ? "active" : "")"
+                            @onclick="() => SetBandFilter(RadioBand.Band5GHz)">5 GHz</button>
+                    <button class="band-pill band-pill-6ghz @(_bandFilter == RadioBand.Band6GHz ? "active" : "")"
+                            @onclick="() => SetBandFilter(RadioBand.Band6GHz)">6 GHz</button>
+                </div>
+            </div>
+        }
     </div>
 
     @if (string.IsNullOrEmpty(_selectedClientMac))
@@ -206,7 +202,7 @@
     }
     else if (_loading)
     {
-        <div class="timeline-loading">
+        <div class="client-timeline-loading">
             <span class="spinner"></span>
             <span>Loading client data...</span>
         </div>
@@ -271,7 +267,7 @@
         }
 
         <!-- Signal Strength Chart -->
-        <div class="timeline-chart-section">
+        <div class="client-timeline-chart-section">
             <div class="chart-header">
                 <span class="chart-title">Signal Strength</span>
                 <div class="chart-filters">
