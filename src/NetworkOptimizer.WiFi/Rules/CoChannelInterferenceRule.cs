@@ -51,13 +51,21 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 {
                     var apNames = nonMeshAps.Select(ap => ap.Name).ToList();
 
+                    var recommendation = "Consider changing one or more APs to a different channel to reduce interference.";
+
+                    // If any APs aren't placed on the map, hint that placing them enables spatial filtering
+                    var hasUnplacedAps = ctx.PropagationContext == null ||
+                        nonMeshAps.Any(ap => !ctx.PropagationContext.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()));
+                    if (hasUnplacedAps)
+                        recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
+
                     yield return new HealthIssue
                     {
                         Severity = HealthIssueSeverity.Warning,
                         Dimensions = { HealthDimension.ChannelHealth },
                         Title = $"Co-Channel Interference on {band.ToDisplayString()} Channel {group.Key}",
                         Description = $"{nonMeshAps.Count} APs ({string.Join(", ", apNames)}) are using the same channel.",
-                        Recommendation = "Consider changing one or more APs to a different channel to reduce interference.",
+                        Recommendation = recommendation,
                         ScoreImpact = -5
                     };
                 }
