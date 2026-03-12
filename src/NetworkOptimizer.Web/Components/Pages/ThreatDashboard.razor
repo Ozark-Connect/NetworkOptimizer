@@ -485,7 +485,7 @@ else
                                                     @* Looked up but not in CrowdSec database *@
                                                     <span style="color:var(--text-muted);">Not in DB</span>
                                                 }
-                                                else if (!_crowdSecAutoEnrich)
+                                                else
                                                 {
                                                     @if (_lookingUpIp == source.SourceIp)
                                                     {
@@ -499,10 +499,6 @@ else
                                                             Look up
                                                         </button>
                                                     }
-                                                }
-                                                else
-                                                {
-                                                    <span style="color:var(--text-muted);">-</span>
                                                 }
                                                 </div>
                                             </td>
@@ -2143,7 +2139,6 @@ else
     private ExposureReport? _exposureReport;
     private List<AttackSequence> _attackSequences = [];
     private bool _crowdSecEnabled;
-    private bool _crowdSecAutoEnrich; // true if quota >= 100, false = manual lookups
     private bool _crowdSecBannerDismissed;
     private bool _maxMindConfigured;
     private bool _maxMindBannerDismissed;
@@ -2465,12 +2460,6 @@ else
         {
             var apiKey = await SettingsAccessor.GetSettingAsync("crowdsec.api_key");
             _crowdSecEnabled = !string.IsNullOrWhiteSpace(apiKey);
-            if (_crowdSecEnabled)
-            {
-                var quotaStr = await SettingsAccessor.GetSettingAsync("crowdsec.daily_quota");
-                var quota = int.TryParse(quotaStr, out var q) ? q : 30;
-                _crowdSecAutoEnrich = quota >= 100;
-            }
         }
         catch (Exception ex)
         {

@@ -105,7 +105,7 @@ public class ThreatDashboardService
     /// <summary>
     /// Auto-enrich top sources with CrowdSec CTI.
     /// Always checks the DB cache (free - no API calls) so previously looked-up IPs show their badge.
-    /// Only makes new API calls if quota is generous (>= 100/day).
+    /// Then makes new API calls for up to half the configured daily quota.
     /// </summary>
     private async Task EnrichTopSourcesWithCtiAsync(List<SourceIpSummary> sources,
         CancellationToken cancellationToken)
@@ -118,11 +118,20 @@ public class ThreatDashboardService
             // Always check DB cache for previously looked-up IPs (no API calls, just DB reads)
             await EnrichFromCacheAsync(sources, cancellationToken);
 
+            // Auto-enrich uncached IPs using up to half the configured daily quota.
+            // Cache hits from GetReputationAsync are free (no API call), so only truly
+            // new IPs consume budget. CrowdSec may also not count repeat lookups.
             var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
-            var quota = int.TryParse(quotaStr, out var q) ? q : 30; // free tier default
-            if (quota < 100) return; // low quota - cache hits only, no new API calls
+            var quota = int.TryParse(quotaStr, out var q) ? q : 30;
+            var autoBudget = Math.Max(1, quota / 2);
 
-            await EnrichSourcesAsync(sources, apiKey, cancellationToken);
+            var unenriched = sources
+                .Where(s => s.CrowdSecReputation == null && !NetworkUtilities.IsPrivateIpAddress(s.SourceIp))
+                .Take(autoBudget)
+                .ToList();
+
+            if (unenriched.Count > 0)
+                await EnrichSourcesAsync(unenriched, apiKey, cancellationToken);
         }
         catch (Exception ex)
         {

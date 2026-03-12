@@ -15,12 +15,12 @@ public class CrowdSecClient
     private readonly ILogger<CrowdSecClient> _logger;
     private const string BaseUrl = "https://cti.api.crowdsec.net/v2/smoke/";
     private const int DefaultDailyLimit = 30;
-    private const int SafetyMargin = 5;
 
     // In-memory rate limit tracking (also persisted via SystemSettings)
     private int _requestsToday;
     private int _dailyLimit = DefaultDailyLimit;
     private DateOnly _requestsDate = DateOnly.FromDateTime(DateTime.UtcNow);
+    private DateOnly? _rateLimitedDate; // set when we receive an actual 429
     private readonly object _rateLimitLock = new();
 
     public CrowdSecClient(IHttpClientFactory httpClientFactory, ILogger<CrowdSecClient> logger)
@@ -92,11 +92,10 @@ public class CrowdSecClient
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                _logger.LogWarning("CrowdSec API rate limit exceeded");
-                // Force rate limit to prevent further requests today
+                _logger.LogWarning("CrowdSec API rate limit exceeded (429)");
                 lock (_rateLimitLock)
                 {
-                    _requestsToday = _dailyLimit;
+                    _rateLimitedDate = DateOnly.FromDateTime(DateTime.UtcNow);
                 }
                 return null;
             }
@@ -159,9 +158,13 @@ public class CrowdSecClient
             {
                 _requestsDate = today;
                 _requestsToday = 0;
+                _rateLimitedDate = null;
             }
 
-            if (_requestsToday >= _dailyLimit - SafetyMargin)
+            // Only stop if CrowdSec actually returned 429 today.
+            // Our internal counter may drift from CrowdSec's (they may not count
+            // 404s or cached results), so trust the real 429 response instead.
+            if (_rateLimitedDate == today)
                 return false;
 
             _requestsToday++;
