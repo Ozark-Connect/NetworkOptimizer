@@ -2007,8 +2007,9 @@ select.form-control {
 .issue-description a,
 .issue-type-description a,
 .issue-item-description a {
-    color: var(--text-secondary);
-    text-decoration: none;
+    color: var(--primary-hover);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 .issue-recommendation a:hover,
@@ -2016,7 +2017,7 @@ select.form-control {
 .issue-description a:hover,
 .issue-type-description a:hover,
 .issue-item-description a:hover {
-    color: var(--text-primary);
+    color: var(--accent-color);
     text-decoration: underline;
     text-underline-offset: 2px;
 }
