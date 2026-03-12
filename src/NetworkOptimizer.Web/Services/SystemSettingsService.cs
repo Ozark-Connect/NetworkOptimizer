@@ -57,7 +57,13 @@ public class SystemSettingsService : ISystemSettingsService
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISettingsRepository>();
         await repository.SaveSystemSettingAsync(key, value);
-        _logger.LogInformation("System setting {Key} updated to {Value}", key, value);
+        var isSensitive = key.Contains("_key", StringComparison.OrdinalIgnoreCase)
+            || key.Contains("password", StringComparison.OrdinalIgnoreCase)
+            || key.Contains("secret", StringComparison.OrdinalIgnoreCase)
+            || key.Contains("credential", StringComparison.OrdinalIgnoreCase)
+            || key.Contains("account_id", StringComparison.OrdinalIgnoreCase);
+        _logger.LogInformation("System setting {Key} updated{Value}", key,
+            isSensitive ? "" : $" to {value}");
     }
 
     /// <summary>

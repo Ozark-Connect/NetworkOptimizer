@@ -2182,6 +2182,7 @@ else
     private bool _crowdSecRateLimited;
     private bool _drilldownCtiLookedUp;
     private System.Threading.Timer? _refreshTimer;
+    private System.Threading.Timer? _hydrationRefreshTimer;
 
     // Drill-down state
     private string? _drilldownIp;
@@ -2586,6 +2587,7 @@ else
                 var chartExisted = _timelineChart != null;
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
                 if (CrowdSecClient.IsRateLimited) _crowdSecRateLimited = true;
+                ScheduleHydrationRefresh(_dashboardData.CtiHydrationCount);
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
 
@@ -3934,9 +3936,37 @@ else
         }
     }
 
+    /// <summary>
+    /// Schedule a one-shot refresh after background CTI hydration should be complete.
+    /// Timed to count * 600ms (500ms spacing + overhead).
+    /// Only fires once per unique hydration count to prevent refresh loops.
+    /// </summary>
+    private int _lastHydrationCount;
+    private void ScheduleHydrationRefresh(int hydrationCount)
+    {
+        if (hydrationCount <= 0) return;
+        if (hydrationCount == _lastHydrationCount) return; // same IPs still pending - don't loop
+        _lastHydrationCount = hydrationCount;
+
+        _hydrationRefreshTimer?.Dispose();
+        var delayMs = hydrationCount * 600 + 1500; // spacing + buffer
+        _hydrationRefreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadDataAsync();
+                });
+            }
+            catch { /* component may be disposed */ }
+        }, null, delayMs, Timeout.Infinite);
+    }
+
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+        _hydrationRefreshTimer?.Dispose();
         _dotNetRef?.Dispose();
     }
 }
