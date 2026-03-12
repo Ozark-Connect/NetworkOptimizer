@@ -6720,18 +6720,18 @@ a.path-hop.hop-clickable:hover {
 
 .band-pill-selector {
     display: flex;
-    gap: 2px;
-    background: var(--bg-tertiary);
-    border-radius: var(--border-radius);
-    padding: 2px;
+    gap: 0.25rem;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    padding: 0.25rem;
 }
 
 .band-pill {
-    padding: 0.15rem 0.5rem;
+    padding: 0.35rem 0.5rem;
     border: none;
     background: transparent;
     color: var(--text-muted);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     font-weight: 500;
     cursor: pointer;
     border-radius: 4px;
