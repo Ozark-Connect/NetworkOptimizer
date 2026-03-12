@@ -3945,7 +3945,7 @@ else
         if (hydrationCount <= 0) return;
 
         _hydrationRefreshTimer?.Dispose();
-        var delayMs = hydrationCount * 600 + 1000; // spacing + buffer
+        var delayMs = hydrationCount * 600 + 1500; // spacing + buffer
         _hydrationRefreshTimer = new System.Threading.Timer(async _ =>
         {
             try

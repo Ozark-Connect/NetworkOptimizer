@@ -147,13 +147,21 @@ public class ThreatDashboardService
 
                     foreach (var ip in ipsToHydrate)
                     {
-                        var (_, outcome) = await _crowdSecService.GetReputationAsync(
-                            ip, apiKey, repository, cancellationToken: CancellationToken.None);
-
-                        if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
+                        // Retry up to 3 times on burst throttle (backoff is built into the client)
+                        CrowdSecLookupOutcome outcome;
+                        for (var attempt = 0; attempt < 3; attempt++)
                         {
-                            _logger.LogDebug("CrowdSec background hydration stopped - daily quota exhausted");
-                            break;
+                            (_, outcome) = await _crowdSecService.GetReputationAsync(
+                                ip, apiKey, repository, cancellationToken: CancellationToken.None);
+
+                            if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
+                            {
+                                _logger.LogDebug("CrowdSec background hydration stopped - daily quota exhausted");
+                                return;
+                            }
+
+                            if (outcome != CrowdSecLookupOutcome.BurstThrottled)
+                                break; // success, not-found, or error - move on
                         }
                     }
                 }
@@ -272,14 +280,21 @@ public class ThreatDashboardService
 
             try
             {
-                var (info, outcome) = await _crowdSecService.GetReputationAsync(
-                    source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
+                CrowdSecIpInfo? info = null;
+                CrowdSecLookupOutcome outcome;
 
-                if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
-                    return true; // daily quota exhausted - stop enriching and show banner
+                // Retry up to 3 times on burst throttle (backoff is built into the client)
+                for (var attempt = 0; attempt < 3; attempt++)
+                {
+                    (info, outcome) = await _crowdSecService.GetReputationAsync(
+                        source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
 
-                if (outcome == CrowdSecLookupOutcome.BurstThrottled)
-                    continue; // burst throttle - skip this IP, throttle delay is built into client
+                    if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
+                        return true; // daily quota exhausted - stop enriching and show banner
+
+                    if (outcome != CrowdSecLookupOutcome.BurstThrottled)
+                        break; // success, not-found, or error - proceed
+                }
 
                 source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
                 source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
