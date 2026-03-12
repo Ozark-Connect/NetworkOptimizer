@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Storage.Services;
@@ -27,7 +28,7 @@ public class WiFiOptimizerService
     private readonly VlanAnalyzer _vlanAnalyzer;
     private readonly HeatmapDataCache _heatmapCache;
     private readonly FloorPlanService _floorPlanService;
-    private readonly ApMapService _apMapService;
+    private readonly IServiceProvider _serviceProvider;
     private readonly PlannedApService _plannedApService;
 
     // Cached data (refreshed on demand)
@@ -47,7 +48,7 @@ public class WiFiOptimizerService
         ISystemSettingsService settingsService,
         HeatmapDataCache heatmapCache,
         FloorPlanService floorPlanService,
-        ApMapService apMapService,
+        IServiceProvider serviceProvider,
         PlannedApService plannedApService,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
@@ -58,7 +59,7 @@ public class WiFiOptimizerService
         _settingsService = settingsService;
         _heatmapCache = heatmapCache;
         _floorPlanService = floorPlanService;
-        _apMapService = apMapService;
+        _serviceProvider = serviceProvider;
         _plannedApService = plannedApService;
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -474,7 +475,10 @@ public class WiFiOptimizerService
         ApPropagationContext? propCtx = null;
         try
         {
-            var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, _apMapService, _plannedApService);
+            // Resolve ApMapService lazily to avoid circular dependency
+            // (ApMapService -> WiFiOptimizerService -> ApMapService)
+            var apMapService = _serviceProvider.GetRequiredService<ApMapService>();
+            var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, apMapService, _plannedApService);
             var placedAps = cached.ApMarkers
                 .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
                 .ToList();
