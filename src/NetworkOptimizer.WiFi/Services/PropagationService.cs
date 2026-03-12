@@ -133,6 +133,12 @@ public class PropagationService
         List<BuildingFloorInfo>? buildings,
         double thresholdDbm = -70.0)
     {
+        // Bail if either AP isn't placed on the map (lat/lng still at default 0,0)
+        if (ap1.Latitude == 0 && ap1.Longitude == 0)
+            return false;
+        if (ap2.Latitude == 0 && ap2.Longitude == 0)
+            return false;
+
         var freqMhz = MaterialAttenuation.GetCenterFrequencyMhz(band);
 
         // Pre-compute wall segments for relevant floors
@@ -144,15 +150,19 @@ public class PropagationService
                 segmentsByFloor[floor] = PrecomputeWallSegments(floorWalls);
         }
 
-        // Check signal from AP1 at AP2's location
+        // Compute signal in both directions
         var signalAtAp2 = ComputeSignalAtPoint(
             ap1, ap2.Latitude, ap2.Longitude, ap2.Floor, band, freqMhz, segmentsByFloor, buildings);
-        if (signalAtAp2 >= thresholdDbm) return true;
-
-        // Check signal from AP2 at AP1's location
         var signalAtAp1 = ComputeSignalAtPoint(
             ap2, ap1.Latitude, ap1.Longitude, ap1.Floor, band, freqMhz, segmentsByFloor, buildings);
-        return signalAtAp1 >= thresholdDbm;
+
+        var result = signalAtAp2 >= thresholdDbm || signalAtAp1 >= thresholdDbm;
+
+        _logger.LogDebug(
+            "Interference check {Band}: {Ap1} -> {Ap2} = {Signal1:F1} dBm, {Ap2} -> {Ap1} = {Signal2:F1} dBm (threshold {Threshold} dBm, interfere={Result})",
+            band, ap1.Mac, ap2.Mac, signalAtAp2, ap2.Mac, ap1.Mac, signalAtAp1, thresholdDbm, result);
+
+        return result;
     }
 
     internal float ComputeSignalAtPoint(

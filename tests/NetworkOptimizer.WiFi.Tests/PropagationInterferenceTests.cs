@@ -201,6 +201,24 @@ public class PropagationInterferenceTests
     }
 
     [Fact]
+    public void UnplacedAp_ReturnsFalse()
+    {
+        // AP1 is placed, AP2 has default (0,0) coordinates (not placed on map)
+        var ap1 = CreateAp("aa:bb:cc:dd:ee:01", 36.0000, -94.0000);
+        var ap2 = CreateAp("aa:bb:cc:dd:ee:02", 0, 0); // Not placed
+
+        var walls = new Dictionary<int, List<PropagationWall>>();
+
+        // Should bail out and return false since AP2 isn't placed
+        _svc.DoApsInterfere(ap1, ap2, "5", walls, null).Should().BeFalse();
+
+        // Also when AP1 is unplaced
+        var ap3 = CreateAp("aa:bb:cc:dd:ee:03", 0, 0); // Not placed
+        var ap4 = CreateAp("aa:bb:cc:dd:ee:04", 36.0000, -94.0000);
+        _svc.DoApsInterfere(ap3, ap4, "5", walls, null).Should().BeFalse();
+    }
+
+    [Fact]
     public void LowPowerAps_ReducedInterferenceRange()
     {
         // Two APs ~25m apart but at low power (10 dBm instead of 20 dBm)
