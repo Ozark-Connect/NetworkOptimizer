@@ -6715,7 +6715,9 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex: 0 1 30%;
     margin-left: auto;
+    justify-content: flex-end;
 }
 
 .band-pill-selector {
