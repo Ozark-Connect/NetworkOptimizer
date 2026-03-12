@@ -497,6 +497,11 @@ else
                                                     @* Looked up but not in CrowdSec database *@
                                                     <span style="color:var(--text-muted);">Not in DB</span>
                                                 }
+                                                else if (_crowdSecRateLimited)
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:0.75rem;"
+                                                          data-tooltip="CrowdSec daily quota reached - will retry automatically">Quota reached</span>
+                                                }
                                                 else
                                                 {
                                                     @if (_lookingUpIp == source.SourceIp)
@@ -991,6 +996,11 @@ else
                 else if (_lookingUpIp == _drilldownData.Ip)
                 {
                     <span class="spinner-sm"></span>
+                }
+                else if (_crowdSecRateLimited)
+                {
+                    <span style="color:var(--text-muted); font-size:0.75rem;"
+                          data-tooltip="CrowdSec daily quota reached - will retry automatically">Quota reached</span>
                 }
                 else
                 {
