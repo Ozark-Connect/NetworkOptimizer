@@ -2692,7 +2692,7 @@ else
             if (rateLimited || CrowdSecClient.IsRateLimited)
             {
                 _crowdSecRateLimited = true;
-                if (rateLimited) return; // don't cache - IP wasn't actually looked up
+                return;
             }
 
             if (result != null && result.CrowdSecReputation != null)
@@ -2729,10 +2729,12 @@ else
 
             // Check both the returned flag AND the client state - stale cache entries
             // from before the caching fix can mask the real rate limit.
+            // Must return here to avoid setting _drilldownCtiLookedUp which hides
+            // the "Quota reached" text.
             if (rateLimited || CrowdSecClient.IsRateLimited)
             {
                 _crowdSecRateLimited = true;
-                if (rateLimited) return; // don't cache if we never actually looked it up
+                return;
             }
 
             if (result?.CrowdSecReputation != null)
