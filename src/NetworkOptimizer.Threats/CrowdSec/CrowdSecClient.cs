@@ -276,6 +276,7 @@ public class CrowdSecClient
             {
                 _requestsDate = today;
                 _requestsToday = 0;
+                _dailyLimitExceededUntil = null;
             }
 
             // Only stop if CrowdSec actually returned "Limit Exceeded" recently (within the last hour).
