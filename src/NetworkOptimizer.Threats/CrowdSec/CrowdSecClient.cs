@@ -165,11 +165,12 @@ public class CrowdSecClient
             client.DefaultRequestHeaders.Clear();
             client.DefaultRequestHeaders.Add("x-api-key", apiKey);
 
-            // Use a well-known IP for testing
-            var response = await client.GetAsync($"{BaseUrl}1.1.1.1", cancellationToken);
+            // Use loopback IP - guaranteed 404 (no data to serve, may not count against quota)
+            var response = await client.GetAsync($"{BaseUrl}127.0.0.1", cancellationToken);
 
             return response.StatusCode switch
             {
+                HttpStatusCode.NotFound => (true, "API key is valid"),
                 HttpStatusCode.OK => (true, "API key is valid"),
                 HttpStatusCode.Forbidden => (false, "API key is invalid or expired"),
                 HttpStatusCode.TooManyRequests => (false, await GetRateLimitMessageAsync(response, cancellationToken)),
