@@ -7211,6 +7211,13 @@ a.path-hop.hop-clickable:hover {
     margin-right: auto;
     font-size: 1.25rem;
     font-weight: 600;
+    width: 100%;
+}
+
+@media (max-width: 1500px) {
+    .client-timeline-title {
+        width: auto;
+    }
 }
 
 .client-timeline-controls {
