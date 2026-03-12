@@ -2689,10 +2689,10 @@ else
         try
         {
             var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
-            if (rateLimited)
+            if (rateLimited || CrowdSecClient.IsRateLimited)
             {
                 _crowdSecRateLimited = true;
-                return; // don't cache - IP wasn't actually looked up
+                if (rateLimited) return; // don't cache - IP wasn't actually looked up
             }
 
             if (result != null && result.CrowdSecReputation != null)
@@ -2726,10 +2726,13 @@ else
         {
             var source = new SourceIpSummary { SourceIp = ip };
             var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
-            if (rateLimited)
+
+            // Check both the returned flag AND the client state - stale cache entries
+            // from before the caching fix can mask the real rate limit.
+            if (rateLimited || CrowdSecClient.IsRateLimited)
             {
                 _crowdSecRateLimited = true;
-                return;
+                if (rateLimited) return; // don't cache if we never actually looked it up
             }
 
             if (result?.CrowdSecReputation != null)
