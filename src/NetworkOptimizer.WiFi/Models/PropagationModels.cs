@@ -121,6 +121,22 @@ public class BuildingFloorInfo
 }
 
 /// <summary>
+/// Spatial context for AP interference checking.
+/// Contains AP placements, walls, and buildings from the floor plan map.
+/// </summary>
+public class ApPropagationContext
+{
+    /// <summary>PropagationAp data keyed by MAC address (lowercase)</summary>
+    public required Dictionary<string, PropagationAp> ApsByMac { get; init; }
+
+    /// <summary>Walls grouped by floor number</summary>
+    public required Dictionary<int, List<PropagationWall>> WallsByFloor { get; init; }
+
+    /// <summary>Building floor info for cross-floor attenuation</summary>
+    public List<BuildingFloorInfo>? Buildings { get; init; }
+}
+
+/// <summary>
 /// Antenna pattern data for a single AP model and band.
 /// </summary>
 public class AntennaPattern

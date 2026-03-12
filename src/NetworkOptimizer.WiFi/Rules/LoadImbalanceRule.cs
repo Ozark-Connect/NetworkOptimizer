@@ -46,7 +46,7 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
             Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. " +
                 $"This imbalance ({imbalance:F0}%) can cause performance issues on overloaded APs.",
             AffectedEntity = $"{maxAp.Name} ({maxAp.TotalClients}), {minAp.Name} ({minAp.TotalClients})",
-            Recommendation = "Consider enabling band steering or adjusting TX power to balance load across APs.",
+            Recommendation = "Consider lowering TX power on the overloaded AP or tightening minimum RSSI to encourage roaming to nearby APs. This may be expected if these APs serve different coverage zones. No action needed unless clients have a stronger signal available from another AP.",
             ScoreImpact = -8
         };
     }

@@ -1,4 +1,5 @@
 using NetworkOptimizer.WiFi.Models;
+using NetworkOptimizer.WiFi.Services;
 
 namespace NetworkOptimizer.WiFi.Rules;
 
@@ -8,6 +9,13 @@ namespace NetworkOptimizer.WiFi.Rules;
 /// </summary>
 public class CoChannelInterferenceRule : IWiFiOptimizerRule
 {
+    private readonly PropagationService _propagationService;
+
+    public CoChannelInterferenceRule(PropagationService propagationService)
+    {
+        _propagationService = propagationService;
+    }
+
     public string RuleId => "WIFI-COCHANNEL-001";
 
     public IEnumerable<HealthIssue> EvaluateAll(WiFiOptimizerContext ctx)
@@ -31,10 +39,25 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 // Filter out mesh pairs - they MUST be on the same channel
                 var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, group.Key);
 
+                // Spatial filter: remove APs that don't actually interfere with any other AP in the group
+                if (ctx.PropagationContext != null && nonMeshAps.Count > 1)
+                {
+                    nonMeshAps = WiFiAnalysisHelpers.FilterByPropagation(
+                        nonMeshAps, band, group.Key, ctx.PropagationContext, _propagationService);
+                }
+
                 // Only report co-channel if there are 2+ APs that aren't mesh pairs
                 if (nonMeshAps.Count > 1)
                 {
                     var apNames = nonMeshAps.Select(ap => ap.Name).ToList();
+
+                    var recommendation = "Consider changing one or more APs to a different channel to reduce interference.";
+
+                    // If any APs aren't placed on the map, hint that placing them enables spatial filtering
+                    var hasUnplacedAps = ctx.PropagationContext == null ||
+                        nonMeshAps.Any(ap => !ctx.PropagationContext.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()));
+                    if (hasUnplacedAps)
+                        recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
 
                     yield return new HealthIssue
                     {
@@ -42,7 +65,7 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                         Dimensions = { HealthDimension.ChannelHealth },
                         Title = $"Co-Channel Interference on {band.ToDisplayString()} Channel {group.Key}",
                         Description = $"{nonMeshAps.Count} APs ({string.Join(", ", apNames)}) are using the same channel.",
-                        Recommendation = "Consider changing one or more APs to a different channel to reduce interference.",
+                        Recommendation = recommendation,
                         ScoreImpact = -5
                     };
                 }
