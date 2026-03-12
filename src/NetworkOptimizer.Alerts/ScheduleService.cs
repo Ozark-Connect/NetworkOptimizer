@@ -343,14 +343,15 @@ public class ScheduleService : BackgroundService
         if (frequencyMinutes <= 0)
             return now2.AddMinutes(60);
 
-        // Start from yesterday's anchor so the walk covers today's intermediate slots.
-        // Without this, an anchor later today (e.g., 23:45) would be returned directly,
-        // skipping earlier hourly slots (e.g., 20:45, 21:45, 22:45).
-        var candidate = anchor.AddDays(-1);
+        // Walk backward from anchor to find a starting point before now,
+        // then walk forward to the next slot. Without this, an anchor later
+        // today (e.g., 23:45) would be returned directly, skipping earlier
+        // hourly slots (e.g., 20:45, 21:45, 22:45).
+        var candidate = anchor;
+        while (candidate > now2)
+            candidate = candidate.AddMinutes(-frequencyMinutes);
         while (candidate <= now2.AddMinutes(1))
-        {
             candidate = candidate.AddMinutes(frequencyMinutes);
-        }
 
         return candidate;
     }

@@ -2491,10 +2491,15 @@
     {
         var now = DateTime.UtcNow;
         var anchor = now.Date.AddHours(startHour).AddMinutes(startMinute);
-        // For edits, start from yesterday's anchor so we find the next hourly slot
-        // even when the anchor is later today. For new schedules, wait for the
-        // first anchor time.
-        var candidate = isEdit ? anchor.AddDays(-1) : anchor;
+        var candidate = anchor;
+        // For edits, walk backward to find intermediate slots (e.g., hourly task
+        // with anchor at 23:45 should find 20:45, not jump to 23:45).
+        // For new schedules, wait for the first anchor time.
+        if (isEdit)
+        {
+            while (candidate > now)
+                candidate = candidate.AddMinutes(-frequencyMinutes);
+        }
         while (candidate <= now.AddMinutes(1))
             candidate = candidate.AddMinutes(frequencyMinutes);
         return candidate;
