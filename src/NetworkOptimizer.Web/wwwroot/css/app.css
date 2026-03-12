@@ -9566,9 +9566,12 @@ a.path-hop.hop-clickable:hover {
 
 @media (max-width: 768px) {
     .client-timeline-controls {
-        flex-direction: column;
-        align-items: flex-end;
+        justify-content: flex-end;
         gap: 0.5rem;
+    }
+
+    .client-filter-group {
+        margin-left: 0;
     }
 
     .client-timeline-actions {
