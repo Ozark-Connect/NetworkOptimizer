@@ -113,7 +113,9 @@ public class CrowdSecClient
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                _logger.LogWarning("CrowdSec API rate limit exceeded (429), backing off for 1 hour");
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("CrowdSec API rate limit exceeded (429) after {RequestsToday}/{DailyLimit} requests today. Response: {Body}",
+                    _requestsToday, _dailyLimit, body);
                 lock (_rateLimitLock)
                 {
                     _rateLimitedUntil = DateTime.UtcNow.AddHours(1);
