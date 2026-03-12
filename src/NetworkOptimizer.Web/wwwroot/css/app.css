@@ -7314,7 +7314,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .client-timeline-controls .view-all-btn {
-    padding: 0.35rem 0.75rem;
+    padding: 0.5rem 0.75rem;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     background: var(--bg-primary);
