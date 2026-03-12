@@ -56,7 +56,7 @@
             }
             else
             {
-                <div class="issue-type-group issue-@GetSeverityClass(firstIssue.Severity)">
+                <div class="issue-type-group issue-@GetGroupSeverityClass(firstIssue.Severity)">
                     <div class="issue-type-header @(isExpanded ? "expanded" : "")"
                          @onclick="() => ToggleGroup(groupKey)">
                         <div class="issue-type-icon">
@@ -84,33 +84,33 @@
                                 @foreach (var issue in group)
                                 {
                                     <div class="issue-type-item">
-                                        <div class="issue-description">@issue.Description</div>
-                                        @if (ShowDetails && !string.IsNullOrEmpty(issue.AffectedEntity))
-                                        {
-                                            <div class="issue-entity">Affected:
+                                        <div class="issue-context">
+                                            <span class="context-item issue-item-description">@issue.Description</span>
+                                            @if (ShowDetails && !string.IsNullOrEmpty(issue.AffectedEntity))
+                                            {
                                                 @if (!string.IsNullOrEmpty(issue.AffectedClientMac))
                                                 {
                                                     @if (OnClientClick.HasDelegate)
                                                     {
-                                                        <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(issue.AffectedClientMac)" class="issue-client-link">@issue.AffectedEntity</a>
+                                                        <span class="context-item"><strong>Affected:</strong> <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(issue.AffectedClientMac)" class="issue-client-link">@issue.AffectedEntity</a></span>
                                                     }
                                                     else
                                                     {
-                                                        <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(issue.AffectedClientMac)" class="issue-client-link">@issue.AffectedEntity</a>
+                                                        <span class="context-item"><strong>Affected:</strong> <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(issue.AffectedClientMac)" class="issue-client-link">@issue.AffectedEntity</a></span>
                                                     }
                                                 }
                                                 else
                                                 {
-                                                    @issue.AffectedEntity
+                                                    <span class="context-item"><strong>Affected:</strong> @issue.AffectedEntity</span>
                                                 }
-                                            </div>
-                                        }
+                                            }
+                                        </div>
                                     </div>
                                 }
                             </div>
                             @if (!string.IsNullOrEmpty(firstIssue.Recommendation))
                             {
-                                <div class="issue-recommendation"><strong>Recommendation:</strong> @firstIssue.Recommendation</div>
+                                <div class="issue-type-recommendation"><strong>Recommendation:</strong> @firstIssue.Recommendation</div>
                             }
                         </div>
                     </div>
@@ -151,6 +151,16 @@
     {
         HealthIssueSeverity.Critical => "critical",
         HealthIssueSeverity.Warning => "warning",
+        _ => "info"
+    };
+
+    /// <summary>
+    /// CSS class for issue-type-group elements. The global CSS uses "recommended" not "warning".
+    /// </summary>
+    private static string GetGroupSeverityClass(HealthIssueSeverity severity) => severity switch
+    {
+        HealthIssueSeverity.Critical => "critical",
+        HealthIssueSeverity.Warning => "recommended",
         _ => "info"
     };
 
