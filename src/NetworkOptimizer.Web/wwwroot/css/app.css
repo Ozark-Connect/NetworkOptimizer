@@ -6764,9 +6764,10 @@ a.path-hop.hop-clickable:hover {
     color: #a855f7;
 }
 
-@@media (max-width: 420px) {
+@media (max-width: 420px) {
     .band-pill {
         font-size: 0.7rem;
+        padding: 0.35rem 0.4rem;
     }
 }
 
