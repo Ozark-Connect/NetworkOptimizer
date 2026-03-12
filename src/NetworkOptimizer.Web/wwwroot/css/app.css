@@ -7294,6 +7294,7 @@ a.path-hop.hop-clickable:hover {
     gap: 0.5rem;
     align-items: center;
     flex-wrap: wrap;
+    margin-left: auto;
 }
 
 .client-selector-combo .view-all-btn {
