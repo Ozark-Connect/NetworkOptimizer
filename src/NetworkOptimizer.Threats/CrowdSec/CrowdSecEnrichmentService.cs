@@ -88,6 +88,7 @@ public class CrowdSecEnrichmentService
             "malicious" => "malicious",
             "suspicious" => "suspicious",
             "known" => "known",
+            "benign" => "benign",
             "safe" => "safe",
             _ => "unknown"
         };
