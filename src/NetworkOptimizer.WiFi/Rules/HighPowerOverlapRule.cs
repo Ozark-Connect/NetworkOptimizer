@@ -67,13 +67,20 @@ public class HighPowerOverlapRule : IWiFiOptimizerRule
 
                 if (highPowerAps.Count > 1)
                 {
+                    var recommendation = "Consider reducing TX power on some APs or changing channels to reduce overlap.";
+
+                    var hasUnplacedAps = ctx.PropagationContext == null ||
+                        highPowerAps.Any(ap => !ctx.PropagationContext.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()));
+                    if (hasUnplacedAps)
+                        recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
+
                     yield return new HealthIssue
                     {
                         Severity = HealthIssueSeverity.Warning,
                         Dimensions = { HealthDimension.SignalQuality, HealthDimension.ChannelHealth },
                         Title = $"High Power Overlap on {band.ToDisplayString()} Channel {channel}",
                         Description = $"{string.Join(", ", highPowerAps.Select(x => x.Name))} are all using high TX power on the same channel, which may cause co-channel interference.",
-                        Recommendation = "Consider reducing TX power on some APs or changing channels to reduce overlap.",
+                        Recommendation = recommendation,
                         ScoreImpact = -5
                     };
                 }
