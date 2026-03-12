@@ -567,5 +567,28 @@ public static class DisplayFormatters
     public static string NormalizeWanDisplay(string value)
         => string.Equals(value, "WAN", StringComparison.OrdinalIgnoreCase) ? "WAN1" : value;
 
+    /// <summary>
+    /// Returns true if the WAN name is generic (e.g., "WAN", "WAN2", "Internet", "Internet 1")
+    /// rather than a custom user-provided name (e.g., "Fiber Link", "Starlink").
+    /// Used for chart grouping: custom names group by name alone, generic names include the WAN group.
+    /// </summary>
+    public static bool IsGenericWanName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return true;
+
+        var trimmed = name.Trim();
+
+        // Match "WAN", "WAN1", "WAN 2", "WAN3", etc. (case-insensitive)
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^WAN\s*\d*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            return true;
+
+        // Match "Internet", "Internet 1", "Internet2", etc. (case-insensitive)
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^Internet\s*\d*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            return true;
+
+        return false;
+    }
+
     #endregion
 }
