@@ -6616,7 +6616,7 @@ a.path-hop.hop-clickable:hover {
 .ap-radio {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     font-size: 0.8rem;
 }
 
@@ -6625,8 +6625,9 @@ a.path-hop.hop-clickable:hover {
     padding: 0.125rem 0.5rem;
     border-radius: var(--border-radius);
     font-size: 0.7rem;
-    min-width: 52px;
+    width: 54px;
     text-align: center;
+    flex-shrink: 0;
 }
 
 .radio-band.band-2ghz {
@@ -6646,17 +6647,21 @@ a.path-hop.hop-clickable:hover {
 
 .radio-channel {
     color: var(--text-secondary);
-    min-width: 42px;
+    width: 46px;
+    flex-shrink: 0;
 }
 
 .radio-eirp {
     color: var(--text-muted);
     font-size: 0.75rem;
+    width: 50px;
+    flex-shrink: 0;
 }
 
 .radio-util {
     font-weight: 500;
-    min-width: 62px;
+    width: 58px;
+    flex-shrink: 0;
 }
 
 .radio-util.util-low { color: #22c55e; }
@@ -6754,12 +6759,12 @@ a.path-hop.hop-clickable:hover {
     }
 
     .radio-band {
-        min-width: unset;
+        width: auto;
     }
 
     .radio-channel,
     .radio-util {
-        min-width: unset;
+        width: auto;
     }
 
     .client-filter-group {
