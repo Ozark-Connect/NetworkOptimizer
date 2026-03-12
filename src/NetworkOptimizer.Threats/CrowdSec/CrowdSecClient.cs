@@ -172,7 +172,7 @@ public class CrowdSecClient
             {
                 HttpStatusCode.OK => (true, "API key is valid"),
                 HttpStatusCode.Forbidden => (false, "API key is invalid or expired"),
-                HttpStatusCode.TooManyRequests => (false, "Rate limit exceeded - try again later"),
+                HttpStatusCode.TooManyRequests => (false, await GetRateLimitMessageAsync(response, cancellationToken)),
                 _ => (false, $"Unexpected response: {response.StatusCode}")
             };
         }
@@ -180,6 +180,15 @@ public class CrowdSecClient
         {
             return (false, $"Connection error: {ex.Message}");
         }
+    }
+
+    private static async Task<string> GetRateLimitMessageAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        return body.Contains("Limit Exceeded", StringComparison.OrdinalIgnoreCase)
+            ? "Daily quota exhausted - resets at midnight UTC"
+            : "Too many requests - try again in a few seconds";
     }
 
     /// <summary>
