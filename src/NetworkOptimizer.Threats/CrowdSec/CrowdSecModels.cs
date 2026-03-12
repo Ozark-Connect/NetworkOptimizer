@@ -134,19 +134,19 @@ public class CrowdSecScores
 public class CrowdSecScoreBreakdown
 {
     [JsonPropertyName("aggressiveness")]
-    public int Aggressiveness { get; set; }
+    public int? Aggressiveness { get; set; }
 
     [JsonPropertyName("threat")]
-    public int Threat { get; set; }
+    public int? Threat { get; set; }
 
     [JsonPropertyName("trust")]
-    public int Trust { get; set; }
+    public int? Trust { get; set; }
 
     [JsonPropertyName("anomaly")]
-    public int Anomaly { get; set; }
+    public int? Anomaly { get; set; }
 
     [JsonPropertyName("total")]
-    public int Total { get; set; }
+    public int? Total { get; set; }
 }
 
 public class CrowdSecLocation
@@ -194,10 +194,10 @@ public class CrowdSecHistory
     public string? LastSeen { get; set; }
 
     [JsonPropertyName("full_age")]
-    public int FullAge { get; set; }
+    public int? FullAge { get; set; }
 
     [JsonPropertyName("days_age")]
-    public int DaysAge { get; set; }
+    public int? DaysAge { get; set; }
 }
 
 public class CrowdSecMitreTechnique

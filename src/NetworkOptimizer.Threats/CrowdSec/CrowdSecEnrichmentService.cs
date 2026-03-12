@@ -105,8 +105,8 @@ public class CrowdSecEnrichmentService
     /// </summary>
     public static int GetThreatScore(CrowdSecIpInfo? info)
     {
-        if (info?.Scores?.Overall == null) return 0;
-        return info.Scores.Overall.Total switch
+        if (info?.Scores?.Overall?.Total == null) return 0;
+        return info.Scores.Overall.Total.Value switch
         {
             >= 4 => 5,
             3 => 4,
