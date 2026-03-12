@@ -9,8 +9,8 @@ public enum CrowdSecLookupOutcome
 {
     Success,
     NotFound,
-    /// <summary>Daily quota exhausted ("Limit Exceeded"). Caller should show quota banner.</summary>
-    RateLimited,
+    /// <summary>Daily quota exhausted ("Limit Exceeded"). No more calls today.</summary>
+    QuotaExhausted,
     /// <summary>Burst throttle ("Too Many Requests"). Transient - caller should retry later.</summary>
     BurstThrottled,
     Error
@@ -103,7 +103,7 @@ public class CrowdSecClient
         {
             _logger.LogDebug("CrowdSec rate limit reached ({Requests}/{Limit} today)",
                 _requestsToday, _dailyLimit);
-            return (null, CrowdSecLookupOutcome.RateLimited);
+            return (null, CrowdSecLookupOutcome.QuotaExhausted);
         }
 
         // Space out requests to avoid burst throttling
@@ -200,7 +200,7 @@ public class CrowdSecClient
                 _dailyLimitExceededUntil = DateTime.UtcNow.AddHours(1);
                 _consecutiveBurstThrottles = 0;
             }
-            return (null, CrowdSecLookupOutcome.RateLimited);
+            return (null, CrowdSecLookupOutcome.QuotaExhausted);
         }
 
         // Burst throttle - exponential backoff

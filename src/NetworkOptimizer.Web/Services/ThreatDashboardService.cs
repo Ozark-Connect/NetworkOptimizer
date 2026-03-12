@@ -242,7 +242,7 @@ public class ThreatDashboardService
                 var (info, outcome) = await _crowdSecService.GetReputationAsync(
                     source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
 
-                if (outcome == CrowdSecLookupOutcome.RateLimited)
+                if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
                     return true; // daily quota exhausted - stop enriching and show banner
 
                 if (outcome == CrowdSecLookupOutcome.BurstThrottled)
