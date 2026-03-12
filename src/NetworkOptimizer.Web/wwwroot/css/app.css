@@ -6764,6 +6764,12 @@ a.path-hop.hop-clickable:hover {
     color: #a855f7;
 }
 
+@@media (max-width: 420px) {
+    .band-pill {
+        font-size: 0.7rem;
+    }
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
     .radio-eirp {
