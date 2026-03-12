@@ -89,9 +89,9 @@ public class ThreatDashboardService
             // Enrich from DB cache (instant, no API calls) so previously looked-up IPs show badges
             await EnrichFromCacheAsync(topSources, cancellationToken);
 
-            // Fire-and-forget: hydrate uncached IPs via API in the background.
-            // Results land in DB cache and show up on next refresh.
-            _ = HydrateInBackgroundAsync(topSources);
+            // Determine which IPs need hydration and kick off background API calls.
+            // Returns the count so the caller can schedule a follow-up refresh.
+            var hydrationCount = await StartBackgroundHydrationAsync(topSources, cancellationToken);
 
             return new ThreatDashboardData
             {
@@ -99,7 +99,8 @@ public class ThreatDashboardService
                 KillChainDistribution = killChain,
                 TopSources = topSources,
                 TopTargetedPorts = topPorts,
-                RecentPatterns = patterns
+                RecentPatterns = patterns,
+                CtiHydrationCount = hydrationCount
             };
         }
         catch (Exception ex)
@@ -110,18 +111,18 @@ public class ThreatDashboardService
     }
 
     /// <summary>
-    /// Fire-and-forget background hydration of uncached IPs via CrowdSec API.
-    /// Creates its own DI scope since the parent ThreatDashboardService is scoped.
-    /// Results land in DB cache and appear on the next dashboard refresh.
+    /// Determine which IPs need hydration and fire off a background task to call the CrowdSec API.
+    /// Returns the count of IPs being hydrated so the caller can schedule a follow-up refresh.
     /// </summary>
-    private async Task HydrateInBackgroundAsync(List<SourceIpSummary> sources)
+    private async Task<int> StartBackgroundHydrationAsync(List<SourceIpSummary> sources,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var apiKey = await GetDecryptedApiKeyAsync(CancellationToken.None);
-            if (apiKey == null) return;
+            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
+            if (apiKey == null) return 0;
 
-            var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", CancellationToken.None);
+            var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
             var quota = int.TryParse(quotaStr, out var q) ? q : 30;
             var autoBudget = Math.Max(1, quota / 2);
 
@@ -132,7 +133,7 @@ public class ThreatDashboardService
                 .Take(autoBudget)
                 .ToList();
 
-            if (ipsToHydrate.Count == 0) return;
+            if (ipsToHydrate.Count == 0) return 0;
 
             _logger.LogDebug("CrowdSec background hydration starting for {Count} IPs", ipsToHydrate.Count);
 
@@ -161,10 +162,13 @@ public class ThreatDashboardService
                     _logger.LogDebug(ex, "CrowdSec background hydration failed");
                 }
             });
+
+            return ipsToHydrate.Count;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "CrowdSec CTI auto-enrichment setup failed");
+            return 0;
         }
     }
 
@@ -982,6 +986,12 @@ public class ThreatDashboardData
     public List<SourceIpSummary> TopSources { get; set; } = [];
     public List<TargetPortSummary> TopTargetedPorts { get; set; } = [];
     public List<ThreatPattern> RecentPatterns { get; set; } = [];
+
+    /// <summary>
+    /// Number of IPs being hydrated in the background. 0 means no hydration in progress.
+    /// Caller can use this to schedule a follow-up refresh at roughly Count * 600ms.
+    /// </summary>
+    public int CtiHydrationCount { get; set; }
 }
 
 /// <summary>
