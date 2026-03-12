@@ -7219,6 +7219,10 @@ a.path-hop.hop-clickable:hover {
     .client-timeline-title {
         width: auto;
     }
+
+    .client-timeline-actions {
+        margin-left: 0;
+    }
 }
 
 .client-timeline-controls {
