@@ -7224,8 +7224,13 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: flex-end;
     gap: 0.75rem;
+}
+
+@media (max-width: 1500px) {
+    .client-timeline-controls {
+        justify-content: flex-end;
+    }
 }
 
 .client-timeline-controls .pill-selector {
