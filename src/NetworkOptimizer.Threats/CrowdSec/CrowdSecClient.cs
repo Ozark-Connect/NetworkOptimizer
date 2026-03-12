@@ -5,6 +5,14 @@ using Microsoft.Extensions.Logging;
 
 namespace NetworkOptimizer.Threats.CrowdSec;
 
+public enum CrowdSecLookupOutcome
+{
+    Success,
+    NotFound,
+    RateLimited,
+    Error
+}
+
 /// <summary>
 /// HTTP client for the CrowdSec CTI API (Smoke endpoint).
 /// Feature-flagged: only active when enabled in settings with a valid API key.
@@ -15,12 +23,12 @@ public class CrowdSecClient
     private readonly ILogger<CrowdSecClient> _logger;
     private const string BaseUrl = "https://cti.api.crowdsec.net/v2/smoke/";
     private const int DefaultDailyLimit = 30;
-    private const int SafetyMargin = 5;
 
     // In-memory rate limit tracking (also persisted via SystemSettings)
     private int _requestsToday;
     private int _dailyLimit = DefaultDailyLimit;
     private DateOnly _requestsDate = DateOnly.FromDateTime(DateTime.UtcNow);
+    private DateTime? _rateLimitedUntil; // set when we receive an actual 429, expires after 1 hour
     private readonly object _rateLimitLock = new();
 
     public CrowdSecClient(IHttpClientFactory httpClientFactory, ILogger<CrowdSecClient> logger)
@@ -54,10 +62,24 @@ public class CrowdSecClient
     }
 
     /// <summary>
-    /// Query the CrowdSec CTI Smoke API for an IP's reputation.
-    /// Returns null if rate limited, disabled, or API error.
+    /// Whether the client has been rate-limited by CrowdSec recently (received a 429 within the last hour).
     /// </summary>
-    public async Task<CrowdSecIpInfo?> GetIpReputationAsync(
+    public bool IsRateLimited
+    {
+        get
+        {
+            lock (_rateLimitLock)
+            {
+                return _rateLimitedUntil != null && DateTime.UtcNow < _rateLimitedUntil;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Query the CrowdSec CTI Smoke API for an IP's reputation.
+    /// Returns the lookup result with an outcome indicating success, not-found, rate-limited, or error.
+    /// </summary>
+    public async Task<(CrowdSecIpInfo? Info, CrowdSecLookupOutcome Outcome)> GetIpReputationAsync(
         string ipAddress,
         string apiKey,
         CancellationToken cancellationToken = default)
@@ -65,14 +87,14 @@ public class CrowdSecClient
         if (string.IsNullOrEmpty(apiKey))
         {
             _logger.LogDebug("CrowdSec API key not configured");
-            return null;
+            return (null, CrowdSecLookupOutcome.Error);
         }
 
         if (!CheckAndIncrementRateLimit())
         {
             _logger.LogDebug("CrowdSec rate limit reached ({Requests}/{Limit} today)",
                 _requestsToday, _dailyLimit);
-            return null;
+            return (null, CrowdSecLookupOutcome.RateLimited);
         }
 
         try
@@ -85,35 +107,34 @@ public class CrowdSecClient
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                // IP not in CrowdSec database - not an error
                 _logger.LogDebug("IP {Ip} not found in CrowdSec database", ipAddress);
-                return null;
+                return (null, CrowdSecLookupOutcome.NotFound);
             }
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                _logger.LogWarning("CrowdSec API rate limit exceeded");
-                // Force rate limit to prevent further requests today
+                _logger.LogWarning("CrowdSec API rate limit exceeded (429), backing off for 1 hour");
                 lock (_rateLimitLock)
                 {
-                    _requestsToday = _dailyLimit;
+                    _rateLimitedUntil = DateTime.UtcNow.AddHours(1);
                 }
-                return null;
+                return (null, CrowdSecLookupOutcome.RateLimited);
             }
 
             if (response.StatusCode == HttpStatusCode.Forbidden)
             {
                 _logger.LogWarning("CrowdSec API key is invalid or expired");
-                return null;
+                return (null, CrowdSecLookupOutcome.Error);
             }
 
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<CrowdSecIpInfo>(cancellationToken: cancellationToken);
+            var info = await response.Content.ReadFromJsonAsync<CrowdSecIpInfo>(cancellationToken: cancellationToken);
+            return (info, CrowdSecLookupOutcome.Success);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "CrowdSec API call failed for {Ip}", ipAddress);
-            return null;
+            return (null, CrowdSecLookupOutcome.Error);
         }
     }
 
@@ -140,7 +161,7 @@ public class CrowdSecClient
             {
                 HttpStatusCode.OK => (true, "API key is valid"),
                 HttpStatusCode.Forbidden => (false, "API key is invalid or expired"),
-                HttpStatusCode.TooManyRequests => (false, "Rate limit exceeded - try again tomorrow"),
+                HttpStatusCode.TooManyRequests => (false, "Rate limit exceeded - try again later"),
                 _ => (false, $"Unexpected response: {response.StatusCode}")
             };
         }
@@ -161,7 +182,10 @@ public class CrowdSecClient
                 _requestsToday = 0;
             }
 
-            if (_requestsToday >= _dailyLimit - SafetyMargin)
+            // Only stop if CrowdSec actually returned 429 recently (within the last hour).
+            // We don't know when CrowdSec resets their daily window, so back off for
+            // 1 hour and try again rather than blocking the entire day.
+            if (_rateLimitedUntil != null && DateTime.UtcNow < _rateLimitedUntil)
                 return false;
 
             _requestsToday++;

@@ -39,42 +39,27 @@ public class CrowdSecClientTests
     }
 
     [Fact]
-    public async Task GetIpReputationAsync_EmptyApiKey_ReturnsNull()
+    public async Task GetIpReputationAsync_EmptyApiKey_ReturnsError()
     {
-        var result = await _client.GetIpReputationAsync("192.0.2.10", "");
+        var (info, outcome) = await _client.GetIpReputationAsync("192.0.2.10", "");
 
-        Assert.Null(result);
+        Assert.Null(info);
+        Assert.Equal(CrowdSecLookupOutcome.Error, outcome);
     }
 
     [Fact]
-    public async Task GetIpReputationAsync_NullApiKey_ReturnsNull()
+    public async Task GetIpReputationAsync_NullApiKey_ReturnsError()
     {
-        var result = await _client.GetIpReputationAsync("192.0.2.10", null!);
+        var (info, outcome) = await _client.GetIpReputationAsync("192.0.2.10", null!);
 
-        Assert.Null(result);
+        Assert.Null(info);
+        Assert.Equal(CrowdSecLookupOutcome.Error, outcome);
     }
 
     [Fact]
-    public async Task GetIpReputationAsync_RateLimitReached_ReturnsNull()
+    public void IsRateLimited_InitialState_ReturnsFalse()
     {
-        // Load state near the limit: free tier = 50, safety margin = 5, so 45+ should be blocked
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        _client.LoadRateLimitState(45, today);
-
-        var result = await _client.GetIpReputationAsync("192.0.2.10", "test-api-key-123");
-
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public async Task GetIpReputationAsync_ExactlyAtLimit_ReturnsNull()
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        _client.LoadRateLimitState(50, today);
-
-        var result = await _client.GetIpReputationAsync("192.0.2.10", "test-api-key-123");
-
-        Assert.Null(result);
+        Assert.False(_client.IsRateLimited);
     }
 
     [Fact]

@@ -25,8 +25,9 @@ public class CrowdSecEnrichmentService
     /// Get reputation for an IP, checking cache first.
     /// Positive hits are cached for <paramref name="cacheTtlHours"/> (default 720 = 30 days).
     /// Negative hits (IP not in CrowdSec DB) are cached for 24 hours to avoid wasting API calls.
+    /// Rate-limited or errored lookups are NOT cached so the IP can be retried later.
     /// </summary>
-    public async Task<CrowdSecIpInfo?> GetReputationAsync(
+    public async Task<(CrowdSecIpInfo? Info, CrowdSecLookupOutcome Outcome)> GetReputationAsync(
         string ipAddress,
         string apiKey,
         IThreatRepository repository,
@@ -37,13 +38,14 @@ public class CrowdSecEnrichmentService
         var cached = await repository.GetCrowdSecCacheAsync(ipAddress, cancellationToken);
         if (cached != null)
         {
-            // Negative cache entry - API previously returned null for this IP
+            // Negative cache entry - API previously returned 404 for this IP
             if (cached.ReputationJson == "null")
-                return null;
+                return (null, CrowdSecLookupOutcome.NotFound);
 
             try
             {
-                return JsonSerializer.Deserialize<CrowdSecIpInfo>(cached.ReputationJson);
+                var info = JsonSerializer.Deserialize<CrowdSecIpInfo>(cached.ReputationJson);
+                return (info, CrowdSecLookupOutcome.Success);
             }
             catch (JsonException ex)
             {
@@ -52,28 +54,32 @@ public class CrowdSecEnrichmentService
         }
 
         // Query API
-        var result = await _client.GetIpReputationAsync(ipAddress, apiKey, cancellationToken);
+        var (result, outcome) = await _client.GetIpReputationAsync(ipAddress, apiKey, cancellationToken);
 
-        // Cache result (positive or negative)
-        try
+        // Only cache definitive results (success or not-found).
+        // Rate-limited and errored lookups should not be cached so IPs can be retried.
+        if (outcome is CrowdSecLookupOutcome.Success or CrowdSecLookupOutcome.NotFound)
         {
-            var reputation = new CrowdSecReputation
+            try
             {
-                Ip = ipAddress,
-                ReputationJson = result != null ? JsonSerializer.Serialize(result) : "null",
-                FetchedAt = DateTime.UtcNow,
-                ExpiresAt = result != null
-                    ? DateTime.UtcNow.AddHours(cacheTtlHours)   // positive: 30 days
-                    : DateTime.UtcNow.AddHours(24)               // negative: 24 hours
-            };
-            await repository.SaveCrowdSecCacheAsync(reputation, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to cache CrowdSec data for {Ip}", ipAddress);
+                var reputation = new CrowdSecReputation
+                {
+                    Ip = ipAddress,
+                    ReputationJson = result != null ? JsonSerializer.Serialize(result) : "null",
+                    FetchedAt = DateTime.UtcNow,
+                    ExpiresAt = result != null
+                        ? DateTime.UtcNow.AddHours(cacheTtlHours)   // positive: 30 days
+                        : DateTime.UtcNow.AddHours(24)               // negative: 24 hours
+                };
+                await repository.SaveCrowdSecCacheAsync(reputation, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cache CrowdSec data for {Ip}", ipAddress);
+            }
         }
 
-        return result;
+        return (result, outcome);
     }
 
     /// <summary>
@@ -88,6 +94,7 @@ public class CrowdSecEnrichmentService
             "malicious" => "malicious",
             "suspicious" => "suspicious",
             "known" => "known",
+            "benign" => "benign",
             "safe" => "safe",
             _ => "unknown"
         };
