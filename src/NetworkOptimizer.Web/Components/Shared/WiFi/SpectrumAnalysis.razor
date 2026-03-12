@@ -96,7 +96,10 @@
                 <div class="your-channels-row">
                     @foreach (var channel in GetYourChannels())
                     {
-                        <div class="your-channel-chip @GetBandClass(channel.Band)">
+                        <div class="your-channel-chip @GetBandClass(channel.Band) @(channel.ApMac == selectedApMac ? "active" : "")"
+                             @onclick="() => OnChannelChipClick(channel)"
+                             data-tooltip="@(channel.ApMac == selectedApMac ? "Click to show all APs" : "Click to filter to " + channel.ApName)"
+                             data-tooltip-hover-only>
                             <span class="channel-number">Ch @channel.Channel</span>
                             <span class="channel-width">@(channel.Width ?? 20) MHz</span>
                             @if (!string.IsNullOrEmpty(channel.ApName))
@@ -208,6 +211,7 @@
                             <tr>
                                 <th class="sortable @GetSortClass("ssid")" @onclick='() => SetSort("ssid")'>SSID</th>
                                 <th class="sortable @GetSortClass("bssid")" @onclick='() => SetSort("bssid")'>BSSID</th>
+                                <th class="sortable @GetSortClass("vendor")" @onclick='() => SetSort("vendor")'>Vendor</th>
                                 <th class="sortable @GetSortClass("channel")" @onclick='() => SetSort("channel")'>Channel</th>
                                 <th class="sortable @GetSortClass("width")" @onclick='() => SetSort("width")'>Width</th>
                                 <th class="sortable @GetSortClass("signal")" @onclick='() => SetSort("signal")'>Signal</th>
@@ -230,6 +234,7 @@
                                         }
                                     </td>
                                     <td class="monospace">@item.Network.Bssid</td>
+                                    <td class="vendor-col">@(item.Network.Oui ?? "")</td>
                                     <td>
                                         <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel, item.Band) ? "dfs" : "")">
                                             @item.Network.Channel
@@ -411,6 +416,16 @@
         border-radius: 8px;
         background: var(--bg-primary);
         border: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .your-channel-chip:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .your-channel-chip.active {
+        box-shadow: 0 0 0 2px var(--primary-color);
     }
 
     .your-channel-chip.band-2_4 {
@@ -847,6 +862,15 @@
         padding: 0 0.5rem;
     }
 
+    .vendor-col {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     /* Responsive */
     @@media (max-width: 768px) {
         .spectrum-header {
@@ -1065,6 +1089,23 @@
         UpdateChannelDensity();
     }
 
+    private void OnChannelChipClick(YourChannelInfo channel)
+    {
+        if (string.IsNullOrEmpty(channel.ApMac)) return;
+
+        // Toggle: if already filtering to this AP, clear the filter
+        if (selectedApMac == channel.ApMac)
+        {
+            selectedApMac = "";
+        }
+        else
+        {
+            selectedApMac = channel.ApMac;
+        }
+        _currentPage = 1;
+        UpdateChannelDensity();
+    }
+
     private string GetSelectedApLabel()
     {
         if (string.IsNullOrEmpty(selectedApMac))
@@ -1072,7 +1113,7 @@
         return accessPoints.FirstOrDefault(ap => ap.Mac == selectedApMac)?.Name ?? "Selected AP";
     }
 
-    private record YourChannelInfo(int Channel, int? Width, RadioBand Band, string? ApName);
+    private record YourChannelInfo(int Channel, int? Width, RadioBand Band, string? ApName, string? ApMac);
 
     private List<YourChannelInfo> GetYourChannels()
     {
@@ -1084,7 +1125,7 @@
         return aps
             .SelectMany(ap => ap.Radios
                 .Where(r => r.Channel.HasValue && r.Band == selectedBand)
-                .Select(r => new YourChannelInfo(r.Channel!.Value, r.ChannelWidth, r.Band, ap.Name)))
+                .Select(r => new YourChannelInfo(r.Channel!.Value, r.ChannelWidth, r.Band, ap.Name, ap.Mac)))
             .OrderBy(c => c.Channel)
             .ThenBy(c => c.ApName)
             .ToList();
@@ -1092,25 +1133,35 @@
 
     private int GetNetworksOnYourChannels()
     {
-        var yourChannels = accessPoints
+        // Build width-aware spans for your AP channels
+        var yourSpans = accessPoints
             .SelectMany(ap => ap.Radios)
-            .Where(r => r.Channel.HasValue)
-            .Select(r => r.Channel!.Value)
-            .ToHashSet();
+            .Where(r => r.Channel.HasValue && r.Band == selectedBand)
+            .Select(r => GetChannelSpan(r.Channel!.Value, r.ChannelWidth ?? 20))
+            .ToList();
 
         return filteredNeighbors
-                        .Count(n => yourChannels.Contains(n.Network.Channel));
+            .Count(n =>
+            {
+                var neighborSpan = GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20);
+                return yourSpans.Any(s => SpansOverlap(s, neighborSpan));
+            });
     }
 
     private int GetAvailableDfsChannels()
     {
         var dfsChannels = new[] { 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144 };
-        var occupiedDfs = filteredNeighbors
-            .Where(n => n.Band == RadioBand.Band5GHz && dfsChannels.Contains(n.Network.Channel))
-            .Select(n => n.Network.Channel)
-            .ToHashSet();
 
-        return dfsChannels.Length - occupiedDfs.Count;
+        // Build width-aware spans for all 5 GHz neighbors
+        var neighborSpans = filteredNeighbors
+            .Where(n => n.Band == RadioBand.Band5GHz)
+            .Select(n => GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20))
+            .ToList();
+
+        var occupiedCount = dfsChannels
+            .Count(ch => neighborSpans.Any(s => s.Low <= ch && ch <= s.High));
+
+        return dfsChannels.Length - occupiedCount;
     }
 
     private List<int> _cleanestChannelList = new();
@@ -1132,9 +1183,30 @@
             .ToList();
 
         // Add own APs as interference sources (co-located = strong interference)
-        // Exclude the selected AP since we're recommending a channel for it
+        // Exclude the selected AP since we're recommending a channel for it.
+        // Also exclude its mesh partner - mesh pairs share a channel by design,
+        // so the partner isn't "interference" for the selected AP.
+        var excludedMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedApMac };
+        if (!string.IsNullOrEmpty(selectedApMac))
+        {
+            var selectedAp = accessPoints.FirstOrDefault(a => a.Mac == selectedApMac);
+            if (selectedAp != null)
+            {
+                // If selected AP is a mesh child, exclude its parent
+                if (selectedAp.IsMeshChild && !string.IsNullOrEmpty(selectedAp.MeshParentMac))
+                    excludedMacs.Add(selectedAp.MeshParentMac);
+
+                // If selected AP is a mesh parent, exclude its children
+                foreach (var child in accessPoints.Where(a => a.IsMeshChild &&
+                    selectedApMac.Equals(a.MeshParentMac, StringComparison.OrdinalIgnoreCase)))
+                {
+                    excludedMacs.Add(child.Mac);
+                }
+            }
+        }
+
         var ownApRadios = accessPoints
-            .Where(ap => string.IsNullOrEmpty(selectedApMac) || ap.Mac != selectedApMac)
+            .Where(ap => !excludedMacs.Contains(ap.Mac))
             .SelectMany(ap => ap.Radios)
             .Where(r => r.Band == selectedBand && r.Channel.HasValue);
 
@@ -1443,6 +1515,7 @@
         {
             "ssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Ssid) : networks.OrderBy(n => n.Network.Ssid),
             "bssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Bssid) : networks.OrderBy(n => n.Network.Bssid),
+            "vendor" => sortDescending ? networks.OrderByDescending(n => n.Network.Oui) : networks.OrderBy(n => n.Network.Oui),
             "channel" => sortDescending ? networks.OrderByDescending(n => n.Network.Channel) : networks.OrderBy(n => n.Network.Channel),
             "width" => sortDescending ? networks.OrderByDescending(n => n.Network.Width) : networks.OrderBy(n => n.Network.Width),
             // Sort by display signal (AP-specific when filtered, or strongest overall)
@@ -1527,17 +1600,24 @@
             .Select(r => r.Channel!.Value)
             .ToHashSet();
 
-        var channelCounts = filteredNeighbors
-            .Where(n => n.Band == RadioBand.Band5GHz )
-            .GroupBy(n => n.Network.Channel)
-            .ToDictionary(g => g.Key, g => g.Count());
+        // Build width-aware spans for all 5 GHz neighbors
+        var neighborSpans = filteredNeighbors
+            .Where(n => n.Band == RadioBand.Band5GHz)
+            .Select(n => (
+                Span: GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20),
+                Network: n))
+            .ToList();
 
-        return dfsChannels.Select(ch => new DfsChannelStatus
+        return dfsChannels.Select(ch =>
         {
-            Channel = ch,
-            NetworkCount = channelCounts.GetValueOrDefault(ch, 0),
-            IsAvailable = !channelCounts.ContainsKey(ch) || channelCounts[ch] == 0,
-            IsYourChannel = yourChannels.Contains(ch)
+            var overlapping = neighborSpans.Count(ns => ns.Span.Low <= ch && ch <= ns.Span.High);
+            return new DfsChannelStatus
+            {
+                Channel = ch,
+                NetworkCount = overlapping,
+                IsAvailable = overlapping == 0,
+                IsYourChannel = yourChannels.Contains(ch)
+            };
         });
     }
 
