@@ -24,7 +24,7 @@
 
         @if (!string.IsNullOrEmpty(_selectedClientMac))
         {
-            <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
+            <button class="view-all-btn" @onclick="ViewAllClients">@(HasActiveFilters ? "Back" : "View All Clients")</button>
         }
 
         <!-- Client Selector -->
