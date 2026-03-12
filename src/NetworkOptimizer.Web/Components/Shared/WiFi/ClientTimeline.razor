@@ -7,9 +7,8 @@
 @inject ILogger<ClientTimeline> Logger
 
 <div class="client-timeline-container wifi-sections">
-    <h3 class="client-timeline-title">Client Stats</h3>
-
     <div class="client-timeline-controls">
+        <h3 class="client-timeline-title">Client Stats</h3>
         <!-- Status Filter (only show when no client selected) -->
         @if (string.IsNullOrEmpty(_selectedClientMac))
         {

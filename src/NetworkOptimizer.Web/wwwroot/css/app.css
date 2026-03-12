@@ -7208,6 +7208,7 @@ a.path-hop.hop-clickable:hover {
 
 .client-timeline-title {
     margin: 0;
+    margin-right: auto;
     font-size: 1.25rem;
     font-weight: 600;
 }
