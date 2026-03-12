@@ -7301,9 +7301,6 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     gap: 0.5rem;
     align-items: center;
-    flex-wrap: wrap;
-    margin-left: auto;
-    justify-content: flex-end;
 }
 
 .client-timeline-controls .view-all-btn {
