@@ -981,14 +981,18 @@ else
                           data-tooltip="@(drilldownBehaviors ?? "No behaviors identified")">
                         @drilldownBadge
                     </span>
-                    @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase) && !_drilldownCtiLookedUp)
+                    @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase))
                     {
-                        @if (_crowdSecRateLimited)
+                        @if (_lookingUpIp == _drilldownData.Ip)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        else if (_crowdSecRateLimited)
                         {
                             <span style="color:var(--text-muted); font-size:0.75rem;"
                                   data-tooltip="CrowdSec daily quota reached - will retry automatically">Quota reached</span>
                         }
-                        else
+                        else if (!_drilldownCtiLookedUp)
                         {
                             <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
                                     data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
@@ -2689,21 +2693,19 @@ else
         try
         {
             var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
-            if (rateLimited || CrowdSecClient.IsRateLimited)
+            if (rateLimited)
             {
                 _crowdSecRateLimited = true;
                 return;
             }
 
-            if (result != null && result.CrowdSecReputation != null)
+            if (result?.CrowdSecReputation != null)
             {
-                // Cache for persistence across auto-refresh cycles
                 _manualCtiCache[source.SourceIp] = new CtiLookupResult(
                     result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors, result.MitreTechniques);
             }
             else
             {
-                // API returned null (IP not in CrowdSec database) - remember so we don't re-show button
                 _manualCtiCache[source.SourceIp] = new CtiLookupResult(null, 0, null);
             }
         }
@@ -2727,27 +2729,22 @@ else
             var source = new SourceIpSummary { SourceIp = ip };
             var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
 
-            // Check both the returned flag AND the client state - stale cache entries
-            // from before the caching fix can mask the real rate limit.
-            // Must return here to avoid setting _drilldownCtiLookedUp which hides
-            // the "Quota reached" text.
-            if (rateLimited || CrowdSecClient.IsRateLimited)
+            if (rateLimited)
             {
                 _crowdSecRateLimited = true;
-                return;
+                return; // Don't set _drilldownCtiLookedUp - lookup didn't complete
             }
 
             if (result?.CrowdSecReputation != null)
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
                     result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors, result.MitreTechniques);
-                if (string.Equals(result.CrowdSecReputation, "unknown", StringComparison.OrdinalIgnoreCase))
-                    _drilldownCtiLookedUp = true;
             }
             else
             {
                 _manualCtiCache[ip] = new CtiLookupResult(null, 0, null);
             }
+            _drilldownCtiLookedUp = true;
         }
         catch (Exception ex)
         {
