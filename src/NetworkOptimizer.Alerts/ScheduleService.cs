@@ -112,6 +112,26 @@ public class ScheduleService : BackgroundService
             if (task.NextRunAt.HasValue && task.NextRunAt.Value > now)
                 continue;
 
+            // If the task is stale (overdue by more than 2 minutes), it was likely disabled
+            // for a while. Advance NextRunAt to the next future slot without executing.
+            if (task.NextRunAt.HasValue && task.NextRunAt.Value < now.AddMinutes(-2))
+            {
+                var nextRun = CalculateNextRun(task.FrequencyMinutes, task.CustomMorningHour,
+                    task.CustomMorningMinute, task.NextRunAt);
+                _logger.LogInformation(
+                    "Advancing stale task {TaskId} ({TaskType}) from {OldNextRun} to {NewNextRun} without executing",
+                    task.Id, task.TaskType, task.NextRunAt, nextRun);
+                try
+                {
+                    await repo.UpdateNextRunAsync(task.Id, nextRun, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to advance stale task {TaskId}", task.Id);
+                }
+                continue;
+            }
+
             // Skip if already running
             if (IsTaskRunning(task.Id))
                 continue;

@@ -12,6 +12,7 @@ public interface IScheduleRepository
     Task<ScheduledTask?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<int> SaveAsync(ScheduledTask task, CancellationToken cancellationToken = default);
     Task UpdateAsync(ScheduledTask task, CancellationToken cancellationToken = default);
+    Task UpdateNextRunAsync(int id, DateTime nextRun, CancellationToken cancellationToken = default);
     Task UpdateRunStatusAsync(int id, DateTime lastRun, DateTime? nextRun, string status, string? error, string? summary, CancellationToken cancellationToken = default);
     Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 }
