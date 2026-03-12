@@ -1050,18 +1050,29 @@
 
     private static string GetWanKey(Iperf3Result result)
     {
-        // Group by interface + provider name so provider changes show as separate series
-        // Normalize combo order so "Yelcot + Starlink" and "Starlink + Yelcot" produce the same key
+        // Group by WAN name alone when the name is custom (user-provided like "Fiber Link"),
+        // so results stay grouped even if the WAN group changes (e.g., WAN -> WAN4).
+        // For generic names (WAN, WAN2, Internet), include the group to distinguish interfaces.
         var group = !string.IsNullOrEmpty(result.WanNetworkGroup) ? result.WanNetworkGroup : "WAN";
         var name = !string.IsNullOrEmpty(result.WanName) ? result.WanName : null;
 
         if (name != null && name.Contains(" + "))
         {
-            // Sort combo name parts for consistent keying
-            var sortedName = string.Join(" + ", name.Split(" + ").Order());
+            // Combo test: sort parts for consistent keying
+            var nameParts = name.Split(" + ").Order().ToArray();
+            var sortedName = string.Join(" + ", nameParts);
+
+            // If all parts are custom names, key by name only
+            if (nameParts.All(p => !DisplayFormatters.IsGenericWanName(p)))
+                return sortedName;
+
+            // Any generic name: include group to distinguish
             var sortedGroup = string.Join("+", group.Split('+').Order());
             return $"{sortedGroup}|{sortedName}";
         }
+
+        if (name != null && !DisplayFormatters.IsGenericWanName(name))
+            return name; // Custom name: key by name alone
 
         return name != null ? $"{group}|{name}" : group;
     }
@@ -1083,12 +1094,14 @@
 
     private static string GetWanDisplayNameForKey(string key)
     {
-        // Key format is "GROUP|Name" or just "GROUP"
+        // Key format: "GROUP|Name" (generic), just "Name" (custom), or "GROUP" (legacy)
         if (key.Contains('|'))
             return key.Split('|')[1];
-        // Legacy ALL_WAN
         if (string.Equals(key, "ALL_WAN", StringComparison.OrdinalIgnoreCase))
             return "All WAN Links";
+        // If it's not a generic WAN name, it's a custom name key - return as-is
+        if (!DisplayFormatters.IsGenericWanName(key))
+            return key;
         return DisplayFormatters.NormalizeWanDisplay(key);
     }
 

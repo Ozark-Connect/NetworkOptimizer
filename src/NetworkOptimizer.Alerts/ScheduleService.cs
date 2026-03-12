@@ -34,9 +34,10 @@ public class ScheduleService : BackgroundService
 
     /// <summary>
     /// Delegate that the Web project registers to execute WAN speed test tasks.
-    /// Takes (targetId, targetConfig) and returns (success, summary, error).
+    /// Takes (taskId, targetId, targetConfig) and returns (success, summary, error).
+    /// The taskId allows the executor to update the schedule (e.g., reconcile stale WAN metadata).
     /// </summary>
-    public Func<string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? WanSpeedTestExecutor { get; set; }
+    public Func<int, string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? WanSpeedTestExecutor { get; set; }
 
     /// <summary>
     /// Delegate that the Web project registers to execute LAN speed test tasks.
@@ -157,7 +158,7 @@ public class ScheduleService : BackgroundService
                     ? await AuditExecutor(ct)
                     : (false, null, "Audit executor not registered"),
                 "wan_speedtest" => WanSpeedTestExecutor != null
-                    ? await WanSpeedTestExecutor(targetId, targetConfig, ct)
+                    ? await WanSpeedTestExecutor(taskId, targetId, targetConfig, ct)
                     : (false, null, "WAN speed test executor not registered"),
                 "lan_speedtest" => LanSpeedTestExecutor != null
                     ? await LanSpeedTestExecutor(targetId, targetConfig, ct)
