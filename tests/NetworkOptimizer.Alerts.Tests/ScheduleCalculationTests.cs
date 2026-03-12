@@ -48,19 +48,15 @@ public class ScheduleCalculationTests
     }
 
     [Fact]
-    public void NonAnchored_FrequencyZero_WalksForwardIndefinitely()
+    public void NonAnchored_FrequencyZero_ReturnsFallback()
     {
-        // frequency <= 0 in non-anchored path: AddMinutes(0) never advances,
-        // but the while loop condition (next <= now) would spin forever.
-        // The method should still return something reasonable.
-        // With scheduledRunTime in the past and freq=0, AddMinutes(0) won't advance
-        // so verify it doesn't hang by using a future scheduled time.
-        var scheduledTime = DateTime.UtcNow.AddMinutes(5);
+        var before = DateTime.UtcNow;
 
-        var next = ScheduleService.CalculateNextRun(0, scheduledRunTime: scheduledTime);
+        var next = ScheduleService.CalculateNextRun(0, scheduledRunTime: before.AddMinutes(-10));
 
-        // scheduledTime + 0 min = scheduledTime, which is in the future, so loop exits immediately
-        next.Should().BeCloseTo(scheduledTime, TimeSpan.FromSeconds(1));
+        // Falls back to now + 60 min (guards against infinite loop)
+        next.Should().BeOnOrAfter(before.AddMinutes(60));
+        next.Should().BeOnOrBefore(DateTime.UtcNow.AddMinutes(60).AddSeconds(1));
     }
 
     [Fact]

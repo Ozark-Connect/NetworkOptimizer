@@ -321,6 +321,9 @@ public class ScheduleService : BackgroundService
     {
         if (startHour == null)
         {
+            if (frequencyMinutes <= 0)
+                return DateTime.UtcNow.AddMinutes(60);
+
             var baseTime = scheduledRunTime ?? DateTime.UtcNow;
             var next = baseTime.AddMinutes(frequencyMinutes);
             // If calculated time is in the past (task was very delayed), walk forward
