@@ -297,6 +297,8 @@
 
 @code {
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
+    [Parameter] public RadioBand? InitialBand { get; set; }
+    [Parameter] public int? InitialChannel { get; set; }
 
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
@@ -326,6 +328,12 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
+
+        // Apply initial filters from parent navigation
+        if (InitialBand.HasValue)
+            _selectedBand = InitialBand.Value;
+        if (InitialChannel.HasValue)
+            _selectedChannel = InitialChannel.Value;
     }
 
     private async Task LoadDataAsync()
