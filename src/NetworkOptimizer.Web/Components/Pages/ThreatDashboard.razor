@@ -8,6 +8,7 @@
 @using NetworkOptimizer.Core.Helpers
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
+@inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor UniFiClientAccessor
 @implements IDisposable
@@ -30,6 +31,17 @@
         <div class="card-body banner-card-body">
             <span class="threat-desc-text">CrowdSec CTI enrichment adds reputation data and MITRE ATT&CK context to threat sources. Enable in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> to unlock this data.</span>
             <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecBannerDismissed = true">Dismiss</button>
+        </div>
+    </div>
+}
+
+@* CrowdSec rate limit warning *@
+@if (_crowdSecRateLimited)
+{
+    <div class="card banner-card banner-card-warning">
+        <div class="card-body banner-card-body">
+            <span class="threat-desc-text">CrowdSec daily API quota reached - remaining IPs will be enriched tomorrow. You can increase your quota in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> or upgrade your CrowdSec plan.</span>
+            <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecRateLimited = false">Dismiss</button>
         </div>
     </div>
 }
@@ -485,7 +497,12 @@ else
                                                     @* Looked up but not in CrowdSec database *@
                                                     <span style="color:var(--text-muted);">Not in DB</span>
                                                 }
-                                                else if (!_crowdSecAutoEnrich)
+                                                else if (_crowdSecRateLimited)
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:0.75rem;"
+                                                          data-tooltip="CrowdSec daily quota reached - will retry automatically">Quota reached</span>
+                                                }
+                                                else
                                                 {
                                                     @if (_lookingUpIp == source.SourceIp)
                                                     {
@@ -499,10 +516,6 @@ else
                                                             Look up
                                                         </button>
                                                     }
-                                                }
-                                                else
-                                                {
-                                                    <span style="color:var(--text-muted);">-</span>
                                                 }
                                                 </div>
                                             </td>
@@ -968,12 +981,24 @@ else
                           data-tooltip="@(drilldownBehaviors ?? "No behaviors identified")">
                         @drilldownBadge
                     </span>
-                    @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase) && !_drilldownCtiLookedUp)
+                    @if (string.Equals(drilldownBadge, "unknown", StringComparison.OrdinalIgnoreCase))
                     {
-                        <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
-                                data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
-                            Look up
-                        </button>
+                        @if (_lookingUpIp == _drilldownData.Ip)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        else if (_crowdSecRateLimited)
+                        {
+                            <span style="color:var(--text-muted); font-size:0.75rem;"
+                                  data-tooltip="CrowdSec daily quota reached - will retry automatically">Quota reached</span>
+                        }
+                        else if (!_drilldownCtiLookedUp)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => LookUpDrilldownReputationAsync(_drilldownData.Ip)"
+                                    data-tooltip="Query CrowdSec threat intelligence" data-tooltip-hover-only>
+                                Look up
+                            </button>
+                        }
                     }
                 }
                 else if (hasDrilldownCti)
@@ -983,6 +1008,11 @@ else
                 else if (_lookingUpIp == _drilldownData.Ip)
                 {
                     <span class="spinner-sm"></span>
+                }
+                else if (_crowdSecRateLimited)
+                {
+                    <span style="color:var(--text-muted); font-size:0.75rem;"
+                          data-tooltip="CrowdSec daily quota reached - will retry automatically">Quota reached</span>
                 }
                 else
                 {
@@ -1666,6 +1696,7 @@ else
     .reputation-malicious { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
     .reputation-suspicious { background: rgba(249, 115, 22, 0.2); color: #f97316; }
     .reputation-known { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+    .reputation-benign { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
     .reputation-safe { background: rgba(16, 185, 129, 0.2); color: #10b981; }
     .reputation-unknown { background: var(--bg-hover); color: var(--text-muted); }
 
@@ -2143,12 +2174,12 @@ else
     private ExposureReport? _exposureReport;
     private List<AttackSequence> _attackSequences = [];
     private bool _crowdSecEnabled;
-    private bool _crowdSecAutoEnrich; // true if quota >= 100, false = manual lookups
     private bool _crowdSecBannerDismissed;
     private bool _maxMindConfigured;
     private bool _maxMindBannerDismissed;
     private bool _collectingFirstData;
     private string? _lookingUpIp;
+    private bool _crowdSecRateLimited;
     private bool _drilldownCtiLookedUp;
     private System.Threading.Timer? _refreshTimer;
 
@@ -2465,12 +2496,6 @@ else
         {
             var apiKey = await SettingsAccessor.GetSettingAsync("crowdsec.api_key");
             _crowdSecEnabled = !string.IsNullOrWhiteSpace(apiKey);
-            if (_crowdSecEnabled)
-            {
-                var quotaStr = await SettingsAccessor.GetSettingAsync("crowdsec.daily_quota");
-                var quota = int.TryParse(quotaStr, out var q) ? q : 30;
-                _crowdSecAutoEnrich = quota >= 100;
-            }
         }
         catch (Exception ex)
         {
@@ -2560,6 +2585,7 @@ else
             {
                 var chartExisted = _timelineChart != null;
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
+                if (CrowdSecClient.IsRateLimited) _crowdSecRateLimited = true;
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
 
@@ -2666,23 +2692,26 @@ else
         StateHasChanged();
         try
         {
-            var result = await DashboardService.EnrichSingleSourceAsync(source);
-            if (result != null && result.CrowdSecReputation != null)
+            var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
+            if (rateLimited)
             {
-                // Cache for persistence across auto-refresh cycles
+                _crowdSecRateLimited = true;
+                return;
+            }
+
+            if (result?.CrowdSecReputation != null)
+            {
                 _manualCtiCache[source.SourceIp] = new CtiLookupResult(
                     result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors, result.MitreTechniques);
             }
             else
             {
-                // API returned null (IP not in CrowdSec database) - remember so we don't re-show button
                 _manualCtiCache[source.SourceIp] = new CtiLookupResult(null, 0, null);
             }
         }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
-            _manualCtiCache[source.SourceIp] = new CtiLookupResult(null, 0, null);
         }
         finally
         {
@@ -2698,23 +2727,28 @@ else
         try
         {
             var source = new SourceIpSummary { SourceIp = ip };
-            var result = await DashboardService.EnrichSingleSourceAsync(source);
+            var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
+
+            if (rateLimited)
+            {
+                _crowdSecRateLimited = true;
+                return; // Don't set _drilldownCtiLookedUp - lookup didn't complete
+            }
+
             if (result?.CrowdSecReputation != null)
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
                     result.CrowdSecReputation, result.ThreatScore, result.TopBehaviors, result.MitreTechniques);
-                if (string.Equals(result.CrowdSecReputation, "unknown", StringComparison.OrdinalIgnoreCase))
-                    _drilldownCtiLookedUp = true;
             }
             else
             {
                 _manualCtiCache[ip] = new CtiLookupResult(null, 0, null);
             }
+            _drilldownCtiLookedUp = true;
         }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", ip);
-            _manualCtiCache[ip] = new CtiLookupResult(null, 0, null);
         }
         finally
         {

@@ -105,7 +105,7 @@ public class ThreatDashboardService
     /// <summary>
     /// Auto-enrich top sources with CrowdSec CTI.
     /// Always checks the DB cache (free - no API calls) so previously looked-up IPs show their badge.
-    /// Only makes new API calls if quota is generous (>= 100/day).
+    /// Then makes new API calls for up to half the configured daily quota.
     /// </summary>
     private async Task EnrichTopSourcesWithCtiAsync(List<SourceIpSummary> sources,
         CancellationToken cancellationToken)
@@ -118,11 +118,20 @@ public class ThreatDashboardService
             // Always check DB cache for previously looked-up IPs (no API calls, just DB reads)
             await EnrichFromCacheAsync(sources, cancellationToken);
 
+            // Auto-enrich uncached IPs using up to half the configured daily quota.
+            // Cache hits from GetReputationAsync are free (no API call), so only truly
+            // new IPs consume budget. CrowdSec may also not count repeat lookups.
             var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
-            var quota = int.TryParse(quotaStr, out var q) ? q : 30; // free tier default
-            if (quota < 100) return; // low quota - cache hits only, no new API calls
+            var quota = int.TryParse(quotaStr, out var q) ? q : 30;
+            var autoBudget = Math.Max(1, quota / 2);
 
-            await EnrichSourcesAsync(sources, apiKey, cancellationToken);
+            var unenriched = sources
+                .Where(s => s.CrowdSecReputation == null && !NetworkUtilities.IsPrivateIpAddress(s.SourceIp))
+                .Take(autoBudget)
+                .ToList();
+
+            if (unenriched.Count > 0)
+                await EnrichSourcesAsync(unenriched, apiKey, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -194,22 +203,23 @@ public class ThreatDashboardService
 
     /// <summary>
     /// Look up CrowdSec CTI reputation for a single IP. Called by dashboard for manual lookups.
+    /// Returns (source, wasRateLimited).
     /// </summary>
-    public async Task<SourceIpSummary?> EnrichSingleSourceAsync(SourceIpSummary source,
-        CancellationToken cancellationToken = default)
+    public async Task<(SourceIpSummary? Source, bool RateLimited)> EnrichSingleSourceAsync(
+        SourceIpSummary source, CancellationToken cancellationToken = default)
     {
         try
         {
             var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
-            if (apiKey == null) return null;
+            if (apiKey == null) return (null, false);
 
-            await EnrichSourcesAsync([source], apiKey, cancellationToken);
-            return source;
+            var rateLimited = await EnrichSourcesAsync([source], apiKey, cancellationToken);
+            return (source, rateLimited);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
-            return null;
+            return (null, false);
         }
     }
 
@@ -220,7 +230,7 @@ public class ThreatDashboardService
         return _credentialService.IsEncrypted(stored) ? _credentialService.Decrypt(stored) : stored;
     }
 
-    private async Task EnrichSourcesAsync(List<SourceIpSummary> sources, string apiKey,
+    private async Task<bool> EnrichSourcesAsync(List<SourceIpSummary> sources, string apiKey,
         CancellationToken cancellationToken)
     {
         foreach (var source in sources)
@@ -229,8 +239,11 @@ public class ThreatDashboardService
 
             try
             {
-                var info = await _crowdSecService.GetReputationAsync(
+                var (info, outcome) = await _crowdSecService.GetReputationAsync(
                     source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
+
+                if (outcome == CrowdSecLookupOutcome.RateLimited)
+                    return true; // signal rate limit hit - stop enriching
 
                 source.CrowdSecReputation = CrowdSecEnrichmentService.GetReputationBadge(info);
                 source.ThreatScore = CrowdSecEnrichmentService.GetThreatScore(info);
@@ -246,6 +259,7 @@ public class ThreatDashboardService
                 _logger.LogDebug(ex, "Failed to enrich {Ip} with CrowdSec CTI", source.SourceIp);
             }
         }
+        return false;
     }
 
 
@@ -348,7 +362,8 @@ public class ThreatDashboardService
     public async Task<CrowdSecIpInfo?> GetCrowdSecReputationAsync(string ip, string apiKey,
         int cacheTtlHours = 720, CancellationToken cancellationToken = default)
     {
-        return await _crowdSecService.GetReputationAsync(ip, apiKey, _repository, cacheTtlHours, cancellationToken);
+        var (info, _) = await _crowdSecService.GetReputationAsync(ip, apiKey, _repository, cacheTtlHours, cancellationToken);
+        return info;
     }
 
     /// <summary>
