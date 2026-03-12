@@ -7222,6 +7222,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.75rem;
 }
 
@@ -9565,26 +9566,9 @@ a.path-hop.hop-clickable:hover {
 }
 
 @media (max-width: 768px) {
-    .client-timeline-controls {
-        justify-content: flex-end;
-        gap: 0.5rem;
-    }
-
     .filterable-select {
         min-width: 250px;
         max-width: 250px;
-    }
-
-    .client-timeline-controls > * {
-        margin-left: auto;
-    }
-
-    .client-filter-group {
-        justify-content: flex-end;
-    }
-
-    .client-timeline-actions {
-        justify-content: flex-end;
     }
 
     .client-selector {
