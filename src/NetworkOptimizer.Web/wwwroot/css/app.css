@@ -7306,9 +7306,8 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
-.client-selector-combo .view-all-btn {
+.client-timeline-controls .view-all-btn {
     padding: 0.5rem 0.75rem;
-    margin-right: 0.5rem;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     background: var(--bg-primary);
@@ -7319,7 +7318,7 @@ a.path-hop.hop-clickable:hover {
     transition: all 0.15s ease;
 }
 
-.client-selector-combo .view-all-btn:hover {
+.client-timeline-controls .view-all-btn:hover {
     background: var(--bg-tertiary);
     border-color: var(--primary-color);
 }

@@ -22,12 +22,13 @@
             </div>
         }
 
-        <!-- View All / Client Selector -->
+        @if (!string.IsNullOrEmpty(_selectedClientMac))
+        {
+            <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
+        }
+
+        <!-- Client Selector -->
         <div class="client-selector-combo">
-            @if (!string.IsNullOrEmpty(_selectedClientMac))
-            {
-                <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
-            }
             <div class="filterable-select @(_dropdownOpen ? "open" : "")">
                 @if (_selectedClient != null && !_dropdownOpen)
                 {
