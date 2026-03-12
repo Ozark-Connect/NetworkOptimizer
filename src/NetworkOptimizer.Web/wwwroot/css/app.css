@@ -7322,6 +7322,13 @@ a.path-hop.hop-clickable:hover {
     max-width: 400px;
 }
 
+@media (max-width: 768px) {
+    .filterable-select {
+        min-width: 80vw;
+        max-width: 80vw;
+    }
+}
+
 .filterable-select-input {
     width: 100%;
     height: 34px;
