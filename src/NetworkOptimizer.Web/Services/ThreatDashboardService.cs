@@ -22,6 +22,7 @@ public class ThreatDashboardService
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
     private readonly IThreatSettingsAccessor _settingsAccessor;
     private readonly ICredentialProtectionService _credentialService;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ThreatDashboardService> _logger;
 
     // Cached noise filters (loaded once per service scope, i.e., per request)
@@ -45,6 +46,7 @@ public class ThreatDashboardService
         IUniFiClientAccessor uniFiClientAccessor,
         IThreatSettingsAccessor settingsAccessor,
         ICredentialProtectionService credentialService,
+        IServiceProvider serviceProvider,
         ILogger<ThreatDashboardService> logger)
     {
         _repository = repository;
@@ -54,6 +56,7 @@ public class ThreatDashboardService
         _uniFiClientAccessor = uniFiClientAccessor;
         _settingsAccessor = settingsAccessor;
         _credentialService = credentialService;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -83,8 +86,12 @@ public class ThreatDashboardService
             var patterns = await _repository.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
             _repository.SetSeverityFilter(null);
 
-            // Enrich top sources with CrowdSec CTI reputation (cached 24h, ~10 API calls max)
-            await EnrichTopSourcesWithCtiAsync(topSources, cancellationToken);
+            // Enrich from DB cache (instant, no API calls) so previously looked-up IPs show badges
+            await EnrichFromCacheAsync(topSources, cancellationToken);
+
+            // Fire-and-forget: hydrate uncached IPs via API in the background.
+            // Results land in DB cache and show up on next refresh.
+            _ = HydrateInBackgroundAsync(topSources);
 
             return new ThreatDashboardData
             {
@@ -103,39 +110,61 @@ public class ThreatDashboardService
     }
 
     /// <summary>
-    /// Auto-enrich top sources with CrowdSec CTI.
-    /// Always checks the DB cache (free - no API calls) so previously looked-up IPs show their badge.
-    /// Then makes new API calls for up to half the configured daily quota.
+    /// Fire-and-forget background hydration of uncached IPs via CrowdSec API.
+    /// Creates its own DI scope since the parent ThreatDashboardService is scoped.
+    /// Results land in DB cache and appear on the next dashboard refresh.
     /// </summary>
-    private async Task EnrichTopSourcesWithCtiAsync(List<SourceIpSummary> sources,
-        CancellationToken cancellationToken)
+    private async Task HydrateInBackgroundAsync(List<SourceIpSummary> sources)
     {
         try
         {
-            var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
+            var apiKey = await GetDecryptedApiKeyAsync(CancellationToken.None);
             if (apiKey == null) return;
 
-            // Always check DB cache for previously looked-up IPs (no API calls, just DB reads)
-            await EnrichFromCacheAsync(sources, cancellationToken);
-
-            // Auto-enrich uncached IPs using up to half the configured daily quota.
-            // Cache hits from GetReputationAsync are free (no API call), so only truly
-            // new IPs consume budget. CrowdSec may also not count repeat lookups.
-            var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", cancellationToken);
+            var quotaStr = await _settingsAccessor.GetSettingAsync("crowdsec.daily_quota", CancellationToken.None);
             var quota = int.TryParse(quotaStr, out var q) ? q : 30;
             var autoBudget = Math.Max(1, quota / 2);
 
-            var unenriched = sources
+            // Snapshot the IPs that need hydration before the scoped service disposes
+            var ipsToHydrate = sources
                 .Where(s => s.CrowdSecReputation == null && !NetworkUtilities.IsPrivateIpAddress(s.SourceIp))
+                .Select(s => s.SourceIp)
                 .Take(autoBudget)
                 .ToList();
 
-            if (unenriched.Count > 0)
-                await EnrichSourcesAsync(unenriched, apiKey, cancellationToken);
+            if (ipsToHydrate.Count == 0) return;
+
+            _logger.LogDebug("CrowdSec background hydration starting for {Count} IPs", ipsToHydrate.Count);
+
+            // Run in a new scope so scoped services (repository) stay alive
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
+
+                    foreach (var ip in ipsToHydrate)
+                    {
+                        var (_, outcome) = await _crowdSecService.GetReputationAsync(
+                            ip, apiKey, repository, cancellationToken: CancellationToken.None);
+
+                        if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
+                        {
+                            _logger.LogDebug("CrowdSec background hydration stopped - daily quota exhausted");
+                            break;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "CrowdSec background hydration failed");
+                }
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "CrowdSec CTI auto-enrichment failed");
+            _logger.LogDebug(ex, "CrowdSec CTI auto-enrichment setup failed");
         }
     }
 
