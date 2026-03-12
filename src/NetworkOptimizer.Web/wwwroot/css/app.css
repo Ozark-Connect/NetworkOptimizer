@@ -6979,6 +6979,20 @@ a.path-hop.hop-clickable:hover {
     color: white;
 }
 
+.time-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.time-btn:disabled:hover {
+    background: transparent;
+    color: var(--text-secondary);
+}
+
+.time-btn.active:disabled {
+    opacity: 0.4;
+}
+
 .metrics-filters {
     display: flex;
     flex-wrap: wrap;
