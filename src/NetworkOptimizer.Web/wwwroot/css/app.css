@@ -6779,11 +6779,6 @@ a.path-hop.hop-clickable:hover {
         width: auto;
     }
 
-    .client-filter-group {
-        margin-left: 0;
-        width: 100%;
-    }
-
     .client-filter-group .ap-filter-select {
         max-width: 130px;
     }
