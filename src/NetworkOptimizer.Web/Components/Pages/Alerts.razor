@@ -2486,11 +2486,15 @@
         return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
     }
 
-    private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute)
+    private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute,
+        bool isEdit = false)
     {
         var now = DateTime.UtcNow;
         var anchor = now.Date.AddHours(startHour).AddMinutes(startMinute);
-        var candidate = anchor;
+        // For edits, start from yesterday's anchor so we find the next hourly slot
+        // even when the anchor is later today. For new schedules, wait for the
+        // first anchor time.
+        var candidate = isEdit ? anchor.AddDays(-1) : anchor;
         while (candidate <= now.AddMinutes(1))
             candidate = candidate.AddMinutes(frequencyMinutes);
         return candidate;
@@ -2610,7 +2614,7 @@
             existing.FrequencyMinutes = _newWanFrequency;
             existing.CustomMorningHour = startHour;
             existing.CustomMorningMinute = startMinute;
-            existing.NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute);
+            existing.NextRunAt = CalculateFirstRun(_newWanFrequency, startHour, startMinute, isEdit: true);
 
             await ScheduleRepository.UpdateAsync(existing);
             CancelEditWanSchedule();
@@ -2663,7 +2667,7 @@
             existing.FrequencyMinutes = _newLanFrequency;
             existing.CustomMorningHour = startHour;
             existing.CustomMorningMinute = startMinute;
-            existing.NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute);
+            existing.NextRunAt = CalculateFirstRun(_newLanFrequency, startHour, startMinute, isEdit: true);
 
             await ScheduleRepository.UpdateAsync(existing);
             CancelEditLanSchedule();

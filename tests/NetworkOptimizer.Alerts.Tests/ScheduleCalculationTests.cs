@@ -100,4 +100,24 @@ public class ScheduleCalculationTests
         // scheduledTime + 60 ≈ now, but the while loop ensures next > now
         next.Should().BeAfter(DateTime.UtcNow);
     }
+
+    [Fact]
+    public void Anchored_HourlyWithLateAnchor_FindsNextHourlySlot()
+    {
+        // Anchor at a future hour today with 60-min frequency should still find
+        // the next hourly slot, not jump all the way to the anchor time.
+        var now = DateTime.UtcNow;
+        var futureHour = (now.Hour + 3) % 24; // anchor 3 hours from now
+
+        var next = ScheduleService.CalculateNextRun(
+            frequencyMinutes: 60,
+            startHour: futureHour,
+            startMinute: 0);
+
+        // With 60-min frequency, next slot should be within ~61 minutes, not 3 hours
+        var maxExpected = now.AddMinutes(62);
+        next.Should().BeBefore(maxExpected,
+            "hourly task should find the next hourly slot, not jump to the distant anchor time");
+        next.Should().BeAfter(now);
+    }
 }
