@@ -9575,12 +9575,16 @@ a.path-hop.hop-clickable:hover {
         max-width: 250px;
     }
 
+    .client-timeline-controls > * {
+        margin-left: auto;
+    }
+
     .client-filter-group {
-        margin-left: 0;
+        justify-content: flex-end;
     }
 
     .client-timeline-actions {
-        margin-left: 0;
+        justify-content: flex-end;
     }
 
     .client-selector {
