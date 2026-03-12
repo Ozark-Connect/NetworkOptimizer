@@ -7318,8 +7318,9 @@ a.path-hop.hop-clickable:hover {
 /* Filterable select dropdown */
 .filterable-select {
     position: relative;
-    min-width: 400px;
-    max-width: 400px;
+    width: 400px;
+    flex-shrink: 1;
+    min-width: 200px;
 }
 
 @media (max-width: 768px) {
