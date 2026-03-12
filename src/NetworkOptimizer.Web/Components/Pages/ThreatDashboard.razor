@@ -8,6 +8,7 @@
 @using NetworkOptimizer.Core.Helpers
 @inject ThreatDashboardService DashboardService
 @inject IThreatSettingsAccessor SettingsAccessor
+@inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
 @inject NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor UniFiClientAccessor
 @implements IDisposable
@@ -30,6 +31,17 @@
         <div class="card-body banner-card-body">
             <span class="threat-desc-text">CrowdSec CTI enrichment adds reputation data and MITRE ATT&CK context to threat sources. Enable in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> to unlock this data.</span>
             <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecBannerDismissed = true">Dismiss</button>
+        </div>
+    </div>
+}
+
+@* CrowdSec rate limit warning *@
+@if (_crowdSecRateLimited)
+{
+    <div class="card banner-card banner-card-warning">
+        <div class="card-body banner-card-body">
+            <span class="threat-desc-text">CrowdSec daily API quota reached - remaining IPs will be enriched tomorrow. You can increase your quota in <a href="/settings#crowdsec" style="color:var(--primary-color);">Settings</a> or upgrade your CrowdSec plan.</span>
+            <button class="btn btn-secondary btn-sm" @onclick="() => _crowdSecRateLimited = false">Dismiss</button>
         </div>
     </div>
 }
@@ -2145,6 +2157,7 @@ else
     private bool _maxMindBannerDismissed;
     private bool _collectingFirstData;
     private string? _lookingUpIp;
+    private bool _crowdSecRateLimited;
     private bool _drilldownCtiLookedUp;
     private System.Threading.Timer? _refreshTimer;
 
@@ -2550,6 +2563,7 @@ else
             {
                 var chartExisted = _timelineChart != null;
                 _dashboardData = await DashboardService.GetDashboardDataAsync(from, to);
+                if (CrowdSecClient.IsRateLimited) _crowdSecRateLimited = true;
                 _timeline = await DashboardService.GetTimelineDataAsync(from, to);
                 BuildDerivedChartData();
 
@@ -2656,7 +2670,13 @@ else
         StateHasChanged();
         try
         {
-            var result = await DashboardService.EnrichSingleSourceAsync(source);
+            var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
+            if (rateLimited)
+            {
+                _crowdSecRateLimited = true;
+                return; // don't cache - IP wasn't actually looked up
+            }
+
             if (result != null && result.CrowdSecReputation != null)
             {
                 // Cache for persistence across auto-refresh cycles
@@ -2672,7 +2692,6 @@ else
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", source.SourceIp);
-            _manualCtiCache[source.SourceIp] = new CtiLookupResult(null, 0, null);
         }
         finally
         {
@@ -2688,7 +2707,13 @@ else
         try
         {
             var source = new SourceIpSummary { SourceIp = ip };
-            var result = await DashboardService.EnrichSingleSourceAsync(source);
+            var (result, rateLimited) = await DashboardService.EnrichSingleSourceAsync(source);
+            if (rateLimited)
+            {
+                _crowdSecRateLimited = true;
+                return;
+            }
+
             if (result?.CrowdSecReputation != null)
             {
                 _manualCtiCache[ip] = new CtiLookupResult(
@@ -2704,7 +2729,6 @@ else
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to look up reputation for {Ip}", ip);
-            _manualCtiCache[ip] = new CtiLookupResult(null, 0, null);
         }
         finally
         {
