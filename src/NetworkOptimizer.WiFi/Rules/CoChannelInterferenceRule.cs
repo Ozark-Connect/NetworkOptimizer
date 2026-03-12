@@ -1,4 +1,5 @@
 using NetworkOptimizer.WiFi.Models;
+using NetworkOptimizer.WiFi.Services;
 
 namespace NetworkOptimizer.WiFi.Rules;
 
@@ -8,6 +9,13 @@ namespace NetworkOptimizer.WiFi.Rules;
 /// </summary>
 public class CoChannelInterferenceRule : IWiFiOptimizerRule
 {
+    private readonly PropagationService _propagationService;
+
+    public CoChannelInterferenceRule(PropagationService propagationService)
+    {
+        _propagationService = propagationService;
+    }
+
     public string RuleId => "WIFI-COCHANNEL-001";
 
     public IEnumerable<HealthIssue> EvaluateAll(WiFiOptimizerContext ctx)
@@ -30,6 +38,13 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
 
                 // Filter out mesh pairs - they MUST be on the same channel
                 var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, group.Key);
+
+                // Spatial filter: remove APs that don't actually interfere with any other AP in the group
+                if (ctx.PropagationContext != null && nonMeshAps.Count > 1)
+                {
+                    nonMeshAps = WiFiAnalysisHelpers.FilterByPropagation(
+                        nonMeshAps, band, group.Key, ctx.PropagationContext, _propagationService);
+                }
 
                 // Only report co-channel if there are 2+ APs that aren't mesh pairs
                 if (nonMeshAps.Count > 1)

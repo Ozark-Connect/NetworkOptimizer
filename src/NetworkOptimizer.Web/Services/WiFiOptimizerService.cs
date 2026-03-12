@@ -25,6 +25,10 @@ public class WiFiOptimizerService
     private readonly SiteHealthScorer _healthScorer;
     private readonly WiFiOptimizerEngine _optimizerEngine;
     private readonly VlanAnalyzer _vlanAnalyzer;
+    private readonly HeatmapDataCache _heatmapCache;
+    private readonly FloorPlanService _floorPlanService;
+    private readonly ApMapService _apMapService;
+    private readonly PlannedApService _plannedApService;
 
     // Cached data (refreshed on demand)
     private List<AccessPointSnapshot>? _cachedAps;
@@ -41,6 +45,10 @@ public class WiFiOptimizerService
         WiFiOptimizerEngine optimizerEngine,
         VlanAnalyzer vlanAnalyzer,
         ISystemSettingsService settingsService,
+        HeatmapDataCache heatmapCache,
+        FloorPlanService floorPlanService,
+        ApMapService apMapService,
+        PlannedApService plannedApService,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
@@ -48,6 +56,10 @@ public class WiFiOptimizerService
         _optimizerEngine = optimizerEngine;
         _vlanAnalyzer = vlanAnalyzer;
         _settingsService = settingsService;
+        _heatmapCache = heatmapCache;
+        _floorPlanService = floorPlanService;
+        _apMapService = apMapService;
+        _plannedApService = plannedApService;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
@@ -130,7 +142,7 @@ public class WiFiOptimizerService
             // Run WiFi Optimizer rules for IoT SSID separation, band steering recommendations, etc.
             if (_cachedWlanConfigs != null && _cachedNetworks != null)
             {
-                var context = BuildOptimizerContext(onlineAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
+                var context = await BuildOptimizerContextAsync(onlineAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
                 _optimizerEngine.EvaluateRules(_cachedHealthScore, context);
             }
 
@@ -424,7 +436,7 @@ public class WiFiOptimizerService
     /// <summary>
     /// Build the context for WiFi Optimizer rules evaluation.
     /// </summary>
-    private WiFiOptimizerContext BuildOptimizerContext(
+    private async Task<WiFiOptimizerContext> BuildOptimizerContextAsync(
         List<AccessPointSnapshot> aps,
         List<WirelessClientSnapshot> clients,
         List<WlanConfiguration> wlans,
@@ -458,6 +470,41 @@ public class WiFiOptimizerService
             }
         }
 
+        // Load propagation data for spatial interference checking
+        ApPropagationContext? propCtx = null;
+        try
+        {
+            var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, _apMapService, _plannedApService);
+            var placedAps = cached.ApMarkers
+                .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                .ToList();
+
+            if (placedAps.Count > 0)
+            {
+                propCtx = new ApPropagationContext
+                {
+                    ApsByMac = placedAps.ToDictionary(
+                        a => a.Mac.ToLowerInvariant(),
+                        a => new PropagationAp
+                        {
+                            Mac = a.Mac,
+                            Model = a.Model,
+                            Latitude = a.Latitude!.Value,
+                            Longitude = a.Longitude!.Value,
+                            Floor = a.Floor ?? 1,
+                            OrientationDeg = a.OrientationDeg,
+                            MountType = a.MountType
+                        }),
+                    WallsByFloor = cached.WallsByFloor,
+                    Buildings = cached.BuildingFloorInfos
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load propagation data for interference checking");
+        }
+
         return new WiFiOptimizerContext
         {
             Wlans = wlans,
@@ -465,7 +512,8 @@ public class WiFiOptimizerService
             AccessPoints = aps,
             Clients = clients,
             LegacyClients = legacyClients,
-            SteerableClients = steerableClients
+            SteerableClients = steerableClients,
+            PropagationContext = propCtx
         };
     }
 

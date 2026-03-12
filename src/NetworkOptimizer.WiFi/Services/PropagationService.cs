@@ -121,7 +121,41 @@ public class PropagationService
         };
     }
 
-    private float ComputeSignalAtPoint(
+    /// <summary>
+    /// Check if two APs interfere on a given band based on propagation modeling.
+    /// Returns true if either AP's signal at the other's location is above the threshold.
+    /// Uses the same ITU-R P.1238 model as the floor plan heatmap.
+    /// </summary>
+    public bool DoApsInterfere(
+        PropagationAp ap1, PropagationAp ap2,
+        string band,
+        Dictionary<int, List<PropagationWall>> wallsByFloor,
+        List<BuildingFloorInfo>? buildings,
+        double thresholdDbm = -70.0)
+    {
+        var freqMhz = MaterialAttenuation.GetCenterFrequencyMhz(band);
+
+        // Pre-compute wall segments for relevant floors
+        var relevantFloors = new HashSet<int> { ap1.Floor, ap2.Floor };
+        var segmentsByFloor = new Dictionary<int, List<WallSegment>>();
+        foreach (var floor in relevantFloors)
+        {
+            if (wallsByFloor.TryGetValue(floor, out var floorWalls))
+                segmentsByFloor[floor] = PrecomputeWallSegments(floorWalls);
+        }
+
+        // Check signal from AP1 at AP2's location
+        var signalAtAp2 = ComputeSignalAtPoint(
+            ap1, ap2.Latitude, ap2.Longitude, ap2.Floor, band, freqMhz, segmentsByFloor, buildings);
+        if (signalAtAp2 >= thresholdDbm) return true;
+
+        // Check signal from AP2 at AP1's location
+        var signalAtAp1 = ComputeSignalAtPoint(
+            ap2, ap1.Latitude, ap1.Longitude, ap1.Floor, band, freqMhz, segmentsByFloor, buildings);
+        return signalAtAp1 >= thresholdDbm;
+    }
+
+    internal float ComputeSignalAtPoint(
         PropagationAp ap,
         double pointLat, double pointLng,
         int activeFloor,
@@ -344,7 +378,7 @@ public class PropagationService
         return totalLoss;
     }
 
-    private List<WallSegment> PrecomputeWallSegments(List<PropagationWall> walls)
+    internal List<WallSegment> PrecomputeWallSegments(List<PropagationWall> walls)
     {
         var segments = new List<WallSegment>();
         foreach (var wall in walls)
@@ -504,7 +538,7 @@ public class PropagationService
         return building?.FloorMaterials.ContainsKey(0) ?? false;
     }
 
-    private struct WallSegment
+    internal struct WallSegment
     {
         public double Lat1, Lng1, Lat2, Lng2;
         public string Material;

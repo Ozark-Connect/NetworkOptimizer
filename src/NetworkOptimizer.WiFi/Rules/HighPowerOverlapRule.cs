@@ -1,4 +1,5 @@
 using NetworkOptimizer.WiFi.Models;
+using NetworkOptimizer.WiFi.Services;
 
 namespace NetworkOptimizer.WiFi.Rules;
 
@@ -8,6 +9,13 @@ namespace NetworkOptimizer.WiFi.Rules;
 /// </summary>
 public class HighPowerOverlapRule : IWiFiOptimizerRule
 {
+    private readonly PropagationService _propagationService;
+
+    public HighPowerOverlapRule(PropagationService propagationService)
+    {
+        _propagationService = propagationService;
+    }
+
     public string RuleId => "WIFI-HIGH-POWER-OVERLAP-001";
 
     /// <summary>
@@ -38,6 +46,15 @@ public class HighPowerOverlapRule : IWiFiOptimizerRule
                 var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, channel);
                 if (nonMeshAps.Count < 2)
                     continue;
+
+                // Spatial filter: remove APs that don't actually interfere with any other AP in the group
+                if (ctx.PropagationContext != null)
+                {
+                    nonMeshAps = WiFiAnalysisHelpers.FilterByPropagation(
+                        nonMeshAps, band, channel, ctx.PropagationContext, _propagationService);
+                    if (nonMeshAps.Count < 2)
+                        continue;
+                }
 
                 // Check if multiple non-mesh APs have high power
                 var highPowerAps = nonMeshAps
