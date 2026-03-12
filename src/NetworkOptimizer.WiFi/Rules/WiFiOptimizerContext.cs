@@ -38,6 +38,12 @@ public class WiFiOptimizerContext
     /// </summary>
     public required List<WirelessClientSnapshot> SteerableClients { get; init; }
 
+    /// <summary>
+    /// Optional propagation context for spatial interference checking.
+    /// Null when APs haven't been placed on the floor plan map.
+    /// </summary>
+    public ApPropagationContext? PropagationContext { get; init; }
+
     // Convenience accessors
 
     /// <summary>

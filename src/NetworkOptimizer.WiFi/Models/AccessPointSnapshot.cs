@@ -229,4 +229,15 @@ public static class RadioBandExtensions
             _ => ""
         };
     }
+
+    /// <summary>
+    /// Get propagation band string for use with PropagationService and MaterialAttenuation.
+    /// </summary>
+    public static string ToPropagationBand(this RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "2.4",
+        RadioBand.Band5GHz => "5",
+        RadioBand.Band6GHz => "6",
+        _ => "5"
+    };
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using NetworkOptimizer.WiFi.Models;
+using NetworkOptimizer.WiFi.Services;
 
 namespace NetworkOptimizer.WiFi;
 
@@ -109,5 +110,80 @@ public static class WiFiAnalysisHelpers
         // If ALL APs are part of mesh pairs, then there's no actual interference issue
         // (the mesh pairs need to be on the same channel)
         return new List<AccessPointSnapshot>();
+    }
+
+    /// <summary>
+    /// Filter APs on the same channel by propagation modeling. Removes APs whose signal
+    /// doesn't reach any other AP on the channel (i.e., they're too far apart to interfere).
+    /// APs not placed on the map are kept (assume interference).
+    /// </summary>
+    public static List<AccessPointSnapshot> FilterByPropagation(
+        List<AccessPointSnapshot> aps,
+        RadioBand band, int channel,
+        ApPropagationContext propCtx,
+        PropagationService propagationSvc)
+    {
+        var bandStr = band.ToPropagationBand();
+
+        // Build PropagationAp with current TX power for each placed AP
+        var placed = new List<(AccessPointSnapshot Snapshot, PropagationAp Prop)>();
+        var unplaced = new List<AccessPointSnapshot>();
+
+        foreach (var ap in aps)
+        {
+            var macLower = ap.Mac.ToLowerInvariant();
+            if (propCtx.ApsByMac.TryGetValue(macLower, out var propAp))
+            {
+                // Override TX power from live radio data for this specific band/channel
+                var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel == channel);
+                var txPower = radio?.TxPower ?? propAp.TxPowerDbm;
+                var antennaGain = radio?.AntennaGain ?? propAp.AntennaGainDbi;
+
+                var clone = new PropagationAp
+                {
+                    Mac = propAp.Mac,
+                    Model = propAp.Model,
+                    Latitude = propAp.Latitude,
+                    Longitude = propAp.Longitude,
+                    Floor = propAp.Floor,
+                    TxPowerDbm = txPower,
+                    AntennaGainDbi = antennaGain,
+                    OrientationDeg = propAp.OrientationDeg,
+                    MountType = propAp.MountType,
+                    AntennaMode = propAp.AntennaMode
+                };
+                placed.Add((ap, clone));
+            }
+            else
+            {
+                unplaced.Add(ap); // Not placed on map - keep in results (assume interference)
+            }
+        }
+
+        if (placed.Count < 2)
+        {
+            // 0 or 1 placed APs - can't do pairwise check, return all
+            return aps;
+        }
+
+        // Check all placed pairs
+        var interferingMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < placed.Count; i++)
+        {
+            for (int j = i + 1; j < placed.Count; j++)
+            {
+                if (propagationSvc.DoApsInterfere(placed[i].Prop, placed[j].Prop, bandStr,
+                    propCtx.WallsByFloor, propCtx.Buildings))
+                {
+                    interferingMacs.Add(placed[i].Snapshot.Mac);
+                    interferingMacs.Add(placed[j].Snapshot.Mac);
+                }
+            }
+        }
+
+        // Return: unplaced APs (assume interference) + placed APs that actually interfere
+        var result = new List<AccessPointSnapshot>(unplaced);
+        result.AddRange(placed.Where(p => interferingMacs.Contains(p.Snapshot.Mac)).Select(p => p.Snapshot));
+        return result;
     }
 }
