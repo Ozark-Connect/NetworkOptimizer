@@ -6625,7 +6625,7 @@ a.path-hop.hop-clickable:hover {
     padding: 0.125rem 0.5rem;
     border-radius: var(--border-radius);
     font-size: 0.7rem;
-    width: 54px;
+    width: 60px;
     text-align: center;
     flex-shrink: 0;
 }
@@ -6647,7 +6647,7 @@ a.path-hop.hop-clickable:hover {
 
 .radio-channel {
     color: var(--text-secondary);
-    width: 46px;
+    width: 44px;
     flex-shrink: 0;
 }
 
@@ -6696,6 +6696,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    margin-left: auto;
 }
 
 .client-filter-group .ap-filter-select {
@@ -6768,7 +6769,8 @@ a.path-hop.hop-clickable:hover {
     }
 
     .client-filter-group {
-        flex-wrap: wrap;
+        margin-left: 0;
+        width: 100%;
     }
 
     .client-filter-group .ap-filter-select {
@@ -7217,6 +7219,8 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     align-items: center;
     gap: 1rem;
+    flex-wrap: wrap;
+    flex: 1;
 }
 
 .client-selector {

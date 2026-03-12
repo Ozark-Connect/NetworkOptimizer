@@ -39,11 +39,11 @@
                         <button class="band-pill @(_bandFilter == null ? "active" : "")"
                                 @onclick="() => SetBandFilter(null)">All</button>
                         <button class="band-pill band-pill-2ghz @(_bandFilter == RadioBand.Band2_4GHz ? "active" : "")"
-                                @onclick="() => SetBandFilter(RadioBand.Band2_4GHz)">2.4</button>
+                                @onclick="() => SetBandFilter(RadioBand.Band2_4GHz)">2.4 GHz</button>
                         <button class="band-pill band-pill-5ghz @(_bandFilter == RadioBand.Band5GHz ? "active" : "")"
-                                @onclick="() => SetBandFilter(RadioBand.Band5GHz)">5</button>
+                                @onclick="() => SetBandFilter(RadioBand.Band5GHz)">5 GHz</button>
                         <button class="band-pill band-pill-6ghz @(_bandFilter == RadioBand.Band6GHz ? "active" : "")"
-                                @onclick="() => SetBandFilter(RadioBand.Band6GHz)">6</button>
+                                @onclick="() => SetBandFilter(RadioBand.Band6GHz)">6 GHz</button>
                     </div>
                 </div>
             }
