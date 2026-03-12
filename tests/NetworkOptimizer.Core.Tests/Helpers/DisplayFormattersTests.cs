@@ -804,4 +804,39 @@ public class DisplayFormattersTests
     }
 
     #endregion
+
+    #region IsGenericWanName Tests
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("  ", true)]
+    [InlineData("WAN", true)]
+    [InlineData("wan", true)]
+    [InlineData("WAN1", true)]
+    [InlineData("WAN 2", true)]
+    [InlineData("WAN3", true)]
+    [InlineData("wan4", true)]
+    [InlineData("Internet", true)]
+    [InlineData("internet", true)]
+    [InlineData("Internet 1", true)]
+    [InlineData("Internet2", true)]
+    public void IsGenericWanName_GenericNames_ReturnsTrue(string? input, bool expected)
+    {
+        DisplayFormatters.IsGenericWanName(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Fiber Link")]
+    [InlineData("Starlink")]
+    [InlineData("AT&T Fiber")]
+    [InlineData("Comcast")]
+    [InlineData("My WAN Connection")]
+    [InlineData("Primary Internet Link")]
+    public void IsGenericWanName_CustomNames_ReturnsFalse(string input)
+    {
+        DisplayFormatters.IsGenericWanName(input).Should().BeFalse();
+    }
+
+    #endregion
 }
