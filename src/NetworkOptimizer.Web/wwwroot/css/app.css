@@ -9180,10 +9180,15 @@ a.path-hop.hop-clickable:hover {
 /* Unplaced AP notice */
 .recommendation-notice {
     padding: 0.75rem;
-    background: rgba(71, 151, 255, 0.1);
     border-radius: var(--border-radius-lg);
-    color: var(--text-secondary);
     font-size: 0.8125rem;
+    background: rgba(71, 151, 255, 0.1);
+    color: var(--text-secondary);
+}
+
+.recommendation-notice.alert-warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
 }
 
 /* DFS preference toggle */
