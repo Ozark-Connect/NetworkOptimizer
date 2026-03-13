@@ -33,7 +33,20 @@ public sealed class HeatmapDataCache
     {
         var current = _cached;
         if (current != null && current.Version == _version)
+        {
+            // Version matches, but AP radio config may have changed in UniFi
+            // (e.g., antenna mode, TX power). Check if propagation-relevant fields
+            // are still current by fetching fresh AP data and comparing fingerprints.
+            var freshMarkers = await apMapSvc.GetApMapMarkersAsync();
+            var freshFingerprint = ComputeRadioFingerprint(freshMarkers);
+            if (freshFingerprint == current.RadioFingerprint)
+                return current;
+
+            // Radio config changed - rebuild cache with fresh AP data
+            current = current with { ApMarkers = freshMarkers, RadioFingerprint = freshFingerprint };
+            _cached = current;
             return current;
+        }
 
         // Reload all data
         var snapshotVersion = _version;
@@ -79,9 +92,29 @@ public sealed class HeatmapDataCache
             };
         }).OfType<BuildingFloorInfo>().ToList();
 
-        var data = new CachedData(snapshotVersion, allBuildings, wallsByFloor, apMarkers, plannedAps, buildingFloorInfos);
+        var radioFingerprint = ComputeRadioFingerprint(apMarkers);
+        var data = new CachedData(snapshotVersion, allBuildings, wallsByFloor, apMarkers, plannedAps, buildingFloorInfos, radioFingerprint);
         _cached = data;
         return data;
+    }
+
+    /// <summary>
+    /// Compute a fingerprint of propagation-relevant AP radio fields.
+    /// Changes to antenna mode, TX power, or channel trigger a heatmap recompute.
+    /// </summary>
+    private static string ComputeRadioFingerprint(List<ApMapMarker> markers)
+    {
+        // Build a stable string from propagation-relevant fields, sorted by MAC for consistency
+        var parts = markers
+            .OrderBy(m => m.Mac, StringComparer.OrdinalIgnoreCase)
+            .Select(m =>
+            {
+                var radios = string.Join("|", m.Radios
+                    .OrderBy(r => r.Band)
+                    .Select(r => $"{r.Band}:{r.TxPowerDbm}:{r.AntennaMode}:{r.Channel}:{r.ChannelWidth}"));
+                return $"{m.Mac}={radios}";
+            });
+        return string.Join(";", parts);
     }
 
     public sealed record CachedData(
@@ -90,5 +123,6 @@ public sealed class HeatmapDataCache
         Dictionary<int, List<PropagationWall>> WallsByFloor,
         List<ApMapMarker> ApMarkers,
         List<NetworkOptimizer.Storage.Models.PlannedAp> PlannedAps,
-        List<BuildingFloorInfo> BuildingFloorInfos);
+        List<BuildingFloorInfo> BuildingFloorInfos,
+        string RadioFingerprint = "");
 }
