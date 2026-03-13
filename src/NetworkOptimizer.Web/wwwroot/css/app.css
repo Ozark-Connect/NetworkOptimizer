@@ -9059,6 +9059,9 @@ a.path-hop.hop-clickable:hover {
 
 .ap-name-col .ap-name {
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .ap-name-col .ap-model {
@@ -9212,14 +9215,48 @@ a.path-hop.hop-clickable:hover {
 /* Improvement stat highlighting */
 .stat-improvement .channel-stat-value { color: var(--success-color); }
 
-/* Recommendation table - own grid, not inheriting 7-col regular table */
-.recommendation-view .aps-header,
-.recommendation-view .aps-row {
-    grid-template-columns: 2fr 1.2fr 0.6fr 0.3fr 1.2fr 0.6fr;
+/* Recommendation table - own grid, independent of regular aps-header/aps-row */
+.rec-header,
+.rec-row {
+    display: grid;
+    grid-template-columns: 2.5fr 1.2fr 1fr 1.2fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    align-items: center;
 }
 
-.ap-score-col { text-align: center; }
-.ap-arrow-col { text-align: center; }
+.rec-header {
+    background: var(--bg-tertiary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.rec-row {
+    border-top: 1px solid var(--border-color);
+}
+
+.rec-row:hover {
+    background: var(--bg-tertiary);
+}
+
+.rec-name-col {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.rec-score-col {
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+}
 
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
@@ -9269,15 +9306,20 @@ a.path-hop.hop-clickable:hover {
         grid-template-columns: repeat(2, 1fr);
     }
 
-    /* Hide score columns in recommendation table on mobile */
-    .recommendation-view .ap-score-col,
-    .recommendation-view .aps-header .ap-score-col {
+    /* Recommendation table mobile */
+    .rec-header,
+    .rec-row {
+        grid-template-columns: 2fr 1fr 1fr;
+    }
+
+    .rec-score-col {
         display: none;
     }
 
-    .recommendation-view .aps-header,
-    .recommendation-view .aps-row {
-        grid-template-columns: 2fr 1.2fr 0.3fr 1.2fr;
+    /* Wrap badges on mobile */
+    .ap-name-col .ap-name,
+    .rec-name-col .ap-name {
+        flex-wrap: wrap;
     }
 }
 
