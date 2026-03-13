@@ -418,7 +418,13 @@
                         {
                             <div class="aps-row clickable" @onclick="() => SelectApChannel(radio.Channel)">
                                 <div class="ap-col ap-name-col">
-                                    <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
+                                    <span class="ap-name">
+                                        <DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name
+                                        @if (ap.IsMeshChild && ap.MeshUplinkBand == _selectedBand)
+                                        {
+                                            <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">mesh</span>
+                                        }
+                                    </span>
                                     <span class="ap-model">@ap.Model</span>
                                 </div>
                                 <div class="ap-col ap-channel-col">
