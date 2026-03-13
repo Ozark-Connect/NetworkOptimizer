@@ -158,9 +158,9 @@
                     <div class="aps-band-table rec-table">
                         <div class="rec-header">
                             <div class="rec-col rec-name-col">Access Point</div>
-                            <div class="rec-col rec-current-col">Current</div>
                             <div class="rec-col rec-score-col">Score</div>
-                            <div class="rec-col rec-recommended-col">Recommended</div>
+                            <div class="rec-col rec-channels-col">Current -> Recommended</div>
+                            <div class="rec-col rec-score-col">Score</div>
                         </div>
                         @foreach (var rec in _channelPlan.Recommendations)
                         {
@@ -179,20 +179,20 @@
                                         }
                                     </span>
                                 </div>
-                                <div class="rec-col rec-current-col">
-                                    <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>
-                                </div>
                                 <div class="rec-col rec-score-col">
                                     <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
-                                    <span class="channel-change-arrow">-></span>
-                                    <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
                                 </div>
-                                <div class="rec-col rec-recommended-col">
+                                <div class="rec-col rec-channels-col">
+                                    <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>
+                                    <span class="channel-change-arrow">-></span>
                                     <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth) MHz</span>
                                     @if (rec.IsDfsChannel)
                                     {
                                         <span class="dfs-badge">DFS</span>
                                     }
+                                </div>
+                                <div class="rec-col rec-score-col">
+                                    <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
                                 </div>
                             </div>
                         }

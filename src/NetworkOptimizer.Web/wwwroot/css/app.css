@@ -9202,7 +9202,7 @@ a.path-hop.hop-clickable:hover {
 .recommendation-explainer {
     font-size: 0.8125rem;
     color: var(--text-muted);
-    margin-bottom: 0.5rem;
+    margin: 0 0.5rem 0.5rem;
 }
 .recommendation-explainer summary {
     cursor: pointer;
@@ -9220,7 +9220,7 @@ a.path-hop.hop-clickable:hover {
 .rec-header,
 .rec-row {
     display: grid;
-    grid-template-columns: 2.5fr 1.2fr 1fr 1.2fr;
+    grid-template-columns: 2fr 0.5fr 2.5fr 0.5fr;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
     font-size: 0.875rem;
@@ -9253,6 +9253,9 @@ a.path-hop.hop-clickable:hover {
 
 .rec-score-col {
     text-align: center;
+}
+
+.rec-channels-col {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -9307,10 +9310,10 @@ a.path-hop.hop-clickable:hover {
         grid-template-columns: repeat(2, 1fr);
     }
 
-    /* Recommendation table mobile */
+    /* Recommendation table mobile - hide score columns */
     .rec-header,
     .rec-row {
-        grid-template-columns: 2fr 1fr 1fr;
+        grid-template-columns: 1.5fr 2.5fr;
     }
 
     .rec-score-col {
