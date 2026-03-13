@@ -327,8 +327,8 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber: WAN link speed is the natural ceiling, no additional cap needed
-            ConnectionType.Fiber => 1.0,
+            // Fiber: minimal cap - WAN link speed already provides most of the headroom
+            ConnectionType.Fiber => 0.98,
 
             // All other types: 95% safety margin below the bottleneck
             _ => 0.95
