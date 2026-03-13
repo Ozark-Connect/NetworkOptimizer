@@ -9220,7 +9220,7 @@ a.path-hop.hop-clickable:hover {
 .rec-header,
 .rec-row {
     display: grid;
-    grid-template-columns: 2fr 0.5fr 2.5fr 0.5fr;
+    grid-template-columns: 2fr 0.6fr 2fr 0.8fr;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
     font-size: 0.875rem;
