@@ -9230,6 +9230,11 @@ a.path-hop.hop-clickable:hover {
         flex-wrap: wrap;
     }
 
+    .channel-header {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
     .channel-map-section,
     .aps-band-section,
     .channel-details-section,
