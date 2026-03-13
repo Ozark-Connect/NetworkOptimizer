@@ -159,7 +159,7 @@
                         <div class="rec-header">
                             <div class="rec-col rec-name-col">Access Point</div>
                             <div class="rec-col rec-score-col">Score</div>
-                            <div class="rec-col rec-channels-col">Current -> Recommended</div>
+                            <div class="rec-col rec-channels-col">Current → Recommended</div>
                             <div class="rec-col rec-score-col">Score</div>
                         </div>
                         @foreach (var rec in _channelPlan.Recommendations)
@@ -184,7 +184,7 @@
                                 </div>
                                 <div class="rec-col rec-channels-col">
                                     <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>
-                                    <span class="channel-change-arrow">-></span>
+                                    <span class="channel-change-arrow">→</span>
                                     <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth) MHz</span>
                                     @if (rec.IsDfsChannel)
                                     {
