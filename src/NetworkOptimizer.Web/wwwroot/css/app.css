@@ -9251,6 +9251,13 @@ a.path-hop.hop-clickable:hover {
     gap: 0.25rem;
 }
 
+.rec-name-col .ap-name {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 500;
+}
+
 .rec-score-col {
     text-align: center;
 }
