@@ -93,8 +93,8 @@ public class SpeedtestIntegration
         // Apply maximum cap
         effectiveRate = Math.Min(effectiveRate, _config.MaxDownloadSpeed);
 
-        // Apply 95% safety cap
-        var safetyCapRate = _config.MaxDownloadSpeed * 0.95;
+        // Apply safety cap (connection-type-aware: fiber=100%, others=95%)
+        var safetyCapRate = _config.MaxDownloadSpeed * _config.SafetyCapPercent;
         effectiveRate = Math.Min(effectiveRate, safetyCapRate);
 
         return Math.Round(effectiveRate, 0);

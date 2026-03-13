@@ -182,8 +182,8 @@ public class LatencyMonitor
     /// </summary>
     private double CapRate(double rate)
     {
-        // Apply 95% safety cap
-        var safetyCapRate = _config.AbsoluteMaxDownloadSpeed * 0.95;
+        // Apply safety cap (connection-type-aware: fiber=100%, others=95%)
+        var safetyCapRate = _config.AbsoluteMaxDownloadSpeed * _config.SafetyCapPercent;
         rate = Math.Min(rate, safetyCapRate);
 
         // Apply absolute maximum
@@ -209,7 +209,7 @@ public class LatencyMonitor
         return (
             minRate: 180.0,
             optimalRate: _config.AbsoluteMaxDownloadSpeed * 0.94,
-            maxRate: _config.AbsoluteMaxDownloadSpeed * 0.95
+            maxRate: _config.AbsoluteMaxDownloadSpeed * _config.SafetyCapPercent
         );
     }
 }
