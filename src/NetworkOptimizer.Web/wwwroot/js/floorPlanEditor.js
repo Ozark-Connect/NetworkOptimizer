@@ -1490,6 +1490,13 @@ window.fpEditor = {
         if (btn) btn.style.display = hasOverrides ? '' : 'none';
     },
 
+    hasSimulationOverrides: function () {
+        return Object.keys(this._txPowerOverrides).length > 0 ||
+               Object.keys(this._antennaModeOverrides).length > 0 ||
+               Object.keys(this._disabledAps).length > 0 ||
+               Object.keys(this._disabledForPlanAps).length > 0;
+    },
+
     resetSimulation: function () {
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
