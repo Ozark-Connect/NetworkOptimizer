@@ -9,6 +9,7 @@ using NetworkOptimizer.WiFi.Analyzers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Providers;
 using NetworkOptimizer.WiFi.Rules;
+using NetworkOptimizer.WiFi.Services;
 using AuditNetworkInfo = NetworkOptimizer.Audit.Models.NetworkInfo;
 
 namespace NetworkOptimizer.Web.Services;
@@ -30,6 +31,7 @@ public class WiFiOptimizerService
     private readonly FloorPlanService _floorPlanService;
     private readonly IServiceProvider _serviceProvider;
     private readonly PlannedApService _plannedApService;
+    private readonly ChannelRecommendationService _channelRecommendationService;
 
     // Cached data (refreshed on demand)
     private List<AccessPointSnapshot>? _cachedAps;
@@ -50,6 +52,7 @@ public class WiFiOptimizerService
         FloorPlanService floorPlanService,
         IServiceProvider serviceProvider,
         PlannedApService plannedApService,
+        ChannelRecommendationService channelRecommendationService,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
@@ -61,6 +64,7 @@ public class WiFiOptimizerService
         _floorPlanService = floorPlanService;
         _serviceProvider = serviceProvider;
         _plannedApService = plannedApService;
+        _channelRecommendationService = channelRecommendationService;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
@@ -748,6 +752,87 @@ public class WiFiOptimizerService
         {
             _logger.LogError(ex, "Failed to get client events for {ClientMac}", clientMac);
             return new List<WiFi.Models.ClientConnectionEvent>();
+        }
+    }
+
+    /// <summary>
+    /// Get channel recommendations for a specific band.
+    /// Coordinates data loading and calls the recommendation engine.
+    /// </summary>
+    public async Task<ChannelPlan?> GetChannelRecommendationsAsync(
+        RadioBand band, RecommendationOptions? options = null)
+    {
+        if (!_connectionService.IsConnected)
+        {
+            _logger.LogDebug("Cannot get channel recommendations - not connected to UniFi");
+            return null;
+        }
+
+        try
+        {
+            // Load all required data in parallel
+            var apsTask = GetAccessPointsAsync();
+            var regulatoryTask = GetRegulatoryChannelsAsync();
+            var scanTask = GetChannelScanResultsAsync();
+
+            await Task.WhenAll(apsTask, regulatoryTask, scanTask);
+
+            var aps = apsTask.Result;
+            var regulatoryData = regulatoryTask.Result;
+            var scanResults = scanTask.Result;
+
+            if (aps.Count == 0)
+            {
+                _logger.LogDebug("No APs available for channel recommendations");
+                return null;
+            }
+
+            // Load propagation context (same pattern as BuildOptimizerContextAsync)
+            ApPropagationContext? propCtx = null;
+            try
+            {
+                var apMapService = _serviceProvider.GetRequiredService<ApMapService>();
+                var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, apMapService, _plannedApService);
+                var placedAps = cached.ApMarkers
+                    .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                    .ToList();
+
+                if (placedAps.Count > 0)
+                {
+                    propCtx = new ApPropagationContext
+                    {
+                        ApsByMac = placedAps.ToDictionary(
+                            a => a.Mac.ToLowerInvariant(),
+                            a => new PropagationAp
+                            {
+                                Mac = a.Mac,
+                                Model = a.Model,
+                                Latitude = a.Latitude!.Value,
+                                Longitude = a.Longitude!.Value,
+                                Floor = a.Floor ?? 1,
+                                OrientationDeg = a.OrientationDeg,
+                                MountType = a.MountType
+                            }),
+                        WallsByFloor = cached.WallsByFloor,
+                        Buildings = cached.BuildingFloorInfos
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to load propagation data for channel recommendations");
+            }
+
+            // Build interference graph and optimize
+            var graph = _channelRecommendationService.BuildInterferenceGraph(
+                aps, band, propCtx, scanResults, regulatoryData, options);
+
+            return _channelRecommendationService.Optimize(graph, band, regulatoryData, options);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get channel recommendations for {Band}", band);
+            return null;
         }
     }
 }

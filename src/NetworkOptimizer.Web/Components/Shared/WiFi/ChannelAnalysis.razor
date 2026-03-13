@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
@@ -8,6 +9,19 @@
     <div class="channel-header">
         <h3>Channel Analysis</h3>
         <div class="header-actions">
+            @if (!_showRecommendations && _accessPoints.Count(ap => ap.Radios.Any(r => r.Band == _selectedBand && r.Channel.HasValue)) > 1)
+            {
+                <button class="btn btn-sm btn-secondary" @onclick="RunRecommendation" disabled="@_loadingRecommendations">
+                    @if (_loadingRecommendations)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Recommend Best Channels</span>
+                    }
+                </button>
+            }
             <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
                 @if (_loading)
                 {
@@ -76,6 +90,131 @@
             }
         </div>
 
+        @if (_showRecommendations && _channelPlan != null)
+        {
+            <div class="recommendation-view">
+                <div class="section-header">
+                    <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
+                    <button class="btn btn-sm btn-ghost" @onclick="() => _showRecommendations = false">Back to Current</button>
+                </div>
+
+                <!-- Network Score Summary -->
+                <div class="channel-stats-row">
+                    <div class="channel-stat-card">
+                        <div class="channel-stat-value">@FormatScore(_channelPlan.CurrentNetworkScore)</div>
+                        <div class="channel-stat-label">Current Score</div>
+                    </div>
+                    <div class="channel-stat-card @(_channelPlan.ImprovementPercent > 0 ? "stat-improvement" : "")">
+                        <div class="channel-stat-value">@FormatScore(_channelPlan.RecommendedNetworkScore)</div>
+                        <div class="channel-stat-label">Recommended Score</div>
+                    </div>
+                    @if (_channelPlan.ImprovementPercent > 0)
+                    {
+                        <div class="channel-stat-card stat-improvement">
+                            <div class="channel-stat-value">@FormatPercent(_channelPlan.ImprovementPercent)%</div>
+                            <div class="channel-stat-label">Less Interference</div>
+                        </div>
+                    }
+                </div>
+
+                <!-- DFS Preference Toggle (5 GHz only) -->
+                @if (_selectedBand == RadioBand.Band5GHz)
+                {
+                    <div class="time-range-selector dfs-toggle">
+                        <button class="time-btn @(_dfsPreference == DfsPreference.IncludeWithPenalty ? "active" : "")"
+                                @onclick="() => ChangeDfsPreference(DfsPreference.IncludeWithPenalty)">
+                            Include DFS
+                        </button>
+                        <button class="time-btn @(_dfsPreference == DfsPreference.Exclude ? "active" : "")"
+                                @onclick="() => ChangeDfsPreference(DfsPreference.Exclude)">
+                            Avoid DFS
+                        </button>
+                        <button class="time-btn @(_dfsPreference == DfsPreference.Prefer ? "active" : "")"
+                                @onclick="() => ChangeDfsPreference(DfsPreference.Prefer)">
+                            Prefer DFS
+                        </button>
+                    </div>
+                }
+
+                <!-- Per-AP Recommendation Table -->
+                <div class="aps-band-table">
+                    <div class="aps-header">
+                        <div class="ap-col ap-name-col">Access Point</div>
+                        <div class="ap-col ap-current-col">Current</div>
+                        <div class="ap-col ap-score-col">Score</div>
+                        <div class="ap-col ap-arrow-col"></div>
+                        <div class="ap-col ap-recommended-col">Recommended</div>
+                        <div class="ap-col ap-score-col">Score</div>
+                    </div>
+                    @foreach (var rec in _channelPlan.Recommendations)
+                    {
+                        <div class="aps-row @(rec.IsChanged ? "ap-recommendation-changed" : "")">
+                            <div class="ap-col ap-name-col">
+                                <span class="ap-name">
+                                    <DeviceIcon Model="@GetApModel(rec.ApMac)" Size="md" />
+                                    @rec.ApName
+                                </span>
+                                @if (rec.IsMeshConstrained)
+                                {
+                                    <span class="mesh-link-badge" data-tooltip="Mesh pair - shares channel with parent">mesh</span>
+                                }
+                                @if (rec.IsUnplaced)
+                                {
+                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
+                                }
+                            </div>
+                            <div class="ap-col ap-current-col">
+                                <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth)MHz</span>
+                            </div>
+                            <div class="ap-col ap-score-col">
+                                <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
+                            </div>
+                            <div class="ap-col ap-arrow-col">
+                                <span class="channel-change-arrow">-></span>
+                            </div>
+                            <div class="ap-col ap-recommended-col">
+                                <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth)MHz</span>
+                                @if (rec.IsDfsChannel)
+                                {
+                                    <span class="dfs-badge">DFS</span>
+                                }
+                            </div>
+                            <div class="ap-col ap-score-col">
+                                <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Notices -->
+                @if (_channelPlan.UnplacedApCount > 0)
+                {
+                    <div class="recommendation-notice">
+                        @_channelPlan.UnplacedApCount AP@(_channelPlan.UnplacedApCount > 1 ? "s" : "") not placed on floor plan - using estimated interference.
+                        Place them on a floor plan for more accurate recommendations.
+                    </div>
+                }
+                @if (!_channelPlan.HasScanData)
+                {
+                    <div class="recommendation-notice">
+                        No RF scan data available. Recommendations are based on internal AP interference only.
+                        External neighbor networks are not factored in.
+                    </div>
+                }
+
+                <!-- How This Works -->
+                <details class="recommendation-explainer">
+                    <summary>How This Works</summary>
+                    <p>
+                        We model how far each AP's signal reaches using your floor plan, wall materials, and antenna patterns.
+                        Then we find the channel assignment that minimizes total interference between your APs and neighboring networks.
+                        Mesh APs are kept on the same channel as their parent. Lower scores mean less interference.
+                    </p>
+                </details>
+            </div>
+        }
+        else
+        {
         <!-- Channel Map for Selected Band -->
         <div class="channel-map-section">
             <div class="section-header">
@@ -292,6 +431,7 @@
                 <IssuesList Issues="_channelIssues" OnClientClick="OnClientClick" />
             </div>
         }
+        } @* end else (not showing recommendations) *@
     }
 </div>
 
@@ -306,6 +446,12 @@
     private SiteHealthScore? _healthScore;
     private RadioBand _selectedBand = RadioBand.Band5GHz;
     private int? _selectedChannel;
+
+    // Channel recommendation state
+    private bool _showRecommendations;
+    private bool _loadingRecommendations;
+    private ChannelPlan? _channelPlan;
+    private DfsPreference _dfsPreference = DfsPreference.IncludeWithPenalty;
 
     // Calculated stats
     private int _coChannelIssues;
@@ -608,6 +754,55 @@
         _ => ""
     };
 
+    // --- Channel Recommendation Methods ---
+
+    private async Task RunRecommendation()
+    {
+        _loadingRecommendations = true;
+        StateHasChanged();
+
+        try
+        {
+            var options = new RecommendationOptions
+            {
+                DfsPreference = _dfsPreference
+            };
+
+            _channelPlan = await WiFiService.GetChannelRecommendationsAsync(_selectedBand, options);
+            _showRecommendations = _channelPlan != null;
+        }
+        finally
+        {
+            _loadingRecommendations = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ChangeDfsPreference(DfsPreference pref)
+    {
+        _dfsPreference = pref;
+        await RunRecommendation();
+    }
+
+    private string GetApModel(string mac)
+    {
+        return _accessPoints.FirstOrDefault(ap =>
+            ap.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase))?.Model ?? "";
+    }
+
+    private static string FormatScore(double score) => score.ToString("F1");
+
+    private static string FormatPercent(double pct) => pct.ToString("F0");
+
+    private static string GetScoreClass(double score) => score switch
+    {
+        <= 0.5 => "score-excellent",
+        <= 1.5 => "score-good",
+        <= 3.0 => "score-fair",
+        <= 5.0 => "score-poor",
+        _ => "score-bad"
+    };
+
     private class WidthGroupInfo
     {
         public int Width { get; set; }          // Channel width in MHz
@@ -709,188 +904,8 @@
         }
     }
 
-    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null)
-    {
-        var channels = new List<int>();
-
-        if (band == RadioBand.Band2_4GHz)
-        {
-            // 2.4 GHz: 5 MHz channel spacing with ~22 MHz signal width means every
-            // channel overlaps its neighbors. Even 20 MHz spans ±2 channels.
-            // For 40 MHz, use the extension channel to determine exact bonded range,
-            // then add ±2 spectral overlap on each edge.
-            var validChannels = GetChannelsForBand(band);
-            int minCh = validChannels.First();
-            int maxCh = validChannels.Last();
-
-            int spanLow, spanHigh;
-            if (width >= 40 && extChannel.HasValue)
-            {
-                // ExtChannel is a direction flag: 1 = above (HT40+), -1 = below (HT40-)
-                int secondary = extChannel.Value > 0 ? primaryChannel + 4 : primaryChannel - 4;
-                int lo = Math.Min(primaryChannel, secondary);
-                int hi = Math.Max(primaryChannel, secondary);
-                spanLow = lo - 2;
-                spanHigh = hi + 2;
-            }
-            else if (width >= 40)
-            {
-                // No extension channel info - assume standard HT40 direction
-                // Lower channels (1-7): HT40+ (extension above), higher: HT40- (extension below)
-                int ext = primaryChannel <= 7 ? primaryChannel + 4 : primaryChannel - 4;
-                int lo = Math.Min(primaryChannel, ext);
-                int hi = Math.Max(primaryChannel, ext);
-                spanLow = lo - 2;
-                spanHigh = hi + 2;
-            }
-            else
-            {
-                // 20 MHz: ±2 spectral overlap (e.g. ch6 → 4-8)
-                spanLow = primaryChannel - 2;
-                spanHigh = primaryChannel + 2;
-            }
-
-            for (int ch = Math.Max(minCh, spanLow); ch <= Math.Min(maxCh, spanHigh); ch++)
-            {
-                if (validChannels.Contains(ch))
-                    channels.Add(ch);
-            }
-            return channels;
-        }
-
-        if (width <= 20)
-        {
-            channels.Add(primaryChannel);
-            return channels;
-        }
-        else
-        {
-            // 5 GHz and 6 GHz: 20 MHz channel spacing (4 channel numbers apart)
-            // Find the bonding group start based on width
-            int channelCount = width / 20;  // 40=2, 80=4, 160=8, 320=16
-            int groupSize = channelCount * 4;  // Channel number span
-
-            // Calculate the group start (channels align to bonding boundaries)
-            // For 5 GHz: 36-48 = UNII-1, 52-64 = UNII-2A, 100-144 = UNII-2C, 149-165 = UNII-3
-            int groupStart;
-
-            if (band == RadioBand.Band5GHz)
-            {
-                groupStart = Get5GHzGroupStart(primaryChannel, width);
-            }
-            else // 6 GHz
-            {
-                groupStart = Get6GHzGroupStart(primaryChannel, width);
-            }
-
-            // Add all channels in the group
-            for (int i = 0; i < channelCount; i++)
-            {
-                int ch = groupStart + (i * 4);
-                channels.Add(ch);
-            }
-        }
-
-        return channels;
-    }
-
-    private int Get5GHzGroupStart(int primaryChannel, int width)
-    {
-        // 5 GHz has non-contiguous channel ranges, need specific bonding rules
-        int channelCount = width / 20;
-
-        // Define valid 160 MHz groups
-        var groups160 = new List<(int start, int end)> { (36, 64), (100, 128) };
-
-        // Define valid 80 MHz groups
-        var groups80 = new List<(int start, int end)> { (36, 48), (52, 64), (100, 112), (116, 128), (132, 144), (149, 161) };
-
-        // Define valid 40 MHz groups
-        var groups40 = new List<(int start, int end)>
-        {
-            (36, 40), (44, 48), (52, 56), (60, 64),
-            (100, 104), (108, 112), (116, 120), (124, 128), (132, 136), (140, 144),
-            (149, 153), (157, 161)
-        };
-
-        List<(int start, int end)> groups = width switch
-        {
-            160 => groups160,
-            80 => groups80,
-            _ => groups40
-        };
-
-        foreach (var (start, end) in groups)
-        {
-            if (primaryChannel >= start && primaryChannel <= end)
-            {
-                return start;
-            }
-        }
-
-        // Fallback: just use the primary channel
-        return primaryChannel;
-    }
-
-    private int Get6GHzGroupStart(int primaryChannel, int width)
-    {
-        // 6 GHz has regulatory boundaries that affect 320 MHz bonding
-        // UNII-5 ends around channel 93, UNII-6/7 starts around channel 97
-        // 320 MHz blocks don't cross the UNII-5/UNII-6 boundary
-
-        if (width == 320)
-        {
-            // 320 MHz blocks based on US regulatory boundaries
-            var groups320 = new List<(int start, int end)>
-            {
-                (1, 61),      // UNII-5 (channels 1-61)
-                (97, 157),    // UNII-6/7 lower (channels 97-157)
-                (161, 221)    // UNII-7/8 (channels 161-221)
-            };
-
-            foreach (var (start, end) in groups320)
-            {
-                if (primaryChannel >= start && primaryChannel <= end)
-                {
-                    return start;
-                }
-            }
-        }
-        else if (width == 160)
-        {
-            // 160 MHz blocks (8 channels each, 32 channel number span)
-            var groups160 = new List<(int start, int end)>
-            {
-                (1, 29), (33, 61), (65, 93), (97, 125),
-                (129, 157), (161, 189), (193, 221), (225, 253)
-            };
-
-            foreach (var (start, end) in groups160)
-            {
-                if (primaryChannel >= start && primaryChannel <= end)
-                {
-                    return start;
-                }
-            }
-        }
-        else if (width == 80)
-        {
-            // 80 MHz blocks (4 channels each, 16 channel number span)
-            int offset = primaryChannel - 1;
-            int groupIndex = offset / 16;
-            return 1 + (groupIndex * 16);
-        }
-        else // 40 MHz
-        {
-            // 40 MHz blocks (2 channels each, 8 channel number span)
-            int offset = primaryChannel - 1;
-            int groupIndex = offset / 8;
-            return 1 + (groupIndex * 8);
-        }
-
-        // Fallback
-        return primaryChannel;
-    }
+    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null) =>
+        ChannelSpanHelper.GetChannelWidthSpan(band, primaryChannel, width, extChannel);
 
     private string GetChannelGroupClass(RadioBand band, int channel)
     {

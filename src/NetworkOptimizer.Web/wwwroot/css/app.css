@@ -9134,6 +9134,85 @@ a.path-hop.hop-clickable:hover {
     padding: 1rem;
 }
 
+/* Channel Recommendation View */
+.recommendation-view {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.recommendation-view .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Score coloring */
+.score-excellent { color: #22c55e; }
+.score-good { color: #3b82f6; }
+.score-fair { color: #fbbf24; }
+.score-poor { color: #f97316; }
+.score-bad { color: #ef4444; }
+
+/* Changed channel highlight */
+.ap-recommendation-changed { background: rgba(249, 115, 22, 0.08); }
+.rec-changed { color: var(--accent-color); font-weight: 600; }
+.channel-change-arrow { color: var(--text-muted); }
+
+/* DFS badge */
+.dfs-badge {
+    font-size: 0.625rem;
+    padding: 0.1rem 0.3rem;
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+    border-radius: var(--border-radius-sm);
+    margin-left: 0.25rem;
+}
+
+/* Mesh link badge */
+.mesh-link-badge {
+    font-size: 0.625rem;
+    padding: 0.1rem 0.3rem;
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+    border-radius: var(--border-radius-sm);
+    margin-left: 0.25rem;
+}
+
+/* Unplaced AP notice */
+.recommendation-notice {
+    padding: 0.75rem;
+    background: rgba(71, 151, 255, 0.1);
+    border-radius: var(--border-radius-lg);
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+/* DFS preference toggle */
+.dfs-toggle { margin: 0; }
+
+/* How This Works expandable */
+.recommendation-explainer {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+.recommendation-explainer summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+.recommendation-explainer p {
+    margin: 0.5rem 0 0;
+    line-height: 1.5;
+}
+
+/* Improvement stat highlighting */
+.stat-improvement .channel-stat-value { color: var(--success-color); }
+
+/* Recommendation table column widths */
+.ap-current-col, .ap-recommended-col { flex: 1.2; }
+.ap-score-col { flex: 0.6; text-align: center; }
+.ap-arrow-col { flex: 0.3; text-align: center; }
+
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
     .channel-stats-row {
