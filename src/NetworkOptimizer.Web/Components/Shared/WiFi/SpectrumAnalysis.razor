@@ -480,6 +480,16 @@
         background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
     }
 
+    .spectrum-stat-card.clickable {
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .spectrum-stat-card.clickable:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
     .spectrum-stat-card .stat-value {
         font-size: 1.75rem;
         font-weight: 600;

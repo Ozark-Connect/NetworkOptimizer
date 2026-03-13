@@ -749,6 +749,13 @@
             {
                 _activeTab = newTab;
                 _initialClientMac = null;
+
+                // Re-parse drill-down params for the new tab
+                _initialApMac = ApQueryParam;
+                _initialBand = BandFromQueryString(BandQueryParam);
+                _initialChannel = ChannelQueryParam;
+                _autoRunRecommendation = RecommendQueryParam == true;
+
                 StateHasChanged();
             }
         }

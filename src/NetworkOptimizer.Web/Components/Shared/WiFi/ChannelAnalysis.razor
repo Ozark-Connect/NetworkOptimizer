@@ -516,7 +516,7 @@
             _selectedChannel = InitialChannel.Value;
 
         if (AutoRunRecommendation)
-            _ = RunRecommendation();
+            await RunRecommendation();
     }
 
     private async Task LoadDataAsync()
