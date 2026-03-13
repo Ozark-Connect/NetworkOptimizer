@@ -33,22 +33,9 @@ public sealed class HeatmapDataCache
     {
         var current = _cached;
         if (current != null && current.Version == _version)
-        {
-            // Version matches, but AP radio config may have changed in UniFi
-            // (e.g., antenna mode, TX power). Check if propagation-relevant fields
-            // are still current by fetching fresh AP data and comparing fingerprints.
-            var freshMarkers = await apMapSvc.GetApMapMarkersAsync();
-            var freshFingerprint = ComputeRadioFingerprint(freshMarkers);
-            if (freshFingerprint == current.RadioFingerprint)
-                return current;
-
-            // Radio config changed - rebuild cache with fresh AP data
-            current = current with { ApMarkers = freshMarkers, RadioFingerprint = freshFingerprint };
-            _cached = current;
             return current;
-        }
 
-        // Reload all data
+        // Reload all data (version changed via Invalidate())
         var snapshotVersion = _version;
 
         var allBuildings = await floorSvc.GetBuildingsAsync();
