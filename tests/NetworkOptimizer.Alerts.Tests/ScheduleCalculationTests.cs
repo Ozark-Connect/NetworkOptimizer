@@ -14,9 +14,12 @@ public class ScheduleCalculationTests
 
         var next = ScheduleService.CalculateNextRun(60, scheduledRunTime: scheduledTime);
 
-        // next should be scheduledTime + 60 min (not UtcNow + 60 min)
-        var expected = scheduledTime.AddMinutes(60);
+        // scheduledTime gets truncated to the minute, then +60 min
+        var truncated = new DateTime(scheduledTime.Year, scheduledTime.Month, scheduledTime.Day,
+            scheduledTime.Hour, scheduledTime.Minute, 0, DateTimeKind.Utc);
+        var expected = truncated.AddMinutes(60);
         next.Should().BeCloseTo(expected, TimeSpan.FromSeconds(1));
+        next.Second.Should().Be(0, "non-anchored runs should land on clean minute boundaries");
     }
 
     [Fact]
@@ -27,10 +30,13 @@ public class ScheduleCalculationTests
 
         var next = ScheduleService.CalculateNextRun(60, scheduledRunTime: scheduledTime);
 
-        // Should walk forward: -130+60=-70 (past), -70+60=-10 (past), -10+60=+50 (future)
+        // Should walk forward from truncated base until future
         next.Should().BeAfter(DateTime.UtcNow);
-        // Should still be aligned to the original schedule grid
-        var offset = (next - scheduledTime).TotalMinutes;
+        next.Second.Should().Be(0, "should land on clean minute boundary");
+        // Should still be aligned to the truncated schedule grid
+        var truncated = new DateTime(scheduledTime.Year, scheduledTime.Month, scheduledTime.Day,
+            scheduledTime.Hour, scheduledTime.Minute, 0, DateTimeKind.Utc);
+        var offset = (next - truncated).TotalMinutes;
         (offset % 60).Should().BeApproximately(0, 0.01);
     }
 
@@ -41,10 +47,13 @@ public class ScheduleCalculationTests
 
         var next = ScheduleService.CalculateNextRun(60);
 
-        var after = DateTime.UtcNow;
-        // Should be approximately UtcNow + 60 min
-        next.Should().BeOnOrAfter(before.AddMinutes(60));
-        next.Should().BeOnOrBefore(after.AddMinutes(60));
+        // UtcNow gets truncated to the minute, then +60 min.
+        // Result is within a ~1 min window (truncation can drop up to 59s)
+        var truncatedBefore = new DateTime(before.Year, before.Month, before.Day,
+            before.Hour, before.Minute, 0, DateTimeKind.Utc);
+        next.Should().BeOnOrAfter(truncatedBefore.AddMinutes(60));
+        next.Should().BeOnOrBefore(truncatedBefore.AddMinutes(61));
+        next.Second.Should().Be(0, "should land on clean minute boundary");
     }
 
     [Fact]

@@ -144,11 +144,10 @@ public static class AlertEndpoints
             existing.FrequencyMinutes = updated.FrequencyMinutes;
             existing.Name = updated.Name;
 
-            // Recalculate next run if frequency changed and task has been run before
-            if (existing.LastRunAt.HasValue)
-            {
-                existing.NextRunAt = existing.LastRunAt.Value.AddMinutes(existing.FrequencyMinutes);
-            }
+            // Recalculate next run using CalculateNextRun to avoid drift from execution duration
+            existing.NextRunAt = ScheduleService.CalculateNextRun(
+                existing.FrequencyMinutes, existing.CustomMorningHour, existing.CustomMorningMinute,
+                existing.NextRunAt);
 
             await repo.UpdateAsync(existing);
             return Results.Ok(existing);

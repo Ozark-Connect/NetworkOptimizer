@@ -316,7 +316,7 @@ public class ScheduleService : BackgroundService
     /// When scheduledRunTime is provided (from a scheduled execution), the next run is calculated
     /// relative to that time to prevent drift from execution duration.
     /// </summary>
-    internal static DateTime CalculateNextRun(int frequencyMinutes, int? startHour = null,
+    public static DateTime CalculateNextRun(int frequencyMinutes, int? startHour = null,
         int? startMinute = null, DateTime? scheduledRunTime = null)
     {
         if (startHour == null)
@@ -325,6 +325,10 @@ public class ScheduleService : BackgroundService
                 return DateTime.UtcNow.AddMinutes(60);
 
             var baseTime = scheduledRunTime ?? DateTime.UtcNow;
+            // Truncate to the minute to prevent sub-minute drift from accumulating
+            // (e.g., first run uses DateTime.UtcNow which has fractional seconds)
+            baseTime = new DateTime(baseTime.Year, baseTime.Month, baseTime.Day,
+                baseTime.Hour, baseTime.Minute, 0, DateTimeKind.Utc);
             var next = baseTime.AddMinutes(frequencyMinutes);
             // If calculated time is in the past (task was very delayed), walk forward
             var now = DateTime.UtcNow;

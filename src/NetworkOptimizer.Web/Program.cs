@@ -528,7 +528,7 @@ using (var scope = app.Services.CreateScope())
             Name = "Security Audit",
             Enabled = true,
             FrequencyMinutes = 720, // 12 hours
-            NextRunAt = DateTime.UtcNow.AddMinutes(720), // Don't fire immediately on fresh install
+            NextRunAt = NetworkOptimizer.Alerts.ScheduleService.CalculateNextRun(720), // Clean minute boundary, no immediate fire
             CreatedAt = DateTime.UtcNow
         });
         db.SaveChanges();
