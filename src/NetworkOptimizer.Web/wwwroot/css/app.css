@@ -9230,6 +9230,13 @@ a.path-hop.hop-clickable:hover {
         flex-wrap: wrap;
     }
 
+    .channel-map-section,
+    .aps-band-section,
+    .channel-details-section,
+    .channel-issues-section {
+        padding: 1rem 0;
+    }
+
     .channel-map {
         justify-content: center;
     }
