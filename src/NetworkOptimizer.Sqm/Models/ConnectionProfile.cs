@@ -100,6 +100,12 @@ public class ConnectionProfile
     public double LatencyIncrease => GetLatencyIncrease();
 
     /// <summary>
+    /// Safety cap as fraction of max speed (e.g., 0.95 = 95%).
+    /// Fiber uses 1.0 because the WAN link speed cap already provides headroom.
+    /// </summary>
+    public double SafetyCapPercent => GetSafetyCapPercent();
+
+    /// <summary>
     /// Ping target host for latency monitoring
     /// </summary>
     public string PingHost { get; set; } = "1.1.1.1";
@@ -310,6 +316,22 @@ public class ConnectionProfile
             ConnectionType.FixedWireless => 1.05,
             ConnectionType.CellularHome => 1.05,
             _ => 1.04
+        };
+    }
+
+    /// <summary>
+    /// Get safety cap percentage based on connection type.
+    /// Fiber doesn't need a safety cap because the WAN link speed already caps MaxDownloadMbps.
+    /// </summary>
+    private double GetSafetyCapPercent()
+    {
+        return Type switch
+        {
+            // Fiber: WAN link speed is the natural ceiling, no additional cap needed
+            ConnectionType.Fiber => 1.0,
+
+            // All other types: 95% safety margin below the bottleneck
+            _ => 0.95
         };
     }
 

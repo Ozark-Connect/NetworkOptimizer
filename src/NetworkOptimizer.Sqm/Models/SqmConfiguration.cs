@@ -136,6 +136,12 @@ public class SqmConfiguration
     public double BlendingWeightBelow { get; set; } = 0.80;
 
     /// <summary>
+    /// Safety cap as fraction of max speed (e.g., 0.95 = 95%, 1.0 = no cap).
+    /// Fiber uses 1.0 because the WAN link speed already provides headroom.
+    /// </summary>
+    public double SafetyCapPercent { get; set; } = 0.95;
+
+    /// <summary>
     /// Get the ConnectionProfile for this configuration
     /// </summary>
     public ConnectionProfile GetProfile()
@@ -192,6 +198,7 @@ public class SqmConfiguration
         var (belowWeight, _) = profile.GetBlendingRatios(withinThreshold: false);
         BlendingWeightWithin = withinWeight;
         BlendingWeightBelow = belowWeight;
+        SafetyCapPercent = profile.SafetyCapPercent;
 
         // Apply default speedtest server if not specified
         PreferredSpeedtestServerId ??= profile.PreferredSpeedtestServerId;
@@ -223,7 +230,8 @@ public class SqmConfiguration
             LatencyIncrease = profile.LatencyIncrease,
             PreferredSpeedtestServerId = profile.PreferredSpeedtestServerId,
             BlendingWeightWithin = withinWeight,
-            BlendingWeightBelow = belowWeight
+            BlendingWeightBelow = belowWeight,
+            SafetyCapPercent = profile.SafetyCapPercent
         };
     }
 
