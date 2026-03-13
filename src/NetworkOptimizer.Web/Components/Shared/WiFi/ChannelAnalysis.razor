@@ -9,7 +9,7 @@
     <div class="channel-header">
         <h3>Channel Analysis</h3>
         <div class="header-actions">
-            @if (!_showRecommendations && _accessPoints.Count(ap => ap.Radios.Any(r => r.Band == _selectedBand && r.Channel.HasValue)) > 1)
+            @if (!_showRecommendations && _accessPoints.Any(ap => ap.IsOnline && ap.Radios.Any(r => r.Channel.HasValue)))
             {
                 <button class="btn btn-sm btn-secondary" @onclick="RunRecommendation" disabled="@_loadingRecommendations">
                     @if (_loadingRecommendations)
@@ -75,10 +75,19 @@
             @foreach (var band in _bands)
             {
                 var bandData = GetBandData(band);
+                var hasRecForBand = _showRecommendations && _channelPlans.ContainsKey(band);
                 <button class="band-tab @GetBandClass(band) @(_selectedBand == band ? "active" : "") @(bandData.HasIssues ? "has-issues" : "")"
                         @onclick="() => { _selectedBand = band; _selectedChannel = null; }">
                     @band.ToDisplayString()
-                    @if (bandData.HasIssues)
+                    @if (_showRecommendations && hasRecForBand)
+                    {
+                        var bandPlan = _channelPlans[band];
+                        @if (bandPlan.ImprovementPercent > 0)
+                        {
+                            <span class="issue-indicator" style="background: var(--success-color);">@FormatPercent(bandPlan.ImprovementPercent)%</span>
+                        }
+                    }
+                    else if (bandData.HasIssues)
                     {
                         <span class="issue-indicator">!</span>
                     }
@@ -90,127 +99,150 @@
             }
         </div>
 
-        @if (_showRecommendations && _channelPlan != null)
+        @if (_showRecommendations)
         {
             <div class="recommendation-view">
                 <div class="section-header">
                     <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
-                    <button class="btn btn-sm btn-ghost" @onclick="() => _showRecommendations = false">Back to Current</button>
+                    <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans.Clear(); }">Back to Current</button>
                 </div>
 
-                <!-- Network Score Summary -->
-                <div class="channel-stats-row">
-                    <div class="channel-stat-card">
-                        <div class="channel-stat-value">@FormatScore(_channelPlan.CurrentNetworkScore)</div>
-                        <div class="channel-stat-label">Current Score</div>
+                @if (_channelPlan != null)
+                {
+                    <!-- Network Score Summary -->
+                    <div class="channel-stats-row">
+                        <div class="channel-stat-card">
+                            <div class="channel-stat-value">@FormatScore(_channelPlan.CurrentNetworkScore)</div>
+                            <div class="channel-stat-label">Current Score</div>
+                        </div>
+                        <div class="channel-stat-card @(_channelPlan.ImprovementPercent > 0 ? "stat-improvement" : "")">
+                            <div class="channel-stat-value">@FormatScore(_channelPlan.RecommendedNetworkScore)</div>
+                            <div class="channel-stat-label">Recommended Score</div>
+                        </div>
+                        @if (_channelPlan.ImprovementPercent > 0)
+                        {
+                            <div class="channel-stat-card stat-improvement">
+                                <div class="channel-stat-value">@FormatPercent(_channelPlan.ImprovementPercent)%</div>
+                                <div class="channel-stat-label">Less Interference</div>
+                            </div>
+                        }
+                        else if (!_channelPlan.Recommendations.Any(r => r.IsChanged))
+                        {
+                            <div class="channel-stat-card">
+                                <div class="channel-stat-value score-excellent">Optimal</div>
+                                <div class="channel-stat-label">No changes needed</div>
+                            </div>
+                        }
                     </div>
-                    <div class="channel-stat-card @(_channelPlan.ImprovementPercent > 0 ? "stat-improvement" : "")">
-                        <div class="channel-stat-value">@FormatScore(_channelPlan.RecommendedNetworkScore)</div>
-                        <div class="channel-stat-label">Recommended Score</div>
-                    </div>
-                    @if (_channelPlan.ImprovementPercent > 0)
+
+                    <!-- DFS Preference Toggle (5 GHz only) -->
+                    @if (_selectedBand == RadioBand.Band5GHz)
                     {
-                        <div class="channel-stat-card stat-improvement">
-                            <div class="channel-stat-value">@FormatPercent(_channelPlan.ImprovementPercent)%</div>
-                            <div class="channel-stat-label">Less Interference</div>
+                        <div class="time-range-selector dfs-toggle">
+                            <button class="time-btn @(_dfsPreference == DfsPreference.IncludeWithPenalty ? "active" : "")"
+                                    @onclick="() => ChangeDfsPreference(DfsPreference.IncludeWithPenalty)">
+                                Include DFS
+                            </button>
+                            <button class="time-btn @(_dfsPreference == DfsPreference.Exclude ? "active" : "")"
+                                    @onclick="() => ChangeDfsPreference(DfsPreference.Exclude)">
+                                Avoid DFS
+                            </button>
+                            <button class="time-btn @(_dfsPreference == DfsPreference.Prefer ? "active" : "")"
+                                    @onclick="() => ChangeDfsPreference(DfsPreference.Prefer)">
+                                Prefer DFS
+                            </button>
                         </div>
                     }
-                </div>
 
-                <!-- DFS Preference Toggle (5 GHz only) -->
-                @if (_selectedBand == RadioBand.Band5GHz)
-                {
-                    <div class="time-range-selector dfs-toggle">
-                        <button class="time-btn @(_dfsPreference == DfsPreference.IncludeWithPenalty ? "active" : "")"
-                                @onclick="() => ChangeDfsPreference(DfsPreference.IncludeWithPenalty)">
-                            Include DFS
-                        </button>
-                        <button class="time-btn @(_dfsPreference == DfsPreference.Exclude ? "active" : "")"
-                                @onclick="() => ChangeDfsPreference(DfsPreference.Exclude)">
-                            Avoid DFS
-                        </button>
-                        <button class="time-btn @(_dfsPreference == DfsPreference.Prefer ? "active" : "")"
-                                @onclick="() => ChangeDfsPreference(DfsPreference.Prefer)">
-                            Prefer DFS
-                        </button>
+                    <!-- Per-AP Recommendation Table -->
+                    <div class="aps-band-table">
+                        <div class="aps-header">
+                            <div class="ap-col ap-name-col">Access Point</div>
+                            <div class="ap-col ap-current-col">Current</div>
+                            <div class="ap-col ap-score-col">Score</div>
+                            <div class="ap-col ap-arrow-col"></div>
+                            <div class="ap-col ap-recommended-col">Recommended</div>
+                            <div class="ap-col ap-score-col">Score</div>
+                        </div>
+                        @foreach (var rec in _channelPlan.Recommendations)
+                        {
+                            <div class="aps-row @(rec.IsChanged ? "ap-recommendation-changed" : "")">
+                                <div class="ap-col ap-name-col">
+                                    <span class="ap-name">
+                                        <DeviceIcon Model="@GetApModel(rec.ApMac)" Size="md" />
+                                        @rec.ApName
+                                    </span>
+                                    @if (rec.IsMeshConstrained)
+                                    {
+                                        <span class="mesh-link-badge" data-tooltip="Mesh pair - shares channel with parent">mesh</span>
+                                    }
+                                    @if (rec.IsUnplaced)
+                                    {
+                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
+                                    }
+                                </div>
+                                <div class="ap-col ap-current-col">
+                                    <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth)MHz</span>
+                                </div>
+                                <div class="ap-col ap-score-col">
+                                    <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
+                                </div>
+                                <div class="ap-col ap-arrow-col">
+                                    <span class="channel-change-arrow">-></span>
+                                </div>
+                                <div class="ap-col ap-recommended-col">
+                                    <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth)MHz</span>
+                                    @if (rec.IsDfsChannel)
+                                    {
+                                        <span class="dfs-badge">DFS</span>
+                                    }
+                                </div>
+                                <div class="ap-col ap-score-col">
+                                    <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
+                                </div>
+                            </div>
+                        }
                     </div>
-                }
 
-                <!-- Per-AP Recommendation Table -->
-                <div class="aps-band-table">
-                    <div class="aps-header">
-                        <div class="ap-col ap-name-col">Access Point</div>
-                        <div class="ap-col ap-current-col">Current</div>
-                        <div class="ap-col ap-score-col">Score</div>
-                        <div class="ap-col ap-arrow-col"></div>
-                        <div class="ap-col ap-recommended-col">Recommended</div>
-                        <div class="ap-col ap-score-col">Score</div>
-                    </div>
-                    @foreach (var rec in _channelPlan.Recommendations)
+                    <!-- Notices -->
+                    @if (!_channelPlan.HasBuildingData)
                     {
-                        <div class="aps-row @(rec.IsChanged ? "ap-recommendation-changed" : "")">
-                            <div class="ap-col ap-name-col">
-                                <span class="ap-name">
-                                    <DeviceIcon Model="@GetApModel(rec.ApMac)" Size="md" />
-                                    @rec.ApName
-                                </span>
-                                @if (rec.IsMeshConstrained)
-                                {
-                                    <span class="mesh-link-badge" data-tooltip="Mesh pair - shares channel with parent">mesh</span>
-                                }
-                                @if (rec.IsUnplaced)
-                                {
-                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
-                                }
-                            </div>
-                            <div class="ap-col ap-current-col">
-                                <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth)MHz</span>
-                            </div>
-                            <div class="ap-col ap-score-col">
-                                <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
-                            </div>
-                            <div class="ap-col ap-arrow-col">
-                                <span class="channel-change-arrow">-></span>
-                            </div>
-                            <div class="ap-col ap-recommended-col">
-                                <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth)MHz</span>
-                                @if (rec.IsDfsChannel)
-                                {
-                                    <span class="dfs-badge">DFS</span>
-                                }
-                            </div>
-                            <div class="ap-col ap-score-col">
-                                <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
-                            </div>
+                        <div class="recommendation-notice">
+                            No floor plan or building data found. Build out your property in Signal Map for propagation-modeled recommendations
+                            that account for wall materials, antenna patterns, and AP placement.
                         </div>
                     }
-                </div>
+                    else if (_channelPlan.UnplacedApCount > 0)
+                    {
+                        <div class="recommendation-notice">
+                            @_channelPlan.UnplacedApCount AP@(_channelPlan.UnplacedApCount > 1 ? "s" : "") not placed on floor plan - using estimated interference.
+                            Place them on a floor plan for more accurate recommendations.
+                        </div>
+                    }
+                    @if (!_channelPlan.HasScanData)
+                    {
+                        <div class="recommendation-notice">
+                            No RF scan data available. Recommendations are based on internal AP interference only.
+                            External neighbor networks are not factored in.
+                        </div>
+                    }
 
-                <!-- Notices -->
-                @if (_channelPlan.UnplacedApCount > 0)
+                    <!-- How This Works -->
+                    <details class="recommendation-explainer">
+                        <summary>How This Works</summary>
+                        <p>
+                            We model how far each AP's signal reaches using your floor plan, wall materials, and antenna patterns.
+                            Then we find the channel assignment that minimizes total interference between your APs and neighboring networks.
+                            Mesh APs are kept on the same channel as their parent. Lower scores mean less interference.
+                        </p>
+                    </details>
+                }
+                else
                 {
                     <div class="recommendation-notice">
-                        @_channelPlan.UnplacedApCount AP@(_channelPlan.UnplacedApCount > 1 ? "s" : "") not placed on floor plan - using estimated interference.
-                        Place them on a floor plan for more accurate recommendations.
+                        No APs with radios on @_selectedBand.ToDisplayString() found. Switch to another band to see recommendations.
                     </div>
                 }
-                @if (!_channelPlan.HasScanData)
-                {
-                    <div class="recommendation-notice">
-                        No RF scan data available. Recommendations are based on internal AP interference only.
-                        External neighbor networks are not factored in.
-                    </div>
-                }
-
-                <!-- How This Works -->
-                <details class="recommendation-explainer">
-                    <summary>How This Works</summary>
-                    <p>
-                        We model how far each AP's signal reaches using your floor plan, wall materials, and antenna patterns.
-                        Then we find the channel assignment that minimizes total interference between your APs and neighboring networks.
-                        Mesh APs are kept on the same channel as their parent. Lower scores mean less interference.
-                    </p>
-                </details>
             </div>
         }
         else
@@ -439,6 +471,7 @@
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
     [Parameter] public RadioBand? InitialBand { get; set; }
     [Parameter] public int? InitialChannel { get; set; }
+    [Parameter] public bool AutoRunRecommendation { get; set; }
 
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
@@ -450,7 +483,8 @@
     // Channel recommendation state
     private bool _showRecommendations;
     private bool _loadingRecommendations;
-    private ChannelPlan? _channelPlan;
+    private Dictionary<RadioBand, ChannelPlan> _channelPlans = new();
+    private ChannelPlan? _channelPlan => _channelPlans.TryGetValue(_selectedBand, out var plan) ? plan : null;
     private DfsPreference _dfsPreference = DfsPreference.IncludeWithPenalty;
 
     // Calculated stats
@@ -480,6 +514,9 @@
             _selectedBand = InitialBand.Value;
         if (InitialChannel.HasValue)
             _selectedChannel = InitialChannel.Value;
+
+        if (AutoRunRecommendation)
+            _ = RunRecommendation();
     }
 
     private async Task LoadDataAsync()
@@ -768,8 +805,8 @@
                 DfsPreference = _dfsPreference
             };
 
-            _channelPlan = await WiFiService.GetChannelRecommendationsAsync(_selectedBand, options);
-            _showRecommendations = _channelPlan != null;
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            _showRecommendations = _channelPlans.Count > 0;
         }
         finally
         {

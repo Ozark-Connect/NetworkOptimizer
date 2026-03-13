@@ -39,6 +39,7 @@ public class ChannelPlan
         ? (CurrentNetworkScore - RecommendedNetworkScore) / CurrentNetworkScore * 100 : 0;
     public int UnplacedApCount { get; set; }
     public bool HasScanData { get; set; }
+    public bool HasBuildingData { get; set; }
 }
 
 /// <summary>

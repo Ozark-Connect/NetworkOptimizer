@@ -246,7 +246,7 @@
         <!-- Channel Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" InitialBand="@_initialBand" InitialChannel="@_initialChannel" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" InitialBand="@_initialBand" InitialChannel="@_initialChannel" AutoRunRecommendation="@_autoRunRecommendation" />
             </div>
         </div>
     }
@@ -591,6 +591,9 @@
     [SupplyParameterFromQuery(Name = "channel")]
     public int? ChannelQueryParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "recommend")]
+    public bool? RecommendQueryParam { get; set; }
+
     private string? _lastTabParam;
 
     private bool _loading = true;
@@ -600,6 +603,7 @@
     private string? _initialApMac;
     private RadioBand? _initialBand;
     private int? _initialChannel;
+    private bool _autoRunRecommendation;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -697,6 +701,7 @@
             _initialApMac = ApQueryParam;
             _initialBand = BandFromQueryString(BandQueryParam);
             _initialChannel = ChannelQueryParam;
+            _autoRunRecommendation = RecommendQueryParam == true;
         }
         else
         {

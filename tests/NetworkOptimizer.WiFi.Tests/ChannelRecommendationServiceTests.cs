@@ -413,4 +413,67 @@ public class ChannelRecommendationServiceTests
         plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02")
             .IsMeshConstrained.Should().BeTrue();
     }
+
+    [Fact]
+    public void Optimize_ZeroInterference_PreservesCurrentChannels()
+    {
+        // APs already on different non-overlapping channels (score = 0)
+        // Optimizer should NOT swap them around pointlessly
+        // Using non-DFS channels that are in the default valid set
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 149)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        // No changes should be recommended
+        foreach (var rec in plan.Recommendations)
+        {
+            rec.IsChanged.Should().BeFalse(
+                $"AP {rec.ApName} was moved from {rec.CurrentChannel} to {rec.RecommendedChannel} with no improvement");
+        }
+    }
+
+    [Fact]
+    public void Optimize_6GHz_NoInterference_KeepsCurrentChannels()
+    {
+        // 6 GHz APs on different 160 MHz bonding groups with zero interference
+        // Using channels from default valid set: 1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61
+        // Ch 5/160 → span (1,29), Ch 37/160 → span (33,61) — non-overlapping
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 5, width: 160),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band6GHz, 37, width: 160)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band6GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band6GHz, null);
+
+        // Should not swap channels when there's no improvement
+        foreach (var rec in plan.Recommendations)
+        {
+            rec.IsChanged.Should().BeFalse(
+                $"AP {rec.ApName} was moved from Ch {rec.CurrentChannel} to Ch {rec.RecommendedChannel} with no improvement");
+        }
+    }
+
+    [Fact]
+    public void Optimize_2_4GHz_AlwaysUsesOnly_1_6_11()
+    {
+        // Even with regulatory data that includes other channels, should only use 1/6/11
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 3, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 9, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, null);
+
+        foreach (var rec in plan.Recommendations)
+        {
+            rec.RecommendedChannel.Should().BeOneOf(new[] { 1, 6, 11 },
+                $"2.4 GHz should only recommend 1/6/11 but got {rec.RecommendedChannel}");
+        }
+    }
 }

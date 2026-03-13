@@ -119,7 +119,8 @@ public class ChannelRecommendationService
         InterferenceGraph graph,
         RadioBand band,
         RegulatoryChannelData? regulatoryData,
-        RecommendationOptions? options = null)
+        RecommendationOptions? options = null,
+        bool hasBuildingData = false)
     {
         var opts = options ?? new RecommendationOptions();
         var n = graph.Nodes.Count;
@@ -175,7 +176,8 @@ public class ChannelRecommendationService
             CurrentNetworkScore = currentNetworkScore,
             RecommendedNetworkScore = bestScore,
             UnplacedApCount = graph.Nodes.Count(node => !node.IsPlaced),
-            HasScanData = graph.ExternalLoad.Any(d => d.Count > 0)
+            HasScanData = graph.ExternalLoad.Any(d => d.Count > 0),
+            HasBuildingData = hasBuildingData
         };
 
         for (int i = 0; i < n; i++)
@@ -443,6 +445,12 @@ public class ChannelRecommendationService
         RegulatoryChannelData? regulatoryData,
         DfsPreference dfsPref)
     {
+        // 2.4 GHz: ALWAYS restrict to 1, 6, 11 regardless of regulatory data.
+        // Co-channel interference (managed by CSMA/CA) is far better than
+        // adjacent channel overlap which cannot be mitigated.
+        if (band == RadioBand.Band2_4GHz)
+            return [1, 6, 11];
+
         var width = radio.ChannelWidth ?? 20;
 
         if (regulatoryData != null)
@@ -457,7 +465,6 @@ public class ChannelRecommendationService
         // Fallback defaults
         return band switch
         {
-            RadioBand.Band2_4GHz => [1, 6, 11],
             RadioBand.Band5GHz => [36, 40, 44, 48, 149, 153, 157, 161, 165],
             RadioBand.Band6GHz => [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61],
             _ => []
@@ -466,6 +473,23 @@ public class ChannelRecommendationService
 
     private static int GetMaxValidChannels(InterferenceGraph graph) =>
         graph.Nodes.Max(n => n.ValidChannels.Length);
+
+    /// <summary>
+    /// Count how many APs have a different channel/width vs the original assignment.
+    /// Used for tie-breaking: prefer fewer changes when scores are equal.
+    /// </summary>
+    private static int CountChanges(
+        (int Channel, int Width)[] assignment,
+        (int Channel, int Width)[] original)
+    {
+        int changes = 0;
+        for (int i = 0; i < assignment.Length && i < original.Length; i++)
+        {
+            if (assignment[i].Channel != original[i].Channel || assignment[i].Width != original[i].Width)
+                changes++;
+        }
+        return changes;
+    }
 
     private (int Channel, int Width)[] ApplyMeshConstraints(
         InterferenceGraph graph,
@@ -530,6 +554,11 @@ public class ChannelRecommendationService
         // Get ordered indices (mesh leaders first, then non-mesh, skip mesh children)
         var searchIndices = GetSearchIndices(graph, pinnedIndices);
 
+        // Track current assignment for tie-breaking
+        var originalAssignment = new (int Channel, int Width)[n];
+        for (int i = 0; i < n; i++)
+            originalAssignment[i] = (graph.Nodes[i].CurrentChannel, graph.Nodes[i].CurrentWidth);
+
         void Search(int depth)
         {
             if (depth >= searchIndices.Count)
@@ -541,7 +570,8 @@ public class ChannelRecommendationService
                 var score = ScoreAssignment(graph, withMesh, band);
                 score = AddDfsPenalty(graph, withMesh, band, opts.DfsPreference, score);
 
-                if (score < bestScore)
+                if (score < bestScore ||
+                    (score == bestScore && CountChanges(withMesh, originalAssignment) < CountChanges(bestAssignment, originalAssignment)))
                 {
                     bestScore = score;
                     Array.Copy(withMesh, bestAssignment, n);
@@ -582,6 +612,11 @@ public class ChannelRecommendationService
 
         var searchIndices = GetSearchIndices(graph, pinnedIndices);
 
+        // Track original assignment for tie-breaking (prefer fewer changes)
+        var originalAssignment = new (int Channel, int Width)[n];
+        for (int i = 0; i < n; i++)
+            originalAssignment[i] = (graph.Nodes[i].CurrentChannel, graph.Nodes[i].CurrentWidth);
+
         for (int restart = 0; restart < RandomRestarts; restart++)
         {
             var assignment = new (int Channel, int Width)[n];
@@ -609,7 +644,9 @@ public class ChannelRecommendationService
                         assignment[apIdx] = (ch, w);
                         ApplyMeshConstraints(graph, assignment);
                         var score = ScoreAssignment(graph, assignment, band);
-                        if (score < bestLocal)
+                        // Prefer current channel when scores are equal (avoid pointless swaps)
+                        if (score < bestLocal ||
+                            (score == bestLocal && ch == node.CurrentChannel && w == node.CurrentWidth))
                         {
                             bestLocal = score;
                             bestCh = ch;
@@ -622,7 +659,7 @@ public class ChannelRecommendationService
                 ApplyMeshConstraints(graph, assignment);
             }
 
-            // Local search (hill climbing)
+            // Local search (hill climbing) - only accept strict improvements
             bool improved = true;
             int iterations = 0;
             while (improved && iterations < 100)
@@ -665,7 +702,8 @@ public class ChannelRecommendationService
             var finalScore = ScoreAssignment(graph, assignment, band);
             finalScore = AddDfsPenalty(graph, assignment, band, opts.DfsPreference, finalScore);
 
-            if (finalScore < bestScore)
+            if (finalScore < bestScore ||
+                (finalScore == bestScore && CountChanges(assignment, originalAssignment) < CountChanges(bestAssignment, originalAssignment)))
             {
                 bestScore = finalScore;
                 Array.Copy(assignment, bestAssignment, n);

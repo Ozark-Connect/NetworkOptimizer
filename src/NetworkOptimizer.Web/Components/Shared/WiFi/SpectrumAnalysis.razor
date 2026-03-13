@@ -4,6 +4,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<SpectrumAnalysis> Logger
+@inject NavigationManager NavigationManager
 
 <div class="spectrum-container wifi-sections">
     <!-- Header Row (matching Client Stats pattern) -->
@@ -134,7 +135,9 @@
                     }
                     @if (!string.IsNullOrEmpty(selectedApMac))
                     {
-                        <div class="spectrum-stat-card highlight">
+                        <div class="spectrum-stat-card highlight clickable"
+                             data-tooltip="View network-wide channel recommendations"
+                             @onclick="NavigateToChannelRecommendations">
                             <div class="stat-value cleanest-channels">@GetCleanestChannels()</div>
                             <div class="stat-label">Cleanest @(_cleanestChannelList.Count == 1 ? "Channel" : "Channels")</div>
                         </div>
@@ -1663,6 +1666,18 @@
         public int NetworkCount { get; set; }
         public bool IsAvailable { get; set; }
         public bool IsYourChannel { get; set; }
+    }
+
+    private void NavigateToChannelRecommendations()
+    {
+        var bandParam = selectedBand switch
+        {
+            RadioBand.Band2_4GHz => "2.4",
+            RadioBand.Band5GHz => "5",
+            RadioBand.Band6GHz => "6",
+            _ => "5"
+        };
+        NavigationManager.NavigateTo($"/wifi-optimizer?tab=channels&band={bandParam}&recommend=true", forceLoad: false, replace: false);
     }
 
 }

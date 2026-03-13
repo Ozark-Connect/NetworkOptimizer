@@ -757,20 +757,22 @@ public class WiFiOptimizerService
 
     /// <summary>
     /// Get channel recommendations for a specific band.
-    /// Coordinates data loading and calls the recommendation engine.
+    /// Coordinates data loading and calls the recommendation engine for all bands.
     /// </summary>
-    public async Task<ChannelPlan?> GetChannelRecommendationsAsync(
-        RadioBand band, RecommendationOptions? options = null)
+    public async Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
+        RecommendationOptions? options = null)
     {
+        var results = new Dictionary<RadioBand, ChannelPlan>();
+
         if (!_connectionService.IsConnected)
         {
             _logger.LogDebug("Cannot get channel recommendations - not connected to UniFi");
-            return null;
+            return results;
         }
 
         try
         {
-            // Load all required data in parallel
+            // Load all required data once (shared across all bands)
             var apsTask = GetAccessPointsAsync();
             var regulatoryTask = GetRegulatoryChannelsAsync();
             var scanTask = GetChannelScanResultsAsync();
@@ -784,11 +786,12 @@ public class WiFiOptimizerService
             if (aps.Count == 0)
             {
                 _logger.LogDebug("No APs available for channel recommendations");
-                return null;
+                return results;
             }
 
-            // Load propagation context (same pattern as BuildOptimizerContextAsync)
+            // Load propagation context once (same pattern as BuildOptimizerContextAsync)
             ApPropagationContext? propCtx = null;
+            bool hasBuildingData = false;
             try
             {
                 var apMapService = _serviceProvider.GetRequiredService<ApMapService>();
@@ -796,6 +799,8 @@ public class WiFiOptimizerService
                 var placedAps = cached.ApMarkers
                     .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
                     .ToList();
+
+                hasBuildingData = placedAps.Count > 0 && cached.BuildingFloorInfos.Count > 0;
 
                 if (placedAps.Count > 0)
                 {
@@ -823,17 +828,36 @@ public class WiFiOptimizerService
                 _logger.LogDebug(ex, "Failed to load propagation data for channel recommendations");
             }
 
-            // Build interference graph and optimize
-            var graph = _channelRecommendationService.BuildInterferenceGraph(
-                aps, band, propCtx, scanResults, regulatoryData, options);
+            // Generate recommendations for each band that has APs
+            var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+            foreach (var band in bands)
+            {
+                var bandAps = aps.Where(ap =>
+                    ap.IsOnline && ap.Radios.Any(r => r.Band == band && r.Channel.HasValue)).ToList();
+                if (bandAps.Count == 0) continue;
 
-            return _channelRecommendationService.Optimize(graph, band, regulatoryData, options);
+                try
+                {
+                    var graph = _channelRecommendationService.BuildInterferenceGraph(
+                        aps, band, propCtx, scanResults, regulatoryData, options);
+
+                    var plan = _channelRecommendationService.Optimize(
+                        graph, band, regulatoryData, options, hasBuildingData);
+
+                    results[band] = plan;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get channel recommendations for {Band}", band);
+                }
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get channel recommendations for {Band}", band);
-            return null;
+            _logger.LogError(ex, "Failed to get channel recommendations");
         }
+
+        return results;
     }
 }
 
