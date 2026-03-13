@@ -228,6 +228,7 @@ public class ScriptGenerator
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
+        sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -297,9 +298,9 @@ public class ScriptGenerator
         sb.AppendLine("download_speed_mbps=$((download_speed_mbps > MAX_DOWNLOAD_SPEED ? MAX_DOWNLOAD_SPEED : download_speed_mbps))");
         sb.AppendLine();
 
-        // Apply 95% cap
-        sb.AppendLine("# Apply 95% cap");
-        sb.AppendLine("max_adjusted_rate=$(echo \"$MAX_DOWNLOAD_SPEED * 0.95 / 1\" | bc)");
+        // Apply safety cap
+        sb.AppendLine("# Apply safety cap");
+        sb.AppendLine("max_adjusted_rate=$(echo \"$MAX_DOWNLOAD_SPEED * $SAFETY_CAP / 1\" | bc)");
         sb.AppendLine("download_speed_mbps=$((download_speed_mbps > max_adjusted_rate ? max_adjusted_rate : download_speed_mbps))");
         sb.AppendLine();
 
@@ -339,6 +340,7 @@ public class ScriptGenerator
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
         sb.AppendLine($"MAX_DOWNLOAD_SPEED_CONFIG=\"{_config.MaxDownloadSpeed}\"");
+        sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -421,7 +423,7 @@ public class ScriptGenerator
 
         // Apply limits
         sb.AppendLine("# Apply limits");
-        sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * 0.95\" | bc)");
+        sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
         sb.AppendLine("if (( $(echo \"$new_rate > $max_adjusted_rate\" | bc) )); then");
         sb.AppendLine("    new_rate=$max_adjusted_rate");
         sb.AppendLine("fi");
