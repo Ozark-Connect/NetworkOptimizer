@@ -182,7 +182,7 @@
                                     }
                                 </div>
                                 <div class="ap-col ap-current-col">
-                                    <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth)MHz</span>
+                                    <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>
                                 </div>
                                 <div class="ap-col ap-score-col">
                                     <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
@@ -191,7 +191,7 @@
                                     <span class="channel-change-arrow">-></span>
                                 </div>
                                 <div class="ap-col ap-recommended-col">
-                                    <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth)MHz</span>
+                                    <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth) MHz</span>
                                     @if (rec.IsDfsChannel)
                                     {
                                         <span class="dfs-badge">DFS</span>
