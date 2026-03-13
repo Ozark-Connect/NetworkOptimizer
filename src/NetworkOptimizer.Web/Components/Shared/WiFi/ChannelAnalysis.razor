@@ -549,6 +549,13 @@
             _regulatoryData = await WiFiService.GetRegulatoryChannelsAsync();
             _healthScore = await WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             AnalyzeChannels();
+
+            // Re-run recommendations if they're currently displayed
+            if (_showRecommendations)
+            {
+                var options = new RecommendationOptions { DfsPreference = _dfsPreference };
+                _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            }
         }
         finally
         {
