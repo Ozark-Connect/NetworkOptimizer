@@ -137,6 +137,7 @@
                     {
                         <div class="spectrum-stat-card highlight clickable"
                              data-tooltip="View network-wide channel recommendations"
+                             data-tooltip-hover-only
                              @onclick="NavigateToChannelRecommendations">
                             <div class="stat-value cleanest-channels">@GetCleanestChannels()</div>
                             <div class="stat-label">Cleanest @(_cleanestChannelList.Count == 1 ? "Channel" : "Channels")</div>
