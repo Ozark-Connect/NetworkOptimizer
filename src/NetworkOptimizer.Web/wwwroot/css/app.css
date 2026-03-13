@@ -9169,12 +9169,13 @@ a.path-hop.hop-clickable:hover {
 
 /* Mesh link badge */
 .mesh-link-badge {
-    font-size: 0.625rem;
-    padding: 0.1rem 0.3rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.125rem 0.5rem;
     background: rgba(59, 130, 246, 0.15);
     color: #3b82f6;
-    border-radius: var(--border-radius-sm);
-    margin-left: 0.25rem;
+    border-radius: 3px;
+    margin-left: 0.5rem;
 }
 
 /* Unplaced AP notice */
@@ -9211,10 +9212,14 @@ a.path-hop.hop-clickable:hover {
 /* Improvement stat highlighting */
 .stat-improvement .channel-stat-value { color: var(--success-color); }
 
-/* Recommendation table column widths */
-.ap-current-col, .ap-recommended-col { flex: 1.2; }
-.ap-score-col { flex: 0.6; text-align: center; }
-.ap-arrow-col { flex: 0.3; text-align: center; }
+/* Recommendation table - override grid for 6-column layout */
+.recommendation-view .aps-header,
+.recommendation-view .aps-row {
+    grid-template-columns: 2fr 1.2fr 0.6fr 0.3fr 1.2fr 0.6fr;
+}
+
+.ap-score-col { text-align: center; }
+.ap-arrow-col { text-align: center; }
 
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
@@ -9268,6 +9273,11 @@ a.path-hop.hop-clickable:hover {
     .recommendation-view .ap-score-col,
     .recommendation-view .aps-header .ap-score-col {
         display: none;
+    }
+
+    .recommendation-view .aps-header,
+    .recommendation-view .aps-row {
+        grid-template-columns: 2fr 1.2fr 0.3fr 1.2fr;
     }
 }
 

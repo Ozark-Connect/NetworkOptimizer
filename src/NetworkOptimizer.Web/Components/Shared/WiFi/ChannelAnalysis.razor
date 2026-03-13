@@ -174,7 +174,7 @@
                                     </span>
                                     @if (rec.IsMeshConstrained)
                                     {
-                                        <span class="mesh-link-badge" data-tooltip="Mesh pair - shares channel with parent">mesh</span>
+                                        <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">Mesh</span>
                                     }
                                     @if (rec.IsUnplaced)
                                     {
@@ -422,7 +422,7 @@
                                         <DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name
                                         @if (ap.IsMeshChild && ap.MeshUplinkBand == _selectedBand)
                                         {
-                                            <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">mesh</span>
+                                            <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">Mesh</span>
                                         }
                                     </span>
                                     <span class="ap-model">@ap.Model</span>
