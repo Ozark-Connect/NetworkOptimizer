@@ -9158,7 +9158,8 @@ a.path-hop.hop-clickable:hover {
 /* Changed channel highlight */
 .ap-recommendation-changed { background: rgba(249, 115, 22, 0.08); }
 .rec-changed { color: var(--accent-color); font-weight: 600; }
-.channel-change-arrow { color: var(--text-muted); }
+.channel-change-arrow { color: var(--text-muted); display: inline-flex; align-items: center; }
+.channel-change-arrow svg { vertical-align: middle; }
 
 /* DFS badge */
 .dfs-badge {

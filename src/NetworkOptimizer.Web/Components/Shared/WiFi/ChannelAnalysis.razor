@@ -184,7 +184,7 @@
                                 </div>
                                 <div class="rec-col rec-channels-col">
                                     <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>
-                                    <span class="channel-change-arrow">→</span>
+                                    <span class="channel-change-arrow"><svg width="20" height="14" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1L19 7L12 13M19 7H1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                                     <span class="@(rec.IsChanged ? "rec-changed" : "")">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth) MHz</span>
                                     @if (rec.IsDfsChannel)
                                     {
