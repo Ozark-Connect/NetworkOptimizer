@@ -8568,14 +8568,13 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-secondary);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .channel-map {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    padding: 1rem 0;
 }
 
 .channel-slot {
@@ -9016,7 +9015,7 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-secondary);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .aps-band-table {
@@ -9145,6 +9144,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: 0.5rem;
 }
 
 /* Score coloring */
