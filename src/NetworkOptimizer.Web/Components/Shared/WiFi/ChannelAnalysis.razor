@@ -205,7 +205,7 @@
                     </div>
 
                     <!-- Notices -->
-                    @if (true || !_channelPlan.HasBuildingData) @* TEMP: hardcoded to test notice layout *@
+                    @if (!_channelPlan.HasBuildingData)
                     {
                         <div class="alert-warning recommendation-notice">
                             No floor plan or building data found. Build out your property in Signal Map for propagation-modeled recommendations

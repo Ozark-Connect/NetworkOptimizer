@@ -9251,6 +9251,12 @@ a.path-hop.hop-clickable:hover {
     .ap-radio-details {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    /* Hide score columns in recommendation table on mobile */
+    .recommendation-view .ap-score-col,
+    .recommendation-view .aps-header .ap-score-col {
+        display: none;
+    }
 }
 
 /* ============================================
