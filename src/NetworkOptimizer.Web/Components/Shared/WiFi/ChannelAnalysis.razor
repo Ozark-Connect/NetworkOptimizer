@@ -171,15 +171,15 @@
                                     <span class="ap-name">
                                         <DeviceIcon Model="@GetApModel(rec.ApMac)" Size="md" />
                                         @rec.ApName
+                                        @if (rec.IsMeshConstrained)
+                                        {
+                                            <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">Mesh</span>
+                                        }
+                                        @if (rec.IsUnplaced)
+                                        {
+                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
+                                        }
                                     </span>
-                                    @if (rec.IsMeshConstrained)
-                                    {
-                                        <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">Mesh</span>
-                                    }
-                                    @if (rec.IsUnplaced)
-                                    {
-                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
-                                    }
                                 </div>
                                 <div class="ap-col ap-current-col">
                                     <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>

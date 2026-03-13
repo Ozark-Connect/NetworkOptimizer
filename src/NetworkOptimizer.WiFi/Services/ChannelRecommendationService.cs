@@ -197,7 +197,7 @@ public class ChannelRecommendationService
                 RecommendedWidth = bestAssignment[i].Width,
                 CurrentScore = currentApScore,
                 RecommendedScore = recommendedApScore,
-                IsMeshConstrained = node.MeshGroupLeader >= 0,
+                IsMeshConstrained = node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i,
                 IsUnplaced = !node.IsPlaced,
                 IsDfsChannel = band == RadioBand.Band5GHz && dfsSet.Contains(bestAssignment[i].Channel)
             });

@@ -9212,7 +9212,7 @@ a.path-hop.hop-clickable:hover {
 /* Improvement stat highlighting */
 .stat-improvement .channel-stat-value { color: var(--success-color); }
 
-/* Recommendation table - override grid for 6-column layout */
+/* Recommendation table - own grid, not inheriting 7-col regular table */
 .recommendation-view .aps-header,
 .recommendation-view .aps-row {
     grid-template-columns: 2fr 1.2fr 0.6fr 0.3fr 1.2fr 0.6fr;
