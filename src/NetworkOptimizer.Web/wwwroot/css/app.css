@@ -8568,7 +8568,6 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-secondary);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    margin-bottom: 0.5rem;
 }
 
 .channel-map {
@@ -9015,7 +9014,6 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-secondary);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    margin-bottom: 0.5rem;
 }
 
 .aps-band-table {
