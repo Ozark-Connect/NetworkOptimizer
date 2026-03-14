@@ -153,7 +153,7 @@
                                 var thresholds = _client.Band switch
                                 {
                                     "ng" => new[] { -82, -75, -67, -60, -50 },
-                                    "6e" => new[] { -95, -90, -82, -75, -67 },
+                                    "6e" => new[] { -97, -92, -87, -78, -67 },
                                     _ => new[] { -90, -82, -75, -70, -60 }
                                 };
                             }
@@ -1982,9 +1982,9 @@
         "6e" => dbm switch
         {
             >= -67 => "signal-excellent",
-            >= -75 => "signal-good",
-            >= -82 => "signal-fair",
-            >= -90 => "signal-weak",
+            >= -78 => "signal-good",
+            >= -87 => "signal-fair",
+            >= -92 => "signal-weak",
             _ => "signal-poor"
         },
         // 5 GHz (default): moderate noise floor (~-92 dBm)
