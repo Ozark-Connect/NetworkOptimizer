@@ -9197,8 +9197,8 @@ a.path-hop.hop-clickable:hover {
 }
 
 .btn-recommend:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    filter: brightness(1.15);
+    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.4);
 }
 
 .btn-recommend:disabled {
