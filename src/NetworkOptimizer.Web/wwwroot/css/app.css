@@ -2329,7 +2329,7 @@ select.form-control {
     .main-content {
         overflow-y: auto;
         overflow-x: hidden;
-        scroll-padding-top: 72px; /* account for sticky top bar in scrollIntoView */
+        scroll-padding-top: 70px; /* account for sticky top bar in scrollIntoView */
     }
 
     .page-content {
@@ -2364,7 +2364,7 @@ select.form-control {
 
     /* Client dashboard identity bar: shift below top bar when it's visible */
     .identity-bar.below-topbar {
-        top: 72px;
+        top: 70px;
     }
 
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
