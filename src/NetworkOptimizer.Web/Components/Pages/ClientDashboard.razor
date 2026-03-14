@@ -198,7 +198,13 @@
                         {<span class="detail-dim"> · @_client.ApModel</span>}
                     </span>
                     <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")@(_client.ChannelWidth.HasValue ? $" - {_client.ChannelWidth} MHz" : "")</span>
-                    <span class="identity-detail identity-proto">@FormatProtocol(_client.Protocol)</span>
+                    <span class="identity-detail identity-proto">
+                        <span>@FormatProtocol(_client.Protocol)</span>
+                        @if (_client.FixedApEnabled)
+                        {
+                            <span class="badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")">&#128274; AP Locked</span>
+                        }
+                    </span>
                     @if (_client.RxRateKbps.HasValue)
                     {
                         <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
@@ -210,10 +216,6 @@
                     @if (_client.IsMlo)
                     {
                         <span class="identity-detail badge-mlo">MLO</span>
-                    }
-                    @if (_client.FixedApEnabled)
-                    {
-                        <span class="identity-detail badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")">&#128274; AP Locked</span>
                     }
                 }
                 else
