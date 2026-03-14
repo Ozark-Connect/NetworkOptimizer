@@ -107,19 +107,19 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private const double ClientWifiOverheadFactor = 0.75;
 
     /// <summary>
-    /// Wi-Fi idle mode link rate threshold in Kbps. When a wireless link has no active
-    /// traffic, APs report the management frame rate (typically 6 Mbps) as the link rate.
+    /// Wi-Fi idle mode link rate in Kbps. When a wireless link has no active
+    /// traffic, APs report the management frame rate (exactly 6 Mbps) as the link rate.
     /// This is not a real throughput rate and should be treated as "unknown".
     /// </summary>
-    private const long WifiIdleRateThresholdKbps = 6000;
+    private const long WifiIdleRateKbps = 6000;
 
     /// <summary>
-    /// Returns the rate if it's above idle threshold, otherwise 0.
-    /// Wi-Fi radios report 6 Mbps (management frame rate) when idle, which
-    /// isn't useful for throughput analysis.
+    /// Returns the rate if it's not the idle management frame rate, otherwise 0.
+    /// Wi-Fi radios report exactly 6 Mbps when idle, which isn't useful for
+    /// throughput analysis. Other low rates are legitimate for slow links.
     /// </summary>
     private static long FilterIdleRate(long rateKbps) =>
-        rateKbps > WifiIdleRateThresholdKbps ? rateKbps : 0;
+        rateKbps == WifiIdleRateKbps ? 0 : rateKbps;
 
     // Mesh backhaul overhead factor - ~55% overhead due to half-duplex, retransmits, etc.
     private const double MeshBackhaulOverheadFactor = 0.45;
