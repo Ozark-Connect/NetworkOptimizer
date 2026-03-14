@@ -261,8 +261,10 @@ public class ChannelRecommendationService
 
         // If average improvement per AP is negligible, keep the current assignment.
         // Scales with network size: 4 APs need 1.0 total, 50 APs need 12.5.
-        // Use penalty-adjusted scores for this comparison so DFS penalty influences the decision.
-        var improvement = currentWithDfsPenalty - bestScore;
+        // Compare raw scores (without DFS penalty) so the threshold decision is consistent
+        // across all DFS modes. The DFS penalty only influences the optimizer's channel search.
+        var bestRawScore = ScoreAssignment(graph, bestAssignment, band);
+        var improvement = currentNetworkScore - bestRawScore;
         var avgImprovement = n > 0 ? improvement / n : 0;
         if (improvement > 0 && avgImprovement < MinAvgImprovementPerAp)
         {
@@ -271,7 +273,6 @@ public class ChannelRecommendationService
                 "(total {Improvement:F3} across {N} APs), keeping current assignment",
                 avgImprovement, MinAvgImprovementPerAp, improvement, n);
             bestAssignment = currentAssignment;
-            bestScore = currentWithDfsPenalty;
         }
 
         // Build result
@@ -903,9 +904,14 @@ public class ChannelRecommendationService
             var channels = regulatoryData.GetChannels(band, width, includeDfs);
             if (channels.Length > 0)
                 return channels;
+
+            // If regulatory data exists but returned empty (e.g. DFS excluded at 160 MHz),
+            // return empty so GetValidChannelsWithWidth can try narrower widths.
+            if (dfsPref == DfsPreference.Exclude && band == RadioBand.Band5GHz)
+                return [];
         }
 
-        // Fallback defaults
+        // Fallback defaults (only when no regulatory data available)
         return band switch
         {
             RadioBand.Band5GHz => [36, 40, 44, 48, 149, 153, 157, 161, 165],
