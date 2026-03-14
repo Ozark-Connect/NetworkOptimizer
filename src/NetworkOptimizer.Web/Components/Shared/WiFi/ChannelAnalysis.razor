@@ -14,7 +14,7 @@
                 <button class="btn btn-recommend" @onclick="RunRecommendation" disabled="@_loadingRecommendations">
                     @if (_loadingRecommendations)
                     {
-                        <span class="spinner-sm"></span>
+                        <span class="spinner-sm"></span> <span>Analyzing...</span>
                     }
                     else
                     {
