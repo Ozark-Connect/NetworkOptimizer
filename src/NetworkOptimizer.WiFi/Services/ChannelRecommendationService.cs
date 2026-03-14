@@ -56,11 +56,20 @@ public class ChannelRecommendationService
     private const double StressMinThreshold = 5.0;
 
     /// <summary>
-    /// Minimum absolute score improvement to recommend changes.
-    /// Below this threshold, the current assignment is preferred to avoid
-    /// recommending changes for negligible gains.
+    /// Minimum average score improvement per AP to recommend changes.
+    /// Scales with network size: a 4-AP network needs 1.0 total improvement,
+    /// a 50-AP network needs 12.5. Prevents recommending changes when
+    /// interference is already negligible.
     /// </summary>
-    private const double MinImprovementThreshold = 0.3;
+    private const double MinAvgImprovementPerAp = 0.25;
+
+    /// <summary>
+    /// Minimum current score for an AP to be worth moving. APs with scores
+    /// below this have negligible interference and shouldn't be disrupted.
+    /// After optimization, APs below this threshold are reverted to their
+    /// current channel assignment.
+    /// </summary>
+    private const double MinApScoreToMove = 0.5;
 
     /// <summary>
     /// Penalty for channels with no historical data. Unknown channels carry more
@@ -239,14 +248,16 @@ public class ChannelRecommendationService
         // Log per-AP per-channel score breakdown AFTER optimization
         LogPerApChannelScores(graph, bestAssignment, band, "POST-OPTIMIZATION");
 
-        // If improvement is negligible, keep the current assignment to avoid
-        // recommending changes for noise-level gains (e.g., 0.010 → 0.000)
+        // If average improvement per AP is negligible, keep the current assignment.
+        // Scales with network size: 4 APs need 1.0 total, 50 APs need 12.5.
         var improvement = currentNetworkScore - bestScore;
-        if (improvement > 0 && improvement < MinImprovementThreshold)
+        var avgImprovement = n > 0 ? improvement / n : 0;
+        if (improvement > 0 && avgImprovement < MinAvgImprovementPerAp)
         {
             _logger.LogDebug(
-                "[ChannelRec] Improvement {Improvement:F3} below threshold {Threshold:F3}, keeping current assignment",
-                improvement, MinImprovementThreshold);
+                "[ChannelRec] Avg improvement per AP {AvgImprovement:F3} below threshold {Threshold:F3} " +
+                "(total {Improvement:F3} across {N} APs), keeping current assignment",
+                avgImprovement, MinAvgImprovementPerAp, improvement, n);
             bestAssignment = currentAssignment;
             bestScore = currentNetworkScore;
         }
@@ -271,6 +282,23 @@ public class ChannelRecommendationService
             var currentApScore = ScoreAp(graph, currentAssignment, i, band);
             var recommendedApScore = ScoreAp(graph, bestAssignment, i, band);
 
+            // Don't recommend moving APs with negligible current interference,
+            // unless the AP is on a non-valid channel (e.g., 2.4 GHz ch3 should always be moved to 1/6/11)
+            var recommendedChannel = bestAssignment[i].Channel;
+            var recommendedWidth = bestAssignment[i].Width;
+            var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
+            if (isOnValidChannel && currentApScore < MinApScoreToMove &&
+                (recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth))
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] {ApName} current score {Score:F3} below per-AP threshold {Threshold:F3}, " +
+                    "keeping current ch{Channel}/{Width} MHz",
+                    node.Name, currentApScore, MinApScoreToMove, node.CurrentChannel, node.CurrentWidth);
+                recommendedChannel = node.CurrentChannel;
+                recommendedWidth = node.CurrentWidth;
+                recommendedApScore = currentApScore;
+            }
+
             plan.Recommendations.Add(new ApChannelRecommendation
             {
                 ApMac = node.Mac,
@@ -278,15 +306,19 @@ public class ChannelRecommendationService
                 Band = band,
                 CurrentChannel = node.CurrentChannel,
                 CurrentWidth = node.CurrentWidth,
-                RecommendedChannel = bestAssignment[i].Channel,
-                RecommendedWidth = bestAssignment[i].Width,
+                RecommendedChannel = recommendedChannel,
+                RecommendedWidth = recommendedWidth,
                 CurrentScore = currentApScore,
                 RecommendedScore = recommendedApScore,
                 IsMeshConstrained = node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i,
                 IsUnplaced = !node.IsPlaced,
-                IsDfsChannel = band == RadioBand.Band5GHz && dfsSet.Contains(bestAssignment[i].Channel)
+                IsDfsChannel = band == RadioBand.Band5GHz && dfsSet.Contains(recommendedChannel)
             });
         }
+
+        // Recalculate recommended network score after per-AP filtering
+        // (reverted APs change the total)
+        plan.RecommendedNetworkScore = plan.Recommendations.Sum(r => r.RecommendedScore);
 
         // Log final recommendation summary
         LogRecommendationSummary(plan, currentAssignment, bestAssignment);

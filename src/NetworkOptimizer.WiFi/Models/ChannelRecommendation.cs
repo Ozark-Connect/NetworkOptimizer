@@ -35,8 +35,20 @@ public class ChannelPlan
     public List<ApChannelRecommendation> Recommendations { get; set; } = new();
     public double CurrentNetworkScore { get; set; }
     public double RecommendedNetworkScore { get; set; }
-    public double ImprovementPercent => CurrentNetworkScore > 0
-        ? (CurrentNetworkScore - RecommendedNetworkScore) / CurrentNetworkScore * 100 : 0;
+    public double ImprovementPercent
+    {
+        get
+        {
+            if (CurrentNetworkScore <= 0) return 0;
+            var pct = (CurrentNetworkScore - RecommendedNetworkScore) / CurrentNetworkScore * 100;
+            // Cap percentage when absolute improvement is small - "90% less interference"
+            // is misleading when going from 0.8 to 0.1. Scale cap by absolute improvement.
+            var absoluteImprovement = CurrentNetworkScore - RecommendedNetworkScore;
+            if (absoluteImprovement < 2.0)
+                pct = Math.Min(pct, absoluteImprovement / 2.0 * 100);
+            return Math.Max(pct, 0);
+        }
+    }
     public int UnplacedApCount { get; set; }
     public bool HasScanData { get; set; }
     public bool HasBuildingData { get; set; }
