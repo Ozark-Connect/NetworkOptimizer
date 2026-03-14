@@ -414,7 +414,9 @@ public class ChannelRecommendationService
         if (node.HistoricalStress != null && node.HistoricalStress.Count > 0)
         {
             // Per-channel historical stress: check each historically stressed channel
-            // and apply its penalty if the assigned channel overlaps its span
+            // and apply its penalty if the assigned channel overlaps its span.
+            // No co-channel resolution scaling - historical stress is measured data
+            // reflecting the real RF environment, not just internal AP interference.
             double penalty = 0;
             foreach (var (histChannel, stress) in node.HistoricalStress)
             {
@@ -427,10 +429,9 @@ public class ChannelRecommendationService
                 if (!ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
                     continue;
 
-                var stressScale = ComputeStressScale(graph, band, apIndex, histSpan, assignment);
-                penalty += stressScale * ((stress.TxRetryPct / 100.0) * TxRetryStressWeight
+                penalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
                     + (stress.Utilization / 100.0) * UtilizationStressWeight
-                    + (stress.Interference / 100.0) * InterferenceStressWeight);
+                    + (stress.Interference / 100.0) * InterferenceStressWeight;
             }
             return penalty;
         }
