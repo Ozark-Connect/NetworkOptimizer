@@ -2329,6 +2329,7 @@ select.form-control {
     .main-content {
         overflow-y: auto;
         overflow-x: hidden;
+        scroll-padding-top: 56px; /* account for sticky top bar in scrollIntoView */
     }
 
     .page-content {
