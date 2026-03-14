@@ -159,6 +159,11 @@ public class ChannelRecommendationService
         // Identify mesh constraints
         BuildMeshConstraints(graph, bandAps, band);
 
+        // Propagate historical stress to nearby APs using propagation weights.
+        // If Back Yard had 28% TX retries on ch36, nearby Front Yard would likely
+        // experience similar issues on ch36, scaled by their proximity.
+        PropagateHistoricalStress(graph, band);
+
         // Log the full graph for debugging
         LogGraphDetails(graph, band, bandAps);
 
@@ -606,6 +611,87 @@ public class ChannelRecommendationService
                 if (!graph.ExternalLoad[apIndex].ContainsKey(channel))
                     graph.ExternalLoad[apIndex][channel] = 0;
                 graph.ExternalLoad[apIndex][channel] += weight;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Propagate historical stress from nearby APs using propagation weights.
+    /// If AP A had high stress on a channel and AP B is nearby (high internal weight),
+    /// AP B gets that channel's stress added, scaled by the proximity weight.
+    /// Only propagates between placed APs (where we have real propagation data).
+    /// </summary>
+    private static void PropagateHistoricalStress(InterferenceGraph graph, RadioBand band)
+    {
+        var n = graph.Nodes.Count;
+
+        // Collect propagated stress separately to avoid order-dependent accumulation
+        var propagated = new Dictionary<int, Dictionary<int, (double Util, double Interf, double TxRetry)>>();
+
+        for (int i = 0; i < n; i++)
+        {
+            var source = graph.Nodes[i];
+            if (source.HistoricalStress == null || source.HistoricalStress.Count == 0)
+                continue;
+
+            for (int j = 0; j < n; j++)
+            {
+                if (j == i) continue;
+
+                var target = graph.Nodes[j];
+                // Only propagate between placed APs with real propagation weights
+                if (!source.IsPlaced || !target.IsPlaced) continue;
+
+                var weight = graph.InternalWeights[i, j];
+                if (weight < 0.3) continue; // Only nearby APs (signal > ~-78 dBm)
+
+                foreach (var (histChannel, stress) in source.HistoricalStress)
+                {
+                    // Scale stress by proximity weight
+                    var scaledUtil = stress.Utilization * weight;
+                    var scaledInterf = stress.Interference * weight;
+                    var scaledTxRetry = stress.TxRetryPct * weight;
+
+                    if (!propagated.ContainsKey(j))
+                        propagated[j] = new Dictionary<int, (double, double, double)>();
+
+                    if (propagated[j].TryGetValue(histChannel, out var existing))
+                    {
+                        // Take the max from multiple sources
+                        propagated[j][histChannel] = (
+                            Math.Max(existing.Util, scaledUtil),
+                            Math.Max(existing.Interf, scaledInterf),
+                            Math.Max(existing.TxRetry, scaledTxRetry));
+                    }
+                    else
+                    {
+                        propagated[j][histChannel] = (scaledUtil, scaledInterf, scaledTxRetry);
+                    }
+                }
+            }
+        }
+
+        // Merge propagated stress into each node's historical stress
+        foreach (var (nodeIdx, channels) in propagated)
+        {
+            var node = graph.Nodes[nodeIdx];
+            node.HistoricalStress ??= new Dictionary<int, (double, double, double)>();
+
+            foreach (var (ch, stress) in channels)
+            {
+                if (node.HistoricalStress.TryGetValue(ch, out var own))
+                {
+                    // AP has its own data for this channel - take the max
+                    node.HistoricalStress[ch] = (
+                        Math.Max(own.Utilization, stress.Util),
+                        Math.Max(own.Interference, stress.Interf),
+                        Math.Max(own.TxRetryPct, stress.TxRetry));
+                }
+                else
+                {
+                    // AP has no data for this channel - add the propagated data
+                    node.HistoricalStress[ch] = (stress.Util, stress.Interf, stress.TxRetry);
+                }
             }
         }
     }
