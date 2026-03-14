@@ -2341,9 +2341,9 @@ select.form-control {
         transform: translateY(-100%);
     }
 
-    /* Offset content for fixed top bar */
-    .page-content {
-        padding-top: calc(1rem + 52px);
+    /* Offset content for fixed top bar - uses margin to avoid padding conflicts */
+    .main-content {
+        padding-top: 52px;
     }
 
     /* Footer: minimal on mobile */
