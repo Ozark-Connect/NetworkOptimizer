@@ -627,6 +627,7 @@
         _initialApMac = null;
         _initialBand = null;
         _initialChannel = null;
+        _autoRunRecommendation = false;
 
         // Reload AP markers when entering Speed Map tab (may have been edited on Signal Map)
         if (tab == "coverage")
@@ -645,6 +646,7 @@
         _initialBand = band;
         _initialChannel = channel;
         _initialClientMac = null;
+        _autoRunRecommendation = false;
 
         // Build URL with filter params
         var uri = "/wifi-optimizer?tab=" + tab;
