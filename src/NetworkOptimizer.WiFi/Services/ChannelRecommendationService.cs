@@ -80,6 +80,13 @@ public class ChannelRecommendationService
     private const double UnknownChannelPenalty = 0.15;
 
     /// <summary>
+    /// Minimum neighbor signal to count as external interference. Matches the CCA
+    /// (Clear Channel Assessment) threshold: below -82 dBm, radios don't defer
+    /// transmission so the neighbor causes no real co-channel interference.
+    /// </summary>
+    private const int CcaThresholdDbm = -82;
+
+    /// <summary>
     /// Band-specific multiplier for ambient RF stress (utilization, interference, TX retries)
     /// and scan channel data. Lower bands have higher baseline noise that's normal for
     /// the RF environment and shouldn't drive aggressive channel changes.
@@ -687,7 +694,10 @@ public class ChannelRecommendationService
 
             var apWidth = graph.Nodes[apIndex].CurrentWidth;
 
-            foreach (var neighbor in scan.Neighbors.Where(n => !n.IsOwnNetwork && n.Signal.HasValue))
+            // Only count neighbors strong enough to trigger CCA (Clear Channel Assessment).
+            // Below -82 dBm, radios don't defer transmission so no real co-channel interference.
+            foreach (var neighbor in scan.Neighbors.Where(n =>
+                !n.IsOwnNetwork && n.Signal.HasValue && n.Signal.Value >= CcaThresholdDbm))
             {
                 var weight = ChannelSpanHelper.SignalToInterferenceWeight(neighbor.Signal!.Value);
 
@@ -701,9 +711,6 @@ public class ChannelRecommendationService
                 if (!graph.ExternalLoad[apIndex].ContainsKey(channel))
                     graph.ExternalLoad[apIndex][channel] = 0;
                 graph.ExternalLoad[apIndex][channel] += weight;
-
-                _logger.LogDebug("[ChannelRec] ExternalLoad AP={Ap} ch{Ch}: +{Weight:F3} from {Bssid} ({Ssid}) signal={Signal}dBm",
-                    scan.ApName, channel, weight, neighbor.Bssid, neighbor.Ssid, neighbor.Signal);
             }
         }
     }
