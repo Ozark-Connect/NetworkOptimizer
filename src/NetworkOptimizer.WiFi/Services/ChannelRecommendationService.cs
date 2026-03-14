@@ -701,6 +701,9 @@ public class ChannelRecommendationService
                 if (!graph.ExternalLoad[apIndex].ContainsKey(channel))
                     graph.ExternalLoad[apIndex][channel] = 0;
                 graph.ExternalLoad[apIndex][channel] += weight;
+
+                _logger.LogDebug("[ChannelRec] ExternalLoad AP={Ap} ch{Ch}: +{Weight:F3} from {Bssid} ({Ssid}) signal={Signal}dBm",
+                    scan.ApName, channel, weight, neighbor.Bssid, neighbor.Ssid, neighbor.Signal);
             }
         }
     }
