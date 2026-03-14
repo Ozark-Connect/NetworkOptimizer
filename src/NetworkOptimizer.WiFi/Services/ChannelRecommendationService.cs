@@ -339,13 +339,25 @@ public class ChannelRecommendationService
             var recommendedChannel = bestAssignment[i].Channel;
             var recommendedWidth = bestAssignment[i].Width;
             var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
-            if (isOnValidChannel && currentApScore < MinApScoreToMove &&
-                (recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth))
+            var isChanging = recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth;
+
+            if (isOnValidChannel && isChanging && currentApScore < MinApScoreToMove)
             {
                 _logger.LogDebug(
                     "[ChannelRec] {ApName} current score {Score:F3} below per-AP threshold {Threshold:F3}, " +
                     "keeping current ch{Channel}/{Width} MHz",
                     node.Name, currentApScore, MinApScoreToMove, node.CurrentChannel, node.CurrentWidth);
+                recommendedChannel = node.CurrentChannel;
+                recommendedWidth = node.CurrentWidth;
+                recommendedApScore = currentApScore;
+            }
+            // Don't move an AP if its individual score would get worse
+            else if (isOnValidChannel && isChanging && recommendedApScore > currentApScore)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] {ApName} score would worsen {Current:F3} → {Recommended:F3}, " +
+                    "keeping current ch{Channel}/{Width} MHz",
+                    node.Name, currentApScore, recommendedApScore, node.CurrentChannel, node.CurrentWidth);
                 recommendedChannel = node.CurrentChannel;
                 recommendedWidth = node.CurrentWidth;
                 recommendedApScore = currentApScore;
