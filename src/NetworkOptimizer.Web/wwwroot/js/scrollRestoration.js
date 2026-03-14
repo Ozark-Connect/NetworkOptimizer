@@ -29,17 +29,12 @@
             var popState = isPopState;
             isPopState = false;
 
-            // Run after Blazor finishes rendering the new page
+            // Notify scroll listener to reset its state
+            if (window.__resetScrollState) window.__resetScrollState();
+
             requestAnimationFrame(function() {
                 var container = getScrollContainer();
                 if (!container) return;
-
-                // Reset top bar on mobile - always visible after navigation
-                if (window.innerWidth <= 768) {
-                    var topBar = document.querySelector('.top-bar');
-                    if (topBar) topBar.classList.remove('top-bar-hidden');
-                    container.style.scrollPaddingTop = '70px';
-                }
 
                 if (popState) {
                     var saved = scrollPositions.get(path);

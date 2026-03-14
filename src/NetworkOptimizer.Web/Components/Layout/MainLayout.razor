@@ -112,6 +112,12 @@
             }
         }
 
+        // Reset scroll state on page navigation (called from scrollRestoration.js)
+        window.__resetScrollState = function() {
+            lastScrollTop = 0;
+            if (currentEl) currentEl.style.scrollPaddingTop = '70px';
+        };
+
         attachListener(getScrollEl());
         window.addEventListener('resize', function() { attachListener(getScrollEl()); });
     })();
