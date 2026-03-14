@@ -2362,6 +2362,11 @@ select.form-control {
         opacity: 1;
     }
 
+    /* Client dashboard identity bar: shift below top bar when it's visible */
+    .identity-bar.below-topbar {
+        top: 52px;
+    }
+
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
     .identity-bar .identity-name,
     .identity-bar .identity-meta {

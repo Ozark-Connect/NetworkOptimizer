@@ -99,6 +99,7 @@
             var identityBar = document.querySelector('.identity-bar');
             if (identityBar) {
                 identityBar.classList.toggle('identity-collapsed', st > 80);
+                identityBar.classList.toggle('below-topbar', !topBar.classList.contains('top-bar-hidden'));
             }
 
             // Footer: fade in when near bottom (opacity, no layout shift)
