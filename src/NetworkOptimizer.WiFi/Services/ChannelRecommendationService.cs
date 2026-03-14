@@ -296,7 +296,14 @@ public class ChannelRecommendationService
         var bestRawScore = ScoreAssignment(graph, bestAssignment, band);
         var improvement = currentNetworkScore - bestRawScore;
         var avgImprovement = n > 0 ? improvement / n : 0;
-        if (improvement > 0 && avgImprovement < MinAvgImprovementPerAp)
+        if (improvement <= 0)
+        {
+            _logger.LogDebug(
+                "[ChannelRec] No improvement found (current {Current:F3} vs best {Best:F3}), keeping current assignment",
+                currentNetworkScore, bestRawScore);
+            bestAssignment = currentAssignment;
+        }
+        else if (avgImprovement < MinAvgImprovementPerAp)
         {
             _logger.LogDebug(
                 "[ChannelRec] Avg improvement per AP {AvgImprovement:F3} below threshold {Threshold:F3} " +
