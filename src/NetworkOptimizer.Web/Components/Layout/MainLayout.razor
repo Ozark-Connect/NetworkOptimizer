@@ -86,9 +86,8 @@
             if (window.innerWidth > 768) return;
             var st = currentEl.scrollTop;
             var topBar = document.querySelector('.top-bar');
-            if (!topBar) return;
 
-            if (Math.abs(st - lastScrollTop) > 10) {
+            if (topBar && Math.abs(st - lastScrollTop) > 10) {
                 if (st > lastScrollTop && st > 60) {
                     topBar.classList.add('top-bar-hidden');
                     currentEl.style.scrollPaddingTop = '0px';
@@ -102,7 +101,7 @@
             var identityBar = document.querySelector('.identity-bar');
             if (identityBar) {
                 identityBar.classList.toggle('identity-collapsed', st > 80);
-                identityBar.classList.toggle('below-topbar', !topBar.classList.contains('top-bar-hidden'));
+                identityBar.classList.toggle('below-topbar', topBar && !topBar.classList.contains('top-bar-hidden'));
             }
 
             // Footer: fade in when near bottom (opacity, no layout shift)
