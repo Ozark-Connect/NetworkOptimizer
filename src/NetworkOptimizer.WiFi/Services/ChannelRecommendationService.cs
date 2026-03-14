@@ -287,9 +287,12 @@ public class ChannelRecommendationService
         (int Channel, int Width)[] bestAssignment;
         double bestScore;
 
-        if (n <= 6 && GetMaxValidChannels(graph) <= 24)
+        // Use exhaustive search when the search space is manageable.
+        // 2.4 GHz (3 channels): up to ~12 APs (531K). 5/6 GHz: fewer APs due to more channels.
+        var maxChannels = GetMaxValidChannels(graph);
+        var searchSpace = Math.Pow(maxChannels, n);
+        if (searchSpace <= 1_000_000)
         {
-            // Small network: exhaustive search with pruning
             (bestAssignment, bestScore) = ExhaustiveSearch(graph, band, pinnedIndices, opts, currentApScores);
         }
         else
