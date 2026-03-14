@@ -920,6 +920,10 @@ public class WiFiOptimizerService
                         .OrderBy(e => e.Timestamp)
                         .ToList();
 
+                    _logger.LogDebug("[ChannelRec] {ApName} {Band}: {EventCount} channel events, current=ch{CurrentCh}, events=[{Events}]",
+                        ap.Name, band, bandEvents.Count, radio.Channel,
+                        string.Join(", ", bandEvents.Select(e => $"{e.Timestamp:MM/dd} ch{e.PreviousChannel}→ch{e.NewChannel}")));
+
                     // For each daily metric, determine which channel the AP was on
                     var channelMetrics = new Dictionary<int, List<(double Util, double Interf, double TxRetry)>>();
 
