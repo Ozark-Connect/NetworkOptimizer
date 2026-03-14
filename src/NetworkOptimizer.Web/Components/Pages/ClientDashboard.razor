@@ -211,6 +211,10 @@
                     {
                         <span class="identity-detail badge-mlo">MLO</span>
                     }
+                    @if (_client.FixedApEnabled)
+                    {
+                        <span class="identity-detail badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")">&#128274; AP Locked</span>
+                    }
                 }
                 else
                 {
@@ -2311,6 +2315,15 @@
         font-weight: 500;
         background: rgba(251, 191, 36, 0.15);
         color: #fbbf24;
+    }
+
+    .badge-ap-lock {
+        padding: 0.125rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        background: rgba(239, 99, 104, 0.15);
+        color: var(--danger-color);
     }
 
     /* Tabs + Time Filter */

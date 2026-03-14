@@ -774,6 +774,8 @@ public class ClientDashboardService
             IsMlo = client.IsMlo ?? false,
             MloLinks = client.MloDetails,
             ApMac = client.ApMac,
+            FixedApEnabled = client.FixedApEnabled == true,
+            FixedApMac = client.FixedApMac,
             Oui = client.Oui,
             NetworkName = client.Network,
             Essid = client.Essid,
@@ -821,6 +823,14 @@ public class ClientDashboardService
                             identity.ApEirp = radioStats.TxPower.Value + radio.AntennaGain.Value;
                     }
                 }
+            }
+
+            // Resolve fixed AP name
+            if (identity.FixedApEnabled && !string.IsNullOrEmpty(identity.FixedApMac))
+            {
+                var fixedAp = devices.FirstOrDefault(d =>
+                    d.Mac.Equals(identity.FixedApMac, StringComparison.OrdinalIgnoreCase));
+                identity.FixedApName = fixedAp?.Name;
             }
 
             // Get TX power and client count from radio stats

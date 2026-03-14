@@ -973,6 +973,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             IsAuthorized = !client.Blocked,
             IsGuest = client.IsGuest,
             IsOnline = isOnline,
+            FixedApEnabled = client.FixedApEnabled == true,
+            FixedApMac = client.FixedApMac,
+            FixedApName = client.FixedApEnabled == true && !string.IsNullOrEmpty(client.FixedApMac)
+                ? (apNames.TryGetValue(client.FixedApMac.ToLowerInvariant(), out var fixedApName) ? fixedApName : null)
+                : null,
             Manufacturer = client.Oui,
             Timestamp = timestamp
         };

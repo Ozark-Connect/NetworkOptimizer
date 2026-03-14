@@ -86,6 +86,15 @@ public class WirelessClientSnapshot
     /// <summary>Last seen timestamp (for offline clients)</summary>
     public DateTimeOffset? LastSeen { get; set; }
 
+    /// <summary>Whether this client is locked/pinned to a specific AP</summary>
+    public bool FixedApEnabled { get; set; }
+
+    /// <summary>MAC address of the AP this client is locked to (if FixedApEnabled)</summary>
+    public string? FixedApMac { get; set; }
+
+    /// <summary>Name of the AP this client is locked to (resolved from MAC)</summary>
+    public string? FixedApName { get; set; }
+
     /// <summary>Device manufacturer from OUI lookup</summary>
     public string? Manufacturer { get; set; }
 

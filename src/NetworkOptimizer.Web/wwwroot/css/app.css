@@ -6643,6 +6643,11 @@ a.path-hop.hop-clickable:hover {
     text-transform: none;
 }
 
+.lock-icon {
+    font-size: 0.75rem;
+    cursor: default;
+}
+
 .mesh-unit {
     font-size: 0.75rem;
     font-weight: 400;

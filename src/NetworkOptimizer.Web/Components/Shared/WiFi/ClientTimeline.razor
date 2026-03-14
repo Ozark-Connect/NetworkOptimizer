@@ -164,7 +164,7 @@
                         {
                             <tr @onclick="() => SelectClient(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
                                 <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
-                                <td>@client.Name</td>
+                                <td>@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")">&#128274;</span> }</td>
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
