@@ -374,6 +374,7 @@ builder.Services.AddSingleton<PlannedApService>();
 builder.Services.AddSingleton<ConfigTransferService>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.PropagationService>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.ChannelRecommendationService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();

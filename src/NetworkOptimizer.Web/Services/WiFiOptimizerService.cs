@@ -9,6 +9,7 @@ using NetworkOptimizer.WiFi.Analyzers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Providers;
 using NetworkOptimizer.WiFi.Rules;
+using NetworkOptimizer.WiFi.Services;
 using AuditNetworkInfo = NetworkOptimizer.Audit.Models.NetworkInfo;
 
 namespace NetworkOptimizer.Web.Services;
@@ -30,6 +31,7 @@ public class WiFiOptimizerService
     private readonly FloorPlanService _floorPlanService;
     private readonly IServiceProvider _serviceProvider;
     private readonly PlannedApService _plannedApService;
+    private readonly ChannelRecommendationService _channelRecommendationService;
 
     // Cached data (refreshed on demand)
     private List<AccessPointSnapshot>? _cachedAps;
@@ -50,6 +52,7 @@ public class WiFiOptimizerService
         FloorPlanService floorPlanService,
         IServiceProvider serviceProvider,
         PlannedApService plannedApService,
+        ChannelRecommendationService channelRecommendationService,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
@@ -61,6 +64,7 @@ public class WiFiOptimizerService
         _floorPlanService = floorPlanService;
         _serviceProvider = serviceProvider;
         _plannedApService = plannedApService;
+        _channelRecommendationService = channelRecommendationService;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
@@ -749,6 +753,245 @@ public class WiFiOptimizerService
             _logger.LogError(ex, "Failed to get client events for {ClientMac}", clientMac);
             return new List<WiFi.Models.ClientConnectionEvent>();
         }
+    }
+
+    /// <summary>
+    /// Get channel recommendations for a specific band.
+    /// Coordinates data loading and calls the recommendation engine for all bands.
+    /// </summary>
+    public async Task<Dictionary<RadioBand, ChannelPlan>> GetAllChannelRecommendationsAsync(
+        RecommendationOptions? options = null)
+    {
+        var results = new Dictionary<RadioBand, ChannelPlan>();
+
+        if (!_connectionService.IsConnected)
+        {
+            _logger.LogDebug("Cannot get channel recommendations - not connected to UniFi");
+            return results;
+        }
+
+        try
+        {
+            // Load all required data once (shared across all bands)
+            var apsTask = GetAccessPointsAsync();
+            var regulatoryTask = GetRegulatoryChannelsAsync();
+            var scanTask = GetChannelScanResultsAsync();
+
+            await Task.WhenAll(apsTask, regulatoryTask, scanTask);
+
+            var aps = apsTask.Result;
+            var regulatoryData = regulatoryTask.Result;
+            var scanResults = scanTask.Result;
+
+            if (aps.Count == 0)
+            {
+                _logger.LogDebug("No APs available for channel recommendations");
+                return results;
+            }
+
+            // Load propagation context once (same pattern as BuildOptimizerContextAsync)
+            ApPropagationContext? propCtx = null;
+            bool hasBuildingData = false;
+            try
+            {
+                var apMapService = _serviceProvider.GetRequiredService<ApMapService>();
+                var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, apMapService, _plannedApService);
+                var placedAps = cached.ApMarkers
+                    .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                    .ToList();
+
+                hasBuildingData = placedAps.Count > 0 && cached.BuildingFloorInfos.Count > 0;
+
+                if (placedAps.Count > 0)
+                {
+                    propCtx = new ApPropagationContext
+                    {
+                        ApsByMac = placedAps.ToDictionary(
+                            a => a.Mac.ToLowerInvariant(),
+                            a => new PropagationAp
+                            {
+                                Mac = a.Mac,
+                                Model = a.Model,
+                                Latitude = a.Latitude!.Value,
+                                Longitude = a.Longitude!.Value,
+                                Floor = a.Floor ?? 1,
+                                OrientationDeg = a.OrientationDeg,
+                                MountType = a.MountType
+                            }),
+                        WallsByFloor = cached.WallsByFloor,
+                        Buildings = cached.BuildingFloorInfos
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to load propagation data for channel recommendations");
+            }
+
+            // Fetch 30-day historical radio stats paired with channel change events
+            var historicalStress = await GetHistoricalStressAsync(aps);
+
+            // Generate recommendations for each band that has APs
+            var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+            foreach (var band in bands)
+            {
+                var bandAps = aps.Where(ap =>
+                    ap.IsOnline && ap.Radios.Any(r => r.Band == band && r.Channel.HasValue)).ToList();
+                if (bandAps.Count == 0) continue;
+
+                try
+                {
+                    var bandStress = historicalStress?.GetValueOrDefault(band);
+                    var graph = _channelRecommendationService.BuildInterferenceGraph(
+                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress);
+
+                    var plan = _channelRecommendationService.Optimize(
+                        graph, band, regulatoryData, options, hasBuildingData);
+
+                    results[band] = plan;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get channel recommendations for {Band}", band);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get channel recommendations");
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Fetch per-AP historical radio stats (30 days, daily granularity) and pair with
+    /// channel change events to build per-channel stress maps. Returns stress data keyed
+    /// by band → AP MAC → channel → (avg util, avg interf, avg txRetry).
+    /// </summary>
+    private async Task<Dictionary<RadioBand, Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>>?>
+        GetHistoricalStressAsync(List<AccessPointSnapshot> aps)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return null;
+
+        try
+        {
+            var end = DateTimeOffset.UtcNow;
+            var start = end.AddDays(-7);
+            var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
+            if (onlineAps.Count == 0) return null;
+
+            // Fetch metrics and channel change events for each AP concurrently
+            var tasks = onlineAps.Select(async ap =>
+            {
+                var metricsTask = GetApMetricsAsync(
+                    new[] { ap.Mac }, start, end, MetricGranularity.Hourly);
+                var eventsTask = GetChannelChangeEventsAsync(start, end, ap.Mac);
+
+                await Task.WhenAll(metricsTask, eventsTask);
+
+                return (ap.Mac, Metrics: metricsTask.Result, Events: eventsTask.Result);
+            });
+
+            var allResults = await Task.WhenAll(tasks);
+
+            var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+            var result = new Dictionary<RadioBand, Dictionary<string, Dictionary<int, (double, double, double)>>>();
+            foreach (var band in bands)
+                result[band] = new Dictionary<string, Dictionary<int, (double, double, double)>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (mac, metrics, events) in allResults)
+            {
+                if (metrics.Count == 0) continue;
+                var macLower = mac.ToLowerInvariant();
+
+                // Find the current channel for each band from the AP snapshot
+                var ap = onlineAps.First(a => a.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase));
+
+                foreach (var band in bands)
+                {
+                    var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
+                    if (radio == null) continue;
+
+                    // Build channel timeline from change events (sorted chronologically)
+                    var bandEvents = events
+                        .Where(e => e.Band == band)
+                        .OrderBy(e => e.Timestamp)
+                        .ToList();
+
+                    _logger.LogDebug("[ChannelRec] {ApName} {Band}: {EventCount} channel events, current=ch{CurrentCh}, events=[{Events}]",
+                        ap.Name, band, bandEvents.Count, radio.Channel,
+                        string.Join(", ", bandEvents.Select(e => $"{e.Timestamp:MM/dd} ch{e.PreviousChannel}→ch{e.NewChannel}")));
+
+                    // For each daily metric, determine which channel the AP was on
+                    var channelMetrics = new Dictionary<int, List<(double Util, double Interf, double TxRetry)>>();
+
+                    foreach (var metric in metrics)
+                    {
+                        if (!metric.ByBand.TryGetValue(band, out var bandData) ||
+                            !bandData.ChannelUtilization.HasValue)
+                            continue;
+
+                        // Find which channel the AP was on at this metric's timestamp
+                        var channel = GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+
+                        if (!channelMetrics.ContainsKey(channel))
+                            channelMetrics[channel] = new List<(double, double, double)>();
+
+                        channelMetrics[channel].Add((
+                            bandData.ChannelUtilization ?? 0,
+                            bandData.Interference ?? 0,
+                            bandData.TxRetryPct ?? 0));
+                    }
+
+                    // Average per channel
+                    if (channelMetrics.Count > 0)
+                    {
+                        var perChannel = new Dictionary<int, (double, double, double)>();
+                        foreach (var (ch, dataPoints) in channelMetrics)
+                        {
+                            perChannel[ch] = (
+                                dataPoints.Average(d => d.Util),
+                                dataPoints.Average(d => d.Interf),
+                                dataPoints.Average(d => d.TxRetry));
+                        }
+                        result[band][macLower] = perChannel;
+                    }
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch historical stress metrics, falling back to snapshot");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Determine which channel an AP was on at a given timestamp by walking
+    /// the channel change event timeline backwards.
+    /// </summary>
+    private static int GetChannelAtTime(
+        DateTimeOffset timestamp,
+        List<ChannelChangeEvent> events,
+        int currentChannel)
+    {
+        // Walk events in reverse to find the most recent change before this timestamp
+        for (int i = events.Count - 1; i >= 0; i--)
+        {
+            if (events[i].Timestamp <= timestamp)
+                return events[i].NewChannel;
+        }
+
+        // Before any recorded change: use the first event's PreviousChannel if available
+        if (events.Count > 0)
+            return events[0].PreviousChannel;
+
+        // No change events at all: assume current channel
+        return currentChannel;
     }
 }
 
