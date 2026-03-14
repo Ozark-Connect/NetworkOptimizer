@@ -228,6 +228,12 @@
                             External neighbor networks are not factored in.
                         </div>
                     }
+                    else if (!_channelPlan.HasNeighborNetworks)
+                    {
+                        <div class="recommendation-notice">
+                            No neighbor networks detected on this band. Recommendations are based on internal AP interference only.
+                        </div>
+                    }
 
                     <!-- How This Works -->
                     <details class="recommendation-explainer">

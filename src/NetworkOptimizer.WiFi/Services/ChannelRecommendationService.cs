@@ -272,7 +272,8 @@ public class ChannelRecommendationService
             CurrentNetworkScore = currentNetworkScore,
             RecommendedNetworkScore = bestScore,
             UnplacedApCount = graph.Nodes.Count(node => !node.IsPlaced),
-            HasScanData = graph.ExternalLoad.Any(d => d.Count > 0),
+            HasScanData = graph.ScanChannelData.Any(d => d.Count > 0) || graph.ExternalLoad.Any(d => d.Count > 0),
+            HasNeighborNetworks = graph.ExternalLoad.Any(d => d.Count > 0),
             HasBuildingData = hasBuildingData
         };
 

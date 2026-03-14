@@ -51,6 +51,7 @@ public class ChannelPlan
     }
     public int UnplacedApCount { get; set; }
     public bool HasScanData { get; set; }
+    public bool HasNeighborNetworks { get; set; }
     public bool HasBuildingData { get; set; }
 }
 
