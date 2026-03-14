@@ -112,12 +112,14 @@ public static class ApModelCatalog
         },
         ["U7-LR"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 29, MinTxPowerDbm = 1, MaxTxPowerDbm = 29, AntennaGainDbi = 6 },
-            ["5"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 4 },
+            // Spec sheet: 26/4, 27/6 (was swapped)
+            ["2.4"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 4 },
+            ["5"] = new() { DefaultTxPowerDbm = 27, MinTxPowerDbm = 1, MaxTxPowerDbm = 27, AntennaGainDbi = 6 },
         },
         ["U7-IW"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
+            // Spec sheet: 23/4, 24/8
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 4 },
             ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 8 },
         },
         ["U7-Mesh"] = new()
@@ -208,8 +210,9 @@ public static class ApModelCatalog
         },
         ["U6-Enterprise"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 5 },
-            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 3 },
+            // Spec sheet: 22/3.2, 26/5.3, 26/6 (2.4/5 GHz gains were swapped)
+            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 3 },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 5 },
             ["6"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
         },
         ["U6-Enterprise-IW"] = new()
@@ -222,8 +225,9 @@ public static class ApModelCatalog
         // === Wi-Fi 6 APs ===
         ["U6-Pro"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 6 },
-            ["5"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 6 },
+            // Spec sheet says 22/4, 26/6 but firmware may allow 23 on 2.4
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 4 },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
         },
         ["U6-LR"] = new()
         {
@@ -242,28 +246,33 @@ public static class ApModelCatalog
         },
         ["U6+"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 3 },
-            ["5"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 4 },
+            // Spec sheet: 23/3, 23/5; public.json had 20/25 TX - split difference
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 3 },
+            ["5"] = new() { DefaultTxPowerDbm = 24, MinTxPowerDbm = 1, MaxTxPowerDbm = 24, AntennaGainDbi = 5 },
         },
         ["U6-Mesh"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 3 },
-            ["5"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 4 },
+            // Spec sheet: 22/3, 26/5
+            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 3 },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 5 },
         },
         ["U6-Mesh-Pro"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 5 },
-            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 3 },
+            // Spec sheet: 22/8, 27/8
+            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 8 },
+            ["5"] = new() { DefaultTxPowerDbm = 27, MinTxPowerDbm = 1, MaxTxPowerDbm = 27, AntennaGainDbi = 8 },
         },
         ["U6-IW"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 3 },
-            ["5"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 4 },
+            // Spec sheet: 22/5, 26/6
+            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 5 },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
         },
         ["U6-Extender"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 20, MinTxPowerDbm = 1, MaxTxPowerDbm = 20, AntennaGainDbi = 5 },
-            ["5"] = new() { DefaultTxPowerDbm = 25, MinTxPowerDbm = 1, MaxTxPowerDbm = 25, AntennaGainDbi = 6 },
+            // Spec sheet: 22/5, 26/6
+            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 5 },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
         },
 
         // === Wi-Fi 5 (AC) APs ===
