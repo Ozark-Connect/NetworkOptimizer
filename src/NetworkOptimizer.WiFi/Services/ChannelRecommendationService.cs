@@ -905,7 +905,7 @@ public class ChannelRecommendationService
                 return channels;
 
             // If regulatory data exists but returned empty (e.g. DFS excluded at 160 MHz),
-            // return empty so GetValidChannelsWithWidth can try narrower widths.
+            // return empty so GetValidChannelsWithWidth can fall back to Include DFS.
             if (dfsPref == DfsPreference.Exclude && band == RadioBand.Band5GHz)
                 return [];
         }
