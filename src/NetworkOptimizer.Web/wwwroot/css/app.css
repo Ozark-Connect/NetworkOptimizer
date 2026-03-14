@@ -2364,7 +2364,7 @@ select.form-control {
 
     /* Client dashboard identity bar: shift below top bar when it's visible */
     .identity-bar.below-topbar {
-        top: 52px;
+        top: 56px;
     }
 
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
