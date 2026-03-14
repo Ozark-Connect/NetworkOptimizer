@@ -73,6 +73,9 @@ public class InterferenceGraph
     public Dictionary<int, (int Utilization, int Interference)>[] ScanChannelData { get; set; } = [];
 
     public List<MeshConstraint> MeshConstraints { get; set; } = new();
+
+    /// <summary>Whether scan results existed for this band (UniFi provided RF scan data)</summary>
+    public bool HasScanData { get; set; }
 }
 
 /// <summary>
