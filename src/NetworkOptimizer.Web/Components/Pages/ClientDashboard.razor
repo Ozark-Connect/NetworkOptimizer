@@ -144,14 +144,22 @@
                 <div class="identity-signal">
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
-                        <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value)">
+                        <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value, _client.Band)">
                             <span class="signal-value">@_client.SignalDbm</span>
                             <span class="signal-unit">dBm</span>
                         </div>
-                        <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value)">
+                        <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value, _client.Band)">
+                            @{
+                                var thresholds = _client.Band switch
+                                {
+                                    "ng" => new[] { -92, -85, -78, -72, -65 },
+                                    "6e" => new[] { -85, -78, -72, -65, -55 },
+                                    _ => new[] { -90, -82, -75, -70, -60 }
+                                };
+                            }
                             @for (int i = 0; i < 5; i++)
                             {
-                                var barThreshold = new[] { -90, -82, -75, -70, -60 }[i];
+                                var barThreshold = thresholds[i];
                                 <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
                             }
                         </div>
@@ -1954,13 +1962,40 @@
 
     // --- Formatting Helpers ---
 
-    private static string GetSignalClass(int dbm) => dbm switch
+    /// <summary>
+    /// Signal quality classification scaled by band. Lower frequencies propagate
+    /// farther and tolerate weaker signals, so thresholds are more lenient on 2.4 GHz
+    /// and tighter on 6 GHz where higher MCS rates require stronger signal.
+    /// </summary>
+    private static string GetSignalClass(int dbm, string? band = null) => band switch
     {
-        >= -60 => "signal-excellent",
-        >= -70 => "signal-good",
-        >= -75 => "signal-fair",
-        >= -82 => "signal-weak",
-        _ => "signal-poor"
+        // 2.4 GHz: longer range, lower MCS expectations, more resilient modulation
+        "ng" => dbm switch
+        {
+            >= -65 => "signal-excellent",
+            >= -72 => "signal-good",
+            >= -78 => "signal-fair",
+            >= -85 => "signal-weak",
+            _ => "signal-poor"
+        },
+        // 6 GHz: shorter range, highest MCS expectations, needs stronger signal
+        "6e" => dbm switch
+        {
+            >= -55 => "signal-excellent",
+            >= -65 => "signal-good",
+            >= -72 => "signal-fair",
+            >= -78 => "signal-weak",
+            _ => "signal-poor"
+        },
+        // 5 GHz (default): standard thresholds
+        _ => dbm switch
+        {
+            >= -60 => "signal-excellent",
+            >= -70 => "signal-good",
+            >= -75 => "signal-fair",
+            >= -82 => "signal-weak",
+            _ => "signal-poor"
+        }
     };
 
     private static string GetBandClass(string? band) => band switch

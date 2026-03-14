@@ -63,6 +63,54 @@
 
 <ScrollRestoration />
 
+<script>
+    // Mobile: hide top bar on scroll down, show on scroll up; collapse identity bar; show footer at bottom
+    (function() {
+        var scrollEl = document.querySelector('.page-content');
+        if (!scrollEl) return;
+        var lastScrollTop = 0;
+        var threshold = 10;
+
+        scrollEl.addEventListener('scroll', function() {
+            if (window.innerWidth > 768) return;
+            var st = scrollEl.scrollTop;
+            var topBar = document.querySelector('.top-bar');
+            var footer = document.querySelector('.app-footer');
+            var maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+
+            // Top bar: hide on scroll down, show on scroll up
+            if (Math.abs(st - lastScrollTop) > threshold) {
+                if (st > lastScrollTop && st > 60) {
+                    topBar.classList.add('top-bar-hidden');
+                } else {
+                    topBar.classList.remove('top-bar-hidden');
+                }
+                lastScrollTop = st;
+            }
+
+            // Client dashboard: collapse identity name/meta when scrolled past
+            var identityBar = document.querySelector('.identity-bar');
+            if (identityBar) {
+                var barBottom = identityBar.offsetTop + identityBar.offsetHeight;
+                if (st > barBottom - 20) {
+                    identityBar.classList.add('identity-collapsed');
+                } else {
+                    identityBar.classList.remove('identity-collapsed');
+                }
+            }
+
+            // Footer: only show near bottom
+            if (footer) {
+                if (maxScroll - st < 50) {
+                    footer.classList.add('footer-visible');
+                } else {
+                    footer.classList.remove('footer-visible');
+                }
+            }
+        }, { passive: true });
+    })();
+</script>
+
 @code {
     private bool sidebarOpen = false;
 

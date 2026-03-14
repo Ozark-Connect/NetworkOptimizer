@@ -2329,6 +2329,37 @@ select.form-control {
         height: auto;
         padding: 0.75rem 1rem;
         gap: 0.5rem;
+        transition: transform 0.3s ease;
+    }
+
+    .top-bar.top-bar-hidden {
+        transform: translateY(-100%);
+        position: absolute;
+    }
+
+    /* Footer hidden by default on mobile, shown near bottom */
+    .app-footer {
+        display: none;
+    }
+
+    .app-footer.footer-visible {
+        display: block;
+    }
+
+    /* Client dashboard identity bar: collapse name/meta when scrolled past */
+    .identity-bar.identity-collapsed .identity-name,
+    .identity-bar.identity-collapsed .identity-meta {
+        max-height: 0;
+        opacity: 0;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        transition: max-height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
+    }
+
+    .identity-bar .identity-name,
+    .identity-bar .identity-meta {
+        transition: max-height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
     }
 
     .status-indicators {
