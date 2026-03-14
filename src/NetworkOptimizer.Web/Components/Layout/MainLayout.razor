@@ -63,6 +63,80 @@
 
 <ScrollRestoration />
 
+<script>
+    // Mobile scroll behaviors: auto-hide top bar, collapse identity bar
+    // Targets .main-content (scroll container on mobile) and .page-content (desktop)
+    (function() {
+        function getScrollEl() {
+            if (window.innerWidth <= 768) return document.querySelector('.main-content');
+            return document.querySelector('.page-content');
+        }
+        var lastScrollTop = 0;
+        var currentEl = null;
+
+        function attachListener(el) {
+            if (!el || el === currentEl) return;
+            if (currentEl) currentEl.removeEventListener('scroll', onScroll);
+            currentEl = el;
+            lastScrollTop = el.scrollTop;
+            el.addEventListener('scroll', onScroll, { passive: true });
+        }
+
+        function onScroll() {
+            if (window.innerWidth > 768) return;
+            var st = currentEl.scrollTop;
+            var topBar = document.querySelector('.top-bar');
+
+            if (topBar && Math.abs(st - lastScrollTop) > 10) {
+                if (st > lastScrollTop && st > 60) {
+                    topBar.classList.add('top-bar-hidden');
+                    currentEl.style.scrollPaddingTop = '0px';
+                } else {
+                    topBar.classList.remove('top-bar-hidden');
+                    currentEl.style.scrollPaddingTop = '70px';
+                }
+                lastScrollTop = st;
+            }
+
+            var identityBar = document.querySelector('.identity-bar');
+            if (identityBar) {
+                identityBar.classList.toggle('identity-collapsed', st > 80);
+                identityBar.classList.toggle('below-topbar', topBar && !topBar.classList.contains('top-bar-hidden'));
+            }
+
+            // Footer: fade in when near bottom (opacity, no layout shift)
+            var footer = document.querySelector('.app-footer');
+            if (footer) {
+                var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 30;
+                footer.classList.toggle('footer-visible', nearBottom);
+            }
+        }
+
+        // Set scroll state on navigation (called from scrollRestoration.js)
+        // hidden=true: fragment nav (hide bar, no padding)
+        // hidden=false: page nav (show bar, add padding)
+        window.__setScrollState = function(hidden) {
+            lastScrollTop = 0;
+            if (window.innerWidth <= 768) {
+                var topBar = document.querySelector('.top-bar');
+                if (topBar) {
+                    if (hidden) {
+                        topBar.classList.add('top-bar-hidden');
+                    } else {
+                        topBar.classList.remove('top-bar-hidden');
+                    }
+                }
+                if (currentEl) {
+                    currentEl.style.scrollPaddingTop = hidden ? '0px' : '70px';
+                }
+            }
+        };
+
+        attachListener(getScrollEl());
+        window.addEventListener('resize', function() { attachListener(getScrollEl()); });
+    })();
+</script>
+
 @code {
     private bool sidebarOpen = false;
 

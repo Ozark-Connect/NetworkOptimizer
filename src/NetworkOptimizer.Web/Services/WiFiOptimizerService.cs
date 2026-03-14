@@ -882,16 +882,19 @@ public class WiFiOptimizerService
             var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
             if (onlineAps.Count == 0) return null;
 
-            // Fetch metrics and channel change events for each AP concurrently
+            // Fetch 7-day hourly + 1-day 5-min metrics and channel change events concurrently
+            var recentStart = end.AddDays(-1);
             var tasks = onlineAps.Select(async ap =>
             {
                 var metricsTask = GetApMetricsAsync(
                     new[] { ap.Mac }, start, end, MetricGranularity.Hourly);
+                var recentMetricsTask = GetApMetricsAsync(
+                    new[] { ap.Mac }, recentStart, end, MetricGranularity.FiveMinutes);
                 var eventsTask = GetChannelChangeEventsAsync(start, end, ap.Mac);
 
-                await Task.WhenAll(metricsTask, eventsTask);
+                await Task.WhenAll(metricsTask, recentMetricsTask, eventsTask);
 
-                return (ap.Mac, Metrics: metricsTask.Result, Events: eventsTask.Result);
+                return (ap.Mac, Metrics: metricsTask.Result, RecentMetrics: recentMetricsTask.Result, Events: eventsTask.Result);
             });
 
             var allResults = await Task.WhenAll(tasks);
@@ -901,7 +904,7 @@ public class WiFiOptimizerService
             foreach (var band in bands)
                 result[band] = new Dictionary<string, Dictionary<int, (double, double, double)>>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var (mac, metrics, events) in allResults)
+            foreach (var (mac, metrics, recentMetrics, events) in allResults)
             {
                 if (metrics.Count == 0) continue;
                 var macLower = mac.ToLowerInvariant();
@@ -924,37 +927,73 @@ public class WiFiOptimizerService
                         ap.Name, band, bandEvents.Count, radio.Channel,
                         string.Join(", ", bandEvents.Select(e => $"{e.Timestamp:MM/dd} ch{e.PreviousChannel}→ch{e.NewChannel}")));
 
-                    // For each daily metric, determine which channel the AP was on
+                    // 7-day hourly: average per channel
                     var channelMetrics = new Dictionary<int, List<(double Util, double Interf, double TxRetry)>>();
-
                     foreach (var metric in metrics)
                     {
                         if (!metric.ByBand.TryGetValue(band, out var bandData) ||
                             !bandData.ChannelUtilization.HasValue)
                             continue;
 
-                        // Find which channel the AP was on at this metric's timestamp
                         var channel = GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
-
                         if (!channelMetrics.ContainsKey(channel))
                             channelMetrics[channel] = new List<(double, double, double)>();
-
                         channelMetrics[channel].Add((
                             bandData.ChannelUtilization ?? 0,
                             bandData.Interference ?? 0,
                             bandData.TxRetryPct ?? 0));
                     }
 
-                    // Average per channel
+                    // 1-day 5-min: average for current channel only (higher resolution recent data)
+                    var recentCurrentChannel = new List<(double Util, double Interf, double TxRetry)>();
+                    foreach (var metric in recentMetrics)
+                    {
+                        if (!metric.ByBand.TryGetValue(band, out var bandData) ||
+                            !bandData.ChannelUtilization.HasValue)
+                            continue;
+
+                        var channel = GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+                        if (channel == radio.Channel!.Value)
+                        {
+                            recentCurrentChannel.Add((
+                                bandData.ChannelUtilization ?? 0,
+                                bandData.Interference ?? 0,
+                                bandData.TxRetryPct ?? 0));
+                        }
+                    }
+
                     if (channelMetrics.Count > 0)
                     {
                         var perChannel = new Dictionary<int, (double, double, double)>();
                         foreach (var (ch, dataPoints) in channelMetrics)
                         {
-                            perChannel[ch] = (
+                            var avg = (
                                 dataPoints.Average(d => d.Util),
                                 dataPoints.Average(d => d.Interf),
                                 dataPoints.Average(d => d.TxRetry));
+
+                            // For current channel: use max of 7-day avg and 1-day avg
+                            // so recent deterioration isn't diluted by older data
+                            if (ch == radio.Channel!.Value && recentCurrentChannel.Count > 0)
+                            {
+                                var recentAvg = (
+                                    recentCurrentChannel.Average(d => d.Util),
+                                    recentCurrentChannel.Average(d => d.Interf),
+                                    recentCurrentChannel.Average(d => d.TxRetry));
+
+                                avg = (
+                                    Math.Max(avg.Item1, recentAvg.Item1),
+                                    Math.Max(avg.Item2, recentAvg.Item2),
+                                    Math.Max(avg.Item3, recentAvg.Item3));
+
+                                _logger.LogDebug("[ChannelRec] {ApName} {Band} ch{Ch}: 7d avg u={U7:F1}% i={I7:F1}% tx={T7:F1}%, " +
+                                    "1d avg u={U1:F1}% i={I1:F1}% tx={T1:F1}% ({Count} samples), using max",
+                                    ap.Name, band, ch,
+                                    dataPoints.Average(d => d.Util), dataPoints.Average(d => d.Interf), dataPoints.Average(d => d.TxRetry),
+                                    recentAvg.Item1, recentAvg.Item2, recentAvg.Item3, recentCurrentChannel.Count);
+                            }
+
+                            perChannel[ch] = avg;
                         }
                         result[band][macLower] = perChannel;
                     }

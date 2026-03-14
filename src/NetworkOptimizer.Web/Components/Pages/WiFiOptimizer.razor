@@ -481,6 +481,16 @@
         <div class="card card-span-2">
             <div class="card-header">
                 <h2 class="card-title">Access Points</h2>
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
+                    @if (_refreshing)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
             </div>
             <div class="card-body">
                 @if (_loading)
