@@ -1365,7 +1365,7 @@ public class ChannelRecommendationService
                     var overlap = ChannelSpanHelper.ComputeOverlapFactor(
                         band, ch, currentAssignment[i].Width,
                         testAssignment[j].Channel, testAssignment[j].Width);
-                    internalScore += graph.InternalWeights[i, j] * overlap;
+                    internalScore += graph.InternalWeights[i, j] * overlap * InternalCoChannelMultiplier;
                 }
 
                 var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
