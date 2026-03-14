@@ -66,9 +66,10 @@ public static class ApModelCatalog
         // === Wi-Fi 7 APs ===
         ["U7-Pro"] = new()
         {
-            ["2.4"] = new() { DefaultTxPowerDbm = 22, MinTxPowerDbm = 1, MaxTxPowerDbm = 22, AntennaGainDbi = 5 },
-            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 3 },
-            ["6"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
+            // Spec sheet: 23/4, 26/6, 23/5.8; UniFi reports EIRP 27/32/27 confirming gain 4/6/6
+            ["2.4"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 4 },
+            ["5"] = new() { DefaultTxPowerDbm = 26, MinTxPowerDbm = 1, MaxTxPowerDbm = 26, AntennaGainDbi = 6 },
+            ["6"] = new() { DefaultTxPowerDbm = 23, MinTxPowerDbm = 1, MaxTxPowerDbm = 23, AntennaGainDbi = 6 },
         },
         ["U7-Pro-Max"] = new()
         {
