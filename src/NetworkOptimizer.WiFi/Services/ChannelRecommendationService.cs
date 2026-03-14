@@ -123,7 +123,8 @@ public class ChannelRecommendationService
             var radio = ap.Radios.First(r => r.Band == band && r.Channel.HasValue);
             var isPlaced = propContext?.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()) == true;
 
-            var (validChannels, effectiveWidth) = GetValidChannelsWithWidth(band, radio, regulatoryData, opts.DfsPreference);
+            var (validChannels, effectiveWidth, hadDfsFallback) = GetValidChannelsWithWidth(band, radio, regulatoryData, opts.DfsPreference);
+            if (hadDfsFallback) graph.DfsAvoidanceFallback = true;
             var currentWidth = radio.ChannelWidth ?? 20;
 
             var macLower = ap.Mac.ToLowerInvariant();
@@ -140,7 +141,7 @@ public class ChannelRecommendationService
                 CurrentChannel = radio.Channel!.Value,
                 CurrentWidth = currentWidth,
                 ValidChannels = validChannels,
-                ValidWidths = new[] { effectiveWidth }, // May narrow if avoiding DFS at wide widths
+                ValidWidths = new[] { currentWidth }, // Width changes are a future feature
                 IsPlaced = isPlaced,
                 HasDfs = radio.HasDfs,
                 ChannelUtilization = radio.ChannelUtilization ?? 0,
@@ -287,7 +288,8 @@ public class ChannelRecommendationService
             UnplacedApCount = graph.Nodes.Count(node => !node.IsPlaced),
             HasScanData = graph.HasScanData,
             HasNeighborNetworks = graph.ExternalLoad.Any(d => d.Count > 0),
-            HasBuildingData = hasBuildingData
+            HasBuildingData = hasBuildingData,
+            DfsAvoidanceNotPossible = graph.DfsAvoidanceFallback
         };
 
         for (int i = 0; i < n; i++)
@@ -854,10 +856,11 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
-    /// Get valid channels for an AP, optionally with a narrowed width when DFS avoidance
-    /// eliminates all channels at the current width.
+    /// Get valid channels for an AP. When DFS avoidance leaves no channels at the current
+    /// width (e.g. 160 MHz where both groups include DFS), falls back to the full channel
+    /// list so the engine can still produce valid recommendations.
     /// </summary>
-    private (int[] Channels, int Width) GetValidChannelsWithWidth(
+    private (int[] Channels, int Width, bool DfsFallback) GetValidChannelsWithWidth(
         RadioBand band, RadioSnapshot radio,
         RegulatoryChannelData? regulatoryData,
         DfsPreference dfsPref)
@@ -866,21 +869,17 @@ public class ChannelRecommendationService
         var channels = GetValidChannels(band, radio, regulatoryData, dfsPref, width);
 
         // If avoiding DFS left us with zero channels at the current width,
-        // try narrower widths. At 160 MHz both 5 GHz groups (36-64, 100-128)
-        // include DFS channels, so we must step down to 80 MHz.
+        // fall back to including DFS channels. At 160 MHz both 5 GHz groups
+        // (36-64, 100-128) include DFS, so avoidance isn't possible without
+        // a width reduction (future feature).
         if (channels.Length == 0 && dfsPref == DfsPreference.Exclude &&
-            band == RadioBand.Band5GHz && regulatoryData != null && width > 20)
+            band == RadioBand.Band5GHz)
         {
-            foreach (var narrower in new[] { 80, 40, 20 })
-            {
-                if (narrower >= width) continue;
-                var narrowChannels = regulatoryData.GetChannels(band, narrower, includeDfs: false);
-                if (narrowChannels.Length > 0)
-                    return (narrowChannels, narrower);
-            }
+            channels = GetValidChannels(band, radio, regulatoryData, DfsPreference.IncludeWithPenalty, width);
+            return (channels, width, true);
         }
 
-        return (channels, width);
+        return (channels, width, false);
     }
 
     private int[] GetValidChannels(
