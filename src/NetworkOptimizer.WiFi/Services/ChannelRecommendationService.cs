@@ -180,6 +180,7 @@ public class ChannelRecommendationService
             currentAssignment[i] = (graph.Nodes[i].CurrentChannel, graph.Nodes[i].CurrentWidth);
 
         var currentNetworkScore = ScoreAssignment(graph, currentAssignment, band);
+        currentNetworkScore = AddDfsPenalty(graph, currentAssignment, band, opts.DfsPreference, currentNetworkScore);
 
         // Log per-AP per-channel score breakdown BEFORE optimization
         LogPerApChannelScores(graph, currentAssignment, band, "PRE-OPTIMIZATION");
