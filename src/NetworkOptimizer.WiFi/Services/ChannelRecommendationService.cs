@@ -169,6 +169,7 @@ public class ChannelRecommendationService
         // Build external load from RF scan data
         if (scanResults != null)
         {
+            graph.HasScanData = scanResults.Any(s => s.Band == band);
             BuildExternalLoad(graph, bandAps, band, scanResults);
             BuildScanChannelData(graph, bandAps, band, scanResults);
         }
@@ -272,7 +273,7 @@ public class ChannelRecommendationService
             CurrentNetworkScore = currentNetworkScore,
             RecommendedNetworkScore = bestScore,
             UnplacedApCount = graph.Nodes.Count(node => !node.IsPlaced),
-            HasScanData = graph.ScanChannelData.Any(d => d.Count > 0) || graph.ExternalLoad.Any(d => d.Count > 0),
+            HasScanData = graph.HasScanData,
             HasNeighborNetworks = graph.ExternalLoad.Any(d => d.Count > 0),
             HasBuildingData = hasBuildingData
         };
