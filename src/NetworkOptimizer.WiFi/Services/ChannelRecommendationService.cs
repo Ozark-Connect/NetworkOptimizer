@@ -87,6 +87,14 @@ public class ChannelRecommendationService
     private const int CcaThresholdDbm = -82;
 
     /// <summary>
+    /// Multiplier for internal (own AP) co-channel interference. Co-channeling your
+    /// own APs is worse than external neighbors: your APs are permanent, always-on,
+    /// high-duty-cycle, and you control them. A 3x multiplier ensures the engine
+    /// avoids co-channeling APs that can hear each other well.
+    /// </summary>
+    private const double InternalCoChannelMultiplier = 3.0;
+
+    /// <summary>
     /// Band-specific multiplier for ambient RF stress (utilization, interference, TX retries)
     /// and scan channel data. Lower bands have higher baseline noise that's normal for
     /// the RF environment and shouldn't drive aggressive channel changes.
@@ -396,7 +404,7 @@ public class ChannelRecommendationService
                     assignment[i].Channel, assignment[i].Width,
                     assignment[j].Channel, assignment[j].Width);
 
-                score += graph.InternalWeights[i, j] * overlapFactor;
+                score += graph.InternalWeights[i, j] * overlapFactor * InternalCoChannelMultiplier;
             }
         }
 
@@ -462,7 +470,7 @@ public class ChannelRecommendationService
                 assignment[apIndex].Channel, assignment[apIndex].Width,
                 assignment[j].Channel, assignment[j].Width);
 
-            score += graph.InternalWeights[apIndex, j] * overlapFactor;
+            score += graph.InternalWeights[apIndex, j] * overlapFactor * InternalCoChannelMultiplier;
         }
 
         // External interference
