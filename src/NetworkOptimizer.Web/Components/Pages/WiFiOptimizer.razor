@@ -518,13 +518,6 @@
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
                                     </div>
-                                    @if (ap.Satisfaction.HasValue && ap.Satisfaction.Value >= 0 && ap.TotalClients > 0)
-                                    {
-                                        <div class="ap-stat">
-                                            <span class="ap-stat-value @GetSatisfactionClass(ap.Satisfaction.Value)">@ap.Satisfaction%</span>
-                                            <span class="ap-stat-label">Satisfaction</span>
-                                        </div>
-                                    }
                                     @if (ap.IsMeshChild && ap.MeshUplinkSignalDbm.HasValue)
                                     {
                                         <div class="ap-mesh-info">
