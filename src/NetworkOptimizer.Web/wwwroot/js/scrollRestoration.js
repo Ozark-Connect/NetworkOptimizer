@@ -1,8 +1,7 @@
 // Scroll Restoration for Blazor Server
-// Uses .page-content as the scroll container (not window)
+// Mobile uses .main-content as scroll container, desktop uses .page-content
 
 (function() {
-    const SCROLL_CONTAINER_SELECTOR = '.page-content';
     const scrollPositions = new Map();
     let isPopState = false;
 
@@ -12,7 +11,8 @@
     });
 
     function getScrollContainer() {
-        return document.querySelector(SCROLL_CONTAINER_SELECTOR);
+        if (window.innerWidth <= 768) return document.querySelector('.main-content');
+        return document.querySelector('.page-content');
     }
 
     // Called from C# before navigation

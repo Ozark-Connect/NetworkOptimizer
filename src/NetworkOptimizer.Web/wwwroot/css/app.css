@@ -2325,11 +2325,20 @@ select.form-control {
     }
 
     /* Top bar adjustments */
+    /* Mobile: main-content becomes scroll container, top bar is sticky */
+    .main-content {
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .page-content {
+        overflow-y: visible;
+        flex: none;
+    }
+
     .top-bar {
-        position: fixed;
+        position: sticky;
         top: 0;
-        left: 0;
-        right: 0;
         z-index: 100;
         height: auto;
         padding: 0.75rem 1rem;
@@ -2339,14 +2348,9 @@ select.form-control {
 
     .top-bar.top-bar-hidden {
         transform: translateY(-100%);
+        margin-bottom: -52px;
     }
 
-    /* Offset content for fixed top bar */
-    .main-content {
-        padding-top: 62px;
-    }
-
-    /* Hide footer on mobile */
     .app-footer {
         display: none;
     }

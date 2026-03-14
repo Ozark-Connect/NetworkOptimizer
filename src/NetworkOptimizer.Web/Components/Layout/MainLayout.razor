@@ -64,20 +64,30 @@
 <ScrollRestoration />
 
 <script>
-    // Mobile: hide top bar on scroll down, show on scroll up; collapse identity bar
+    // Mobile scroll behaviors: auto-hide top bar, collapse identity bar
+    // Targets .main-content (scroll container on mobile) and .page-content (desktop)
     (function() {
-        var scrollEl = document.querySelector('.page-content');
-        if (!scrollEl) return;
+        function getScrollEl() {
+            if (window.innerWidth <= 768) return document.querySelector('.main-content');
+            return document.querySelector('.page-content');
+        }
         var lastScrollTop = 0;
-        var threshold = 10;
+        var currentEl = null;
 
-        scrollEl.addEventListener('scroll', function() {
+        function attachListener(el) {
+            if (!el || el === currentEl) return;
+            if (currentEl) currentEl.removeEventListener('scroll', onScroll);
+            currentEl = el;
+            lastScrollTop = el.scrollTop;
+            el.addEventListener('scroll', onScroll, { passive: true });
+        }
+
+        function onScroll() {
             if (window.innerWidth > 768) return;
-            var st = scrollEl.scrollTop;
+            var st = currentEl.scrollTop;
             var topBar = document.querySelector('.top-bar');
 
-            // Top bar: hide on scroll down, show on scroll up
-            if (Math.abs(st - lastScrollTop) > threshold) {
+            if (Math.abs(st - lastScrollTop) > 10) {
                 if (st > lastScrollTop && st > 60) {
                     topBar.classList.add('top-bar-hidden');
                 } else {
@@ -86,16 +96,14 @@
                 lastScrollTop = st;
             }
 
-            // Client dashboard: collapse identity name/meta once user scrolls down
             var identityBar = document.querySelector('.identity-bar');
             if (identityBar) {
-                if (st > 80) {
-                    identityBar.classList.add('identity-collapsed');
-                } else {
-                    identityBar.classList.remove('identity-collapsed');
-                }
+                identityBar.classList.toggle('identity-collapsed', st > 80);
             }
-        }, { passive: true });
+        }
+
+        attachListener(getScrollEl());
+        window.addEventListener('resize', function() { attachListener(getScrollEl()); });
     })();
 </script>
 
