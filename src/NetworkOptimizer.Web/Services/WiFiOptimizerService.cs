@@ -878,7 +878,7 @@ public class WiFiOptimizerService
         try
         {
             var end = DateTimeOffset.UtcNow;
-            var start = end.AddDays(-30);
+            var start = end.AddDays(-7);
             var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
             if (onlineAps.Count == 0) return null;
 
@@ -886,7 +886,7 @@ public class WiFiOptimizerService
             var tasks = onlineAps.Select(async ap =>
             {
                 var metricsTask = GetApMetricsAsync(
-                    new[] { ap.Mac }, start, end, MetricGranularity.Daily);
+                    new[] { ap.Mac }, start, end, MetricGranularity.Hourly);
                 var eventsTask = GetChannelChangeEventsAsync(start, end, ap.Mac);
 
                 await Task.WhenAll(metricsTask, eventsTask);
