@@ -9183,6 +9183,29 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.5rem;
 }
 
+/* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
+.btn-recommend {
+    background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+    color: white;
+    border: none;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-recommend:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.btn-recommend:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 /* Unplaced AP notice */
 .recommendation-notice {
     padding: 0.75rem;

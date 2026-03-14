@@ -11,7 +11,7 @@
         <div class="header-actions">
             @if (!_showRecommendations && _accessPoints.Any(ap => ap.IsOnline && ap.Radios.Any(r => r.Channel.HasValue)))
             {
-                <button class="btn btn-sm btn-secondary" @onclick="RunRecommendation" disabled="@_loadingRecommendations">
+                <button class="btn btn-recommend" @onclick="RunRecommendation" disabled="@_loadingRecommendations">
                     @if (_loadingRecommendations)
                     {
                         <span class="spinner-sm"></span>
