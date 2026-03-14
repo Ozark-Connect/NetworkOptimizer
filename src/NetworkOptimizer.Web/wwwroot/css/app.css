@@ -6639,6 +6639,10 @@ a.path-hop.hop-clickable:hover {
     white-space: nowrap;
 }
 
+.ap-mesh-info .ap-stat-label {
+    text-transform: none;
+}
+
 .mesh-unit {
     font-size: 0.75rem;
     font-weight: 400;
