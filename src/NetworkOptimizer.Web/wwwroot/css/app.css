@@ -2348,11 +2348,11 @@ select.form-control {
 
     .top-bar.top-bar-hidden {
         transform: translateY(-100%);
-        margin-bottom: -52px;
     }
 
     .app-footer {
-        display: none;
+        padding: 0.5rem 1rem;
+        font-size: 0.6rem;
     }
 
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
