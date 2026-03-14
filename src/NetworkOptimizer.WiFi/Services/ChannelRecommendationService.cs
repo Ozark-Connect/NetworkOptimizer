@@ -61,7 +61,7 @@ public class ChannelRecommendationService
     /// a 50-AP network needs 12.5. Prevents recommending changes when
     /// interference is already negligible.
     /// </summary>
-    private const double MinAvgImprovementPerAp = 0.20;
+    private const double MinAvgImprovementPerAp = 0.15;
 
     /// <summary>
     /// Minimum current score for an AP to be worth moving. APs with scores
