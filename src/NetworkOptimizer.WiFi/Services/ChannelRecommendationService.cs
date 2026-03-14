@@ -555,9 +555,17 @@ public class ChannelRecommendationService
             if (!macToIndex.TryGetValue(scan.ApMac, out var apIndex))
                 continue;
 
+            var apWidth = graph.Nodes[apIndex].CurrentWidth;
+
             foreach (var neighbor in scan.Neighbors.Where(n => !n.IsOwnNetwork && n.Signal.HasValue))
             {
                 var weight = ChannelSpanHelper.SignalToInterferenceWeight(neighbor.Signal!.Value);
+
+                // Scale by width ratio: a 20 MHz neighbor only impacts a fraction of a 160 MHz channel
+                var neighborWidth = neighbor.Width ?? 20;
+                if (neighborWidth < apWidth)
+                    weight *= (double)neighborWidth / apWidth;
+
                 var channel = neighbor.Channel;
 
                 if (!graph.ExternalLoad[apIndex].ContainsKey(channel))
