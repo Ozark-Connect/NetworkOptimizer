@@ -106,6 +106,21 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     // Client Wi-Fi overhead factor - ~25% overhead for direct client connections
     private const double ClientWifiOverheadFactor = 0.75;
 
+    /// <summary>
+    /// Wi-Fi idle mode link rate threshold in Kbps. When a wireless link has no active
+    /// traffic, APs report the management frame rate (typically 6 Mbps) as the link rate.
+    /// This is not a real throughput rate and should be treated as "unknown".
+    /// </summary>
+    private const long WifiIdleRateThresholdKbps = 6000;
+
+    /// <summary>
+    /// Returns the rate if it's above idle threshold, otherwise 0.
+    /// Wi-Fi radios report 6 Mbps (management frame rate) when idle, which
+    /// isn't useful for throughput analysis.
+    /// </summary>
+    private static long FilterIdleRate(long rateKbps) =>
+        rateKbps > WifiIdleRateThresholdKbps ? rateKbps : 0;
+
     // Mesh backhaul overhead factor - ~55% overhead due to half-duplex, retransmits, etc.
     private const double MeshBackhaulOverheadFactor = 0.45;
 
@@ -763,8 +778,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     deviceHop.WirelessChannel = targetDevice.UplinkChannel;
                     deviceHop.WirelessSignalDbm = targetDevice.UplinkSignalDbm;
                     deviceHop.WirelessNoiseDbm = targetDevice.UplinkNoiseDbm;
-                    deviceHop.WirelessTxRateMbps = targetDevice.UplinkTxRateKbps > 0 ? (int)(targetDevice.UplinkTxRateKbps / 1000) : null;
-                    deviceHop.WirelessRxRateMbps = targetDevice.UplinkRxRateKbps > 0 ? (int)(targetDevice.UplinkRxRateKbps / 1000) : null;
+                    var txKbps = FilterIdleRate(targetDevice.UplinkTxRateKbps);
+                    var rxKbps = FilterIdleRate(targetDevice.UplinkRxRateKbps);
+                    deviceHop.WirelessTxRateMbps = txKbps > 0 ? (int)(txKbps / 1000) : null;
+                    deviceHop.WirelessRxRateMbps = rxKbps > 0 ? (int)(rxKbps / 1000) : null;
                 }
                 else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
                 {
@@ -822,8 +839,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.WirelessChannel = device.UplinkChannel;
                         hop.WirelessSignalDbm = device.UplinkSignalDbm;
                         hop.WirelessNoiseDbm = device.UplinkNoiseDbm;
-                        hop.WirelessTxRateMbps = device.UplinkTxRateKbps > 0 ? (int)(device.UplinkTxRateKbps / 1000) : null;
-                        hop.WirelessRxRateMbps = device.UplinkRxRateKbps > 0 ? (int)(device.UplinkRxRateKbps / 1000) : null;
+                        var uplinkTx = FilterIdleRate(device.UplinkTxRateKbps);
+                        var uplinkRx = FilterIdleRate(device.UplinkRxRateKbps);
+                        hop.WirelessTxRateMbps = uplinkTx > 0 ? (int)(uplinkTx / 1000) : null;
+                        hop.WirelessRxRateMbps = uplinkRx > 0 ? (int)(uplinkRx / 1000) : null;
                     }
                     else
                     {
@@ -1420,17 +1439,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.WirelessChannel = targetDevice.UplinkChannel;
                 deviceHop.WirelessSignalDbm = targetDevice.UplinkSignalDbm;
                 deviceHop.WirelessNoiseDbm = targetDevice.UplinkNoiseDbm;
-                // Get current rates (Kbps)
-                var currentTxKbps = targetDevice.UplinkTxRateKbps;
-                var currentRxKbps = targetDevice.UplinkRxRateKbps;
+                // Get current rates (Kbps), filtering out idle mode (6 Mbps management frame rate)
+                var currentTxKbps = FilterIdleRate(targetDevice.UplinkTxRateKbps);
+                var currentRxKbps = FilterIdleRate(targetDevice.UplinkRxRateKbps);
 
                 // Compare with snapshot and use max rates (both are from child AP's perspective)
                 if (priorSnapshot?.MeshUplinkRates.TryGetValue(targetDevice.Mac, out var snapshotRates) == true)
                 {
                     var origTxKbps = currentTxKbps;
                     var origRxKbps = currentRxKbps;
-                    currentTxKbps = Math.Max(currentTxKbps, snapshotRates.TxKbps);
-                    currentRxKbps = Math.Max(currentRxKbps, snapshotRates.RxKbps);
+                    currentTxKbps = Math.Max(currentTxKbps, FilterIdleRate(snapshotRates.TxKbps));
+                    currentRxKbps = Math.Max(currentRxKbps, FilterIdleRate(snapshotRates.RxKbps));
                     _logger.LogDebug("Mesh device {Name}: Using max rates - Tx={Tx}Kbps (current={CurTx}, snapshot={SnapTx}), Rx={Rx}Kbps (current={CurRx}, snapshot={SnapRx})",
                         targetDevice.Name, currentTxKbps, origTxKbps, snapshotRates.TxKbps, currentRxKbps, origRxKbps, snapshotRates.RxKbps);
                 }
@@ -1761,13 +1780,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.WirelessChannel = device.UplinkChannel;
                         hop.WirelessSignalDbm = device.UplinkSignalDbm;
                         hop.WirelessNoiseDbm = device.UplinkNoiseDbm;
-                        // Get current rates and compare with snapshot
-                        var hopTxKbps = device.UplinkTxRateKbps;
-                        var hopRxKbps = device.UplinkRxRateKbps;
+                        // Get current rates and compare with snapshot, filtering idle rates
+                        var hopTxKbps = FilterIdleRate(device.UplinkTxRateKbps);
+                        var hopRxKbps = FilterIdleRate(device.UplinkRxRateKbps);
                         if (priorSnapshot?.MeshUplinkRates.TryGetValue(device.Mac, out var hopSnapshotRates) == true)
                         {
-                            hopTxKbps = Math.Max(hopTxKbps, hopSnapshotRates.TxKbps);
-                            hopRxKbps = Math.Max(hopRxKbps, hopSnapshotRates.RxKbps);
+                            hopTxKbps = Math.Max(hopTxKbps, FilterIdleRate(hopSnapshotRates.TxKbps));
+                            hopRxKbps = Math.Max(hopRxKbps, FilterIdleRate(hopSnapshotRates.RxKbps));
                         }
                         hop.WirelessTxRateMbps = hopTxKbps > 0 ? (int)(hopTxKbps / 1000) : null;
                         hop.WirelessRxRateMbps = hopRxKbps > 0 ? (int)(hopRxKbps / 1000) : null;
