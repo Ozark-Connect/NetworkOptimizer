@@ -9188,7 +9188,8 @@ a.path-hop.hop-clickable:hover {
     background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
     color: white;
     border: none;
-    padding: 0.5rem 1.25rem;
+    height: 34px;
+    padding: 0 1.25rem;
     font-size: 0.875rem;
     font-weight: 500;
     border-radius: var(--border-radius);
