@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @using Microsoft.Extensions.Logging
 @inject WiFiOptimizerService WiFiService
@@ -169,7 +170,7 @@
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
                                 <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
-                                <td class="@GetSignalClass(client.Signal)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
+                                <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
                             </tr>
                         }
                     </tbody>
@@ -255,7 +256,7 @@
                     </div>
                     <div class="info-item">
                         <span class="info-label">Signal:</span>
-                        <span class="info-value @GetSignalClass(_selectedClient.Signal)">
+                        <span class="info-value @SignalClassification.GetSignalClass(_selectedClient.Signal, _selectedClient.Band)">
                             @(_selectedClient.Signal?.ToString() ?? "-") dBm
                         </span>
                     </div>
@@ -699,14 +700,6 @@
         _ => ""
     };
 
-    private string GetSignalClass(int? signal) => signal switch
-    {
-        null => "",
-        >= -50 => "signal-excellent",
-        >= -60 => "signal-good",
-        >= -70 => "signal-fair",
-        _ => "signal-poor"
-    };
 
     private string GetOfflineTooltip(WirelessClientSnapshot client)
     {

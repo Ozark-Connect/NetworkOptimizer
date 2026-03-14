@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Analyzers;
@@ -127,37 +128,40 @@ public class SiteHealthScorer
             return dimension;
         }
 
-        // Score based on signal distribution
-        var excellent = clientsWithSignal.Count(c => c.Signal >= _options.ExcellentSignalThreshold);
-        var good = clientsWithSignal.Count(c => c.Signal >= _options.GoodSignalThreshold && c.Signal < _options.ExcellentSignalThreshold);
-        var fair = clientsWithSignal.Count(c => c.Signal >= _options.WeakSignalThreshold && c.Signal < _options.GoodSignalThreshold);
-        var poor = clientsWithSignal.Count(c => c.Signal < _options.WeakSignalThreshold);
+        // Score based on band-aware signal classification
+        var excellent = clientsWithSignal.Count(c =>
+            SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-excellent");
+        var good = clientsWithSignal.Count(c =>
+            SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-good");
+        var weak = clientsWithSignal.Count(c =>
+            SignalClassification.IsWeakSignal(c.Signal!.Value, c.Band));
+        var fair = clientsWithSignal.Count - excellent - good - weak;
 
         var total = clientsWithSignal.Count;
-        var score = (excellent * 100 + good * 80 + fair * 50 + poor * 20) / total;
+        var score = (excellent * 100 + good * 80 + fair * 50 + weak * 20) / total;
 
         dimension.Score = Math.Max(0, Math.Min(100, score));
-        dimension.Status = poor > 0 ? $"{poor} clients with weak signal" : "All clients have good signal";
+        dimension.Status = weak > 0 ? $"{weak} clients with weak signal" : "All clients have good signal";
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Excellent signal (>-50 dBm)",
+            Name = "Excellent signal (band-adjusted)",
             Value = $"{excellent} clients ({excellent * 100 / total}%)",
             Impact = excellent > 0 ? 10 : 0
         });
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Good signal (-50 to -65 dBm)",
+            Name = "Good signal (band-adjusted)",
             Value = $"{good} clients ({good * 100 / total}%)",
             Impact = 0
         });
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Weak signal (<-70 dBm)",
-            Value = $"{poor} clients ({poor * 100 / total}%)",
-            Impact = poor > 0 ? -20 : 0
+            Name = "Weak/poor signal (band-adjusted)",
+            Value = $"{weak} clients ({weak * 100 / total}%)",
+            Impact = weak > 0 ? -20 : 0
         });
 
         return dimension;
@@ -464,17 +468,20 @@ public class SiteHealthScorer
         List<WirelessClientSnapshot> clients,
         RoamingTopology? roamingData)
     {
-        // Signal issues
-        var weakSignalClients = clients.Where(c => c.Signal.HasValue && c.Signal.Value < _options.WeakSignalThreshold).ToList();
+        // Signal issues (band-aware thresholds)
+        var weakSignalClients = clients
+            .Where(c => c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band))
+            .ToList();
         foreach (var client in weakSignalClients.Take(5))
         {
             var apInfo = !string.IsNullOrEmpty(client.ApName) ? $" on {client.ApName}" : "";
+            var isCritical = SignalClassification.IsCriticalSignal(client.Signal!.Value, client.Band);
             score.Issues.Add(new HealthIssue
             {
-                Severity = client.Signal < -80 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
+                Severity = isCritical ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                 Dimensions = { HealthDimension.SignalQuality },
                 Title = "Weak signal",
-                Description = $"Client has weak signal ({client.Signal} dBm){apInfo}",
+                Description = $"Client has weak signal ({client.Signal} dBm on {client.Band.ToDisplayString()}){apInfo}",
                 AffectedEntity = client.Name,
                 AffectedClientMac = client.Mac,
                 Recommendation = "Move closer to AP or add additional coverage.",

@@ -27,11 +27,12 @@ public class CoverageGapRuleTests
         Name = name
     };
 
-    private static WirelessClientSnapshot CreateClient(string apMac, int? signal) => new()
+    private static WirelessClientSnapshot CreateClient(string apMac, int? signal, RadioBand band = RadioBand.Band5GHz) => new()
     {
         Mac = Guid.NewGuid().ToString("N")[..12],
         ApMac = apMac,
-        Signal = signal
+        Signal = signal,
+        Band = band
     };
 
     [Fact]
@@ -77,7 +78,7 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
+            CreateClient(ap.Mac, -82),
             CreateClient(ap.Mac, -50),
             CreateClient(ap.Mac, -55)
         };
@@ -89,12 +90,12 @@ public class CoverageGapRuleTests
     [Fact]
     public void ReturnsIssue_WhenHalfOrMoreClientsHaveWeakSignal()
     {
-        // 2 of 3 = 67%, above 50%
+        // 2 of 3 = 67%, above 40% (5 GHz weak threshold is -78)
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
-            CreateClient(ap.Mac, -80),
+            CreateClient(ap.Mac, -82),
+            CreateClient(ap.Mac, -85),
             CreateClient(ap.Mac, -50)
         };
 
@@ -116,7 +117,7 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
+            CreateClient(ap.Mac, -82),
             CreateClient(ap.Mac, -50),
             CreateClient(ap.Mac, null)
         };
@@ -133,8 +134,8 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
-            CreateClient(ap.Mac, -80),
+            CreateClient(ap.Mac, -82),
+            CreateClient(ap.Mac, -85),
             CreateClient(ap.Mac, -50),
             CreateClient(ap.Mac, null)
         };
@@ -155,8 +156,8 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
-            CreateClient(ap.Mac, -80),
+            CreateClient(ap.Mac, -82),
+            CreateClient(ap.Mac, -85),
             CreateClient(ap.Mac, -50)
         };
 
@@ -177,12 +178,12 @@ public class CoverageGapRuleTests
         var ap2 = CreateAp("aa:bb:cc:dd:ee:02", "AP Two");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap1.Mac, -75),
-            CreateClient(ap1.Mac, -80),
+            CreateClient(ap1.Mac, -82),
+            CreateClient(ap1.Mac, -85),
             CreateClient(ap1.Mac, -50),
-            CreateClient(ap2.Mac, -75),
-            CreateClient(ap2.Mac, -80),
-            CreateClient(ap2.Mac, -85)
+            CreateClient(ap2.Mac, -82),
+            CreateClient(ap2.Mac, -85),
+            CreateClient(ap2.Mac, -90)
         };
 
         var ctx = CreateContext([ap1, ap2], clients);
