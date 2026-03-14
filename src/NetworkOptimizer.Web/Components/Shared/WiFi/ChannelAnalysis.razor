@@ -602,35 +602,17 @@
         // Calculate width groups for visual display
         CalculateWidthGroups(allRadios);
 
-        // Count co-channel issues per band (for summary stats)
-        foreach (var band in _bands)
-        {
-            var radiosInBand = allRadios.Where(r => r.Band == band && r.Channel.HasValue).ToList();
-            var channelGroups = radiosInBand.GroupBy(r => r.Channel!.Value).Where(g => g.Count() > 1).ToList();
-
-            foreach (var group in channelGroups)
-            {
-                var apsOnChannel = _accessPoints
-                    .Where(ap => ap.Radios.Any(r => r.Band == band && r.Channel == group.Key))
-                    .ToList();
-
-                // Filter out mesh pairs - they MUST be on the same channel
-                var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, group.Key);
-
-                // Only count co-channel if there are 2+ APs that aren't mesh pairs
-                if (nonMeshAps.Count > 1)
-                {
-                    _coChannelIssues++;
-                }
-            }
-        }
-
         // Pull channel-related issues from the health score engine
+        // (uses propagation modeling to filter false co-channel positives)
         if (_healthScore != null)
         {
             _channelIssues = _healthScore.Issues
                 .Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth))
                 .ToList();
+
+            // Co-channel count comes from the health engine which uses propagation filtering
+            _coChannelIssues = _channelIssues
+                .Count(i => i.Title.StartsWith("Co-Channel", StringComparison.OrdinalIgnoreCase));
         }
     }
 
@@ -711,12 +693,14 @@
     private bool IsChannelOverlapped(RadioBand band, int? channel)
     {
         if (!channel.HasValue) return false;
-        var apsOnChannel = GetApsOnChannel(band, channel.Value);
-        if (apsOnChannel.Count <= 1) return false;
 
-        // Check if all overlap is from mesh pairs
-        var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, channel.Value);
-        return nonMeshAps.Count > 1;
+        // Use the health engine's co-channel issues which apply propagation filtering
+        // to avoid false positives from APs that are too far apart to interfere
+        var bandStr = band.ToDisplayString();
+        return _channelIssues.Any(i =>
+            i.Title.StartsWith("Co-Channel", StringComparison.OrdinalIgnoreCase) &&
+            i.Title.Contains(bandStr) &&
+            i.Title.Contains($"Channel {channel.Value}"));
     }
 
     private bool IsChannelMesh(RadioBand band, int? channel)
@@ -739,16 +723,17 @@
         var radiosInBand = _accessPoints.SelectMany(ap => ap.Radios).Where(r => r.Band == band && r.Channel.HasValue).ToList();
         var channelGroups = radiosInBand.GroupBy(r => r.Channel!.Value).ToList();
 
-        bool hasActualOverlap = false;
-        bool hasMesh = false;
+        // Use health engine's propagation-filtered co-channel issues
+        var bandStr = band.ToDisplayString();
+        bool hasActualOverlap = _channelIssues.Any(i =>
+            i.Title.StartsWith("Co-Channel", StringComparison.OrdinalIgnoreCase) &&
+            i.Title.Contains(bandStr));
 
+        bool hasMesh = false;
         foreach (var group in channelGroups.Where(g => g.Count() > 1))
         {
             var apsOnChannel = GetApsOnChannel(band, group.Key);
             var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, group.Key);
-
-            if (nonMeshAps.Count > 1)
-                hasActualOverlap = true;
 
             if (apsOnChannel.Count > nonMeshAps.Count || (apsOnChannel.Count > 1 && nonMeshAps.Count == 0))
                 hasMesh = true;
