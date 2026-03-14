@@ -52,9 +52,9 @@
     {
         <!-- Summary Stats -->
         <div class="channel-stats-row">
-            <div class="channel-stat-card @(_coChannelIssues > 0 ? "stat-warning" : "")">
-                <div class="channel-stat-value">@_coChannelIssues</div>
-                <div class="channel-stat-label">Co-Channel Issues</div>
+            <div class="channel-stat-card @(_channelIssues.Count > 0 ? "stat-warning" : "")">
+                <div class="channel-stat-value">@_channelIssues.Count</div>
+                <div class="channel-stat-label">Channel Issues</div>
             </div>
             <div class="channel-stat-card">
                 <div class="channel-stat-value">@_channelsInUse.Count</div>
@@ -502,7 +502,6 @@
     private DfsPreference _dfsPreference = DfsPreference.IncludeWithPenalty;
 
     // Calculated stats
-    private int _coChannelIssues;
     private int _avgUtilization;
     private int _avgInterference;
     private HashSet<int> _channelsInUse = new();
@@ -582,7 +581,6 @@
     {
         _channelIssues.Clear();
         _channelsInUse.Clear();
-        _coChannelIssues = 0;
 
         var allRadios = _accessPoints.SelectMany(ap => ap.Radios).ToList();
 
@@ -610,9 +608,6 @@
                 .Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth))
                 .ToList();
 
-            // Co-channel count comes from the health engine which uses propagation filtering
-            _coChannelIssues = _channelIssues
-                .Count(i => i.Title.StartsWith("Co-Channel", StringComparison.OrdinalIgnoreCase));
         }
     }
 
