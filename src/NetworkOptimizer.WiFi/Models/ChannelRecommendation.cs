@@ -53,6 +53,12 @@ public class ChannelPlan
     public bool HasScanData { get; set; }
     public bool HasNeighborNetworks { get; set; }
     public bool HasBuildingData { get; set; }
+
+    /// <summary>
+    /// True when DFS avoidance was requested but isn't possible at the current channel width
+    /// (e.g. 160 MHz where all bonding groups include DFS channels).
+    /// </summary>
+    public bool DfsAvoidanceNotPossible { get; set; }
 }
 
 /// <summary>
@@ -62,6 +68,9 @@ public class ChannelPlan
 public class InterferenceGraph
 {
     public List<ApNode> Nodes { get; set; } = new();
+
+    /// <summary>True when DFS avoidance was requested but at least one AP had to fall back to DFS channels</summary>
+    public bool DfsAvoidanceFallback { get; set; }
 
     /// <summary>Pairwise internal interference weights [i,j]</summary>
     public double[,] InternalWeights { get; set; } = new double[0, 0];

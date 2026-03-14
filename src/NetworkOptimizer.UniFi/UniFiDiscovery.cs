@@ -105,7 +105,8 @@ public class UniFiDiscovery
                 AntennaTable = d.AntennaTable,
                 VapTable = d.VapTable,
                 Satisfaction = d.Satisfaction,
-                ScanRadioTable = d.ScanRadioTable
+                ScanRadioTable = d.ScanRadioTable,
+                DownlinkTable = d.DownlinkTable
             };
         }).ToList();
 
@@ -677,6 +678,12 @@ public class DiscoveredDevice
     /// Whether this AP supports spectrum/RF environment scanning.
     /// </summary>
     public bool SupportsSpectrumScan => ScanRadioTable != null;
+
+    /// <summary>
+    /// Downlink table - mesh children connected to this AP (parent's perspective).
+    /// Only present on mesh parent APs. Contains signal/rates as seen by the parent.
+    /// </summary>
+    public List<DownlinkTableEntry>? DownlinkTable { get; set; }
 }
 
 public class DiscoveredClient

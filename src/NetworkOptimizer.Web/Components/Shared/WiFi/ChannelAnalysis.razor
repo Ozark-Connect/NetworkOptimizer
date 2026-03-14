@@ -152,6 +152,12 @@
                                 Prefer DFS
                             </button>
                         </div>
+                        @if (_channelPlan?.DfsAvoidanceNotPossible == true && _dfsPreference == DfsPreference.Exclude)
+                        {
+                            <div class="alert-info" style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.8rem;">
+                                DFS channels can't be avoided at 160 MHz - all bonding groups include DFS frequencies. Results shown are the same as Include DFS.
+                            </div>
+                        }
                     }
 
                     <!-- Per-AP Recommendation Table -->

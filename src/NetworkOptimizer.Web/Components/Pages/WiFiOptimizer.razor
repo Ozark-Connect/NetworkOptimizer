@@ -518,12 +518,55 @@
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
                                     </div>
-                                    @if (ap.Satisfaction.HasValue && ap.Satisfaction.Value >= 0 && ap.TotalClients > 0)
+                                    @if (ap.IsMeshChild && ap.MeshUplinkSignalDbm.HasValue)
                                     {
-                                        <div class="ap-stat">
-                                            <span class="ap-stat-value @GetSatisfactionClass(ap.Satisfaction.Value)">@ap.Satisfaction%</span>
-                                            <span class="ap-stat-label">Satisfaction</span>
+                                        <div class="ap-mesh-info">
+                                            <div class="mesh-signal">
+                                                <span class="mesh-signal-value"><span class="@GetSignalClass(ap.MeshUplinkSignalDbm.Value)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
+                                                {
+                                                    <span class="mesh-rates">
+                                                        @if (ap.MeshUplinkTxRateMbps.HasValue)
+                                                        {
+                                                            <span class="mesh-rate wifi-speed-tx">TX @ap.MeshUplinkTxRateMbps</span>
+                                                        }
+                                                        @if (ap.MeshUplinkRxRateMbps.HasValue)
+                                                        {
+                                                            <span class="mesh-rate wifi-speed-rx">RX @ap.MeshUplinkRxRateMbps</span>
+                                                        }
+                                                    </span>
+                                                }
+                                            </div>
+                                            <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
                                         </div>
+                                    }
+                                    @if (ap.MeshChildren.Count > 0)
+                                    {
+                                        @foreach (var child in ap.MeshChildren)
+                                        {
+                                            <div class="ap-mesh-info">
+                                                <div class="mesh-signal">
+                                                    @if (child.SignalDbm.HasValue)
+                                                    {
+                                                        <span class="mesh-signal-value"><span class="@GetSignalClass(child.SignalDbm.Value)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                    }
+                                                    @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
+                                                    {
+                                                        <span class="mesh-rates">
+                                                            @if (child.TxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-tx">TX @child.TxRateMbps</span>
+                                                            }
+                                                            @if (child.RxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-rx">RX @child.RxRateMbps</span>
+                                                            }
+                                                        </span>
+                                                    }
+                                                </div>
+                                                <span class="ap-stat-label"><strong>Mesh Child:</strong> @child.Name</span>
+                                            </div>
+                                        }
                                     }
                                 </div>
                                 <div class="ap-radios">

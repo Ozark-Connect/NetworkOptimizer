@@ -164,7 +164,7 @@
                         {
                             <tr @onclick="() => SelectClient(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
                                 <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
-                                <td>@client.Name</td>
+                                <td>@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only>&#128274;</span> }</td>
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
@@ -263,6 +263,13 @@
                         <span class="info-label">TX/RX Rate:</span>
                         <span class="info-value" data-tooltip="TX = AP transmits to client (download), RX = AP receives from client (upload)">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
                     </div>
+                    @if (_selectedClient.FixedApEnabled)
+                    {
+                        <div class="info-item">
+                            <span class="info-label">AP Lock:</span>
+                            <span class="info-value" style="color: var(--info-color);">&#128274; Locked to @(_selectedClient.FixedApName ?? _selectedClient.FixedApMac ?? "AP")</span>
+                        </div>
+                    }
                 </div>
             </div>
         }

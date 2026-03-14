@@ -198,7 +198,13 @@
                         {<span class="detail-dim"> · @_client.ApModel</span>}
                     </span>
                     <span class="identity-detail">Ch @(_client.Channel?.ToString() ?? "—")@(_client.ChannelWidth.HasValue ? $" - {_client.ChannelWidth} MHz" : "")</span>
-                    <span class="identity-detail identity-proto">@FormatProtocol(_client.Protocol)</span>
+                    <span class="identity-detail identity-proto">
+                        <span>@FormatProtocol(_client.Protocol)</span>
+                        @if (_client.FixedApEnabled)
+                        {
+                            <span class="badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")">&#128274; AP Locked</span>
+                        }
+                    </span>
                     @if (_client.RxRateKbps.HasValue)
                     {
                         <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
@@ -1978,7 +1984,9 @@
         "be" => "Wi-Fi 7 (BE)",
         "ax" => "Wi-Fi 6 (AX)",
         "ac" => "Wi-Fi 5 (AC)",
-        "n" => "Wi-Fi 4 (N)",
+        "n" or "ng" or "na" => "Wi-Fi 4 (N)",
+        "a" => "802.11a",
+        "b" or "g" => "802.11b/g",
         _ => proto ?? "—"
     };
 
@@ -2311,6 +2319,16 @@
         font-weight: 500;
         background: rgba(251, 191, 36, 0.15);
         color: #fbbf24;
+    }
+
+    .badge-ap-lock {
+        margin-left: 0.5rem;
+        padding: 0.125rem 0.375rem 0.125rem 0.25rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        background: rgba(71, 151, 255, 0.15);
+        color: var(--info-color);
     }
 
     /* Tabs + Time Filter */
