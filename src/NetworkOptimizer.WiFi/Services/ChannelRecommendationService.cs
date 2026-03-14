@@ -305,26 +305,33 @@ public class ChannelRecommendationService
         LogPerApChannelScores(graph, bestAssignment, band, "POST-OPTIMIZATION");
 
         // If average improvement per AP is negligible, keep the current assignment.
-        // Scales with network size: 4 APs need 1.0 total, 50 APs need 12.5.
+        // Exception: if any AP is on a non-valid channel (e.g. 2.4 GHz ch3 instead of
+        // 1/6/11), always use the optimized assignment so those APs get moved.
         // Compare raw scores (without DFS penalty) so the threshold decision is consistent
         // across all DFS modes. The DFS penalty only influences the optimizer's channel search.
         var bestRawScore = ScoreAssignment(graph, bestAssignment, band);
         var improvement = currentNetworkScore - bestRawScore;
         var avgImprovement = n > 0 ? improvement / n : 0;
-        if (improvement <= 0)
+        var hasInvalidChannelAps = graph.Nodes.Any(node =>
+            !node.ValidChannels.Contains(node.CurrentChannel));
+
+        if (!hasInvalidChannelAps)
         {
-            _logger.LogDebug(
-                "[ChannelRec] No improvement found (current {Current:F3} vs best {Best:F3}), keeping current assignment",
-                currentNetworkScore, bestRawScore);
-            bestAssignment = currentAssignment;
-        }
-        else if (avgImprovement < MinAvgImprovementPerAp)
-        {
-            _logger.LogDebug(
-                "[ChannelRec] Avg improvement per AP {AvgImprovement:F3} below threshold {Threshold:F3} " +
-                "(total {Improvement:F3} across {N} APs), keeping current assignment",
-                avgImprovement, MinAvgImprovementPerAp, improvement, n);
-            bestAssignment = currentAssignment;
+            if (improvement <= 0)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] No improvement found (current {Current:F3} vs best {Best:F3}), keeping current assignment",
+                    currentNetworkScore, bestRawScore);
+                bestAssignment = currentAssignment;
+            }
+            else if (avgImprovement < MinAvgImprovementPerAp)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] Avg improvement per AP {AvgImprovement:F3} below threshold {Threshold:F3} " +
+                    "(total {Improvement:F3} across {N} APs), keeping current assignment",
+                    avgImprovement, MinAvgImprovementPerAp, improvement, n);
+                bestAssignment = currentAssignment;
+            }
         }
 
         // Build result

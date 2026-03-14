@@ -107,26 +107,26 @@
                     <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans.Clear(); }">Back to Current</button>
                 </div>
 
-                @if (_channelPlan != null)
+                @if (_channelPlan is { } plan)
                 {
                     <!-- Network Score Summary -->
                     <div class="channel-stats-row">
                         <div class="channel-stat-card">
-                            <div class="channel-stat-value">@FormatScore(_channelPlan.CurrentNetworkScore)</div>
+                            <div class="channel-stat-value">@FormatScore(plan.CurrentNetworkScore)</div>
                             <div class="channel-stat-label">Current Score</div>
                         </div>
-                        <div class="channel-stat-card @(_channelPlan.ImprovementPercent > 0 ? "stat-improvement" : "")">
-                            <div class="channel-stat-value">@FormatScore(_channelPlan.RecommendedNetworkScore)</div>
+                        <div class="channel-stat-card @(plan.ImprovementPercent > 0 ? "stat-improvement" : "")">
+                            <div class="channel-stat-value">@FormatScore(plan.RecommendedNetworkScore)</div>
                             <div class="channel-stat-label">Recommended Score</div>
                         </div>
-                        @if (_channelPlan.ImprovementPercent > 0)
+                        @if (plan.ImprovementPercent > 0)
                         {
                             <div class="channel-stat-card stat-improvement">
-                                <div class="channel-stat-value">@FormatPercent(_channelPlan.ImprovementPercent)%</div>
+                                <div class="channel-stat-value">@FormatPercent(plan.ImprovementPercent)%</div>
                                 <div class="channel-stat-label">Less Interference</div>
                             </div>
                         }
-                        else if (!_channelPlan.Recommendations.Any(r => r.IsChanged))
+                        else if (!plan.Recommendations.Any(r => r.IsChanged))
                         {
                             <div class="channel-stat-card">
                                 <div class="channel-stat-value score-excellent">Optimal</div>
@@ -152,7 +152,7 @@
                                 Prefer DFS
                             </button>
                         </div>
-                        @if (_channelPlan?.DfsAvoidanceNotPossible == true && _dfsPreference == DfsPreference.Exclude)
+                        @if (plan.DfsAvoidanceNotPossible && _dfsPreference == DfsPreference.Exclude)
                         {
                             <div class="alert-info" style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.8rem;">
                                 DFS channels can't be avoided at 160 MHz - all bonding groups include DFS frequencies. Results shown are the same as Include DFS.
@@ -168,7 +168,7 @@
                             <div class="rec-col rec-channels-col">Current → Recommended</div>
                             <div class="rec-col rec-score-col">Score</div>
                         </div>
-                        @foreach (var rec in _channelPlan.Recommendations)
+                        @foreach (var rec in plan.Recommendations)
                         {
                             <div class="rec-row @(rec.IsChanged ? "ap-recommendation-changed" : "")">
                                 <div class="rec-col rec-name-col">
@@ -213,28 +213,28 @@
                     </div>
 
                     <!-- Notices -->
-                    @if (!_channelPlan.HasBuildingData)
+                    @if (!plan.HasBuildingData)
                     {
                         <div class="alert-warning recommendation-notice">
                             No floor plan or building data found. Build out your property in Signal Map for propagation-modeled recommendations
                             that account for wall materials, antenna patterns, and AP placement.
                         </div>
                     }
-                    else if (_channelPlan.UnplacedApCount > 0)
+                    else if (plan.UnplacedApCount > 0)
                     {
                         <div class="recommendation-notice">
-                            @_channelPlan.UnplacedApCount AP@(_channelPlan.UnplacedApCount > 1 ? "s" : "") not placed on floor plan - using estimated interference.
+                            @plan.UnplacedApCount AP@(plan.UnplacedApCount > 1 ? "s" : "") not placed on floor plan - using estimated interference.
                             Place them on a floor plan for more accurate recommendations.
                         </div>
                     }
-                    @if (!_channelPlan.HasScanData)
+                    @if (!plan.HasScanData)
                     {
                         <div class="recommendation-notice">
                             No RF scan data available. Recommendations are based on internal AP interference only.
                             External neighbor networks are not factored in.
                         </div>
                     }
-                    else if (!_channelPlan.HasNeighborNetworks)
+                    else if (!plan.HasNeighborNetworks)
                     {
                         <div class="recommendation-notice">
                             No neighbor networks detected on this band. Recommendations are based on internal AP interference only.
