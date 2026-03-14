@@ -316,8 +316,10 @@ public class ChannelRecommendationService
             });
         }
 
-        // Recalculate recommended network score after per-AP filtering
-        // (reverted APs change the total)
+        // Recalculate network scores consistently from per-AP scores
+        // (ScoreAssignment counts pairwise interactions differently than sum of ScoreAp,
+        // so use per-AP sums for both to keep them consistent)
+        plan.CurrentNetworkScore = plan.Recommendations.Sum(r => r.CurrentScore);
         plan.RecommendedNetworkScore = plan.Recommendations.Sum(r => r.RecommendedScore);
 
         // Log final recommendation summary
