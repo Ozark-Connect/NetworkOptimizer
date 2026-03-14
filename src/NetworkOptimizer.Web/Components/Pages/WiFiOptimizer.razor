@@ -525,6 +525,56 @@
                                             <span class="ap-stat-label">Satisfaction</span>
                                         </div>
                                     }
+                                    @if (ap.IsMeshChild && ap.MeshUplinkSignalDbm.HasValue)
+                                    {
+                                        <div class="ap-mesh-info">
+                                            <div class="mesh-signal">
+                                                <span class="mesh-signal-value @GetSignalClass(ap.MeshUplinkSignalDbm.Value)">@ap.MeshUplinkSignalDbm dBm</span>
+                                                @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
+                                                {
+                                                    <span class="mesh-rates">
+                                                        @if (ap.MeshUplinkTxRateMbps.HasValue)
+                                                        {
+                                                            <span class="mesh-rate">TX @ap.MeshUplinkTxRateMbps Mbps</span>
+                                                        }
+                                                        @if (ap.MeshUplinkRxRateMbps.HasValue)
+                                                        {
+                                                            <span class="mesh-rate">RX @ap.MeshUplinkRxRateMbps Mbps</span>
+                                                        }
+                                                    </span>
+                                                }
+                                            </div>
+                                            <span class="ap-stat-label">Mesh Uplink@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
+                                        </div>
+                                    }
+                                    @if (ap.MeshChildren.Count > 0)
+                                    {
+                                        @foreach (var child in ap.MeshChildren)
+                                        {
+                                            <div class="ap-mesh-info">
+                                                <div class="mesh-signal">
+                                                    @if (child.SignalDbm.HasValue)
+                                                    {
+                                                        <span class="mesh-signal-value @GetSignalClass(child.SignalDbm.Value)">@child.SignalDbm dBm</span>
+                                                    }
+                                                    @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
+                                                    {
+                                                        <span class="mesh-rates">
+                                                            @if (child.TxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate">TX @child.TxRateMbps Mbps</span>
+                                                            }
+                                                            @if (child.RxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate">RX @child.RxRateMbps Mbps</span>
+                                                            }
+                                                        </span>
+                                                    }
+                                                </div>
+                                                <span class="ap-stat-label">Mesh Child: @child.Name</span>
+                                            </div>
+                                        }
+                                    }
                                 </div>
                                 <div class="ap-radios">
                                     @foreach (var radio in ap.Radios)

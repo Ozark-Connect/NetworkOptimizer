@@ -36,7 +36,29 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // Build a set of AP MACs for mesh parent detection
         var apMacs = new HashSet<string>(aps.Select(ap => ap.Mac.ToLowerInvariant()));
 
-        return aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs)).ToList();
+        var snapshots = aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs)).ToList();
+
+        // Post-process: resolve mesh parent names and populate mesh children lists
+        var snapshotsByMac = snapshots.ToDictionary(s => s.Mac, StringComparer.OrdinalIgnoreCase);
+        foreach (var snapshot in snapshots)
+        {
+            if (snapshot.IsMeshChild && snapshot.MeshParentMac != null &&
+                snapshotsByMac.TryGetValue(snapshot.MeshParentMac, out var parent))
+            {
+                snapshot.MeshParentName = parent.Name;
+                parent.MeshChildren.Add(new MeshChildInfo
+                {
+                    Mac = snapshot.Mac,
+                    Name = snapshot.Name,
+                    SignalDbm = snapshot.MeshUplinkSignalDbm,
+                    TxRateMbps = snapshot.MeshUplinkTxRateMbps,
+                    RxRateMbps = snapshot.MeshUplinkRxRateMbps,
+                    UplinkBand = snapshot.MeshUplinkBand
+                });
+            }
+        }
+
+        return snapshots;
     }
 
     public async Task<List<WirelessClientSnapshot>> GetWirelessClientsAsync(CancellationToken cancellationToken = default)
@@ -799,7 +821,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             IsMeshChild = isMeshChild,
             MeshParentMac = meshParentMac,
             MeshUplinkBand = meshUplinkBand,
-            MeshUplinkChannel = meshUplinkChannel
+            MeshUplinkChannel = meshUplinkChannel,
+            MeshUplinkSignalDbm = isMeshChild ? ap.UplinkSignalDbm : null,
+            MeshUplinkTxRateMbps = isMeshChild && ap.UplinkTxRateKbps > 0 ? (int)(ap.UplinkTxRateKbps / 1000) : null,
+            MeshUplinkRxRateMbps = isMeshChild && ap.UplinkRxRateKbps > 0 ? (int)(ap.UplinkRxRateKbps / 1000) : null
         };
 
         // Map radio_table_stats (runtime stats)
