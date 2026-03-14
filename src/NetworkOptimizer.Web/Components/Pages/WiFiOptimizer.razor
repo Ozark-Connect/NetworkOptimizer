@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
@@ -435,7 +436,7 @@
                         {
                             <div class="band-stat">
                                 <span class="band-stat-label">Avg Signal:</span>
-                                <span class="band-stat-value @GetSignalClass(_summary.AvgSignal.Value)">@_summary.AvgSignal dBm</span>
+                                <span class="band-stat-value @SignalClassification.GetSignalClass(_summary.AvgSignal.Value, RadioBand.Band5GHz)">@_summary.AvgSignal dBm</span>
                             </div>
                         }
                     </div>
@@ -532,7 +533,7 @@
                                     {
                                         <div class="ap-mesh-info">
                                             <div class="mesh-signal">
-                                                <span class="mesh-signal-value"><span class="@GetSignalClass(ap.MeshUplinkSignalDbm.Value)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                 @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
                                                 {
                                                     <span class="mesh-rates">
@@ -558,7 +559,7 @@
                                                 <div class="mesh-signal">
                                                     @if (child.SignalDbm.HasValue)
                                                     {
-                                                        <span class="mesh-signal-value"><span class="@GetSignalClass(child.SignalDbm.Value)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                        <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(child.SignalDbm.Value, child.UplinkBand ?? RadioBand.Band5GHz)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                     }
                                                     @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
                                                     {
@@ -984,13 +985,6 @@
         _ => "satisfaction-poor"
     };
 
-    private string GetSignalClass(int signal) => signal switch
-    {
-        >= -50 => "signal-excellent",
-        >= -60 => "signal-good",
-        >= -70 => "signal-fair",
-        _ => "signal-poor"
-    };
 
     private string GetUtilizationClass(int utilization) => utilization switch
     {

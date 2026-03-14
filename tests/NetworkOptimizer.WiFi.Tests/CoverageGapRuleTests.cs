@@ -27,11 +27,12 @@ public class CoverageGapRuleTests
         Name = name
     };
 
-    private static WirelessClientSnapshot CreateClient(string apMac, int? signal) => new()
+    private static WirelessClientSnapshot CreateClient(string apMac, int? signal, RadioBand band = RadioBand.Band5GHz) => new()
     {
         Mac = Guid.NewGuid().ToString("N")[..12],
         ApMac = apMac,
-        Signal = signal
+        Signal = signal,
+        Band = band
     };
 
     [Fact]
@@ -77,7 +78,7 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
+            CreateClient(ap.Mac, -82),
             CreateClient(ap.Mac, -50),
             CreateClient(ap.Mac, -55)
         };
@@ -89,12 +90,12 @@ public class CoverageGapRuleTests
     [Fact]
     public void ReturnsIssue_WhenHalfOrMoreClientsHaveWeakSignal()
     {
-        // 2 of 3 = 67%, above 50%
+        // 2 of 3 = 67%, above 40% (5 GHz weak threshold is -78)
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
-            CreateClient(ap.Mac, -80),
+            CreateClient(ap.Mac, -82),
+            CreateClient(ap.Mac, -85),
             CreateClient(ap.Mac, -50)
         };
 
@@ -116,7 +117,7 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
+            CreateClient(ap.Mac, -82),
             CreateClient(ap.Mac, -50),
             CreateClient(ap.Mac, null)
         };
@@ -133,8 +134,8 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
-            CreateClient(ap.Mac, -80),
+            CreateClient(ap.Mac, -82),
+            CreateClient(ap.Mac, -85),
             CreateClient(ap.Mac, -50),
             CreateClient(ap.Mac, null)
         };
@@ -155,8 +156,8 @@ public class CoverageGapRuleTests
         var ap = CreateAp("aa:bb:cc:dd:ee:01", "Test AP");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap.Mac, -75),
-            CreateClient(ap.Mac, -80),
+            CreateClient(ap.Mac, -82),
+            CreateClient(ap.Mac, -85),
             CreateClient(ap.Mac, -50)
         };
 
@@ -177,12 +178,12 @@ public class CoverageGapRuleTests
         var ap2 = CreateAp("aa:bb:cc:dd:ee:02", "AP Two");
         var clients = new List<WirelessClientSnapshot>
         {
-            CreateClient(ap1.Mac, -75),
-            CreateClient(ap1.Mac, -80),
+            CreateClient(ap1.Mac, -82),
+            CreateClient(ap1.Mac, -85),
             CreateClient(ap1.Mac, -50),
-            CreateClient(ap2.Mac, -75),
-            CreateClient(ap2.Mac, -80),
-            CreateClient(ap2.Mac, -85)
+            CreateClient(ap2.Mac, -82),
+            CreateClient(ap2.Mac, -85),
+            CreateClient(ap2.Mac, -90)
         };
 
         var ctx = CreateContext([ap1, ap2], clients);
@@ -192,5 +193,61 @@ public class CoverageGapRuleTests
         issue!.Title.Should().Contain("2 APs");
         issue.AffectedEntity.Should().Contain("AP One");
         issue.AffectedEntity.Should().Contain("AP Two");
+    }
+
+    [Fact]
+    public void MixedBands_SameSignal_DifferentOutcome()
+    {
+        // -75 dBm is weak on 2.4 GHz but fair on 5 GHz.
+        // AP with 2.4 GHz clients should trigger, AP with 5 GHz clients should not.
+        var ap24 = CreateAp("aa:bb:cc:dd:ee:01", "AP 2.4G");
+        var ap5 = CreateAp("aa:bb:cc:dd:ee:02", "AP 5G");
+        var clients = new List<WirelessClientSnapshot>
+        {
+            // 2.4 GHz: all at -75 dBm = all weak (threshold -67)
+            CreateClient(ap24.Mac, -75, RadioBand.Band2_4GHz),
+            CreateClient(ap24.Mac, -75, RadioBand.Band2_4GHz),
+            CreateClient(ap24.Mac, -75, RadioBand.Band2_4GHz),
+            // 5 GHz: all at -75 dBm = all fair (threshold -78), NOT weak
+            CreateClient(ap5.Mac, -75, RadioBand.Band5GHz),
+            CreateClient(ap5.Mac, -75, RadioBand.Band5GHz),
+            CreateClient(ap5.Mac, -75, RadioBand.Band5GHz),
+        };
+
+        var ctx = CreateContext([ap24, ap5], clients);
+        var issue = _rule.Evaluate(ctx);
+
+        issue.Should().NotBeNull();
+        // Only the 2.4 GHz AP should be flagged
+        issue!.Title.Should().Contain("AP 2.4G");
+        issue.Title.Should().NotContain("AP 5G");
+    }
+
+    [Fact]
+    public void Band6GHz_WeakAt88_NotWeakAt85()
+    {
+        // 6 GHz weak threshold is -87. -85 dBm is fair, -88 dBm is weak.
+        var ap = CreateAp("aa:bb:cc:dd:ee:01", "AP 6G");
+        var clients = new List<WirelessClientSnapshot>
+        {
+            CreateClient(ap.Mac, -88, RadioBand.Band6GHz),
+            CreateClient(ap.Mac, -90, RadioBand.Band6GHz),
+            CreateClient(ap.Mac, -50, RadioBand.Band6GHz),
+        };
+
+        var ctx = CreateContext([ap], clients);
+        var issue = _rule.Evaluate(ctx);
+        issue.Should().NotBeNull("two of three 6 GHz clients are below -87 dBm");
+
+        // Now same AP but at -85 dBm (fair, not weak)
+        var clientsFair = new List<WirelessClientSnapshot>
+        {
+            CreateClient(ap.Mac, -85, RadioBand.Band6GHz),
+            CreateClient(ap.Mac, -85, RadioBand.Band6GHz),
+            CreateClient(ap.Mac, -50, RadioBand.Band6GHz),
+        };
+
+        var ctxFair = CreateContext([ap], clientsFair);
+        _rule.Evaluate(ctxFair).Should().BeNull("-85 dBm on 6 GHz is fair, not weak");
     }
 }

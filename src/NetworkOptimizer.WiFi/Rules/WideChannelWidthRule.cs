@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
@@ -12,7 +13,6 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
 {
     public string RuleId => "WIFI-WIDE-CHANNEL-WIDTH-001";
 
-    private const int WeakSignalThreshold = -75;
     private const double WeakClientPctThreshold = 35;
     private const int MinClientsForSignalCheck = 3;
 
@@ -48,7 +48,8 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
 
                 if (clients != null && clients.Count >= MinClientsForSignalCheck)
                 {
-                    weakClients = clients.Count(c => c.Signal < WeakSignalThreshold);
+                    weakClients = clients.Count(c =>
+                        SignalClassification.IsWeakSignal(c.Signal!.Value, c.Band));
                     weakPct = (double)weakClients / clients.Count * 100;
                     hasWeakSignal = weakPct >= WeakClientPctThreshold;
                 }
@@ -104,7 +105,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             Dimensions = { HealthDimension.SignalQuality, HealthDimension.ChannelHealth },
             Title = $"Wide Channel with Weak Clients on {bandName}: {apName}",
             Description = $"{apName} is using {currentWidth} MHz on {bandName}, " +
-                $"and {weakClients} of {totalClients} clients ({weakPct:F0}%) have signal below {WeakSignalThreshold} dBm. " +
+                $"and {weakClients} of {totalClients} clients ({weakPct:F0}%) have weak signal for their band. " +
                 $"Wider channels raise the noise floor and reduce effective range. " +
                 $"Narrowing to {suggestedWidth} MHz should improve signal quality and reliability.",
             AffectedEntity = apName,
