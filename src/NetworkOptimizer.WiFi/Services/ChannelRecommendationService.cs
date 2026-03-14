@@ -303,6 +303,8 @@ public class ChannelRecommendationService
         // Radio stats stress: penalize channels overlapping the AP's current stressed channel.
         // High TX retries/util/interference on the current channel mean the external load
         // score underestimates real interference - push the optimizer away from that channel range.
+        // However, if internal co-channel APs are moving away, their contribution to the stress
+        // is being resolved - scale down the penalty proportionally.
         for (int i = 0; i < n; i++)
         {
             var node = graph.Nodes[i];
@@ -314,10 +316,10 @@ public class ChannelRecommendationService
 
             if (ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
             {
-                // The assigned channel overlaps the stressed current channel - add penalty
-                score += (node.TxRetriesPct / 100.0) * TxRetryStressWeight;
-                score += (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
-                score += (node.Interference / 100.0) * InterferenceStressWeight;
+                var stressScale = ComputeStressScale(graph, band, i, currentSpan, assignment);
+                score += stressScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
+                    + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
+                    + (node.Interference / 100.0) * InterferenceStressWeight);
             }
         }
 
@@ -367,7 +369,7 @@ public class ChannelRecommendationService
             score += scanData.Interference * ScanInterferenceWeight;
         }
 
-        // Radio stats stress
+        // Radio stats stress (scaled by co-channel resolution)
         var node = graph.Nodes[apIndex];
         if (node.TxRetriesPct > 0 || node.ChannelUtilization > 0 || node.Interference > 0)
         {
@@ -376,13 +378,63 @@ public class ChannelRecommendationService
 
             if (ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
             {
-                score += (node.TxRetriesPct / 100.0) * TxRetryStressWeight;
-                score += (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
-                score += (node.Interference / 100.0) * InterferenceStressWeight;
+                var stressScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
+                score += stressScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
+                    + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
+                    + (node.Interference / 100.0) * InterferenceStressWeight);
             }
         }
 
         return score;
+    }
+
+    /// <summary>
+    /// Compute how much of the stress penalty to apply when an AP stays on its current channel.
+    /// If internal co-channel APs are moving away in the proposed assignment, their contribution
+    /// to the stress is being resolved, so we scale down proportionally.
+    /// Returns 1.0 (full penalty) when no co-channel APs are being resolved,
+    /// 0.0 when all co-channel APs are moving away (stress fully resolved).
+    /// If stress is purely external (no internal co-channel APs), returns 1.0.
+    /// </summary>
+    private double ComputeStressScale(
+        InterferenceGraph graph,
+        RadioBand band,
+        int apIndex,
+        (int Low, int High) currentSpan,
+        (int Channel, int Width)[] assignment)
+    {
+        int currentCoChannel = 0;
+        int remainingCoChannel = 0;
+        var n = graph.Nodes.Count;
+
+        for (int j = 0; j < n; j++)
+        {
+            if (j == apIndex) continue;
+            if (AreMeshPair(graph, apIndex, j)) continue;
+
+            // Is this other AP currently co-channel with the stressed AP?
+            var otherCurrentSpan = ChannelSpanHelper.GetChannelSpan(band,
+                graph.Nodes[j].CurrentChannel, graph.Nodes[j].CurrentWidth);
+
+            if (!ChannelSpanHelper.SpansOverlap(currentSpan, otherCurrentSpan))
+                continue;
+
+            currentCoChannel++;
+
+            // Does this other AP stay co-channel in the proposed assignment?
+            var otherAssignedSpan = ChannelSpanHelper.GetChannelSpan(band,
+                assignment[j].Channel, assignment[j].Width);
+
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, otherAssignedSpan))
+                remainingCoChannel++;
+        }
+
+        // No internal co-channel APs - stress is purely external, keep full penalty
+        if (currentCoChannel == 0)
+            return 1.0;
+
+        // Scale by fraction of co-channel APs remaining
+        return (double)remainingCoChannel / currentCoChannel;
     }
 
     private double ComputeInternalWeight(
@@ -1017,7 +1069,7 @@ public class ChannelRecommendationService
 
                 var total = internalScore + externalScore + scanScore + stressScore;
                 var marker = ch == currentAssignment[i].Channel ? " <<<" : "";
-                var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}" : "";
+                var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}(raw)" : "";
                 sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3}{stressStr} = {total:F3}{marker}");
             }
         }
