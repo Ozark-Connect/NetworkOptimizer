@@ -87,6 +87,9 @@
             var st = currentEl.scrollTop;
             var topBar = document.querySelector('.top-bar');
 
+            // Depth shadow when scrolled
+            topBar.classList.toggle('top-bar-scrolled', st > 10);
+
             if (Math.abs(st - lastScrollTop) > 10) {
                 if (st > lastScrollTop && st > 60) {
                     topBar.classList.add('top-bar-hidden');
