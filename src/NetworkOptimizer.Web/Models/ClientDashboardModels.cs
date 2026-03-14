@@ -35,6 +35,11 @@ public class ClientIdentity
     public int? ApClientCount { get; set; }
     public string? ApRadioBand { get; set; }
 
+    // AP lock
+    public bool FixedApEnabled { get; set; }
+    public string? FixedApMac { get; set; }
+    public string? FixedApName { get; set; }
+
     // Device metadata
     public string? Oui { get; set; }
     public string? NetworkName { get; set; }

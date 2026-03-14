@@ -49,6 +49,34 @@ public class AccessPointSnapshot
 
     /// <summary>Channel used for mesh uplink (if mesh child)</summary>
     public int? MeshUplinkChannel { get; set; }
+
+    /// <summary>Signal strength of mesh uplink in dBm (if mesh child)</summary>
+    public int? MeshUplinkSignalDbm { get; set; }
+
+    /// <summary>TX rate of mesh uplink in Mbps (if mesh child)</summary>
+    public int? MeshUplinkTxRateMbps { get; set; }
+
+    /// <summary>RX rate of mesh uplink in Mbps (if mesh child)</summary>
+    public int? MeshUplinkRxRateMbps { get; set; }
+
+    /// <summary>Name of the mesh parent AP (resolved from MAC, if mesh child)</summary>
+    public string? MeshParentName { get; set; }
+
+    /// <summary>Mesh children connected to this AP (if mesh parent)</summary>
+    public List<MeshChildInfo> MeshChildren { get; set; } = new();
+}
+
+/// <summary>
+/// Summary info about a mesh child AP connected to a parent
+/// </summary>
+public class MeshChildInfo
+{
+    public string Mac { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public int? SignalDbm { get; set; }
+    public int? TxRateMbps { get; set; }
+    public int? RxRateMbps { get; set; }
+    public RadioBand? UplinkBand { get; set; }
 }
 
 /// <summary>

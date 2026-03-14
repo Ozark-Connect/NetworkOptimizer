@@ -154,6 +154,13 @@ public class UniFiDeviceResponse
     public List<VapTableEntry>? VapTable { get; set; }
 
     /// <summary>
+    /// Downlink table - mesh children connected to this AP (parent's perspective).
+    /// Contains signal, rates, and other stats as seen by the parent.
+    /// </summary>
+    [JsonPropertyName("downlink_table")]
+    public List<DownlinkTableEntry>? DownlinkTable { get; set; }
+
+    /// <summary>
     /// Device satisfaction score (0-100). Higher is better.
     /// Represents overall Wi-Fi experience quality.
     /// </summary>
@@ -1276,4 +1283,51 @@ public class UniFiRogueApResponse
     /// </summary>
     [JsonPropertyName("age")]
     public int? Age { get; set; }
+}
+
+/// <summary>
+/// Entry in a parent AP's downlink_table representing a mesh child connection.
+/// Contains the parent's perspective of signal, rates, and other stats.
+/// </summary>
+public class DownlinkTableEntry
+{
+    /// <summary>BSSID/vwire MAC of the mesh child (NOT the base MAC)</summary>
+    [JsonPropertyName("mac")]
+    public string Mac { get; set; } = string.Empty;
+
+    /// <summary>Base MAC / serial number of the mesh child (matches device MAC)</summary>
+    [JsonPropertyName("serialno")]
+    public string? SerialNo { get; set; }
+
+    /// <summary>Signal strength as seen by the parent AP (dBm)</summary>
+    [JsonPropertyName("signal")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Signal { get; set; }
+
+    /// <summary>Noise floor (dBm)</summary>
+    [JsonPropertyName("noise")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Noise { get; set; }
+
+    /// <summary>RSSI (positive value)</summary>
+    [JsonPropertyName("rssi")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Rssi { get; set; }
+
+    /// <summary>TX rate from parent to child (Kbps)</summary>
+    [JsonPropertyName("tx_rate")]
+    public long TxRate { get; set; }
+
+    /// <summary>RX rate from child to parent (Kbps)</summary>
+    [JsonPropertyName("rx_rate")]
+    public long RxRate { get; set; }
+
+    /// <summary>Radio band (na=5GHz, ng=2.4GHz, 6e=6GHz)</summary>
+    [JsonPropertyName("radio")]
+    public string? Radio { get; set; }
+
+    /// <summary>Channel number</summary>
+    [JsonPropertyName("channel")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Channel { get; set; }
 }

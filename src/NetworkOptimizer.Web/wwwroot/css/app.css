@@ -6611,6 +6611,49 @@ a.path-hop.hop-clickable:hover {
     text-transform: uppercase;
 }
 
+.ap-mesh-info {
+    display: flex;
+    flex-direction: column;
+    margin-left: auto;
+}
+
+.mesh-signal {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.mesh-signal-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.mesh-rates {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.mesh-rate {
+    white-space: nowrap;
+}
+
+.ap-mesh-info .ap-stat-label {
+    text-transform: none;
+}
+
+.lock-icon {
+    font-size: 0.75rem;
+    cursor: default;
+}
+
+.mesh-unit {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
 .ap-radios {
     display: flex;
     flex-direction: column;
