@@ -525,8 +525,6 @@ public class ChannelRecommendationService
         {
             // Per-channel historical stress: check each historically stressed channel
             // and apply its penalty if the assigned channel overlaps its span.
-            // No co-channel resolution scaling - historical stress is measured data
-            // reflecting the real RF environment, not just internal AP interference.
             double penalty = 0;
             bool hasDataForAssignedChannel = false;
 
@@ -551,6 +549,17 @@ public class ChannelRecommendationService
             // Unknown channels carry more risk than measured ones
             if (!hasDataForAssignedChannel)
                 penalty += UnknownChannelPenalty;
+
+            // Apply co-channel resolution scaling: historical stress includes the effect
+            // of our own APs co-channeling (CCA deferrals, elevated utilization). The
+            // internal weight term already penalizes co-channel separately, so if the
+            // proposed assignment resolves co-channel pairs, scale down the historical
+            // stress proportionally to avoid double-counting.
+            var histCurrentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(assignedSpan, histCurrentSpan))
+            {
+                penalty *= ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
+            }
 
             return (penalty, 0);
         }
