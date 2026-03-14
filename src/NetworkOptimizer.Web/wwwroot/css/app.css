@@ -2341,15 +2341,14 @@ select.form-control {
         transform: translateY(-100%);
     }
 
-    /* Offset content for fixed top bar - uses margin to avoid padding conflicts */
+    /* Offset content for fixed top bar */
     .main-content {
-        padding-top: 52px;
+        padding-top: 62px;
     }
 
-    /* Footer: minimal on mobile */
+    /* Hide footer on mobile */
     .app-footer {
-        padding: 0.75rem 1rem;
-        font-size: 0.65rem;
+        display: none;
     }
 
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
