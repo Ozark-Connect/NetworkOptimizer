@@ -2376,6 +2376,10 @@ select.form-control {
         transition: max-height 0.3s ease, opacity 0.2s ease, margin 0.3s ease;
     }
 
+    .identity-bar.identity-collapsed:has(.signal-gauge) {
+        padding-top: 0;
+    }
+
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-name,
     .identity-bar.identity-collapsed:has(.signal-gauge) .identity-meta {
         max-height: 0;
