@@ -183,7 +183,7 @@ public class ChannelRecommendationService
         PropagateHistoricalStress(graph, band);
 
         // Log the full graph for debugging
-        LogGraphDetails(graph, band, bandAps);
+        LogGraphDetails(graph, band, bandAps, options);
 
         return graph;
     }
@@ -216,7 +216,15 @@ public class ChannelRecommendationService
         // but the displayed current score should be consistent across DFS modes.
         var currentWithDfsPenalty = AddDfsPenalty(graph, currentAssignment, band, opts.DfsPreference, currentNetworkScore);
 
-        // Log per-AP per-channel score breakdown BEFORE optimization
+        // Log DFS mode and per-AP per-channel score breakdown BEFORE optimization
+        var dfsLabel = opts.DfsPreference switch
+        {
+            DfsPreference.IncludeWithPenalty => "Include DFS",
+            DfsPreference.Exclude => "Avoid DFS",
+            DfsPreference.Prefer => "Prefer DFS",
+            _ => "Unknown"
+        };
+        _logger.LogDebug("[ChannelRec] Running {Band} optimization with DFS mode: {DfsMode}", band, dfsLabel);
         LogPerApChannelScores(graph, currentAssignment, band, "PRE-OPTIMIZATION");
 
         // Resolve mesh groups: mesh children get their leader's index
@@ -1181,13 +1189,20 @@ public class ChannelRecommendationService
 
     // ============ Debug Logging ============
 
-    private void LogGraphDetails(InterferenceGraph graph, RadioBand band, List<AccessPointSnapshot> bandAps)
+    private void LogGraphDetails(InterferenceGraph graph, RadioBand band, List<AccessPointSnapshot> bandAps, RecommendationOptions? options = null)
     {
         var n = graph.Nodes.Count;
         if (n == 0) return;
 
         var sb = new StringBuilder();
-        sb.AppendLine($"[ChannelRec] === Interference Graph for {band} ({n} APs) ===");
+        var dfsMode = options?.DfsPreference switch
+        {
+            DfsPreference.IncludeWithPenalty => ", DFS=Include",
+            DfsPreference.Exclude => ", DFS=Avoid",
+            DfsPreference.Prefer => ", DFS=Prefer",
+            _ => ""
+        };
+        sb.AppendLine($"[ChannelRec] === Interference Graph for {band} ({n} APs{dfsMode}) ===");
 
         // Node summary
         for (int i = 0; i < n; i++)

@@ -1982,7 +1982,9 @@
         "be" => "Wi-Fi 7 (BE)",
         "ax" => "Wi-Fi 6 (AX)",
         "ac" => "Wi-Fi 5 (AC)",
-        "n" => "Wi-Fi 4 (N)",
+        "n" or "ng" or "na" => "Wi-Fi 4 (N)",
+        "a" => "802.11a",
+        "b" or "g" => "802.11b/g",
         _ => proto ?? "—"
     };
 
