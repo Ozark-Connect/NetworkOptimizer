@@ -30,6 +30,25 @@ public class ChannelRecommendationService
     /// <summary>Weight multiplier for channel scan interference in scoring (0-1 scale)</summary>
     private const double ScanInterferenceWeight = 0.03;
 
+    /// <summary>
+    /// Weight for TX retry stress penalty. High TX retries indicate the external load
+    /// score is underestimating real interference on the current channel.
+    /// Applied to channels overlapping the AP's current channel span.
+    /// </summary>
+    private const double TxRetryStressWeight = 3.0;
+
+    /// <summary>
+    /// Weight for channel utilization stress penalty.
+    /// High utilization means the channel is congested.
+    /// </summary>
+    private const double UtilizationStressWeight = 1.0;
+
+    /// <summary>
+    /// Weight for interference stress penalty.
+    /// High interference from radio stats means non-WiFi interference on channel.
+    /// </summary>
+    private const double InterferenceStressWeight = 1.5;
+
     public ChannelRecommendationService(
         PropagationService propagationService,
         ILogger<ChannelRecommendationService> logger)
@@ -85,7 +104,10 @@ public class ChannelRecommendationService
                 ValidChannels = validChannels,
                 ValidWidths = new[] { currentWidth }, // Locked to current for now
                 IsPlaced = isPlaced,
-                HasDfs = radio.HasDfs
+                HasDfs = radio.HasDfs,
+                ChannelUtilization = radio.ChannelUtilization ?? 0,
+                Interference = radio.Interference ?? 0,
+                TxRetriesPct = radio.TxRetriesPct ?? 0
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
@@ -278,6 +300,27 @@ public class ChannelRecommendationService
             }
         }
 
+        // Radio stats stress: penalize channels overlapping the AP's current stressed channel.
+        // High TX retries/util/interference on the current channel mean the external load
+        // score underestimates real interference - push the optimizer away from that channel range.
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            if (node.TxRetriesPct <= 0 && node.ChannelUtilization <= 0 && node.Interference <= 0)
+                continue;
+
+            var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+            var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
+
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
+            {
+                // The assigned channel overlaps the stressed current channel - add penalty
+                score += (node.TxRetriesPct / 100.0) * TxRetryStressWeight;
+                score += (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
+                score += (node.Interference / 100.0) * InterferenceStressWeight;
+            }
+        }
+
         return score;
     }
 
@@ -322,6 +365,21 @@ public class ChannelRecommendationService
         {
             score += scanData.Utilization * ScanUtilizationWeight;
             score += scanData.Interference * ScanInterferenceWeight;
+        }
+
+        // Radio stats stress
+        var node = graph.Nodes[apIndex];
+        if (node.TxRetriesPct > 0 || node.ChannelUtilization > 0 || node.Interference > 0)
+        {
+            var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+            var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
+            {
+                score += (node.TxRetriesPct / 100.0) * TxRetryStressWeight;
+                score += (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
+                score += (node.Interference / 100.0) * InterferenceStressWeight;
+            }
         }
 
         return score;
@@ -943,9 +1001,24 @@ public class ChannelRecommendationService
                               + scanData.Interference * ScanInterferenceWeight;
                 }
 
-                var total = internalScore + externalScore + scanScore;
+                // Radio stats stress penalty
+                double stressScore = 0;
+                if (node.TxRetriesPct > 0 || node.ChannelUtilization > 0 || node.Interference > 0)
+                {
+                    var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+                    var testSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
+                    if (ChannelSpanHelper.SpansOverlap(currentSpan, testSpan))
+                    {
+                        stressScore = (node.TxRetriesPct / 100.0) * TxRetryStressWeight
+                                    + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
+                                    + (node.Interference / 100.0) * InterferenceStressWeight;
+                    }
+                }
+
+                var total = internalScore + externalScore + scanScore + stressScore;
                 var marker = ch == currentAssignment[i].Channel ? " <<<" : "";
-                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3} = {total:F3}{marker}");
+                var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}" : "";
+                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3}{stressStr} = {total:F3}{marker}");
             }
         }
 

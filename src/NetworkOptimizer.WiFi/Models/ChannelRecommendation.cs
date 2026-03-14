@@ -76,6 +76,15 @@ public class ApNode
     public bool IsPlaced { get; set; }
     public bool HasDfs { get; set; }
 
+    /// <summary>Current channel utilization % (0-100)</summary>
+    public int ChannelUtilization { get; set; }
+
+    /// <summary>Current interference % (0-100)</summary>
+    public int Interference { get; set; }
+
+    /// <summary>Current TX retry % (0-100)</summary>
+    public double TxRetriesPct { get; set; }
+
     /// <summary>Index of this AP's mesh group leader, or -1 if not in a mesh group</summary>
     public int MeshGroupLeader { get; set; } = -1;
 }

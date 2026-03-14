@@ -9160,6 +9160,7 @@ a.path-hop.hop-clickable:hover {
 .rec-changed { color: var(--accent-color); font-weight: 600; }
 .channel-change-arrow { color: var(--text-muted); display: inline-flex; align-items: center; }
 .channel-change-arrow svg { vertical-align: middle; }
+.rec-no-change { color: var(--text-muted); font-style: italic; margin-left: 0.5rem; }
 
 /* DFS badge */
 .dfs-badge {
