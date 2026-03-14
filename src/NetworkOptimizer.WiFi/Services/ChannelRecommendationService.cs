@@ -435,13 +435,14 @@ public class ChannelRecommendationService
             }
         }
 
-        // Historical channel stress: penalize channels where this AP historically experienced
-        // high utilization, interference, or TX retries. Uses 30-day metrics paired with channel
-        // change events for per-channel stress data. Falls back to current radio stats if
-        // historical data is unavailable. Scaled by band multiplier.
+        // Historical channel stress and current radio stats.
+        // Historical per-channel data is measured reality at each AP's location - the best
+        // channel preference signal we have. NOT dampened by band multiplier.
+        // Current radio stats fallback IS dampened (it's just ambient noise snapshot).
         for (int i = 0; i < n; i++)
         {
-            score += ComputeStressPenalty(graph, band, i, assignment) * bandStress;
+            var (historicalPenalty, fallbackPenalty) = ComputeStressPenalty(graph, band, i, assignment);
+            score += historicalPenalty + fallbackPenalty * bandStress;
         }
 
         return score;
@@ -491,19 +492,20 @@ public class ChannelRecommendationService
             score += scanData.Interference * ScanInterferenceWeight * bandStress;
         }
 
-        // Historical channel stress (scaled by band stress multiplier)
-        score += ComputeStressPenalty(graph, band, apIndex, assignment) * bandStress;
+        // Historical stress (undampened) + current stats fallback (dampened)
+        var (histPenalty, fallbackPenalty) = ComputeStressPenalty(graph, band, apIndex, assignment);
+        score += histPenalty + fallbackPenalty * bandStress;
 
         return score;
     }
 
     /// <summary>
     /// Compute stress penalty for an AP in a given assignment.
-    /// Uses per-channel historical stress if available (from 30-day metrics + channel change events).
-    /// Falls back to current radio stats applied to the current channel span.
-    /// Co-channel resolution scaling applies in both cases.
+    /// Returns (historicalPenalty, fallbackPenalty) so callers can apply band multiplier
+    /// only to the fallback. Historical per-channel data is measured reality and should
+    /// not be dampened - it's the best channel preference signal we have.
     /// </summary>
-    private double ComputeStressPenalty(
+    private (double Historical, double Fallback) ComputeStressPenalty(
         InterferenceGraph graph,
         RadioBand band,
         int apIndex,
@@ -543,23 +545,24 @@ public class ChannelRecommendationService
             if (!hasDataForAssignedChannel)
                 penalty += UnknownChannelPenalty;
 
-            return penalty;
+            return (penalty, 0);
         }
 
         // Fallback: use current radio stats on current channel span
         if (node.TxRetriesPct < StressMinThreshold &&
             node.ChannelUtilization < StressMinThreshold &&
             node.Interference < StressMinThreshold)
-            return 0;
+            return (0, 0);
 
         var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
         if (!ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
-            return 0;
+            return (0, 0);
 
         var fallbackScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
-        return fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
+        var fallbackPenalty = fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
             + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
             + (node.Interference / 100.0) * InterferenceStressWeight);
+        return (0, fallbackPenalty);
     }
 
     /// <summary>
