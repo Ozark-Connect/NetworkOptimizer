@@ -90,8 +90,10 @@
             if (Math.abs(st - lastScrollTop) > 10) {
                 if (st > lastScrollTop && st > 60) {
                     topBar.classList.add('top-bar-hidden');
+                    currentEl.style.scrollPaddingTop = '0px';
                 } else {
                     topBar.classList.remove('top-bar-hidden');
+                    currentEl.style.scrollPaddingTop = '70px';
                 }
                 lastScrollTop = st;
             }
