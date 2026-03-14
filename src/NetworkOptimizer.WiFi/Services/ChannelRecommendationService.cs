@@ -79,6 +79,20 @@ public class ChannelRecommendationService
     /// </summary>
     private const double UnknownChannelPenalty = 0.15;
 
+    /// <summary>
+    /// Band-specific multiplier for ambient RF stress (utilization, interference, TX retries)
+    /// and scan channel data. Lower bands have higher baseline noise that's normal for
+    /// the RF environment and shouldn't drive aggressive channel changes.
+    /// Internal co-channel and external neighbor signal scores are NOT scaled by this -
+    /// strong neighbors still steer recommendations equally on all bands.
+    /// </summary>
+    private static double GetBandStressMultiplier(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => 0.3, // Crowded by nature: 3 non-overlapping channels, legacy devices, Bluetooth
+        RadioBand.Band5GHz => 0.7,   // More channels but still shared spectrum, DFS complicates things
+        _ => 1.0                     // 6 GHz: clean band, any interference is meaningful
+    };
+
     public ChannelRecommendationService(
         PropagationService propagationService,
         ILogger<ChannelRecommendationService> logger)
@@ -392,6 +406,8 @@ public class ChannelRecommendationService
         }
 
         // Channel scan data (utilization/interference from RF environment scan)
+        // Scaled by band multiplier - high utilization is normal on 2.4 GHz, concerning on 6 GHz
+        var bandStress = GetBandStressMultiplier(band);
         for (int i = 0; i < n; i++)
         {
             if (graph.ScanChannelData[i].Count == 0) continue;
@@ -399,18 +415,18 @@ public class ChannelRecommendationService
             var ch = assignment[i].Channel;
             if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
             {
-                score += scanData.Utilization * ScanUtilizationWeight;
-                score += scanData.Interference * ScanInterferenceWeight;
+                score += scanData.Utilization * ScanUtilizationWeight * bandStress;
+                score += scanData.Interference * ScanInterferenceWeight * bandStress;
             }
         }
 
         // Historical channel stress: penalize channels where this AP historically experienced
         // high utilization, interference, or TX retries. Uses 30-day metrics paired with channel
         // change events for per-channel stress data. Falls back to current radio stats if
-        // historical data is unavailable.
+        // historical data is unavailable. Scaled by band multiplier.
         for (int i = 0; i < n; i++)
         {
-            score += ComputeStressPenalty(graph, band, i, assignment);
+            score += ComputeStressPenalty(graph, band, i, assignment) * bandStress;
         }
 
         return score;
@@ -451,16 +467,17 @@ public class ChannelRecommendationService
                 score += extWeight;
         }
 
-        // Channel scan data
+        // Channel scan data (scaled by band stress multiplier)
+        var bandStress = GetBandStressMultiplier(band);
         var ch = assignment[apIndex].Channel;
         if (graph.ScanChannelData[apIndex].TryGetValue(ch, out var scanData))
         {
-            score += scanData.Utilization * ScanUtilizationWeight;
-            score += scanData.Interference * ScanInterferenceWeight;
+            score += scanData.Utilization * ScanUtilizationWeight * bandStress;
+            score += scanData.Interference * ScanInterferenceWeight * bandStress;
         }
 
-        // Historical channel stress
-        score += ComputeStressPenalty(graph, band, apIndex, assignment);
+        // Historical channel stress (scaled by band stress multiplier)
+        score += ComputeStressPenalty(graph, band, apIndex, assignment) * bandStress;
 
         return score;
     }
