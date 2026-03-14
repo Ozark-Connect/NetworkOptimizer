@@ -2353,6 +2353,12 @@ select.form-control {
     .app-footer {
         padding: 0.5rem 1rem;
         font-size: 0.6rem;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .app-footer.footer-visible {
+        opacity: 1;
     }
 
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */

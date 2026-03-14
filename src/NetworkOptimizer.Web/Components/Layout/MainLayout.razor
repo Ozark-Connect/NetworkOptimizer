@@ -100,6 +100,13 @@
             if (identityBar) {
                 identityBar.classList.toggle('identity-collapsed', st > 80);
             }
+
+            // Footer: fade in when near bottom (opacity, no layout shift)
+            var footer = document.querySelector('.app-footer');
+            if (footer) {
+                var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 30;
+                footer.classList.toggle('footer-visible', nearBottom);
+            }
         }
 
         attachListener(getScrollEl());
