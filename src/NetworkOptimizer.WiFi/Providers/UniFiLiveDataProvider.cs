@@ -39,20 +39,43 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var snapshots = aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs)).ToList();
 
         // Post-process: resolve mesh parent names and populate mesh children lists
+        // Use the parent's downlink_table for signal/rates (parent's perspective),
+        // falling back to the child's uplink data if downlink_table is unavailable.
         var snapshotsByMac = snapshots.ToDictionary(s => s.Mac, StringComparer.OrdinalIgnoreCase);
+        var devicesByMac = aps.ToDictionary(d => d.Mac.ToLowerInvariant(), StringComparer.OrdinalIgnoreCase);
         foreach (var snapshot in snapshots)
         {
             if (snapshot.IsMeshChild && snapshot.MeshParentMac != null &&
                 snapshotsByMac.TryGetValue(snapshot.MeshParentMac, out var parent))
             {
                 snapshot.MeshParentName = parent.Name;
+
+                // Try to get the parent's view from its downlink_table
+                int? parentSignal = null;
+                int? parentTxRateMbps = null;
+                int? parentRxRateMbps = null;
+                if (devicesByMac.TryGetValue(snapshot.MeshParentMac, out var parentDevice) &&
+                    parentDevice.DownlinkTable != null)
+                {
+                    var childMacLower = snapshot.Mac.ToLowerInvariant();
+                    var downlink = parentDevice.DownlinkTable.FirstOrDefault(d =>
+                        string.Equals(d.SerialNo, childMacLower, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(d.SerialNo, snapshot.Mac, StringComparison.OrdinalIgnoreCase));
+                    if (downlink != null)
+                    {
+                        parentSignal = downlink.Signal;
+                        parentTxRateMbps = downlink.TxRate > 0 ? (int)(downlink.TxRate / 1000) : null;
+                        parentRxRateMbps = downlink.RxRate > 0 ? (int)(downlink.RxRate / 1000) : null;
+                    }
+                }
+
                 parent.MeshChildren.Add(new MeshChildInfo
                 {
                     Mac = snapshot.Mac,
                     Name = snapshot.Name,
-                    SignalDbm = snapshot.MeshUplinkSignalDbm,
-                    TxRateMbps = snapshot.MeshUplinkTxRateMbps,
-                    RxRateMbps = snapshot.MeshUplinkRxRateMbps,
+                    SignalDbm = parentSignal ?? snapshot.MeshUplinkSignalDbm,
+                    TxRateMbps = parentTxRateMbps ?? snapshot.MeshUplinkRxRateMbps, // child RX = parent TX
+                    RxRateMbps = parentRxRateMbps ?? snapshot.MeshUplinkTxRateMbps, // child TX = parent RX
                     UplinkBand = snapshot.MeshUplinkBand
                 });
             }

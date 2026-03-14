@@ -553,13 +553,13 @@
                                                     @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
                                                     {
                                                         <span class="mesh-rates">
-                                                            @if (child.RxRateMbps.HasValue)
-                                                            {
-                                                                <span class="mesh-rate wifi-speed-tx">TX @child.RxRateMbps</span>
-                                                            }
                                                             @if (child.TxRateMbps.HasValue)
                                                             {
-                                                                <span class="mesh-rate wifi-speed-rx">RX @child.TxRateMbps</span>
+                                                                <span class="mesh-rate wifi-speed-tx">TX @child.TxRateMbps</span>
+                                                            }
+                                                            @if (child.RxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-rx">RX @child.RxRateMbps</span>
                                                             }
                                                         </span>
                                                     }
