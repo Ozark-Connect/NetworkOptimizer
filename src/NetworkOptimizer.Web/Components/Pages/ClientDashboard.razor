@@ -1963,9 +1963,10 @@
     // --- Formatting Helpers ---
 
     /// <summary>
-    /// Signal quality classification scaled by band. Lower frequencies propagate
-    /// farther and tolerate weaker signals, so thresholds are more lenient on 2.4 GHz
-    /// and tighter on 6 GHz where higher MCS rates require stronger signal.
+    /// Signal quality classification scaled by band based on noise floor differences.
+    /// 6 GHz has the lowest noise floor (~-100 dBm) so weak signals still achieve high
+    /// SNR - thresholds are the most lenient. 2.4 GHz has the highest noise floor
+    /// (~-85 dBm) so signals need to be stronger - thresholds are the tightest.
     /// </summary>
     private static string GetSignalClass(int dbm, string? band = null) => band switch
     {

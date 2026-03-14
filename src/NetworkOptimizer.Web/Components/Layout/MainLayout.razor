@@ -86,6 +86,7 @@
             if (window.innerWidth > 768) return;
             var st = currentEl.scrollTop;
             var topBar = document.querySelector('.top-bar');
+            if (!topBar) return;
 
             if (Math.abs(st - lastScrollTop) > 10) {
                 if (st > lastScrollTop && st > 60) {
