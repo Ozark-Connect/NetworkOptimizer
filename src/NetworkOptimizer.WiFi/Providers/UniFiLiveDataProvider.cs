@@ -772,10 +772,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     }
                 }
 
-                // Add neighbors from rogueap endpoint
+                // Add neighbors from rogueap endpoint, deduplicated by BSSID.
+                // The rogueap API returns one entry per sighting over the time window,
+                // so the same BSSID can appear many times. Keep the strongest signal per BSSID
+                // to avoid inflating external load scores in the channel recommendation engine.
                 if (rogueApsByApAndBand.TryGetValue((apMacLower, bandCode), out var neighbors))
                 {
-                    foreach (var neighbor in neighbors)
+                    var deduplicated = neighbors
+                        .GroupBy(n => n.Bssid, StringComparer.OrdinalIgnoreCase)
+                        .Select(g => g.OrderByDescending(n => n.Signal).First());
+
+                    foreach (var neighbor in deduplicated)
                     {
                         result.Neighbors.Add(new NeighborNetwork
                         {
