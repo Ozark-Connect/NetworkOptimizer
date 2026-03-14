@@ -26,23 +26,19 @@
 
         // Called from C# after navigation
         restoreOrScrollToTop: function(path) {
-            var popState = isPopState;
-            isPopState = false;
+            var container = getScrollContainer();
+            if (!container) return;
 
-            // Notify scroll listener to reset its state
+            // Reset mobile scroll listener state
             if (window.__resetScrollState) window.__resetScrollState();
 
-            requestAnimationFrame(function() {
-                var container = getScrollContainer();
-                if (!container) return;
-
-                if (popState) {
-                    var saved = scrollPositions.get(path);
-                    container.scrollTop = saved !== undefined ? saved : 0;
-                } else if (!window.location.hash) {
-                    container.scrollTop = 0;
-                }
-            });
+            if (isPopState) {
+                var saved = scrollPositions.get(path);
+                container.scrollTop = saved !== undefined ? saved : 0;
+                isPopState = false;
+            } else if (!window.location.hash) {
+                container.scrollTop = 0;
+            }
         }
     };
 })();
