@@ -167,6 +167,9 @@ public class ClientSpeedTestService
             // Re-analyze path with updated bidirectional data (using snapshot for max rates)
             await AnalyzePathAsync(recentResult, snapshot);
 
+            // Backfill any fields still missing after merge re-analysis
+            BackfillFromPathAnalysis(recentResult);
+
             // Update WiFi rate fields from path analysis max values
             UpdateWifiRatesFromPathAnalysis(recentResult);
 
@@ -267,6 +270,8 @@ public class ClientSpeedTestService
             foreach (var result in needsRetry)
             {
                 await AnalyzePathAsync(result);
+                BackfillFromPathAnalysis(result);
+                UpdateWifiRatesFromPathAnalysis(result);
             }
             await db.SaveChangesAsync();
         }
@@ -423,6 +428,51 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// Backfills missing result fields from path analysis data.
+    /// Covers the case where the client wasn't in the UniFi client list during
+    /// initial enrichment (e.g., freshly reconnected to Wi-Fi) but the path
+    /// analyzer found the device via topology discovery.
+    /// </summary>
+    private void BackfillFromPathAnalysis(Iperf3Result result)
+    {
+        var path = result.PathAnalysis?.Path;
+        if (path == null)
+            return;
+
+        // Backfill ClientMac from path destination
+        if (string.IsNullOrEmpty(result.ClientMac) && !string.IsNullOrEmpty(path.DestinationMac))
+            result.ClientMac = path.DestinationMac;
+
+        // Backfill DeviceName from the wireless client hop
+        var wirelessHop = path.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
+        if (wirelessHop == null)
+            return;
+
+        if (string.IsNullOrEmpty(result.DeviceName) && !string.IsNullOrEmpty(wirelessHop.DeviceName))
+            result.DeviceName = wirelessHop.DeviceName;
+
+        // Backfill Wi-Fi details from the wireless hop
+        if (result.WifiChannel == null && wirelessHop.WirelessChannel != null)
+            result.WifiChannel = wirelessHop.WirelessChannel;
+
+        if (result.WifiSignalDbm == null && wirelessHop.WirelessSignalDbm != null)
+            result.WifiSignalDbm = wirelessHop.WirelessSignalDbm;
+
+        if (result.WifiNoiseDbm == null && wirelessHop.WirelessNoiseDbm != null)
+            result.WifiNoiseDbm = wirelessHop.WirelessNoiseDbm;
+
+        // Backfill radio band (WirelessClient hop: IngressBand = EgressBand = client's band)
+        if (string.IsNullOrEmpty(result.WifiRadio) && !string.IsNullOrEmpty(wirelessHop.WirelessEgressBand))
+            result.WifiRadio = wirelessHop.WirelessEgressBand;
+
+        if (result.ClientMac != null || result.DeviceName != null)
+        {
+            _logger.LogDebug("Backfilled from path analysis for {Ip}: MAC={Mac}, Name={Name}, Channel={Channel}, Radio={Radio}",
+                result.DeviceHost, result.ClientMac, result.DeviceName, result.WifiChannel, result.WifiRadio);
+        }
+    }
+
+    /// <summary>
     /// Background task to enrich and analyze a speed test result after WiFi rates stabilize.
     /// Loads the result from DB, enriches with UniFi data, analyzes path, and saves.
     /// </summary>
@@ -455,6 +505,10 @@ public class ClientSpeedTestService
 
             // Perform path analysis (using snapshot to pick max wireless rates)
             await AnalyzePathAsync(result, snapshot);
+
+            // Backfill any fields that initial enrichment missed (e.g., client wasn't in
+            // UniFi client list yet but path analysis found it via topology)
+            BackfillFromPathAnalysis(result);
 
             // Update result's WiFi rate fields with max values from path analysis
             UpdateWifiRatesFromPathAnalysis(result);

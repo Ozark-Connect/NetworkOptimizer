@@ -61,7 +61,7 @@ public class ChannelRecommendationService
     /// a 50-AP network needs 12.5. Prevents recommending changes when
     /// interference is already negligible.
     /// </summary>
-    private const double MinAvgImprovementPerAp = 0.25;
+    private const double MinAvgImprovementPerAp = 0.15;
 
     /// <summary>
     /// Minimum current score for an AP to be worth moving. APs with scores
@@ -78,6 +78,42 @@ public class ChannelRecommendationService
     /// but not for the candidate channel.
     /// </summary>
     private const double UnknownChannelPenalty = 0.15;
+
+    /// <summary>
+    /// Maximum allowed score degradation for any individual AP in a recommended plan.
+    /// 1.5 = AP's score can increase by up to 50%. Prevents sacrificing one AP
+    /// too heavily for network-wide improvement.
+    /// </summary>
+    private const double MaxApScoreDegradation = 1.5;
+
+    /// <summary>
+    /// Minimum neighbor signal to count as external interference. Matches the CCA
+    /// (Clear Channel Assessment) threshold: below -82 dBm, radios don't defer
+    /// transmission so the neighbor causes no real co-channel interference.
+    /// </summary>
+    private const int CcaThresholdDbm = -82;
+
+    /// <summary>
+    /// Multiplier for internal (own AP) co-channel interference. Co-channeling your
+    /// own APs is worse than external neighbors: your APs are permanent, always-on,
+    /// high-duty-cycle, and you control them. A 3x multiplier ensures the engine
+    /// avoids co-channeling APs that can hear each other well.
+    /// </summary>
+    private const double InternalCoChannelMultiplier = 3.0;
+
+    /// <summary>
+    /// Band-specific multiplier for ambient RF stress (utilization, interference, TX retries)
+    /// and scan channel data. Lower bands have higher baseline noise that's normal for
+    /// the RF environment and shouldn't drive aggressive channel changes.
+    /// Internal co-channel and external neighbor signal scores are NOT scaled by this -
+    /// strong neighbors still steer recommendations equally on all bands.
+    /// </summary>
+    private static double GetBandStressMultiplier(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => 0.3, // Crowded by nature: 3 non-overlapping channels, legacy devices, Bluetooth
+        RadioBand.Band5GHz => 0.7,   // More channels but still shared spectrum, DFS complicates things
+        _ => 1.0                     // 6 GHz: clean band, any interference is meaningful
+    };
 
     public ChannelRecommendationService(
         PropagationService propagationService,
@@ -242,19 +278,27 @@ public class ChannelRecommendationService
             }
         }
 
+        // Compute per-AP current scores for degradation constraint
+        var currentApScores = new double[n];
+        for (int i = 0; i < n; i++)
+            currentApScores[i] = ScoreAp(graph, currentAssignment, i, band);
+
         // Optimize
         (int Channel, int Width)[] bestAssignment;
         double bestScore;
 
-        if (n <= 6 && GetMaxValidChannels(graph) <= 24)
+        // Use exhaustive search when the search space is manageable.
+        // 2.4 GHz (3 channels): up to ~12 APs (531K). 5/6 GHz: fewer APs due to more channels.
+        var maxChannels = GetMaxValidChannels(graph);
+        var searchSpace = Math.Pow(maxChannels, n);
+        if (searchSpace <= 1_000_000)
         {
-            // Small network: exhaustive search with pruning
-            (bestAssignment, bestScore) = ExhaustiveSearch(graph, band, pinnedIndices, opts);
+            (bestAssignment, bestScore) = ExhaustiveSearch(graph, band, pinnedIndices, opts, currentApScores);
         }
         else
         {
             // Greedy + local search with random restarts
-            (bestAssignment, bestScore) = GreedyLocalSearch(graph, band, pinnedIndices, opts);
+            (bestAssignment, bestScore) = GreedyLocalSearch(graph, band, pinnedIndices, opts, currentApScores);
         }
 
         // Log per-AP per-channel score breakdown AFTER optimization
@@ -267,7 +311,14 @@ public class ChannelRecommendationService
         var bestRawScore = ScoreAssignment(graph, bestAssignment, band);
         var improvement = currentNetworkScore - bestRawScore;
         var avgImprovement = n > 0 ? improvement / n : 0;
-        if (improvement > 0 && avgImprovement < MinAvgImprovementPerAp)
+        if (improvement <= 0)
+        {
+            _logger.LogDebug(
+                "[ChannelRec] No improvement found (current {Current:F3} vs best {Best:F3}), keeping current assignment",
+                currentNetworkScore, bestRawScore);
+            bestAssignment = currentAssignment;
+        }
+        else if (avgImprovement < MinAvgImprovementPerAp)
         {
             _logger.LogDebug(
                 "[ChannelRec] Avg improvement per AP {AvgImprovement:F3} below threshold {Threshold:F3} " +
@@ -375,7 +426,7 @@ public class ChannelRecommendationService
                     assignment[i].Channel, assignment[i].Width,
                     assignment[j].Channel, assignment[j].Width);
 
-                score += graph.InternalWeights[i, j] * overlapFactor;
+                score += graph.InternalWeights[i, j] * overlapFactor * InternalCoChannelMultiplier;
             }
         }
 
@@ -392,6 +443,8 @@ public class ChannelRecommendationService
         }
 
         // Channel scan data (utilization/interference from RF environment scan)
+        // Scaled by band multiplier - high utilization is normal on 2.4 GHz, concerning on 6 GHz
+        var bandStress = GetBandStressMultiplier(band);
         for (int i = 0; i < n; i++)
         {
             if (graph.ScanChannelData[i].Count == 0) continue;
@@ -399,18 +452,19 @@ public class ChannelRecommendationService
             var ch = assignment[i].Channel;
             if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
             {
-                score += scanData.Utilization * ScanUtilizationWeight;
-                score += scanData.Interference * ScanInterferenceWeight;
+                score += scanData.Utilization * ScanUtilizationWeight * bandStress;
+                score += scanData.Interference * ScanInterferenceWeight * bandStress;
             }
         }
 
-        // Historical channel stress: penalize channels where this AP historically experienced
-        // high utilization, interference, or TX retries. Uses 30-day metrics paired with channel
-        // change events for per-channel stress data. Falls back to current radio stats if
-        // historical data is unavailable.
+        // Historical channel stress and current radio stats.
+        // Historical per-channel data is measured reality at each AP's location - the best
+        // channel preference signal we have. NOT dampened by band multiplier.
+        // Current radio stats fallback IS dampened (it's just ambient noise snapshot).
         for (int i = 0; i < n; i++)
         {
-            score += ComputeStressPenalty(graph, band, i, assignment);
+            var (historicalPenalty, fallbackPenalty) = ComputeStressPenalty(graph, band, i, assignment);
+            score += historicalPenalty + fallbackPenalty * bandStress;
         }
 
         return score;
@@ -439,7 +493,7 @@ public class ChannelRecommendationService
                 assignment[apIndex].Channel, assignment[apIndex].Width,
                 assignment[j].Channel, assignment[j].Width);
 
-            score += graph.InternalWeights[apIndex, j] * overlapFactor;
+            score += graph.InternalWeights[apIndex, j] * overlapFactor * InternalCoChannelMultiplier;
         }
 
         // External interference
@@ -451,27 +505,29 @@ public class ChannelRecommendationService
                 score += extWeight;
         }
 
-        // Channel scan data
+        // Channel scan data (scaled by band stress multiplier)
+        var bandStress = GetBandStressMultiplier(band);
         var ch = assignment[apIndex].Channel;
         if (graph.ScanChannelData[apIndex].TryGetValue(ch, out var scanData))
         {
-            score += scanData.Utilization * ScanUtilizationWeight;
-            score += scanData.Interference * ScanInterferenceWeight;
+            score += scanData.Utilization * ScanUtilizationWeight * bandStress;
+            score += scanData.Interference * ScanInterferenceWeight * bandStress;
         }
 
-        // Historical channel stress
-        score += ComputeStressPenalty(graph, band, apIndex, assignment);
+        // Historical stress (undampened) + current stats fallback (dampened)
+        var (histPenalty, fallbackPenalty) = ComputeStressPenalty(graph, band, apIndex, assignment);
+        score += histPenalty + fallbackPenalty * bandStress;
 
         return score;
     }
 
     /// <summary>
     /// Compute stress penalty for an AP in a given assignment.
-    /// Uses per-channel historical stress if available (from 30-day metrics + channel change events).
-    /// Falls back to current radio stats applied to the current channel span.
-    /// Co-channel resolution scaling applies in both cases.
+    /// Returns (historicalPenalty, fallbackPenalty) so callers can apply band multiplier
+    /// only to the fallback. Historical per-channel data is measured reality and should
+    /// not be dampened - it's the best channel preference signal we have.
     /// </summary>
-    private double ComputeStressPenalty(
+    private (double Historical, double Fallback) ComputeStressPenalty(
         InterferenceGraph graph,
         RadioBand band,
         int apIndex,
@@ -484,8 +540,6 @@ public class ChannelRecommendationService
         {
             // Per-channel historical stress: check each historically stressed channel
             // and apply its penalty if the assigned channel overlaps its span.
-            // No co-channel resolution scaling - historical stress is measured data
-            // reflecting the real RF environment, not just internal AP interference.
             double penalty = 0;
             bool hasDataForAssignedChannel = false;
 
@@ -511,23 +565,35 @@ public class ChannelRecommendationService
             if (!hasDataForAssignedChannel)
                 penalty += UnknownChannelPenalty;
 
-            return penalty;
+            // Apply co-channel resolution scaling: historical stress includes the effect
+            // of our own APs co-channeling (CCA deferrals, elevated utilization). The
+            // internal weight term already penalizes co-channel separately, so if the
+            // proposed assignment resolves co-channel pairs, scale down the historical
+            // stress proportionally to avoid double-counting.
+            var histCurrentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(assignedSpan, histCurrentSpan))
+            {
+                penalty *= ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
+            }
+
+            return (penalty, 0);
         }
 
         // Fallback: use current radio stats on current channel span
         if (node.TxRetriesPct < StressMinThreshold &&
             node.ChannelUtilization < StressMinThreshold &&
             node.Interference < StressMinThreshold)
-            return 0;
+            return (0, 0);
 
         var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
         if (!ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
-            return 0;
+            return (0, 0);
 
         var fallbackScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
-        return fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
+        var fallbackPenalty = fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
             + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
             + (node.Interference / 100.0) * InterferenceStressWeight);
+        return (0, fallbackPenalty);
     }
 
     /// <summary>
@@ -670,7 +736,10 @@ public class ChannelRecommendationService
 
             var apWidth = graph.Nodes[apIndex].CurrentWidth;
 
-            foreach (var neighbor in scan.Neighbors.Where(n => !n.IsOwnNetwork && n.Signal.HasValue))
+            // Only count neighbors strong enough to trigger CCA (Clear Channel Assessment).
+            // Below -82 dBm, radios don't defer transmission so no real co-channel interference.
+            foreach (var neighbor in scan.Neighbors.Where(n =>
+                !n.IsOwnNetwork && n.Signal.HasValue && n.Signal.Value >= CcaThresholdDbm))
             {
                 var weight = ChannelSpanHelper.SignalToInterferenceWeight(neighbor.Signal!.Value);
 
@@ -848,6 +917,26 @@ public class ChannelRecommendationService
         }
     }
 
+    /// <summary>
+    /// Check if any AP in the assignment degrades more than the allowed threshold.
+    /// Returns true if the assignment violates the constraint.
+    /// </summary>
+    private bool ViolatesApDegradation(
+        InterferenceGraph graph,
+        (int Channel, int Width)[] assignment,
+        double[] currentApScores,
+        RadioBand band)
+    {
+        for (int i = 0; i < graph.Nodes.Count; i++)
+        {
+            if (currentApScores[i] <= 0) continue;
+            var newScore = ScoreAp(graph, assignment, i, band);
+            if (newScore > currentApScores[i] * MaxApScoreDegradation)
+                return true;
+        }
+        return false;
+    }
+
     private static bool AreMeshPair(InterferenceGraph graph, int i, int j)
     {
         return graph.MeshConstraints.Any(c =>
@@ -985,7 +1074,8 @@ public class ChannelRecommendationService
         InterferenceGraph graph,
         RadioBand band,
         HashSet<int> pinnedIndices,
-        RecommendationOptions opts)
+        RecommendationOptions opts,
+        double[] currentApScores)
     {
         var n = graph.Nodes.Count;
         var bestAssignment = new (int Channel, int Width)[n];
@@ -1024,6 +1114,10 @@ public class ChannelRecommendationService
                 if (score < bestScore ||
                     (score == bestScore && CountChanges(withMesh, originalAssignment) < CountChanges(bestAssignment, originalAssignment)))
                 {
+                    // Reject if any AP degrades too much
+                    if (ViolatesApDegradation(graph, withMesh, currentApScores, band))
+                        return;
+
                     bestScore = score;
                     Array.Copy(withMesh, bestAssignment, n);
                 }
@@ -1056,7 +1150,8 @@ public class ChannelRecommendationService
         InterferenceGraph graph,
         RadioBand band,
         HashSet<int> pinnedIndices,
-        RecommendationOptions opts)
+        RecommendationOptions opts,
+        double[] currentApScores)
     {
         var n = graph.Nodes.Count;
         var bestAssignment = new (int Channel, int Width)[n];
@@ -1137,7 +1232,8 @@ public class ChannelRecommendationService
                             ApplyMeshConstraints(graph, assignment);
                             var newScore = ScoreAssignment(graph, assignment, band);
 
-                            if (newScore < currentScore)
+                            if (newScore < currentScore &&
+                                !ViolatesApDegradation(graph, assignment, currentApScores, band))
                             {
                                 currentScore = newScore;
                                 improved = true;
@@ -1158,8 +1254,11 @@ public class ChannelRecommendationService
             if (finalScore < bestScore ||
                 (finalScore == bestScore && CountChanges(assignment, originalAssignment) < CountChanges(bestAssignment, originalAssignment)))
             {
-                bestScore = finalScore;
-                Array.Copy(assignment, bestAssignment, n);
+                if (!ViolatesApDegradation(graph, assignment, currentApScores, band))
+                {
+                    bestScore = finalScore;
+                    Array.Copy(assignment, bestAssignment, n);
+                }
             }
         }
 
@@ -1320,7 +1419,7 @@ public class ChannelRecommendationService
                     var overlap = ChannelSpanHelper.ComputeOverlapFactor(
                         band, ch, currentAssignment[i].Width,
                         testAssignment[j].Channel, testAssignment[j].Width);
-                    internalScore += graph.InternalWeights[i, j] * overlap;
+                    internalScore += graph.InternalWeights[i, j] * overlap * InternalCoChannelMultiplier;
                 }
 
                 var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);

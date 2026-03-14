@@ -1,8 +1,7 @@
 // Scroll Restoration for Blazor Server
-// Uses .page-content as the scroll container (not window)
+// Mobile uses .main-content as scroll container, desktop uses .page-content
 
 (function() {
-    const SCROLL_CONTAINER_SELECTOR = '.page-content';
     const scrollPositions = new Map();
     let isPopState = false;
 
@@ -12,7 +11,8 @@
     });
 
     function getScrollContainer() {
-        return document.querySelector(SCROLL_CONTAINER_SELECTOR);
+        if (window.innerWidth <= 768) return document.querySelector('.main-content');
+        return document.querySelector('.page-content');
     }
 
     // Called from C# before navigation
@@ -26,16 +26,29 @@
 
         // Called from C# after navigation
         restoreOrScrollToTop: function(path) {
-            const container = getScrollContainer();
+            var container = getScrollContainer();
             if (!container) return;
+            var hasFragment = !!window.location.hash;
 
             if (isPopState) {
-                // Back/forward: restore saved position
-                const saved = scrollPositions.get(path);
+                var saved = scrollPositions.get(path);
                 container.scrollTop = saved !== undefined ? saved : 0;
                 isPopState = false;
-            } else if (!window.location.hash) {
-                // Forward navigation: scroll to top
+                return;
+            }
+
+            if (hasFragment) {
+                // Fragment navigation: hide nav bar, no scroll padding, then scroll to element
+                if (window.__setScrollState) window.__setScrollState(true);
+                var el = document.getElementById(window.location.hash.substring(1));
+                if (el) {
+                    requestAnimationFrame(function() {
+                        el.scrollIntoView({ behavior: 'instant', block: 'start' });
+                    });
+                }
+            } else {
+                // Page navigation: show nav bar, scroll to top
+                if (window.__setScrollState) window.__setScrollState(false);
                 container.scrollTop = 0;
             }
         }

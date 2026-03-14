@@ -2908,7 +2908,7 @@ else
         {
             _loading = false;
             StateHasChanged();
-            await JS.InvokeVoidAsync("eval", "document.querySelector('.page-content')?.scrollTo(0, 0)");
+            await JS.InvokeVoidAsync("eval", "(window.innerWidth <= 768 ? document.querySelector('.main-content') : document.querySelector('.page-content'))?.scrollTo(0, 0)");
         }
     }
 
@@ -2974,7 +2974,7 @@ else
         {
             _loading = false;
             StateHasChanged();
-            await JS.InvokeVoidAsync("eval", "document.querySelector('.page-content')?.scrollTo(0, 0)");
+            await JS.InvokeVoidAsync("eval", "(window.innerWidth <= 768 ? document.querySelector('.main-content') : document.querySelector('.page-content'))?.scrollTo(0, 0)");
         }
     }
 
@@ -3040,7 +3040,7 @@ else
         {
             _loading = false;
             StateHasChanged();
-            await JS.InvokeVoidAsync("eval", "document.querySelector('.page-content')?.scrollTo(0, 0)");
+            await JS.InvokeVoidAsync("eval", "(window.innerWidth <= 768 ? document.querySelector('.main-content') : document.querySelector('.page-content'))?.scrollTo(0, 0)");
         }
     }
 

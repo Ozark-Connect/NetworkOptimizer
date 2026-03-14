@@ -144,14 +144,22 @@
                 <div class="identity-signal">
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
                     {
-                        <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value)">
+                        <div class="signal-gauge @GetSignalClass(_client.SignalDbm.Value, _client.Band)">
                             <span class="signal-value">@_client.SignalDbm</span>
                             <span class="signal-unit">dBm</span>
                         </div>
-                        <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value)">
+                        <div class="signal-bars @GetSignalClass(_client.SignalDbm.Value, _client.Band)">
+                            @{
+                                var thresholds = _client.Band switch
+                                {
+                                    "ng" => new[] { -82, -75, -67, -60, -50 },
+                                    "6e" => new[] { -97, -92, -87, -78, -67 },
+                                    _ => new[] { -92, -85, -78, -70, -60 }
+                                };
+                            }
                             @for (int i = 0; i < 5; i++)
                             {
-                                var barThreshold = new[] { -90, -82, -75, -70, -60 }[i];
+                                var barThreshold = thresholds[i];
                                 <div class="bar @(_client.SignalDbm >= barThreshold ? "active" : "")"></div>
                             }
                         </div>
@@ -1954,13 +1962,41 @@
 
     // --- Formatting Helpers ---
 
-    private static string GetSignalClass(int dbm) => dbm switch
+    /// <summary>
+    /// Signal quality classification scaled by band based on noise floor differences.
+    /// 6 GHz has the lowest noise floor (~-100 dBm) so weak signals still achieve high
+    /// SNR - thresholds are the most lenient. 2.4 GHz has the highest noise floor
+    /// (~-85 dBm) so signals need to be stronger - thresholds are the tightest.
+    /// </summary>
+    private static string GetSignalClass(int dbm, string? band = null) => band switch
     {
-        >= -60 => "signal-excellent",
-        >= -70 => "signal-good",
-        >= -75 => "signal-fair",
-        >= -82 => "signal-weak",
-        _ => "signal-poor"
+        // 2.4 GHz: high noise floor (~-85 dBm), needs strong signal for usable SNR
+        "ng" => dbm switch
+        {
+            >= -50 => "signal-excellent",
+            >= -60 => "signal-good",
+            >= -67 => "signal-fair",
+            >= -75 => "signal-weak",
+            _ => "signal-poor"
+        },
+        // 6 GHz: very low noise floor (~-95 to -100 dBm), great rates even at weak signal
+        "6e" => dbm switch
+        {
+            >= -67 => "signal-excellent",
+            >= -78 => "signal-good",
+            >= -87 => "signal-fair",
+            >= -92 => "signal-weak",
+            _ => "signal-poor"
+        },
+        // 5 GHz (default): moderate noise floor (~-92 dBm)
+        _ => dbm switch
+        {
+            >= -60 => "signal-excellent",
+            >= -70 => "signal-good",
+            >= -78 => "signal-fair",
+            >= -85 => "signal-weak",
+            _ => "signal-poor"
+        }
     };
 
     private static string GetBandClass(string? band) => band switch
@@ -2194,6 +2230,8 @@
         position: sticky;
         top: 0;
         z-index: 10;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        transition: top 0.3s ease, padding 0.3s ease;
     }
     .identity-row-1 {
         display: flex;
