@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NetworkOptimizer.WiFi.Helpers;
 
 namespace NetworkOptimizer.WiFi.Models;
 
@@ -48,7 +49,25 @@ public class RegulatoryChannelData
         if (band == RadioBand.Band5GHz && !includeDfs && DfsChannels.Length > 0)
         {
             var dfsSet = new HashSet<int>(DfsChannels);
-            return channels.Where(ch => !dfsSet.Contains(ch)).ToArray();
+            if (width <= 20)
+            {
+                // Simple case: just check the primary channel
+                return channels.Where(ch => !dfsSet.Contains(ch)).ToArray();
+            }
+
+            // For wider channels (40/80/160 MHz), check if ANY channel in the
+            // bonding group is DFS. At 160 MHz, ch36 spans 36-64 which includes
+            // DFS channels 52-64, so it must be excluded.
+            return channels.Where(ch =>
+            {
+                var span = Helpers.ChannelSpanHelper.GetChannelSpan(RadioBand.Band5GHz, ch, width);
+                for (int c = span.Low; c <= span.High; c += 4)
+                {
+                    if (dfsSet.Contains(c))
+                        return false;
+                }
+                return true;
+            }).ToArray();
         }
 
         // 6 GHz: filter to PSC channels (matches UniFi UI dropdown)

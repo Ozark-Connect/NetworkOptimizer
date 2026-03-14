@@ -123,7 +123,7 @@ public class ChannelRecommendationService
             var radio = ap.Radios.First(r => r.Band == band && r.Channel.HasValue);
             var isPlaced = propContext?.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()) == true;
 
-            var validChannels = GetValidChannels(band, radio, regulatoryData, opts.DfsPreference);
+            var (validChannels, effectiveWidth) = GetValidChannelsWithWidth(band, radio, regulatoryData, opts.DfsPreference);
             var currentWidth = radio.ChannelWidth ?? 20;
 
             var macLower = ap.Mac.ToLowerInvariant();
@@ -140,7 +140,7 @@ public class ChannelRecommendationService
                 CurrentChannel = radio.Channel!.Value,
                 CurrentWidth = currentWidth,
                 ValidChannels = validChannels,
-                ValidWidths = new[] { currentWidth }, // Locked to current for now
+                ValidWidths = new[] { effectiveWidth }, // May narrow if avoiding DFS at wide widths
                 IsPlaced = isPlaced,
                 HasDfs = radio.HasDfs,
                 ChannelUtilization = radio.ChannelUtilization ?? 0,
@@ -212,7 +212,9 @@ public class ChannelRecommendationService
             currentAssignment[i] = (graph.Nodes[i].CurrentChannel, graph.Nodes[i].CurrentWidth);
 
         var currentNetworkScore = ScoreAssignment(graph, currentAssignment, band);
-        currentNetworkScore = AddDfsPenalty(graph, currentAssignment, band, opts.DfsPreference, currentNetworkScore);
+        // DFS penalty is used for optimization decisions (comparing current vs recommended),
+        // but the displayed current score should be consistent across DFS modes.
+        var currentWithDfsPenalty = AddDfsPenalty(graph, currentAssignment, band, opts.DfsPreference, currentNetworkScore);
 
         // Log per-AP per-channel score breakdown BEFORE optimization
         LogPerApChannelScores(graph, currentAssignment, band, "PRE-OPTIMIZATION");
@@ -251,7 +253,8 @@ public class ChannelRecommendationService
 
         // If average improvement per AP is negligible, keep the current assignment.
         // Scales with network size: 4 APs need 1.0 total, 50 APs need 12.5.
-        var improvement = currentNetworkScore - bestScore;
+        // Use penalty-adjusted scores for this comparison so DFS penalty influences the decision.
+        var improvement = currentWithDfsPenalty - bestScore;
         var avgImprovement = n > 0 ? improvement / n : 0;
         if (improvement > 0 && avgImprovement < MinAvgImprovementPerAp)
         {
@@ -260,7 +263,7 @@ public class ChannelRecommendationService
                 "(total {Improvement:F3} across {N} APs), keeping current assignment",
                 avgImprovement, MinAvgImprovementPerAp, improvement, n);
             bestAssignment = currentAssignment;
-            bestScore = currentNetworkScore;
+            bestScore = currentWithDfsPenalty;
         }
 
         // Build result
@@ -326,8 +329,9 @@ public class ChannelRecommendationService
             var rec = plan.Recommendations[i];
             finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
         }
+        // Display scores without DFS penalty for consistency across modes.
+        // DFS penalty only influences the optimizer's channel selection.
         plan.RecommendedNetworkScore = ScoreAssignment(graph, finalAssignment, band);
-        plan.RecommendedNetworkScore = AddDfsPenalty(graph, finalAssignment, band, opts.DfsPreference, plan.RecommendedNetworkScore);
 
         // Log final recommendation summary
         LogRecommendationSummary(plan, currentAssignment, bestAssignment);
@@ -840,10 +844,41 @@ public class ChannelRecommendationService
             (c.ParentIndex == j && c.ChildIndex == i));
     }
 
-    private int[] GetValidChannels(
+    /// <summary>
+    /// Get valid channels for an AP, optionally with a narrowed width when DFS avoidance
+    /// eliminates all channels at the current width.
+    /// </summary>
+    private (int[] Channels, int Width) GetValidChannelsWithWidth(
         RadioBand band, RadioSnapshot radio,
         RegulatoryChannelData? regulatoryData,
         DfsPreference dfsPref)
+    {
+        var width = radio.ChannelWidth ?? 20;
+        var channels = GetValidChannels(band, radio, regulatoryData, dfsPref, width);
+
+        // If avoiding DFS left us with zero channels at the current width,
+        // try narrower widths. At 160 MHz both 5 GHz groups (36-64, 100-128)
+        // include DFS channels, so we must step down to 80 MHz.
+        if (channels.Length == 0 && dfsPref == DfsPreference.Exclude &&
+            band == RadioBand.Band5GHz && regulatoryData != null && width > 20)
+        {
+            foreach (var narrower in new[] { 80, 40, 20 })
+            {
+                if (narrower >= width) continue;
+                var narrowChannels = regulatoryData.GetChannels(band, narrower, includeDfs: false);
+                if (narrowChannels.Length > 0)
+                    return (narrowChannels, narrower);
+            }
+        }
+
+        return (channels, width);
+    }
+
+    private int[] GetValidChannels(
+        RadioBand band, RadioSnapshot radio,
+        RegulatoryChannelData? regulatoryData,
+        DfsPreference dfsPref,
+        int? widthOverride = null)
     {
         // 2.4 GHz: ALWAYS restrict to 1, 6, 11 regardless of regulatory data.
         // Co-channel interference (managed by CSMA/CA) is far better than
@@ -851,7 +886,7 @@ public class ChannelRecommendationService
         if (band == RadioBand.Band2_4GHz)
             return [1, 6, 11];
 
-        var width = radio.ChannelWidth ?? 20;
+        var width = widthOverride ?? radio.ChannelWidth ?? 20;
 
         if (regulatoryData != null)
         {
