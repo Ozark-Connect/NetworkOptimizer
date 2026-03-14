@@ -6639,6 +6639,12 @@ a.path-hop.hop-clickable:hover {
     white-space: nowrap;
 }
 
+.mesh-unit {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
 .ap-radios {
     display: flex;
     flex-direction: column;

@@ -522,22 +522,22 @@
                                     {
                                         <div class="ap-mesh-info">
                                             <div class="mesh-signal">
-                                                <span class="mesh-signal-value @GetSignalClass(ap.MeshUplinkSignalDbm.Value)">@ap.MeshUplinkSignalDbm dBm</span>
+                                                <span class="mesh-signal-value"><span class="@GetSignalClass(ap.MeshUplinkSignalDbm.Value)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                 @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
                                                 {
                                                     <span class="mesh-rates">
                                                         @if (ap.MeshUplinkTxRateMbps.HasValue)
                                                         {
-                                                            <span class="mesh-rate">TX @ap.MeshUplinkTxRateMbps Mbps</span>
+                                                            <span class="mesh-rate wifi-speed-tx">TX @ap.MeshUplinkTxRateMbps</span>
                                                         }
                                                         @if (ap.MeshUplinkRxRateMbps.HasValue)
                                                         {
-                                                            <span class="mesh-rate">RX @ap.MeshUplinkRxRateMbps Mbps</span>
+                                                            <span class="mesh-rate wifi-speed-rx">RX @ap.MeshUplinkRxRateMbps</span>
                                                         }
                                                     </span>
                                                 }
                                             </div>
-                                            <span class="ap-stat-label">Mesh Uplink@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
+                                            <span class="ap-stat-label">Mesh uplink@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
                                         </div>
                                     }
                                     @if (ap.MeshChildren.Count > 0)
@@ -548,23 +548,23 @@
                                                 <div class="mesh-signal">
                                                     @if (child.SignalDbm.HasValue)
                                                     {
-                                                        <span class="mesh-signal-value @GetSignalClass(child.SignalDbm.Value)">@child.SignalDbm dBm</span>
+                                                        <span class="mesh-signal-value"><span class="@GetSignalClass(child.SignalDbm.Value)">@child.SignalDbm</span> <span class="mesh-unit">dBm</span></span>
                                                     }
                                                     @if (child.TxRateMbps.HasValue || child.RxRateMbps.HasValue)
                                                     {
                                                         <span class="mesh-rates">
-                                                            @if (child.TxRateMbps.HasValue)
-                                                            {
-                                                                <span class="mesh-rate">TX @child.TxRateMbps Mbps</span>
-                                                            }
                                                             @if (child.RxRateMbps.HasValue)
                                                             {
-                                                                <span class="mesh-rate">RX @child.RxRateMbps Mbps</span>
+                                                                <span class="mesh-rate wifi-speed-tx">TX @child.RxRateMbps</span>
+                                                            }
+                                                            @if (child.TxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-rx">RX @child.TxRateMbps</span>
                                                             }
                                                         </span>
                                                     }
                                                 </div>
-                                                <span class="ap-stat-label">Mesh Child: @child.Name</span>
+                                                <span class="ap-stat-label">Mesh child: @child.Name</span>
                                             </div>
                                         }
                                     }
