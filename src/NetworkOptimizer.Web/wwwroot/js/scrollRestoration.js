@@ -38,8 +38,14 @@
             }
 
             if (hasFragment) {
-                // Fragment navigation: hide nav bar, no scroll padding, let browser scroll to fragment
+                // Fragment navigation: hide nav bar, no scroll padding, then scroll to element
                 if (window.__setScrollState) window.__setScrollState(true);
+                var el = document.getElementById(window.location.hash.substring(1));
+                if (el) {
+                    requestAnimationFrame(function() {
+                        el.scrollIntoView({ behavior: 'instant', block: 'start' });
+                    });
+                }
             } else {
                 // Page navigation: show nav bar, scroll to top
                 if (window.__setScrollState) window.__setScrollState(false);
