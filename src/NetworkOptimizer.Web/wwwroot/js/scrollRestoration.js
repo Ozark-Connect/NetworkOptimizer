@@ -29,6 +29,13 @@
             const container = getScrollContainer();
             if (!container) return;
 
+            // Reset top bar state on navigation - it's always visible at top
+            if (window.innerWidth <= 768) {
+                var topBar = document.querySelector('.top-bar');
+                if (topBar) topBar.classList.remove('top-bar-hidden');
+                container.style.scrollPaddingTop = '70px';
+            }
+
             if (isPopState) {
                 // Back/forward: restore saved position
                 const saved = scrollPositions.get(path);
