@@ -60,7 +60,15 @@ public class ChannelRecommendationService
     /// Below this threshold, the current assignment is preferred to avoid
     /// recommending changes for negligible gains.
     /// </summary>
-    private const double MinImprovementThreshold = 0.05;
+    private const double MinImprovementThreshold = 0.3;
+
+    /// <summary>
+    /// Penalty for channels with no historical data. Unknown channels carry more
+    /// risk than channels we have measured data for, so they shouldn't score as
+    /// perfect (0.0). Applied per-AP when historical stress data exists for the AP
+    /// but not for the candidate channel.
+    /// </summary>
+    private const double UnknownChannelPenalty = 0.15;
 
     public ChannelRecommendationService(
         PropagationService propagationService,
@@ -423,21 +431,30 @@ public class ChannelRecommendationService
             // No co-channel resolution scaling - historical stress is measured data
             // reflecting the real RF environment, not just internal AP interference.
             double penalty = 0;
+            bool hasDataForAssignedChannel = false;
+
             foreach (var (histChannel, stress) in node.HistoricalStress)
             {
-                if (stress.TxRetryPct < StressMinThreshold &&
-                    stress.Utilization < StressMinThreshold &&
-                    stress.Interference < StressMinThreshold)
-                    continue;
-
                 var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
-                if (!ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
-                    continue;
+                if (ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
+                {
+                    hasDataForAssignedChannel = true;
 
-                penalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
-                    + (stress.Utilization / 100.0) * UtilizationStressWeight
-                    + (stress.Interference / 100.0) * InterferenceStressWeight;
+                    if (stress.TxRetryPct < StressMinThreshold &&
+                        stress.Utilization < StressMinThreshold &&
+                        stress.Interference < StressMinThreshold)
+                        continue;
+
+                    penalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
+                        + (stress.Utilization / 100.0) * UtilizationStressWeight
+                        + (stress.Interference / 100.0) * InterferenceStressWeight;
+                }
             }
+
+            // Unknown channels carry more risk than measured ones
+            if (!hasDataForAssignedChannel)
+                penalty += UnknownChannelPenalty;
+
             return penalty;
         }
 
