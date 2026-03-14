@@ -80,6 +80,13 @@ public class ChannelRecommendationService
     private const double UnknownChannelPenalty = 0.15;
 
     /// <summary>
+    /// Maximum allowed score degradation for any individual AP in a recommended plan.
+    /// 1.5 = AP's score can increase by up to 50%. Prevents sacrificing one AP
+    /// too heavily for network-wide improvement.
+    /// </summary>
+    private const double MaxApScoreDegradation = 1.5;
+
+    /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
     /// (Clear Channel Assessment) threshold: below -82 dBm, radios don't defer
     /// transmission so the neighbor causes no real co-channel interference.
@@ -351,13 +358,16 @@ public class ChannelRecommendationService
                 recommendedWidth = node.CurrentWidth;
                 recommendedApScore = currentApScore;
             }
-            // Don't move an AP if its individual score would get worse
-            else if (isOnValidChannel && isChanging && recommendedApScore > currentApScore)
+            // Don't sacrifice an AP too much for the greater good - cap degradation at 50%
+            else if (isOnValidChannel && isChanging && currentApScore > 0 &&
+                     recommendedApScore > currentApScore * MaxApScoreDegradation)
             {
                 _logger.LogDebug(
-                    "[ChannelRec] {ApName} score would worsen {Current:F3} → {Recommended:F3}, " +
-                    "keeping current ch{Channel}/{Width} MHz",
-                    node.Name, currentApScore, recommendedApScore, node.CurrentChannel, node.CurrentWidth);
+                    "[ChannelRec] {ApName} score would degrade too much {Current:F3} → {Recommended:F3} " +
+                    "({Pct:F0}% > {MaxPct}% threshold), keeping current ch{Channel}/{Width} MHz",
+                    node.Name, currentApScore, recommendedApScore,
+                    (recommendedApScore / currentApScore - 1) * 100, (MaxApScoreDegradation - 1) * 100,
+                    node.CurrentChannel, node.CurrentWidth);
                 recommendedChannel = node.CurrentChannel;
                 recommendedWidth = node.CurrentWidth;
                 recommendedApScore = currentApScore;
