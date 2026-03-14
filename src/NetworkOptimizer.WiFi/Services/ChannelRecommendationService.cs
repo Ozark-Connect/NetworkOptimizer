@@ -278,6 +278,11 @@ public class ChannelRecommendationService
             }
         }
 
+        // Compute per-AP current scores for degradation constraint
+        var currentApScores = new double[n];
+        for (int i = 0; i < n; i++)
+            currentApScores[i] = ScoreAp(graph, currentAssignment, i, band);
+
         // Optimize
         (int Channel, int Width)[] bestAssignment;
         double bestScore;
@@ -285,12 +290,12 @@ public class ChannelRecommendationService
         if (n <= 6 && GetMaxValidChannels(graph) <= 24)
         {
             // Small network: exhaustive search with pruning
-            (bestAssignment, bestScore) = ExhaustiveSearch(graph, band, pinnedIndices, opts);
+            (bestAssignment, bestScore) = ExhaustiveSearch(graph, band, pinnedIndices, opts, currentApScores);
         }
         else
         {
             // Greedy + local search with random restarts
-            (bestAssignment, bestScore) = GreedyLocalSearch(graph, band, pinnedIndices, opts);
+            (bestAssignment, bestScore) = GreedyLocalSearch(graph, band, pinnedIndices, opts, currentApScores);
         }
 
         // Log per-AP per-channel score breakdown AFTER optimization
@@ -346,28 +351,13 @@ public class ChannelRecommendationService
             var recommendedChannel = bestAssignment[i].Channel;
             var recommendedWidth = bestAssignment[i].Width;
             var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
-            var isChanging = recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth;
-
-            if (isOnValidChannel && isChanging && currentApScore < MinApScoreToMove)
+            if (isOnValidChannel && currentApScore < MinApScoreToMove &&
+                (recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth))
             {
                 _logger.LogDebug(
                     "[ChannelRec] {ApName} current score {Score:F3} below per-AP threshold {Threshold:F3}, " +
                     "keeping current ch{Channel}/{Width} MHz",
                     node.Name, currentApScore, MinApScoreToMove, node.CurrentChannel, node.CurrentWidth);
-                recommendedChannel = node.CurrentChannel;
-                recommendedWidth = node.CurrentWidth;
-                recommendedApScore = currentApScore;
-            }
-            // Don't sacrifice an AP too much for the greater good - cap degradation at 50%
-            else if (isOnValidChannel && isChanging && currentApScore > 0 &&
-                     recommendedApScore > currentApScore * MaxApScoreDegradation)
-            {
-                _logger.LogDebug(
-                    "[ChannelRec] {ApName} score would degrade too much {Current:F3} → {Recommended:F3} " +
-                    "({Pct:F0}% > {MaxPct}% threshold), keeping current ch{Channel}/{Width} MHz",
-                    node.Name, currentApScore, recommendedApScore,
-                    (recommendedApScore / currentApScore - 1) * 100, (MaxApScoreDegradation - 1) * 100,
-                    node.CurrentChannel, node.CurrentWidth);
                 recommendedChannel = node.CurrentChannel;
                 recommendedWidth = node.CurrentWidth;
                 recommendedApScore = currentApScore;
@@ -924,6 +914,26 @@ public class ChannelRecommendationService
         }
     }
 
+    /// <summary>
+    /// Check if any AP in the assignment degrades more than the allowed threshold.
+    /// Returns true if the assignment violates the constraint.
+    /// </summary>
+    private bool ViolatesApDegradation(
+        InterferenceGraph graph,
+        (int Channel, int Width)[] assignment,
+        double[] currentApScores,
+        RadioBand band)
+    {
+        for (int i = 0; i < graph.Nodes.Count; i++)
+        {
+            if (currentApScores[i] <= 0) continue;
+            var newScore = ScoreAp(graph, assignment, i, band);
+            if (newScore > currentApScores[i] * MaxApScoreDegradation)
+                return true;
+        }
+        return false;
+    }
+
     private static bool AreMeshPair(InterferenceGraph graph, int i, int j)
     {
         return graph.MeshConstraints.Any(c =>
@@ -1061,7 +1071,8 @@ public class ChannelRecommendationService
         InterferenceGraph graph,
         RadioBand band,
         HashSet<int> pinnedIndices,
-        RecommendationOptions opts)
+        RecommendationOptions opts,
+        double[] currentApScores)
     {
         var n = graph.Nodes.Count;
         var bestAssignment = new (int Channel, int Width)[n];
@@ -1100,6 +1111,10 @@ public class ChannelRecommendationService
                 if (score < bestScore ||
                     (score == bestScore && CountChanges(withMesh, originalAssignment) < CountChanges(bestAssignment, originalAssignment)))
                 {
+                    // Reject if any AP degrades too much
+                    if (ViolatesApDegradation(graph, withMesh, currentApScores, band))
+                        return;
+
                     bestScore = score;
                     Array.Copy(withMesh, bestAssignment, n);
                 }
@@ -1132,7 +1147,8 @@ public class ChannelRecommendationService
         InterferenceGraph graph,
         RadioBand band,
         HashSet<int> pinnedIndices,
-        RecommendationOptions opts)
+        RecommendationOptions opts,
+        double[] currentApScores)
     {
         var n = graph.Nodes.Count;
         var bestAssignment = new (int Channel, int Width)[n];
@@ -1213,7 +1229,8 @@ public class ChannelRecommendationService
                             ApplyMeshConstraints(graph, assignment);
                             var newScore = ScoreAssignment(graph, assignment, band);
 
-                            if (newScore < currentScore)
+                            if (newScore < currentScore &&
+                                !ViolatesApDegradation(graph, assignment, currentApScores, band))
                             {
                                 currentScore = newScore;
                                 improved = true;
@@ -1234,8 +1251,11 @@ public class ChannelRecommendationService
             if (finalScore < bestScore ||
                 (finalScore == bestScore && CountChanges(assignment, originalAssignment) < CountChanges(bestAssignment, originalAssignment)))
             {
-                bestScore = finalScore;
-                Array.Copy(assignment, bestAssignment, n);
+                if (!ViolatesApDegradation(graph, assignment, currentApScores, band))
+                {
+                    bestScore = finalScore;
+                    Array.Copy(assignment, bestAssignment, n);
+                }
             }
         }
 
