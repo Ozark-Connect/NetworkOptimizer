@@ -699,10 +699,14 @@ public class ChannelRecommendationService
 
                 foreach (var (histChannel, stress) in source.HistoricalStress)
                 {
-                    // Scale stress by proximity weight
-                    var scaledUtil = stress.Utilization * weight;
-                    var scaledInterf = stress.Interference * weight;
-                    var scaledTxRetry = stress.TxRetryPct * weight;
+                    // Scale stress by proximity weight, dampened by 50%.
+                    // Even at weight 1.0, only inherit half the neighbor's stress.
+                    // Without dampening, 2.4 GHz (where all weights are high) gets
+                    // uniform stress across all channels, preventing any improvements.
+                    var scale = weight * 0.5;
+                    var scaledUtil = stress.Utilization * scale;
+                    var scaledInterf = stress.Interference * scale;
+                    var scaledTxRetry = stress.TxRetryPct * scale;
 
                     if (!propagated.ContainsKey(j))
                         propagated[j] = new Dictionary<int, (double, double, double)>();
