@@ -2337,16 +2337,13 @@ select.form-control {
         position: absolute;
     }
 
-    /* Footer hidden by default on mobile, shown near bottom */
+    /* Footer: minimal on mobile */
     .app-footer {
-        display: none;
+        padding: 0.75rem 1rem;
+        font-size: 0.65rem;
     }
 
-    .app-footer.footer-visible {
-        display: block;
-    }
-
-    /* Client dashboard identity bar: collapse name/meta when scrolled past */
+    /* Client dashboard identity bar: collapse name/meta when scrolled down */
     .identity-bar.identity-collapsed .identity-name,
     .identity-bar.identity-collapsed .identity-meta {
         max-height: 0;

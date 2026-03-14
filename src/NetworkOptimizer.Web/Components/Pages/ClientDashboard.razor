@@ -152,8 +152,8 @@
                             @{
                                 var thresholds = _client.Band switch
                                 {
-                                    "ng" => new[] { -92, -85, -78, -72, -65 },
-                                    "6e" => new[] { -85, -78, -72, -65, -55 },
+                                    "ng" => new[] { -82, -75, -67, -60, -50 },
+                                    "6e" => new[] { -95, -90, -82, -75, -67 },
                                     _ => new[] { -90, -82, -75, -70, -60 }
                                 };
                             }
@@ -1969,25 +1969,25 @@
     /// </summary>
     private static string GetSignalClass(int dbm, string? band = null) => band switch
     {
-        // 2.4 GHz: longer range, lower MCS expectations, more resilient modulation
+        // 2.4 GHz: high noise floor (~-85 dBm), needs strong signal for usable SNR
         "ng" => dbm switch
         {
-            >= -65 => "signal-excellent",
-            >= -72 => "signal-good",
-            >= -78 => "signal-fair",
-            >= -85 => "signal-weak",
+            >= -50 => "signal-excellent",
+            >= -60 => "signal-good",
+            >= -67 => "signal-fair",
+            >= -75 => "signal-weak",
             _ => "signal-poor"
         },
-        // 6 GHz: shorter range, highest MCS expectations, needs stronger signal
+        // 6 GHz: very low noise floor (~-95 to -100 dBm), great rates even at weak signal
         "6e" => dbm switch
         {
-            >= -55 => "signal-excellent",
-            >= -65 => "signal-good",
-            >= -72 => "signal-fair",
-            >= -78 => "signal-weak",
+            >= -67 => "signal-excellent",
+            >= -75 => "signal-good",
+            >= -82 => "signal-fair",
+            >= -90 => "signal-weak",
             _ => "signal-poor"
         },
-        // 5 GHz (default): standard thresholds
+        // 5 GHz (default): moderate noise floor (~-92 dBm)
         _ => dbm switch
         {
             >= -60 => "signal-excellent",
