@@ -115,7 +115,11 @@
         // Reset scroll state on page navigation (called from scrollRestoration.js)
         window.__resetScrollState = function() {
             lastScrollTop = 0;
-            if (currentEl) currentEl.style.scrollPaddingTop = '70px';
+            if (window.innerWidth <= 768) {
+                var topBar = document.querySelector('.top-bar');
+                if (topBar) topBar.classList.remove('top-bar-hidden');
+                if (currentEl) currentEl.style.scrollPaddingTop = '70px';
+            }
         };
 
         attachListener(getScrollEl());
