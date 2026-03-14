@@ -1774,18 +1774,13 @@
     {
         if (!_mapInitialized) return;
 
-        // Don't override simulation - user is testing "what-if" scenarios
-        try
-        {
-            var hasSim = await JS.InvokeAsync<bool>("fpEditor.hasSimulationOverrides");
-            if (hasSim) return;
-        }
-        catch { return; }
-
         await LoadApMarkers();
         var newFingerprint = ComputeRadioFingerprint();
         if (newFingerprint == _lastRadioFingerprint) return;
 
+        // AP radio config changed (channel, power, etc.) - update markers and recompute.
+        // Simulation overrides (tx power, antenna mode, disabled APs) are stored in JS state
+        // and get re-applied automatically during heatmap computation.
         _lastRadioFingerprint = newFingerprint;
         HeatmapCache.Invalidate();
         await UpdateApMarkers();
