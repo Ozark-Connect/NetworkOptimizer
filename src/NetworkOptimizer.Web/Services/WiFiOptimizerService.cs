@@ -877,15 +877,15 @@ public class WiFiOptimizerService
         try
         {
             var end = DateTimeOffset.UtcNow;
-            var start = end.AddHours(-1);
+            var start = end.AddDays(-30);
             var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
             if (onlineAps.Count == 0) return null;
 
-            // Fetch metrics for each AP concurrently
+            // Fetch metrics for each AP concurrently (daily granularity = ~30 points)
             var tasks = onlineAps.Select(async ap =>
             {
                 var metrics = await GetApMetricsAsync(
-                    new[] { ap.Mac }, start, end, MetricGranularity.FiveMinutes);
+                    new[] { ap.Mac }, start, end, MetricGranularity.Daily);
                 return (ap.Mac, Metrics: metrics);
             });
 
