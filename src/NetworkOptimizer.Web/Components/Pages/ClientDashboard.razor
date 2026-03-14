@@ -6,6 +6,7 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @using Microsoft.AspNetCore.Http
 @using ApexCharts
@@ -1962,42 +1963,8 @@
 
     // --- Formatting Helpers ---
 
-    /// <summary>
-    /// Signal quality classification scaled by band based on noise floor differences.
-    /// 6 GHz has the lowest noise floor (~-100 dBm) so weak signals still achieve high
-    /// SNR - thresholds are the most lenient. 2.4 GHz has the highest noise floor
-    /// (~-85 dBm) so signals need to be stronger - thresholds are the tightest.
-    /// </summary>
-    private static string GetSignalClass(int dbm, string? band = null) => band switch
-    {
-        // 2.4 GHz: high noise floor (~-85 dBm), needs strong signal for usable SNR
-        "ng" => dbm switch
-        {
-            >= -50 => "signal-excellent",
-            >= -60 => "signal-good",
-            >= -67 => "signal-fair",
-            >= -75 => "signal-weak",
-            _ => "signal-poor"
-        },
-        // 6 GHz: very low noise floor (~-95 to -100 dBm), great rates even at weak signal
-        "6e" => dbm switch
-        {
-            >= -67 => "signal-excellent",
-            >= -78 => "signal-good",
-            >= -87 => "signal-fair",
-            >= -92 => "signal-weak",
-            _ => "signal-poor"
-        },
-        // 5 GHz (default): moderate noise floor (~-92 dBm)
-        _ => dbm switch
-        {
-            >= -60 => "signal-excellent",
-            >= -70 => "signal-good",
-            >= -78 => "signal-fair",
-            >= -85 => "signal-weak",
-            _ => "signal-poor"
-        }
-    };
+    private static string GetSignalClass(int dbm, string? band = null) =>
+        SignalClassification.GetSignalClass(dbm, band);
 
     private static string GetBandClass(string? band) => band switch
     {

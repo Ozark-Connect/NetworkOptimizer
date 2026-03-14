@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
@@ -212,7 +213,7 @@
                                 </div>
                                 <div class="client-detail">
                                     <span class="detail-label">Signal</span>
-                                    <span class="detail-value @GetSignalClass(client.Signal)">@(client.Signal ?? 0) dBm</span>
+                                    <span class="detail-value @SignalClassification.GetSignalClass(client.Signal, client.Band)">@(client.Signal ?? 0) dBm</span>
                                 </div>
                                 <div class="client-detail">
                                     <span class="detail-label">AP</span>
@@ -504,18 +505,6 @@
     {
         if (gen.Generation == 6 && gen.Count6GHz > 0) return "gen-6e";
         return GetGenCssClass(gen.Generation);
-    }
-
-    private string GetSignalClass(int? signal)
-    {
-        if (!signal.HasValue) return "";
-        return signal.Value switch
-        {
-            >= -50 => "signal-excellent",
-            >= -60 => "signal-good",
-            >= -70 => "signal-fair",
-            _ => "signal-poor"
-        };
     }
 
     private class WifiGenStats
