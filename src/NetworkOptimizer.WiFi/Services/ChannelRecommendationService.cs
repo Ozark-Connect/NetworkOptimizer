@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
@@ -22,6 +23,12 @@ public class ChannelRecommendationService
 
     /// <summary>Number of random restarts for optimization</summary>
     private const int RandomRestarts = 8;
+
+    /// <summary>Weight multiplier for channel scan utilization in scoring (0-1 scale)</summary>
+    private const double ScanUtilizationWeight = 0.02;
+
+    /// <summary>Weight multiplier for channel scan interference in scoring (0-1 scale)</summary>
+    private const double ScanInterferenceWeight = 0.03;
 
     public ChannelRecommendationService(
         PropagationService propagationService,
@@ -55,6 +62,7 @@ public class ChannelRecommendationService
             Nodes = new List<ApNode>(n),
             InternalWeights = new double[n, n],
             ExternalLoad = new Dictionary<int, double>[n],
+            ScanChannelData = new Dictionary<int, (int Utilization, int Interference)>[n],
             MeshConstraints = new List<MeshConstraint>()
         };
 
@@ -81,6 +89,7 @@ public class ChannelRecommendationService
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
+            graph.ScanChannelData[i] = new Dictionary<int, (int, int)>();
         }
 
         // Build pairwise internal interference weights
@@ -100,14 +109,14 @@ public class ChannelRecommendationService
         if (scanResults != null)
         {
             BuildExternalLoad(graph, bandAps, band, scanResults);
+            BuildScanChannelData(graph, bandAps, band, scanResults);
         }
 
         // Identify mesh constraints
         BuildMeshConstraints(graph, bandAps, band);
 
-        _logger.LogDebug(
-            "Built interference graph for {Band}: {NodeCount} APs, {MeshCount} mesh constraints",
-            band, n, graph.MeshConstraints.Count);
+        // Log the full graph for debugging
+        LogGraphDetails(graph, band, bandAps);
 
         return graph;
     }
@@ -137,6 +146,9 @@ public class ChannelRecommendationService
 
         var currentNetworkScore = ScoreAssignment(graph, currentAssignment, band);
 
+        // Log per-AP per-channel score breakdown BEFORE optimization
+        LogPerApChannelScores(graph, currentAssignment, band, "PRE-OPTIMIZATION");
+
         // Resolve mesh groups: mesh children get their leader's index
         ResolveMeshGroups(graph);
 
@@ -165,6 +177,9 @@ public class ChannelRecommendationService
             // Greedy + local search with random restarts
             (bestAssignment, bestScore) = GreedyLocalSearch(graph, band, pinnedIndices, opts);
         }
+
+        // Log per-AP per-channel score breakdown AFTER optimization
+        LogPerApChannelScores(graph, bestAssignment, band, "POST-OPTIMIZATION");
 
         // Build result
         var dfsChannels = regulatoryData?.DfsChannels ?? [];
@@ -203,9 +218,8 @@ public class ChannelRecommendationService
             });
         }
 
-        _logger.LogInformation(
-            "Channel optimization for {Band}: score {Current:F2} -> {Recommended:F2} ({Improvement:F1}% improvement)",
-            band, currentNetworkScore, bestScore, plan.ImprovementPercent);
+        // Log final recommendation summary
+        LogRecommendationSummary(plan, currentAssignment, bestAssignment);
 
         return plan;
     }
@@ -239,17 +253,28 @@ public class ChannelRecommendationService
             }
         }
 
-        // External interference
+        // External interference (neighbor networks)
         for (int i = 0; i < n; i++)
         {
             var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
             foreach (var (extChannel, extWeight) in graph.ExternalLoad[i])
             {
-                // External neighbors are stored per primary channel with their width
-                // For simplicity, treat external as 20 MHz and check overlap
                 var extSpan = (Low: extChannel, High: extChannel);
                 if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                     score += extWeight;
+            }
+        }
+
+        // Channel scan data (utilization/interference from RF environment scan)
+        for (int i = 0; i < n; i++)
+        {
+            if (graph.ScanChannelData[i].Count == 0) continue;
+
+            var ch = assignment[i].Channel;
+            if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
+            {
+                score += scanData.Utilization * ScanUtilizationWeight;
+                score += scanData.Interference * ScanInterferenceWeight;
             }
         }
 
@@ -289,6 +314,14 @@ public class ChannelRecommendationService
             var extSpan = (Low: extChannel, High: extChannel);
             if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                 score += extWeight;
+        }
+
+        // Channel scan data
+        var ch = assignment[apIndex].Channel;
+        if (graph.ScanChannelData[apIndex].TryGetValue(ch, out var scanData))
+        {
+            score += scanData.Utilization * ScanUtilizationWeight;
+            score += scanData.Interference * ScanInterferenceWeight;
         }
 
         return score;
@@ -333,10 +366,20 @@ public class ChannelRecommendationService
                 bandStr, freqMhz, segmentsByFloor, propContext.Buildings);
 
             var worstSignal = (int)Math.Max(signal1to2, signal2to1);
+
+            _logger.LogDebug(
+                "[ChannelRec] Internal weight {AP1} <-> {AP2}: signal {S1to2:F0}/{S2to1:F0} dBm, worst={Worst} dBm, weight={Weight:F3} (propagation)",
+                ap1.Name, ap2.Name, signal1to2, signal2to1, worstSignal,
+                ChannelSpanHelper.SignalToInterferenceWeight(worstSignal));
+
             return ChannelSpanHelper.SignalToInterferenceWeight(worstSignal);
         }
 
         // One or both unplaced - use conservative default
+        _logger.LogDebug(
+            "[ChannelRec] Internal weight {AP1} <-> {AP2}: weight={Weight:F3} (default, unplaced)",
+            ap1.Name, ap2.Name, ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm));
+
         return ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm);
     }
 
@@ -381,6 +424,33 @@ public class ChannelRecommendationService
                 if (!graph.ExternalLoad[apIndex].ContainsKey(channel))
                     graph.ExternalLoad[apIndex][channel] = 0;
                 graph.ExternalLoad[apIndex][channel] += weight;
+            }
+        }
+    }
+
+    private static void BuildScanChannelData(
+        InterferenceGraph graph,
+        List<AccessPointSnapshot> bandAps,
+        RadioBand band,
+        List<ChannelScanResult> scanResults)
+    {
+        var macToIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < bandAps.Count; i++)
+            macToIndex[bandAps[i].Mac] = i;
+
+        foreach (var scan in scanResults.Where(s => s.Band == band))
+        {
+            if (!macToIndex.TryGetValue(scan.ApMac, out var apIndex))
+                continue;
+
+            foreach (var chInfo in scan.Channels)
+            {
+                if (chInfo.Utilization.HasValue || chInfo.Interference.HasValue)
+                {
+                    graph.ScanChannelData[apIndex][chInfo.Channel] = (
+                        chInfo.Utilization ?? 0,
+                        chInfo.Interference ?? 0);
+                }
             }
         }
     }
@@ -543,6 +613,7 @@ public class ChannelRecommendationService
         var bestAssignment = new (int Channel, int Width)[n];
         var currentAssignment = new (int Channel, int Width)[n];
         var bestScore = double.MaxValue;
+        long evaluations = 0;
 
         // Initialize with current
         for (int i = 0; i < n; i++)
@@ -563,6 +634,8 @@ public class ChannelRecommendationService
         {
             if (depth >= searchIndices.Count)
             {
+                evaluations++;
+
                 // Apply mesh constraints
                 var withMesh = ((int Channel, int Width)[])currentAssignment.Clone();
                 ApplyMeshConstraints(graph, withMesh);
@@ -594,7 +667,9 @@ public class ChannelRecommendationService
 
         Search(0);
 
-        _logger.LogDebug("Exhaustive search for {Band}: best score {Score:F2}", band, bestScore);
+        _logger.LogInformation(
+            "[ChannelRec] Exhaustive search for {Band}: evaluated {Count} assignments, best score {Score:F3}",
+            band, evaluations, bestScore);
 
         return (bestAssignment, bestScore);
     }
@@ -737,5 +812,164 @@ public class ChannelRecommendationService
                 return total;
             })
             .ToList();
+    }
+
+    // ============ Debug Logging ============
+
+    private void LogGraphDetails(InterferenceGraph graph, RadioBand band, List<AccessPointSnapshot> bandAps)
+    {
+        var n = graph.Nodes.Count;
+        if (n == 0) return;
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"[ChannelRec] === Interference Graph for {band} ({n} APs) ===");
+
+        // Node summary
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            var radio = bandAps[i].Radios.First(r => r.Band == band && r.Channel.HasValue);
+            sb.AppendLine($"  [{i}] {node.Name}: ch{node.CurrentChannel}/{node.CurrentWidth} MHz, " +
+                $"placed={node.IsPlaced}, validCh=[{string.Join(",", node.ValidChannels)}], " +
+                $"util={radio.ChannelUtilization}%, interf={radio.Interference}%, txRetry={radio.TxRetriesPct:F1}%");
+        }
+
+        // Internal weight matrix
+        sb.AppendLine("  Internal weights (propagation-modeled signal → weight):");
+        for (int i = 0; i < n; i++)
+        {
+            for (int j = i + 1; j < n; j++)
+            {
+                var w = graph.InternalWeights[i, j];
+                if (w > 0)
+                    sb.AppendLine($"    {graph.Nodes[i].Name} <-> {graph.Nodes[j].Name}: {w:F3}");
+            }
+        }
+
+        // External load per AP per channel
+        sb.AppendLine("  External load (neighbor RSSI → weight, by channel):");
+        for (int i = 0; i < n; i++)
+        {
+            if (graph.ExternalLoad[i].Count == 0)
+            {
+                sb.AppendLine($"    {graph.Nodes[i].Name}: (no scan data)");
+                continue;
+            }
+            var loads = graph.ExternalLoad[i]
+                .OrderBy(kv => kv.Key)
+                .Select(kv => $"ch{kv.Key}={kv.Value:F3}");
+            sb.AppendLine($"    {graph.Nodes[i].Name}: {string.Join(", ", loads)}");
+        }
+
+        // Scan channel data per AP
+        sb.AppendLine("  Scan channel metrics (utilization/interference):");
+        for (int i = 0; i < n; i++)
+        {
+            if (graph.ScanChannelData[i].Count == 0)
+            {
+                sb.AppendLine($"    {graph.Nodes[i].Name}: (no scan channel data)");
+                continue;
+            }
+            var metrics = graph.ScanChannelData[i]
+                .OrderBy(kv => kv.Key)
+                .Select(kv => $"ch{kv.Key}=util:{kv.Value.Utilization}%/interf:{kv.Value.Interference}%");
+            sb.AppendLine($"    {graph.Nodes[i].Name}: {string.Join(", ", metrics)}");
+        }
+
+        // Mesh constraints
+        if (graph.MeshConstraints.Count > 0)
+        {
+            sb.AppendLine("  Mesh constraints:");
+            foreach (var mc in graph.MeshConstraints)
+                sb.AppendLine($"    {graph.Nodes[mc.ChildIndex].Name} → parent {graph.Nodes[mc.ParentIndex].Name}");
+        }
+
+        _logger.LogInformation("{GraphDetails}", sb.ToString());
+    }
+
+    private void LogPerApChannelScores(
+        InterferenceGraph graph,
+        (int Channel, int Width)[] currentAssignment,
+        RadioBand band,
+        string phase)
+    {
+        var n = graph.Nodes.Count;
+        if (n == 0) return;
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"[ChannelRec] === {phase}: Per-AP channel scores ({band}) ===");
+        sb.AppendLine($"  Current assignment: {string.Join(", ", Enumerable.Range(0, n).Select(i => $"{graph.Nodes[i].Name}=ch{currentAssignment[i].Channel}"))}");
+
+        var totalScore = ScoreAssignment(graph, currentAssignment, band);
+        sb.AppendLine($"  Total network score: {totalScore:F3}");
+
+        // For each AP, score every valid channel
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            sb.AppendLine($"  {node.Name} (current: ch{currentAssignment[i].Channel}):");
+
+            foreach (var ch in node.ValidChannels)
+            {
+                // Temporarily change this AP's channel to compute its score
+                var testAssignment = ((int Channel, int Width)[])currentAssignment.Clone();
+                testAssignment[i] = (ch, currentAssignment[i].Width);
+
+                // Compute per-AP score breakdown
+                double internalScore = 0;
+                double externalScore = 0;
+                double scanScore = 0;
+
+                for (int j = 0; j < n; j++)
+                {
+                    if (j == i) continue;
+                    if (AreMeshPair(graph, i, j)) continue;
+                    var overlap = ChannelSpanHelper.ComputeOverlapFactor(
+                        band, ch, currentAssignment[i].Width,
+                        testAssignment[j].Channel, testAssignment[j].Width);
+                    internalScore += graph.InternalWeights[i, j] * overlap;
+                }
+
+                var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
+                foreach (var (extCh, extW) in graph.ExternalLoad[i])
+                {
+                    if (ChannelSpanHelper.SpansOverlap(apSpan, (extCh, extCh)))
+                        externalScore += extW;
+                }
+
+                if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
+                {
+                    scanScore = scanData.Utilization * ScanUtilizationWeight
+                              + scanData.Interference * ScanInterferenceWeight;
+                }
+
+                var total = internalScore + externalScore + scanScore;
+                var marker = ch == currentAssignment[i].Channel ? " <<<" : "";
+                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3} = {total:F3}{marker}");
+            }
+        }
+
+        _logger.LogInformation("{PerApScores}", sb.ToString());
+    }
+
+    private void LogRecommendationSummary(
+        ChannelPlan plan,
+        (int Channel, int Width)[] currentAssignment,
+        (int Channel, int Width)[] bestAssignment)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"[ChannelRec] === RECOMMENDATION SUMMARY ({plan.Band}) ===");
+        sb.AppendLine($"  Network score: {plan.CurrentNetworkScore:F3} → {plan.RecommendedNetworkScore:F3} ({plan.ImprovementPercent:F1}% improvement)");
+
+        foreach (var rec in plan.Recommendations)
+        {
+            var change = rec.IsChanged ? "CHANGE" : "keep";
+            var mesh = rec.IsMeshConstrained ? " [MESH]" : "";
+            var unplaced = rec.IsUnplaced ? " [UNPLACED]" : "";
+            sb.AppendLine($"  {rec.ApName}: ch{rec.CurrentChannel}/{rec.CurrentWidth} MHz (score {rec.CurrentScore:F3}) → " +
+                $"ch{rec.RecommendedChannel}/{rec.RecommendedWidth} MHz (score {rec.RecommendedScore:F3}) [{change}]{mesh}{unplaced}");
+        }
+
+        _logger.LogInformation("{RecommendationSummary}", sb.ToString());
     }
 }

@@ -56,6 +56,9 @@ public class InterferenceGraph
     /// <summary>Per-AP external load by channel number. ExternalLoad[apIndex][channel] = weight</summary>
     public Dictionary<int, double>[] ExternalLoad { get; set; } = [];
 
+    /// <summary>Per-AP channel scan metrics (utilization/interference). ScanChannelData[apIndex][channel] = (util, interf)</summary>
+    public Dictionary<int, (int Utilization, int Interference)>[] ScanChannelData { get; set; } = [];
+
     public List<MeshConstraint> MeshConstraints { get; set; } = new();
 }
 
