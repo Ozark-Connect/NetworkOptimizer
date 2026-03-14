@@ -26,25 +26,28 @@
 
         // Called from C# after navigation
         restoreOrScrollToTop: function(path) {
-            const container = getScrollContainer();
-            if (!container) return;
+            var popState = isPopState;
+            isPopState = false;
 
-            // Reset top bar state on navigation - it's always visible at top
-            if (window.innerWidth <= 768) {
-                var topBar = document.querySelector('.top-bar');
-                if (topBar) topBar.classList.remove('top-bar-hidden');
-                container.style.scrollPaddingTop = '70px';
-            }
+            // Run after Blazor finishes rendering the new page
+            requestAnimationFrame(function() {
+                var container = getScrollContainer();
+                if (!container) return;
 
-            if (isPopState) {
-                // Back/forward: restore saved position
-                const saved = scrollPositions.get(path);
-                container.scrollTop = saved !== undefined ? saved : 0;
-                isPopState = false;
-            } else if (!window.location.hash) {
-                // Forward navigation: scroll to top
-                container.scrollTop = 0;
-            }
+                // Reset top bar on mobile - always visible after navigation
+                if (window.innerWidth <= 768) {
+                    var topBar = document.querySelector('.top-bar');
+                    if (topBar) topBar.classList.remove('top-bar-hidden');
+                    container.style.scrollPaddingTop = '70px';
+                }
+
+                if (popState) {
+                    var saved = scrollPositions.get(path);
+                    container.scrollTop = saved !== undefined ? saved : 0;
+                } else if (!window.location.hash) {
+                    container.scrollTop = 0;
+                }
+            });
         }
     };
 })();
