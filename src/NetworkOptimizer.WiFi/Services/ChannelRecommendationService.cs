@@ -221,7 +221,7 @@ public class ChannelRecommendationService
         var improvement = currentNetworkScore - bestScore;
         if (improvement > 0 && improvement < MinImprovementThreshold)
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "[ChannelRec] Improvement {Improvement:F3} below threshold {Threshold:F3}, keeping current assignment",
                 improvement, MinImprovementThreshold);
             bestAssignment = currentAssignment;
@@ -806,7 +806,7 @@ public class ChannelRecommendationService
 
         Search(0);
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[ChannelRec] Exhaustive search for {Band}: evaluated {Count} assignments, best score {Score:F3}",
             band, evaluations, bestScore);
 
@@ -1023,7 +1023,7 @@ public class ChannelRecommendationService
                 sb.AppendLine($"    {graph.Nodes[mc.ChildIndex].Name} → parent {graph.Nodes[mc.ParentIndex].Name}");
         }
 
-        _logger.LogInformation("{GraphDetails}", sb.ToString());
+        _logger.LogDebug("{GraphDetails}", sb.ToString());
     }
 
     private void LogPerApChannelScores(
@@ -1105,7 +1105,7 @@ public class ChannelRecommendationService
             }
         }
 
-        _logger.LogInformation("{PerApScores}", sb.ToString());
+        _logger.LogDebug("{PerApScores}", sb.ToString());
     }
 
     private void LogRecommendationSummary(
@@ -1126,6 +1126,6 @@ public class ChannelRecommendationService
                 $"ch{rec.RecommendedChannel}/{rec.RecommendedWidth} MHz (score {rec.RecommendedScore:F3}) [{change}]{mesh}{unplaced}");
         }
 
-        _logger.LogInformation("{RecommendationSummary}", sb.ToString());
+        _logger.LogDebug("{RecommendationSummary}", sb.ToString());
     }
 }
