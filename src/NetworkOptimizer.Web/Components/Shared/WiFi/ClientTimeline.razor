@@ -263,6 +263,13 @@
                         <span class="info-label">TX/RX Rate:</span>
                         <span class="info-value" data-tooltip="TX = AP transmits to client (download), RX = AP receives from client (upload)">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
                     </div>
+                    @if (_selectedClient.FixedApEnabled)
+                    {
+                        <div class="info-item">
+                            <span class="info-label">AP Lock:</span>
+                            <span class="info-value" style="color: var(--danger-color);">&#128274; Locked to @(_selectedClient.FixedApName ?? _selectedClient.FixedApMac ?? "AP")</span>
+                        </div>
+                    }
                 </div>
             </div>
         }
