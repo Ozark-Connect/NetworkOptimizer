@@ -1,8 +1,10 @@
 @using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<SpectrumAnalysis> Logger
+@inject NavigationManager NavigationManager
 
 <div class="spectrum-container wifi-sections">
     <!-- Header Row (matching Client Stats pattern) -->
@@ -133,7 +135,10 @@
                     }
                     @if (!string.IsNullOrEmpty(selectedApMac))
                     {
-                        <div class="spectrum-stat-card highlight">
+                        <div class="spectrum-stat-card highlight clickable"
+                             data-tooltip="View network-wide channel recommendations"
+                             data-tooltip-hover-only
+                             @onclick="NavigateToChannelRecommendations">
                             <div class="stat-value cleanest-channels">@GetCleanestChannels()</div>
                             <div class="stat-label">Cleanest @(_cleanestChannelList.Count == 1 ? "Channel" : "Channels")</div>
                         </div>
@@ -474,6 +479,16 @@
 
     .spectrum-stat-card.highlight {
         background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+    }
+
+    .spectrum-stat-card.clickable {
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .spectrum-stat-card.clickable:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     .spectrum-stat-card .stat-value {
@@ -902,7 +917,7 @@
     private RegulatoryChannelData? regulatoryChannels;
     private bool isLoading = true;
     private string selectedApMac = "";
-    private RadioBand selectedBand = RadioBand.Band2_4GHz;
+    private RadioBand selectedBand = RadioBand.Band5GHz;
     private string selectedTimeRange = "1D";
     private string sortColumn = "signal";
     private bool sortDescending = true;
@@ -1178,7 +1193,7 @@
         var interferenceSources = filteredNeighbors
             .Select(n => (
                 Span: GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20),
-                Weight: Math.Max(0.1, Math.Min(1.0, (GetDisplaySignal(n) + 90) / 40.0))
+                Weight: ChannelSpanHelper.SignalToInterferenceWeight(GetDisplaySignal(n))
             ))
             .ToList();
 
@@ -1214,7 +1229,7 @@
         {
             // Assume own APs are heard at ~-65 dBm (typical AP spacing)
             const int assumedSignal = -65;
-            var weight = Math.Max(0.1, Math.Min(1.0, (assumedSignal + 90) / 40.0)); // = 0.625
+            var weight = ChannelSpanHelper.SignalToInterferenceWeight(assumedSignal);
             interferenceSources.Add((
                 Span: GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth ?? 20),
                 Weight: weight
@@ -1301,85 +1316,11 @@
         };
     }
 
-    /// <summary>
-    /// Returns the (low, high) channel range for a given primary channel and width,
-    /// accounting for bonding groups. Used for overlap-aware interference scoring.
-    /// </summary>
-    private (int Low, int High) GetChannelSpan(int primaryChannel, int width)
-    {
-        if (selectedBand == RadioBand.Band2_4GHz)
-        {
-            // 2.4 GHz: 5 MHz channel spacing, ~22 MHz signal width
-            int halfSpan = width == 40 ? 4 : 2;
-            return (Math.Max(1, primaryChannel - halfSpan), Math.Min(14, primaryChannel + halfSpan));
-        }
-
-        // 5 GHz and 6 GHz: 20 MHz spacing (4 channel numbers apart)
-        if (width <= 20) return (primaryChannel, primaryChannel);
-
-        int channelCount = width / 20;
-        int groupStart = selectedBand == RadioBand.Band5GHz
-            ? GetBondingGroupStart5GHz(primaryChannel, width)
-            : GetBondingGroupStart6GHz(primaryChannel, width);
-
-        return (groupStart, groupStart + (channelCount - 1) * 4);
-    }
+    private (int Low, int High) GetChannelSpan(int primaryChannel, int width) =>
+        ChannelSpanHelper.GetChannelSpan(selectedBand, primaryChannel, width);
 
     private static bool SpansOverlap((int Low, int High) a, (int Low, int High) b) =>
-        a.Low <= b.High && b.Low <= a.High;
-
-    private static int GetBondingGroupStart5GHz(int primaryChannel, int width)
-    {
-        var groups = width switch
-        {
-            160 => new (int s, int e)[] { (36, 64), (100, 128) },
-            80 => new (int s, int e)[] { (36, 48), (52, 64), (100, 112), (116, 128), (132, 144), (149, 161) },
-            _ => new (int s, int e)[]
-            {
-                (36, 40), (44, 48), (52, 56), (60, 64),
-                (100, 104), (108, 112), (116, 120), (124, 128), (132, 136), (140, 144),
-                (149, 153), (157, 161), (165, 165)
-            }
-        };
-
-        foreach (var (start, end) in groups)
-        {
-            if (primaryChannel >= start && primaryChannel <= end)
-                return start;
-        }
-        return primaryChannel;
-    }
-
-    private static int GetBondingGroupStart6GHz(int primaryChannel, int width)
-    {
-        if (width == 320)
-        {
-            var groups = new (int s, int e)[] { (1, 61), (97, 157), (161, 221) };
-            foreach (var (start, end) in groups)
-                if (primaryChannel >= start && primaryChannel <= end) return start;
-        }
-        else if (width == 160)
-        {
-            var groups = new (int s, int e)[]
-            {
-                (1, 29), (33, 61), (65, 93), (97, 125),
-                (129, 157), (161, 189), (193, 221), (225, 253)
-            };
-            foreach (var (start, end) in groups)
-                if (primaryChannel >= start && primaryChannel <= end) return start;
-        }
-        else if (width == 80)
-        {
-            int offset = primaryChannel - 1;
-            return 1 + (offset / 16 * 16);
-        }
-        else // 40 MHz
-        {
-            int offset = primaryChannel - 1;
-            return 1 + (offset / 8 * 8);
-        }
-        return primaryChannel;
-    }
+        ChannelSpanHelper.SpansOverlap(a, b);
 
     private void UpdateChannelDensity()
     {
@@ -1736,6 +1677,18 @@
         public int NetworkCount { get; set; }
         public bool IsAvailable { get; set; }
         public bool IsYourChannel { get; set; }
+    }
+
+    private void NavigateToChannelRecommendations()
+    {
+        var bandParam = selectedBand switch
+        {
+            RadioBand.Band2_4GHz => "2.4",
+            RadioBand.Band5GHz => "5",
+            RadioBand.Band6GHz => "6",
+            _ => "5"
+        };
+        NavigationManager.NavigateTo($"/wifi-optimizer?tab=channels&band={bandParam}&recommend=true", forceLoad: false, replace: false);
     }
 
 }

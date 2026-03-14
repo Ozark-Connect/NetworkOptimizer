@@ -1,0 +1,479 @@
+using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using NetworkOptimizer.WiFi.Data;
+using NetworkOptimizer.WiFi.Models;
+using NetworkOptimizer.WiFi.Services;
+using Xunit;
+
+namespace NetworkOptimizer.WiFi.Tests;
+
+public class ChannelRecommendationServiceTests
+{
+    private readonly ChannelRecommendationService _service;
+
+    public ChannelRecommendationServiceTests()
+    {
+        var loader = new AntennaPatternLoader(NullLogger<AntennaPatternLoader>.Instance);
+        var propagationService = new PropagationService(loader, NullLogger<PropagationService>.Instance);
+        _service = new ChannelRecommendationService(
+            propagationService,
+            NullLogger<ChannelRecommendationService>.Instance);
+    }
+
+    private static AccessPointSnapshot CreateAp(
+        string mac, string name, RadioBand band, int channel,
+        int width = 80, int txPower = 20, bool hasDfs = false,
+        bool isMeshChild = false, string? meshParentMac = null,
+        RadioBand? meshUplinkBand = null, int? meshUplinkChannel = null) => new()
+    {
+        Mac = mac,
+        Name = name,
+        IsOnline = true,
+        IsMeshChild = isMeshChild,
+        MeshParentMac = meshParentMac,
+        MeshUplinkBand = meshUplinkBand,
+        MeshUplinkChannel = meshUplinkChannel,
+        Radios = new()
+        {
+            new RadioSnapshot
+            {
+                Band = band,
+                Channel = channel,
+                ChannelWidth = width,
+                TxPower = txPower,
+                AntennaGain = 3,
+                HasDfs = hasDfs
+            }
+        }
+    };
+
+    // --- Graph Building ---
+
+    [Fact]
+    public void BuildInterferenceGraph_TwoAps_CreatesCorrectGraph()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36)
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        graph.Nodes.Should().HaveCount(2);
+        graph.InternalWeights[0, 1].Should().BeGreaterThan(0);
+        graph.InternalWeights[0, 1].Should().Be(graph.InternalWeights[1, 0]);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_OfflineAp_Excluded()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            new()
+            {
+                Mac = "aa:bb:cc:dd:ee:02", Name = "AP-Offline", IsOnline = false,
+                Radios = new() { new RadioSnapshot { Band = RadioBand.Band5GHz, Channel = 36, ChannelWidth = 80 } }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        graph.Nodes.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_DifferentBand_NotIncluded()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 6)
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        graph.Nodes.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_UnplacedAps_UseDefaultWeight()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36)
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        // -65 dBm → weight 0.625
+        graph.InternalWeights[0, 1].Should().BeApproximately(0.625, 0.01);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_MeshPair_CreatesConstraint()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-Parent", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-Child", RadioBand.Band5GHz, 36,
+                isMeshChild: true, meshParentMac: "aa:bb:cc:dd:ee:01",
+                meshUplinkBand: RadioBand.Band5GHz, meshUplinkChannel: 36)
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        graph.MeshConstraints.Should().HaveCount(1);
+        graph.MeshConstraints[0].ParentIndex.Should().Be(0);
+        graph.MeshConstraints[0].ChildIndex.Should().Be(1);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_ExternalLoad_FromScanResults()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36)
+        };
+
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:01",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    new NeighborNetwork { Channel = 36, Signal = -60, IsOwnNetwork = false },
+                    new NeighborNetwork { Channel = 36, Signal = -70, IsOwnNetwork = false }
+                }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        graph.ExternalLoad[0].Should().ContainKey(36);
+        graph.ExternalLoad[0][36].Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_OwnNetworkNeighbors_Excluded()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36)
+        };
+
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:01",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    new NeighborNetwork { Channel = 36, Signal = -60, IsOwnNetwork = true }
+                }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        graph.ExternalLoad[0].Should().BeEmpty();
+    }
+
+    // --- Scoring ---
+
+    [Fact]
+    public void ScoreAssignment_CoChannelAps_HigherScore()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        var coChannelScore = _service.ScoreAssignment(
+            graph, new[] { (36, 80), (36, 80) }, RadioBand.Band5GHz);
+        var separatedScore = _service.ScoreAssignment(
+            graph, new[] { (36, 80), (149, 80) }, RadioBand.Band5GHz);
+
+        coChannelScore.Should().BeGreaterThan(separatedScore);
+    }
+
+    [Fact]
+    public void ScoreAssignment_MeshPair_ExcludedFromScore()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-Parent", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-Child", RadioBand.Band5GHz, 36,
+                isMeshChild: true, meshParentMac: "aa:bb:cc:dd:ee:01",
+                meshUplinkBand: RadioBand.Band5GHz, meshUplinkChannel: 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        // Mesh pair on same channel should have score 0 (interference excluded)
+        var score = _service.ScoreAssignment(
+            graph, new[] { (36, 80), (36, 80) }, RadioBand.Band5GHz);
+
+        score.Should().Be(0);
+    }
+
+    // --- Optimization ---
+
+    [Fact]
+    public void Optimize_TwoApsOnSameChannel_RecommendsSeparation()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        plan.Recommendations.Should().HaveCount(2);
+        plan.RecommendedNetworkScore.Should().BeLessThanOrEqualTo(plan.CurrentNetworkScore);
+
+        // At least one AP should be moved to a different channel
+        var channels = plan.Recommendations.Select(r => r.RecommendedChannel).Distinct().ToList();
+        channels.Count.Should().BeGreaterThan(1);
+    }
+
+    [Fact]
+    public void Optimize_SingleAp_NoChange()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        plan.Recommendations.Should().HaveCount(1);
+        plan.CurrentNetworkScore.Should().Be(0);
+    }
+
+    [Fact]
+    public void Optimize_MeshPair_SharesChannel()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-Parent", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-Child", RadioBand.Band5GHz, 36,
+                isMeshChild: true, meshParentMac: "aa:bb:cc:dd:ee:01",
+                meshUplinkBand: RadioBand.Band5GHz, meshUplinkChannel: 36),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-Other", RadioBand.Band5GHz, 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        // Mesh pair must stay on same channel
+        var parentRec = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01");
+        var childRec = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        parentRec.RecommendedChannel.Should().Be(childRec.RecommendedChannel);
+        childRec.IsMeshConstrained.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Optimize_DfsExclude_NoDfsChannelsRecommended()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 100, hasDfs: true),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 100, hasDfs: true)
+        };
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.Exclude };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null, options);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null, options);
+
+        // DFS channels: 52-64, 100-144
+        foreach (var rec in plan.Recommendations)
+        {
+            var ch = rec.RecommendedChannel;
+            var isDfs = (ch >= 52 && ch <= 64) || (ch >= 100 && ch <= 144);
+            isDfs.Should().BeFalse($"Channel {ch} is DFS but DFS was excluded");
+        }
+    }
+
+    [Fact]
+    public void Optimize_PinnedAp_ChannelUnchanged()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-Pinned", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-Movable", RadioBand.Band5GHz, 36)
+        };
+        var options = new RecommendationOptions
+        {
+            PinnedApMacs = new HashSet<string> { "aa:bb:cc:dd:ee:01" }
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null, options);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null, options);
+
+        var pinnedRec = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01");
+        pinnedRec.RecommendedChannel.Should().Be(36);
+    }
+
+    [Fact]
+    public void Optimize_EmptyGraph_ReturnsEmptyPlan()
+    {
+        var graph = new InterferenceGraph();
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        plan.Recommendations.Should().BeEmpty();
+        plan.CurrentNetworkScore.Should().Be(0);
+    }
+
+    [Fact]
+    public void Optimize_2_4GHz_UsesNonOverlappingChannels()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 6, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 6, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, null);
+
+        // Should recommend 1, 6, 11 (non-overlapping)
+        var channels = plan.Recommendations.Select(r => r.RecommendedChannel).OrderBy(c => c).ToList();
+        channels.Should().OnlyContain(c => c == 1 || c == 6 || c == 11);
+        channels.Distinct().Count().Should().Be(3);
+    }
+
+    [Fact]
+    public void Optimize_ScoreImproves()
+    {
+        // Three APs all on channel 36 - optimizer should separate them
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band5GHz, 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        plan.RecommendedNetworkScore.Should().BeLessThan(plan.CurrentNetworkScore);
+        plan.ImprovementPercent.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void Optimize_AlreadyOptimal_NoChange()
+    {
+        // APs already on different channels
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 149)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        plan.CurrentNetworkScore.Should().Be(0);
+        plan.RecommendedNetworkScore.Should().Be(0);
+    }
+
+    [Fact]
+    public void Optimize_ReportsUnplacedCount()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        plan.UnplacedApCount.Should().Be(2); // Neither is placed
+    }
+
+    [Fact]
+    public void Optimize_MeshChildMarkedConstrained()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-Parent", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-Child", RadioBand.Band5GHz, 36,
+                isMeshChild: true, meshParentMac: "aa:bb:cc:dd:ee:01",
+                meshUplinkBand: RadioBand.Band5GHz, meshUplinkChannel: 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02")
+            .IsMeshConstrained.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Optimize_ZeroInterference_PreservesCurrentChannels()
+    {
+        // APs already on different non-overlapping channels (score = 0)
+        // Optimizer should NOT swap them around pointlessly
+        // Using non-DFS channels that are in the default valid set
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 149)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        // No changes should be recommended
+        foreach (var rec in plan.Recommendations)
+        {
+            rec.IsChanged.Should().BeFalse(
+                $"AP {rec.ApName} was moved from {rec.CurrentChannel} to {rec.RecommendedChannel} with no improvement");
+        }
+    }
+
+    [Fact]
+    public void Optimize_6GHz_NoInterference_KeepsCurrentChannels()
+    {
+        // 6 GHz APs on different 160 MHz bonding groups with zero interference
+        // Using channels from default valid set: 1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61
+        // Ch 5/160 → span (1,29), Ch 37/160 → span (33,61) — non-overlapping
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band6GHz, 5, width: 160),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band6GHz, 37, width: 160)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band6GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band6GHz, null);
+
+        // Should not swap channels when there's no improvement
+        foreach (var rec in plan.Recommendations)
+        {
+            rec.IsChanged.Should().BeFalse(
+                $"AP {rec.ApName} was moved from Ch {rec.CurrentChannel} to Ch {rec.RecommendedChannel} with no improvement");
+        }
+    }
+
+    [Fact]
+    public void Optimize_2_4GHz_AlwaysUsesOnly_1_6_11()
+    {
+        // Even with regulatory data that includes other channels, should only use 1/6/11
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 3, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 9, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, null);
+
+        foreach (var rec in plan.Recommendations)
+        {
+            rec.RecommendedChannel.Should().BeOneOf(new[] { 1, 6, 11 },
+                $"2.4 GHz should only recommend 1/6/11 but got {rec.RecommendedChannel}");
+        }
+    }
+}

@@ -1603,6 +1603,8 @@
     private bool _showDeleteFloor;
     private bool _showDeleteUnderlay;
     private System.Threading.Timer? _sliderSaveTimer;
+    private System.Threading.Timer? _apRadioPollTimer;
+    private string _lastRadioFingerprint = "";
     private Func<Task>? _pendingSliderSave;
     private bool _isFullscreen;
     private ApMapMarker? _selectedApForPlacement;
@@ -1646,7 +1648,18 @@
             await UpdateBackgroundWalls();
             if (_showHeatmap) await ComputeHeatmap();
             if (_showSignalData) await UpdateSignalDataMarkers();
+            _lastRadioFingerprint = ComputeRadioFingerprint();
             StateHasChanged();
+
+            // Poll for AP radio config changes from UniFi (antenna mode, TX power, etc.)
+            _apRadioPollTimer = new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(async () => await CheckForRadioConfigChanges());
+                }
+                catch { /* prevent timer death */ }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
     }
 
@@ -1742,6 +1755,37 @@
     {
         try { _apMarkers = await ApMapSvc.GetApMapMarkersAsync(); }
         catch { }
+    }
+
+    private string ComputeRadioFingerprint()
+    {
+        return string.Join(";", _apMarkers
+            .OrderBy(m => m.Mac, StringComparer.OrdinalIgnoreCase)
+            .Select(m =>
+            {
+                var radios = string.Join("|", m.Radios
+                    .OrderBy(r => r.Band)
+                    .Select(r => $"{r.Band}:{r.TxPowerDbm}:{r.AntennaMode}:{r.Channel}:{r.ChannelWidth}"));
+                return $"{m.Mac}={radios}";
+            }));
+    }
+
+    private async Task CheckForRadioConfigChanges()
+    {
+        if (!_mapInitialized) return;
+
+        await LoadApMarkers();
+        var newFingerprint = ComputeRadioFingerprint();
+        if (newFingerprint == _lastRadioFingerprint) return;
+
+        // AP radio config changed (channel, power, etc.) - update markers and recompute.
+        // Simulation overrides (tx power, antenna mode, disabled APs) are stored in JS state
+        // and get re-applied automatically during heatmap computation.
+        _lastRadioFingerprint = newFingerprint;
+        HeatmapCache.Invalidate();
+        await UpdateApMarkers();
+        if (_showHeatmap) await ComputeHeatmap();
+        StateHasChanged();
     }
 
     // ── Building / Floor management ──────────────────────────────────
@@ -3833,6 +3877,7 @@
     public async ValueTask DisposeAsync()
     {
         _sliderSaveTimer?.Dispose();
+        _apRadioPollTimer?.Dispose();
         try { await JS.InvokeVoidAsync("fpEditor.destroy"); }
         catch (JSDisconnectedException) { }
         _dotNetRef?.Dispose();

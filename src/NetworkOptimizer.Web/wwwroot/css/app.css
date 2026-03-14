@@ -8546,7 +8546,7 @@ a.path-hop.hop-clickable:hover {
     border-radius: 50%;
     font-size: 0.65rem;
     font-weight: 600;
-    margin-left: 0.5rem;
+    margin-left: 0.7rem;
 }
 
 .band-tab .mesh-indicator {
@@ -8568,14 +8568,12 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-secondary);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    margin-bottom: 1.5rem;
 }
 
 .channel-map {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    padding: 1rem 0;
 }
 
 .channel-slot {
@@ -9016,7 +9014,6 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-secondary);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    margin-bottom: 1.5rem;
 }
 
 .aps-band-table {
@@ -9062,6 +9059,9 @@ a.path-hop.hop-clickable:hover {
 
 .ap-name-col .ap-name {
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .ap-name-col .ap-model {
@@ -9134,6 +9134,172 @@ a.path-hop.hop-clickable:hover {
     padding: 1rem;
 }
 
+/* Channel Recommendation View */
+.recommendation-view {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.recommendation-view .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+/* Score coloring */
+.score-excellent { color: #22c55e; }
+.score-good { color: #3b82f6; }
+.score-fair { color: #fbbf24; }
+.score-poor { color: #f97316; }
+.score-bad { color: #ef4444; }
+
+/* Changed channel highlight */
+.ap-recommendation-changed { background: rgba(249, 115, 22, 0.08); }
+.rec-changed { color: var(--accent-color); font-weight: 600; }
+.channel-change-arrow { color: var(--text-muted); display: inline-flex; align-items: center; }
+.channel-change-arrow svg { vertical-align: middle; }
+.rec-no-change { color: var(--text-muted); font-style: italic; margin-left: 0.5rem; }
+
+/* DFS badge */
+.dfs-badge {
+    font-size: 0.625rem;
+    padding: 0.1rem 0.3rem;
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+    border-radius: var(--border-radius-sm);
+    margin-left: 0.25rem;
+}
+
+/* Mesh link badge */
+.mesh-link-badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.125rem 0.5rem;
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+    border-radius: 3px;
+    margin-left: 0.5rem;
+}
+
+/* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
+.btn-recommend {
+    background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+    color: white;
+    border: none;
+    height: 34px;
+    padding: 0 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-recommend:hover:not(:disabled) {
+    filter: brightness(1.15);
+    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.4);
+}
+
+.btn-recommend:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-recommend .spinner-sm {
+    border-color: rgba(255, 255, 255, 0.4);
+    border-top-color: white;
+}
+
+/* Unplaced AP notice */
+.recommendation-notice {
+    padding: 0.75rem;
+    border-radius: var(--border-radius-lg);
+    font-size: 0.8125rem;
+    background: rgba(71, 151, 255, 0.1);
+    color: var(--text-secondary);
+}
+
+.recommendation-notice.alert-warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+}
+
+/* DFS preference toggle */
+.dfs-toggle { margin: 0; }
+
+/* How This Works expandable */
+.recommendation-explainer {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    margin: 0 0.5rem 0.5rem;
+}
+.recommendation-explainer summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+.recommendation-explainer p {
+    margin: 0.5rem 0 0;
+    line-height: 1.5;
+}
+
+/* Improvement stat highlighting */
+.stat-improvement .channel-stat-value { color: var(--success-color); }
+
+/* Recommendation table - own grid, independent of regular aps-header/aps-row */
+.rec-header,
+.rec-row {
+    display: grid;
+    grid-template-columns: 2fr 0.6fr 2fr 0.8fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    align-items: center;
+}
+
+.rec-header {
+    background: var(--bg-tertiary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.rec-row {
+    border-top: 1px solid var(--border-color);
+}
+
+.rec-row:hover {
+    background: var(--bg-tertiary);
+}
+
+.rec-name-col {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.rec-name-col .ap-name {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 500;
+}
+
+.rec-score-col {
+    text-align: center;
+}
+
+.rec-channels-col {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+}
+
 /* Responsive Channel Analysis */
 @media (max-width: 768px) {
     .channel-stats-row {
@@ -9146,6 +9312,18 @@ a.path-hop.hop-clickable:hover {
 
     .band-tabs {
         flex-wrap: wrap;
+    }
+
+    .channel-header {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .channel-map-section,
+    .aps-band-section,
+    .channel-details-section,
+    .channel-issues-section {
+        padding: 1rem 0;
     }
 
     .channel-map {
@@ -9168,6 +9346,22 @@ a.path-hop.hop-clickable:hover {
 
     .ap-radio-details {
         grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* Recommendation table mobile - hide score columns */
+    .rec-header,
+    .rec-row {
+        grid-template-columns: 1.5fr 2.5fr;
+    }
+
+    .rec-score-col {
+        display: none;
+    }
+
+    /* Wrap badges on mobile */
+    .ap-name-col .ap-name,
+    .rec-name-col .ap-name {
+        flex-wrap: wrap;
     }
 }
 

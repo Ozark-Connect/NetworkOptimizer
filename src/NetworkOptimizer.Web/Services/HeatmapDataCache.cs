@@ -35,7 +35,7 @@ public sealed class HeatmapDataCache
         if (current != null && current.Version == _version)
             return current;
 
-        // Reload all data
+        // Reload all data (version changed via Invalidate())
         var snapshotVersion = _version;
 
         var allBuildings = await floorSvc.GetBuildingsAsync();
@@ -79,9 +79,29 @@ public sealed class HeatmapDataCache
             };
         }).OfType<BuildingFloorInfo>().ToList();
 
-        var data = new CachedData(snapshotVersion, allBuildings, wallsByFloor, apMarkers, plannedAps, buildingFloorInfos);
+        var radioFingerprint = ComputeRadioFingerprint(apMarkers);
+        var data = new CachedData(snapshotVersion, allBuildings, wallsByFloor, apMarkers, plannedAps, buildingFloorInfos, radioFingerprint);
         _cached = data;
         return data;
+    }
+
+    /// <summary>
+    /// Compute a fingerprint of propagation-relevant AP radio fields.
+    /// Changes to antenna mode, TX power, or channel trigger a heatmap recompute.
+    /// </summary>
+    private static string ComputeRadioFingerprint(List<ApMapMarker> markers)
+    {
+        // Build a stable string from propagation-relevant fields, sorted by MAC for consistency
+        var parts = markers
+            .OrderBy(m => m.Mac, StringComparer.OrdinalIgnoreCase)
+            .Select(m =>
+            {
+                var radios = string.Join("|", m.Radios
+                    .OrderBy(r => r.Band)
+                    .Select(r => $"{r.Band}:{r.TxPowerDbm}:{r.AntennaMode}:{r.Channel}:{r.ChannelWidth}"));
+                return $"{m.Mac}={radios}";
+            });
+        return string.Join(";", parts);
     }
 
     public sealed record CachedData(
@@ -90,5 +110,6 @@ public sealed class HeatmapDataCache
         Dictionary<int, List<PropagationWall>> WallsByFloor,
         List<ApMapMarker> ApMarkers,
         List<NetworkOptimizer.Storage.Models.PlannedAp> PlannedAps,
-        List<BuildingFloorInfo> BuildingFloorInfos);
+        List<BuildingFloorInfo> BuildingFloorInfos,
+        string RadioFingerprint = "");
 }
