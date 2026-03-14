@@ -828,7 +828,7 @@ public class WiFiOptimizerService
                 _logger.LogDebug(ex, "Failed to load propagation data for channel recommendations");
             }
 
-            // Fetch historical radio stats (last hour avg) for stress scoring
+            // Fetch 30-day historical radio stats paired with channel change events
             var historicalStress = await GetHistoricalStressAsync(aps);
 
             // Generate recommendations for each band that has APs
@@ -865,10 +865,11 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
-    /// Fetch per-AP historical radio stats (last hour, 5-min granularity) and return
-    /// averages keyed by band then AP MAC. Used for stress scoring in recommendations.
+    /// Fetch per-AP historical radio stats (30 days, daily granularity) and pair with
+    /// channel change events to build per-channel stress maps. Returns stress data keyed
+    /// by band → AP MAC → channel → (avg util, avg interf, avg txRetry).
     /// </summary>
-    private async Task<Dictionary<RadioBand, Dictionary<string, (double Utilization, double Interference, double TxRetryPct)>>?>
+    private async Task<Dictionary<RadioBand, Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>>?>
         GetHistoricalStressAsync(List<AccessPointSnapshot> aps)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
@@ -881,39 +882,78 @@ public class WiFiOptimizerService
             var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
             if (onlineAps.Count == 0) return null;
 
-            // Fetch metrics for each AP concurrently (daily granularity = ~30 points)
+            // Fetch metrics and channel change events for each AP concurrently
             var tasks = onlineAps.Select(async ap =>
             {
-                var metrics = await GetApMetricsAsync(
+                var metricsTask = GetApMetricsAsync(
                     new[] { ap.Mac }, start, end, MetricGranularity.Daily);
-                return (ap.Mac, Metrics: metrics);
+                var eventsTask = GetChannelChangeEventsAsync(start, end, ap.Mac);
+
+                await Task.WhenAll(metricsTask, eventsTask);
+
+                return (ap.Mac, Metrics: metricsTask.Result, Events: eventsTask.Result);
             });
 
             var allResults = await Task.WhenAll(tasks);
 
-            var result = new Dictionary<RadioBand, Dictionary<string, (double, double, double)>>();
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+            var result = new Dictionary<RadioBand, Dictionary<string, Dictionary<int, (double, double, double)>>>();
             foreach (var band in bands)
-                result[band] = new Dictionary<string, (double, double, double)>(StringComparer.OrdinalIgnoreCase);
+                result[band] = new Dictionary<string, Dictionary<int, (double, double, double)>>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var (mac, metrics) in allResults)
+            foreach (var (mac, metrics, events) in allResults)
             {
                 if (metrics.Count == 0) continue;
+                var macLower = mac.ToLowerInvariant();
+
+                // Find the current channel for each band from the AP snapshot
+                var ap = onlineAps.First(a => a.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase));
 
                 foreach (var band in bands)
                 {
-                    var bandPoints = metrics
-                        .Where(m => m.ByBand.TryGetValue(band, out var b) && b.ChannelUtilization.HasValue)
-                        .Select(m => m.ByBand[band])
+                    var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
+                    if (radio == null) continue;
+
+                    // Build channel timeline from change events (sorted chronologically)
+                    var bandEvents = events
+                        .Where(e => e.Band == band)
+                        .OrderBy(e => e.Timestamp)
                         .ToList();
 
-                    if (bandPoints.Count == 0) continue;
+                    // For each daily metric, determine which channel the AP was on
+                    var channelMetrics = new Dictionary<int, List<(double Util, double Interf, double TxRetry)>>();
 
-                    var avgUtil = bandPoints.Average(b => b.ChannelUtilization ?? 0);
-                    var avgInterf = bandPoints.Average(b => b.Interference ?? 0);
-                    var avgTxRetry = bandPoints.Average(b => b.TxRetryPct ?? 0);
+                    foreach (var metric in metrics)
+                    {
+                        if (!metric.ByBand.TryGetValue(band, out var bandData) ||
+                            !bandData.ChannelUtilization.HasValue)
+                            continue;
 
-                    result[band][mac.ToLowerInvariant()] = (avgUtil, avgInterf, avgTxRetry);
+                        // Find which channel the AP was on at this metric's timestamp
+                        var channel = GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+
+                        if (!channelMetrics.ContainsKey(channel))
+                            channelMetrics[channel] = new List<(double, double, double)>();
+
+                        channelMetrics[channel].Add((
+                            bandData.ChannelUtilization ?? 0,
+                            bandData.Interference ?? 0,
+                            bandData.TxRetryPct ?? 0));
+                    }
+
+                    // Average per channel
+                    if (channelMetrics.Count > 0)
+                    {
+                        var perChannel = new Dictionary<int, (double, double, double)>();
+                        foreach (var (ch, dataPoints) in channelMetrics)
+                        {
+                            perChannel[ch] = (
+                                dataPoints.Average(d => d.Util),
+                                dataPoints.Average(d => d.Interf),
+                                dataPoints.Average(d => d.TxRetry));
+                        }
+                        result[band][macLower] = perChannel;
+                    }
                 }
             }
 
@@ -924,6 +964,30 @@ public class WiFiOptimizerService
             _logger.LogDebug(ex, "Failed to fetch historical stress metrics, falling back to snapshot");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Determine which channel an AP was on at a given timestamp by walking
+    /// the channel change event timeline backwards.
+    /// </summary>
+    private static int GetChannelAtTime(
+        DateTimeOffset timestamp,
+        List<ChannelChangeEvent> events,
+        int currentChannel)
+    {
+        // Walk events in reverse to find the most recent change before this timestamp
+        for (int i = events.Count - 1; i >= 0; i--)
+        {
+            if (events[i].Timestamp <= timestamp)
+                return events[i].NewChannel;
+        }
+
+        // Before any recorded change: use the first event's PreviousChannel if available
+        if (events.Count > 0)
+            return events[0].PreviousChannel;
+
+        // No change events at all: assume current channel
+        return currentChannel;
     }
 }
 

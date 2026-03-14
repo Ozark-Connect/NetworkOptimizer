@@ -80,7 +80,7 @@ public class ChannelRecommendationService
         List<ChannelScanResult>? scanResults,
         RegulatoryChannelData? regulatoryData,
         RecommendationOptions? options = null,
-        Dictionary<string, (double Utilization, double Interference, double TxRetryPct)>? historicalStress = null)
+        Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -109,19 +109,12 @@ public class ChannelRecommendationService
             var validChannels = GetValidChannels(band, radio, regulatoryData, opts.DfsPreference);
             var currentWidth = radio.ChannelWidth ?? 20;
 
-            // Use historical averages for stress if available, fall back to snapshot
             var macLower = ap.Mac.ToLowerInvariant();
-            int util = radio.ChannelUtilization ?? 0;
-            int interf = radio.Interference ?? 0;
-            double txRetry = radio.TxRetriesPct ?? 0;
 
-            if (historicalStress != null &&
-                historicalStress.TryGetValue(macLower, out var hist))
-            {
-                util = (int)Math.Round(hist.Utilization);
-                interf = (int)Math.Round(hist.Interference);
-                txRetry = hist.TxRetryPct;
-            }
+            // Per-channel historical stress from 30-day metrics + channel change events
+            Dictionary<int, (double, double, double)>? apHistStress = null;
+            if (historicalStress != null)
+                historicalStress.TryGetValue(macLower, out apHistStress);
 
             graph.Nodes.Add(new ApNode
             {
@@ -133,9 +126,10 @@ public class ChannelRecommendationService
                 ValidWidths = new[] { currentWidth }, // Locked to current for now
                 IsPlaced = isPlaced,
                 HasDfs = radio.HasDfs,
-                ChannelUtilization = util,
-                Interference = interf,
-                TxRetriesPct = txRetry
+                ChannelUtilization = radio.ChannelUtilization ?? 0,
+                Interference = radio.Interference ?? 0,
+                TxRetriesPct = radio.TxRetriesPct ?? 0,
+                HistoricalStress = apHistStress
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
@@ -341,29 +335,13 @@ public class ChannelRecommendationService
             }
         }
 
-        // Radio stats stress: penalize channels overlapping the AP's current stressed channel.
-        // High TX retries/util/interference on the current channel mean the external load
-        // score underestimates real interference - push the optimizer away from that channel range.
-        // However, if internal co-channel APs are moving away, their contribution to the stress
-        // is being resolved - scale down the penalty proportionally.
+        // Historical channel stress: penalize channels where this AP historically experienced
+        // high utilization, interference, or TX retries. Uses 30-day metrics paired with channel
+        // change events for per-channel stress data. Falls back to current radio stats if
+        // historical data is unavailable.
         for (int i = 0; i < n; i++)
         {
-            var node = graph.Nodes[i];
-            if (node.TxRetriesPct < StressMinThreshold &&
-                node.ChannelUtilization < StressMinThreshold &&
-                node.Interference < StressMinThreshold)
-                continue;
-
-            var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
-            var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
-
-            if (ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
-            {
-                var stressScale = ComputeStressScale(graph, band, i, currentSpan, assignment);
-                score += stressScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
-                    + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
-                    + (node.Interference / 100.0) * InterferenceStressWeight);
-            }
+            score += ComputeStressPenalty(graph, band, i, assignment);
         }
 
         return score;
@@ -412,25 +390,65 @@ public class ChannelRecommendationService
             score += scanData.Interference * ScanInterferenceWeight;
         }
 
-        // Radio stats stress (scaled by co-channel resolution)
-        var node = graph.Nodes[apIndex];
-        if (node.TxRetriesPct >= StressMinThreshold ||
-            node.ChannelUtilization >= StressMinThreshold ||
-            node.Interference >= StressMinThreshold)
-        {
-            var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
-            var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
-
-            if (ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
-            {
-                var stressScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
-                score += stressScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
-                    + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
-                    + (node.Interference / 100.0) * InterferenceStressWeight);
-            }
-        }
+        // Historical channel stress
+        score += ComputeStressPenalty(graph, band, apIndex, assignment);
 
         return score;
+    }
+
+    /// <summary>
+    /// Compute stress penalty for an AP in a given assignment.
+    /// Uses per-channel historical stress if available (from 30-day metrics + channel change events).
+    /// Falls back to current radio stats applied to the current channel span.
+    /// Co-channel resolution scaling applies in both cases.
+    /// </summary>
+    private double ComputeStressPenalty(
+        InterferenceGraph graph,
+        RadioBand band,
+        int apIndex,
+        (int Channel, int Width)[] assignment)
+    {
+        var node = graph.Nodes[apIndex];
+        var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+
+        if (node.HistoricalStress != null && node.HistoricalStress.Count > 0)
+        {
+            // Per-channel historical stress: check each historically stressed channel
+            // and apply its penalty if the assigned channel overlaps its span
+            double penalty = 0;
+            foreach (var (histChannel, stress) in node.HistoricalStress)
+            {
+                if (stress.TxRetryPct < StressMinThreshold &&
+                    stress.Utilization < StressMinThreshold &&
+                    stress.Interference < StressMinThreshold)
+                    continue;
+
+                var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+                if (!ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
+                    continue;
+
+                var stressScale = ComputeStressScale(graph, band, apIndex, histSpan, assignment);
+                penalty += stressScale * ((stress.TxRetryPct / 100.0) * TxRetryStressWeight
+                    + (stress.Utilization / 100.0) * UtilizationStressWeight
+                    + (stress.Interference / 100.0) * InterferenceStressWeight);
+            }
+            return penalty;
+        }
+
+        // Fallback: use current radio stats on current channel span
+        if (node.TxRetriesPct < StressMinThreshold &&
+            node.ChannelUtilization < StressMinThreshold &&
+            node.Interference < StressMinThreshold)
+            return 0;
+
+        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        if (!ChannelSpanHelper.SpansOverlap(currentSpan, assignedSpan))
+            return 0;
+
+        var fallbackScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
+        return fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
+            + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
+            + (node.Interference / 100.0) * InterferenceStressWeight);
     }
 
     /// <summary>
@@ -992,9 +1010,17 @@ public class ChannelRecommendationService
         {
             var node = graph.Nodes[i];
             var radio = bandAps[i].Radios.First(r => r.Band == band && r.Channel.HasValue);
+            var histStr = "";
+            if (node.HistoricalStress != null && node.HistoricalStress.Count > 0)
+            {
+                var parts = node.HistoricalStress
+                    .OrderBy(kv => kv.Key)
+                    .Select(kv => $"ch{kv.Key}(u={kv.Value.Utilization:F0}%,i={kv.Value.Interference:F0}%,tx={kv.Value.TxRetryPct:F1}%)");
+                histStr = $", histStress=[{string.Join(", ", parts)}]";
+            }
             sb.AppendLine($"  [{i}] {node.Name}: ch{node.CurrentChannel}/{node.CurrentWidth} MHz, " +
                 $"placed={node.IsPlaced}, validCh=[{string.Join(",", node.ValidChannels)}], " +
-                $"util={radio.ChannelUtilization}%, interf={radio.Interference}%, txRetry={radio.TxRetriesPct:F1}%");
+                $"util={radio.ChannelUtilization}%, interf={radio.Interference}%, txRetry={radio.TxRetriesPct:F1}%{histStr}");
         }
 
         // Internal weight matrix
@@ -1106,14 +1132,32 @@ public class ChannelRecommendationService
                               + scanData.Interference * ScanInterferenceWeight;
                 }
 
-                // Radio stats stress penalty
+                // Historical channel stress penalty
                 double stressScore = 0;
-                if (node.TxRetriesPct >= StressMinThreshold ||
+                var testSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
+
+                if (node.HistoricalStress != null && node.HistoricalStress.Count > 0)
+                {
+                    foreach (var (histCh, stress) in node.HistoricalStress)
+                    {
+                        if (stress.TxRetryPct < StressMinThreshold &&
+                            stress.Utilization < StressMinThreshold &&
+                            stress.Interference < StressMinThreshold)
+                            continue;
+                        var histSpan = ChannelSpanHelper.GetChannelSpan(band, histCh, node.CurrentWidth);
+                        if (ChannelSpanHelper.SpansOverlap(testSpan, histSpan))
+                        {
+                            stressScore += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
+                                + (stress.Utilization / 100.0) * UtilizationStressWeight
+                                + (stress.Interference / 100.0) * InterferenceStressWeight;
+                        }
+                    }
+                }
+                else if (node.TxRetriesPct >= StressMinThreshold ||
                     node.ChannelUtilization >= StressMinThreshold ||
                     node.Interference >= StressMinThreshold)
                 {
                     var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
-                    var testSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
                     if (ChannelSpanHelper.SpansOverlap(currentSpan, testSpan))
                     {
                         stressScore = (node.TxRetriesPct / 100.0) * TxRetryStressWeight

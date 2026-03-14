@@ -85,6 +85,13 @@ public class ApNode
     /// <summary>Current TX retry % (0-100)</summary>
     public double TxRetriesPct { get; set; }
 
+    /// <summary>
+    /// Per-channel historical stress from 30-day metrics paired with channel change events.
+    /// Key = channel number, Value = (avg utilization %, avg interference %, avg TX retry %).
+    /// Null if historical data is unavailable.
+    /// </summary>
+    public Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>? HistoricalStress { get; set; }
+
     /// <summary>Index of this AP's mesh group leader, or -1 if not in a mesh group</summary>
     public int MeshGroupLeader { get; set; } = -1;
 }
