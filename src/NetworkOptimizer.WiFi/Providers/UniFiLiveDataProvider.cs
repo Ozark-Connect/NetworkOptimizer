@@ -798,12 +798,81 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             }
         }
 
+        // Fix mesh AP neighbor channel reporting bug: meshed APs sometimes report their own
+        // 2.4 GHz channel as the neighbor's channel. Cross-reference with wired AP scans to
+        // get the correct channel for each BSSID.
+        CorrectMeshNeighborChannels(aps, results);
+
         _logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ResultCount} scan results, Found {NeighborCount} neighboring networks",
             aps.Count,
             results.Count,
             results.Sum(r => r.Neighbors.Count));
 
         return results;
+    }
+
+    /// <summary>
+    /// Corrects neighbor channel data from mesh APs. Meshed APs sometimes report their own
+    /// operating channel as the neighbor's channel (observed on 2.4 GHz). This cross-references
+    /// the same BSSIDs seen by wired APs to determine the correct channel.
+    /// </summary>
+    private void CorrectMeshNeighborChannels(List<DiscoveredDevice> aps, List<ChannelScanResult> results)
+    {
+        // Identify mesh AP MACs
+        var meshApMacs = new HashSet<string>(
+            aps.Where(a => a.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true)
+               .Select(a => a.Mac),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (meshApMacs.Count == 0)
+            return;
+
+        // Build BSSID → channel consensus from wired APs only (per band)
+        // Key: (bssid, band), Value: channel from wired AP
+        var wiredChannelLookup = new Dictionary<(string Bssid, RadioBand Band), int>();
+        foreach (var result in results)
+        {
+            if (meshApMacs.Contains(result.ApMac))
+                continue; // Skip mesh APs for the consensus
+
+            foreach (var neighbor in result.Neighbors)
+            {
+                var key = (neighbor.Bssid.ToLowerInvariant(), result.Band);
+                // Keep the first wired AP's report (they should all agree)
+                wiredChannelLookup.TryAdd(key, neighbor.Channel);
+            }
+        }
+
+        if (wiredChannelLookup.Count == 0)
+            return;
+
+        // Correct mesh AP neighbor channels where they differ from wired AP consensus
+        var correctedCount = 0;
+        foreach (var result in results)
+        {
+            if (!meshApMacs.Contains(result.ApMac))
+                continue; // Only fix mesh APs
+
+            foreach (var neighbor in result.Neighbors)
+            {
+                var key = (neighbor.Bssid.ToLowerInvariant(), result.Band);
+                if (wiredChannelLookup.TryGetValue(key, out var correctChannel) &&
+                    neighbor.Channel != correctChannel)
+                {
+                    _logger.LogDebug(
+                        "Correcting mesh AP {ApMac} neighbor {Bssid} channel on {Band}: {Wrong} → {Correct}",
+                        result.ApMac, neighbor.Bssid, result.Band, neighbor.Channel, correctChannel);
+                    neighbor.Channel = correctChannel;
+                    correctedCount++;
+                }
+            }
+        }
+
+        if (correctedCount > 0)
+        {
+            _logger.LogInformation("Corrected {Count} neighbor channel(s) from mesh AP scans using wired AP data",
+                correctedCount);
+        }
     }
 
     #region Mapping Helpers
