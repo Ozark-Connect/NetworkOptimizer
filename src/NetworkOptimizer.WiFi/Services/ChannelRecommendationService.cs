@@ -49,6 +49,19 @@ public class ChannelRecommendationService
     /// </summary>
     private const double InterferenceStressWeight = 1.5;
 
+    /// <summary>
+    /// Minimum radio stat threshold to be considered "stressed".
+    /// Values below this (e.g., 1% utilization) are noise, not real stress.
+    /// </summary>
+    private const double StressMinThreshold = 5.0;
+
+    /// <summary>
+    /// Minimum absolute score improvement to recommend changes.
+    /// Below this threshold, the current assignment is preferred to avoid
+    /// recommending changes for negligible gains.
+    /// </summary>
+    private const double MinImprovementThreshold = 0.05;
+
     public ChannelRecommendationService(
         PropagationService propagationService,
         ILogger<ChannelRecommendationService> logger)
@@ -203,6 +216,18 @@ public class ChannelRecommendationService
         // Log per-AP per-channel score breakdown AFTER optimization
         LogPerApChannelScores(graph, bestAssignment, band, "POST-OPTIMIZATION");
 
+        // If improvement is negligible, keep the current assignment to avoid
+        // recommending changes for noise-level gains (e.g., 0.010 → 0.000)
+        var improvement = currentNetworkScore - bestScore;
+        if (improvement > 0 && improvement < MinImprovementThreshold)
+        {
+            _logger.LogInformation(
+                "[ChannelRec] Improvement {Improvement:F3} below threshold {Threshold:F3}, keeping current assignment",
+                improvement, MinImprovementThreshold);
+            bestAssignment = currentAssignment;
+            bestScore = currentNetworkScore;
+        }
+
         // Build result
         var dfsChannels = regulatoryData?.DfsChannels ?? [];
         var dfsSet = new HashSet<int>(dfsChannels);
@@ -308,7 +333,9 @@ public class ChannelRecommendationService
         for (int i = 0; i < n; i++)
         {
             var node = graph.Nodes[i];
-            if (node.TxRetriesPct <= 0 && node.ChannelUtilization <= 0 && node.Interference <= 0)
+            if (node.TxRetriesPct < StressMinThreshold &&
+                node.ChannelUtilization < StressMinThreshold &&
+                node.Interference < StressMinThreshold)
                 continue;
 
             var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
@@ -371,7 +398,9 @@ public class ChannelRecommendationService
 
         // Radio stats stress (scaled by co-channel resolution)
         var node = graph.Nodes[apIndex];
-        if (node.TxRetriesPct > 0 || node.ChannelUtilization > 0 || node.Interference > 0)
+        if (node.TxRetriesPct >= StressMinThreshold ||
+            node.ChannelUtilization >= StressMinThreshold ||
+            node.Interference >= StressMinThreshold)
         {
             var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
             var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
@@ -1055,7 +1084,9 @@ public class ChannelRecommendationService
 
                 // Radio stats stress penalty
                 double stressScore = 0;
-                if (node.TxRetriesPct > 0 || node.ChannelUtilization > 0 || node.Interference > 0)
+                if (node.TxRetriesPct >= StressMinThreshold ||
+                    node.ChannelUtilization >= StressMinThreshold ||
+                    node.Interference >= StressMinThreshold)
                 {
                     var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
                     var testSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
