@@ -2344,11 +2344,7 @@ select.form-control {
         height: auto;
         padding: 0.75rem 1rem;
         gap: 0.5rem;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-
-    .top-bar.top-bar-scrolled {
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        transition: transform 0.3s ease;
     }
 
     .top-bar.top-bar-hidden {
