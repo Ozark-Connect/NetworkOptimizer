@@ -828,6 +828,9 @@ public class WiFiOptimizerService
                 _logger.LogDebug(ex, "Failed to load propagation data for channel recommendations");
             }
 
+            // Fetch historical radio stats (last hour avg) for stress scoring
+            var historicalStress = await GetHistoricalStressAsync(aps);
+
             // Generate recommendations for each band that has APs
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
             foreach (var band in bands)
@@ -838,8 +841,9 @@ public class WiFiOptimizerService
 
                 try
                 {
+                    var bandStress = historicalStress?.GetValueOrDefault(band);
                     var graph = _channelRecommendationService.BuildInterferenceGraph(
-                        aps, band, propCtx, scanResults, regulatoryData, options);
+                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress);
 
                     var plan = _channelRecommendationService.Optimize(
                         graph, band, regulatoryData, options, hasBuildingData);
@@ -858,6 +862,68 @@ public class WiFiOptimizerService
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Fetch per-AP historical radio stats (last hour, 5-min granularity) and return
+    /// averages keyed by band then AP MAC. Used for stress scoring in recommendations.
+    /// </summary>
+    private async Task<Dictionary<RadioBand, Dictionary<string, (double Utilization, double Interference, double TxRetryPct)>>?>
+        GetHistoricalStressAsync(List<AccessPointSnapshot> aps)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return null;
+
+        try
+        {
+            var end = DateTimeOffset.UtcNow;
+            var start = end.AddHours(-1);
+            var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
+            if (onlineAps.Count == 0) return null;
+
+            // Fetch metrics for each AP concurrently
+            var tasks = onlineAps.Select(async ap =>
+            {
+                var metrics = await GetApMetricsAsync(
+                    new[] { ap.Mac }, start, end, MetricGranularity.FiveMinutes);
+                return (ap.Mac, Metrics: metrics);
+            });
+
+            var allResults = await Task.WhenAll(tasks);
+
+            var result = new Dictionary<RadioBand, Dictionary<string, (double, double, double)>>();
+            var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+            foreach (var band in bands)
+                result[band] = new Dictionary<string, (double, double, double)>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (mac, metrics) in allResults)
+            {
+                if (metrics.Count == 0) continue;
+
+                foreach (var band in bands)
+                {
+                    var bandPoints = metrics
+                        .Where(m => m.ByBand.TryGetValue(band, out var b) && b.ChannelUtilization.HasValue)
+                        .Select(m => m.ByBand[band])
+                        .ToList();
+
+                    if (bandPoints.Count == 0) continue;
+
+                    var avgUtil = bandPoints.Average(b => b.ChannelUtilization ?? 0);
+                    var avgInterf = bandPoints.Average(b => b.Interference ?? 0);
+                    var avgTxRetry = bandPoints.Average(b => b.TxRetryPct ?? 0);
+
+                    result[band][mac.ToLowerInvariant()] = (avgUtil, avgInterf, avgTxRetry);
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch historical stress metrics, falling back to snapshot");
+            return null;
+        }
     }
 }
 

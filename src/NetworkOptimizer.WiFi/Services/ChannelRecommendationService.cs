@@ -79,7 +79,8 @@ public class ChannelRecommendationService
         ApPropagationContext? propContext,
         List<ChannelScanResult>? scanResults,
         RegulatoryChannelData? regulatoryData,
-        RecommendationOptions? options = null)
+        RecommendationOptions? options = null,
+        Dictionary<string, (double Utilization, double Interference, double TxRetryPct)>? historicalStress = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -108,6 +109,20 @@ public class ChannelRecommendationService
             var validChannels = GetValidChannels(band, radio, regulatoryData, opts.DfsPreference);
             var currentWidth = radio.ChannelWidth ?? 20;
 
+            // Use historical averages for stress if available, fall back to snapshot
+            var macLower = ap.Mac.ToLowerInvariant();
+            int util = radio.ChannelUtilization ?? 0;
+            int interf = radio.Interference ?? 0;
+            double txRetry = radio.TxRetriesPct ?? 0;
+
+            if (historicalStress != null &&
+                historicalStress.TryGetValue(macLower, out var hist))
+            {
+                util = (int)Math.Round(hist.Utilization);
+                interf = (int)Math.Round(hist.Interference);
+                txRetry = hist.TxRetryPct;
+            }
+
             graph.Nodes.Add(new ApNode
             {
                 Mac = ap.Mac,
@@ -118,9 +133,9 @@ public class ChannelRecommendationService
                 ValidWidths = new[] { currentWidth }, // Locked to current for now
                 IsPlaced = isPlaced,
                 HasDfs = radio.HasDfs,
-                ChannelUtilization = radio.ChannelUtilization ?? 0,
-                Interference = radio.Interference ?? 0,
-                TxRetriesPct = radio.TxRetriesPct ?? 0
+                ChannelUtilization = util,
+                Interference = interf,
+                TxRetriesPct = txRetry
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
