@@ -28,15 +28,21 @@
         restoreOrScrollToTop: function(path) {
             var container = getScrollContainer();
             if (!container) return;
-
-            // Reset mobile scroll listener state
-            if (window.__resetScrollState) window.__resetScrollState();
+            var hasFragment = !!window.location.hash;
 
             if (isPopState) {
                 var saved = scrollPositions.get(path);
                 container.scrollTop = saved !== undefined ? saved : 0;
                 isPopState = false;
-            } else if (!window.location.hash) {
+                return;
+            }
+
+            if (hasFragment) {
+                // Fragment navigation: hide nav bar, no scroll padding, let browser scroll to fragment
+                if (window.__setScrollState) window.__setScrollState(true);
+            } else {
+                // Page navigation: show nav bar, scroll to top
+                if (window.__setScrollState) window.__setScrollState(false);
                 container.scrollTop = 0;
             }
         }

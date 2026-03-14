@@ -112,13 +112,23 @@
             }
         }
 
-        // Reset scroll state on page navigation (called from scrollRestoration.js)
-        window.__resetScrollState = function() {
+        // Set scroll state on navigation (called from scrollRestoration.js)
+        // hidden=true: fragment nav (hide bar, no padding)
+        // hidden=false: page nav (show bar, add padding)
+        window.__setScrollState = function(hidden) {
             lastScrollTop = 0;
             if (window.innerWidth <= 768) {
                 var topBar = document.querySelector('.top-bar');
-                if (topBar) topBar.classList.remove('top-bar-hidden');
-                if (currentEl) currentEl.style.scrollPaddingTop = '70px';
+                if (topBar) {
+                    if (hidden) {
+                        topBar.classList.add('top-bar-hidden');
+                    } else {
+                        topBar.classList.remove('top-bar-hidden');
+                    }
+                }
+                if (currentEl) {
+                    currentEl.style.scrollPaddingTop = hidden ? '0px' : '70px';
+                }
             }
         };
 
