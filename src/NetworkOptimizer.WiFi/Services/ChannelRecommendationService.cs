@@ -317,11 +317,16 @@ public class ChannelRecommendationService
             });
         }
 
-        // Recalculate network scores consistently from per-AP scores
-        // (ScoreAssignment counts pairwise interactions differently than sum of ScoreAp,
-        // so use per-AP sums for both to keep them consistent)
-        plan.CurrentNetworkScore = plan.Recommendations.Sum(r => r.CurrentScore);
-        plan.RecommendedNetworkScore = plan.Recommendations.Sum(r => r.RecommendedScore);
+        // Rebuild the final recommended assignment after per-AP filtering
+        // and re-score with ScoreAssignment (counts each pair once, no double-counting)
+        var finalAssignment = new (int Channel, int Width)[n];
+        for (int i = 0; i < n; i++)
+        {
+            var rec = plan.Recommendations[i];
+            finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
+        }
+        plan.RecommendedNetworkScore = ScoreAssignment(graph, finalAssignment, band);
+        plan.RecommendedNetworkScore = AddDfsPenalty(graph, finalAssignment, band, opts.DfsPreference, plan.RecommendedNetworkScore);
 
         // Log final recommendation summary
         LogRecommendationSummary(plan, currentAssignment, bestAssignment);
