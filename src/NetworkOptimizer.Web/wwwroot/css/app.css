@@ -4124,6 +4124,8 @@ select.form-control {
 
     /* Counter-rotate wireless icon to stay upright when connector is rotated */
     .path-analysis .path-connector .wireless-icon {
+        top: -1.2rem;
+        left: 43%;
         transform: translateX(-50%) rotate(-90deg);
     }
 
