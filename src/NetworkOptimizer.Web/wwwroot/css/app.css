@@ -2306,7 +2306,7 @@ select.form-control {
     }
 
     .pull-to-refresh.ptr-refreshing .ptr-spinner {
-        animation: ptr-spin 0.6s linear infinite !important;
+        animation: ptr-spin 0.6s linear infinite;
         color: var(--success-color);
     }
 

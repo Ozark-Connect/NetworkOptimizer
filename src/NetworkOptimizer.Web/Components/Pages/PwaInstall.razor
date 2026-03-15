@@ -1,6 +1,7 @@
 @page "/pwa-install"
 @rendermode InteractiveServer
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>Install as an App - Network Optimizer</PageTitle>
 
@@ -127,6 +128,15 @@
         {
             try
             {
+                // If opened as an installed PWA, redirect to home - this page is only useful in a browser
+                var isStandalone = await JS.InvokeAsync<bool>("eval",
+                    "window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true");
+                if (isStandalone)
+                {
+                    Nav.NavigateTo("/", forceLoad: true);
+                    return;
+                }
+
                 var ua = await JS.InvokeAsync<string>("eval", "navigator.userAgent") ?? "";
                 var maxTouchPoints = await JS.InvokeAsync<int>("eval", "navigator.maxTouchPoints || 0");
                 ParseUserAgent(ua, maxTouchPoints);
@@ -207,18 +217,17 @@
             <div class="card-body">
                 <ol class="install-steps">
                     <li>
-                        Tap the <strong>Share</strong> button
-                        @RenderShareIcon()
+                        Tap the <strong>Share</strong> button @RenderShareIcon()
                         @(_browser == Browser.Chrome
                             ? " in the address bar area"
                             : " in the toolbar")
                     </li>
-                    <li>Tap <strong>"Add to Home Screen"</strong></li>
+                    <li>Scroll down and tap <strong>"Add to Home Screen"</strong></li>
                     <li>Tap <strong>"Add"</strong> in the top right</li>
                 </ol>
                 <p class="install-note">
-                    Requires iOS 16.4 or later. If you don't see "Add to Home Screen",
-                    try Safari instead (instructions below).
+                    Requires iOS 16.4 or later. The option may be hidden until you scroll down in the Share sheet.
+                    If you don't see it at all, try Safari instead (instructions below).
                 </p>
             </div>
         </div>
@@ -259,8 +268,7 @@
                     <li>Open Network Optimizer in <strong>Safari</strong></li>
                     <li>
                         Tap <strong><span class="key-hint">&#8230;</span></strong> (More) in the bottom toolbar,
-                        then tap <strong>Share</strong>
-                        @RenderShareIcon()
+                        then tap @RenderShareIcon() <strong>Share</strong>
                     </li>
                     <li>Scroll down and tap <strong>"Add to Home Screen"</strong></li>
                     <li>Tap <strong>"Add"</strong> in the top right</li>
