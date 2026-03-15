@@ -3852,13 +3852,14 @@ select.form-control {
     align-items: flex-end;
     gap: 0.1rem;
     height: 14px;
-    cursor: inherit;
+}
+.mini-signal-bars, .mini-signal-bars .bar {
+    cursor: pointer;
 }
 .mini-signal-bars .bar {
     width: 3px;
     border-radius: 1px;
     background: rgba(255,255,255,0.15);
-    pointer-events: none;
 }
 .mini-signal-bars .bar:nth-child(1) { height: 20%; }
 .mini-signal-bars .bar:nth-child(2) { height: 40%; }
