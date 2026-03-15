@@ -119,6 +119,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         finally
         {
             IsInitialized = true;
+
+            // Notify subscribers so the dashboard can show the connection banner
+            // (especially when auto-connect fails and WaitForConnectionAsync has already timed out)
+            OnConnectionChanged?.Invoke();
         }
     }
 
@@ -227,6 +231,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task<bool> ConnectAsync(UniFiConnectionConfig config)
     {
+        // Validate URL before attempting connection
+        if (string.IsNullOrWhiteSpace(config.ControllerUrl))
+        {
+            _lastError = "Console URL is required. Enter the IP address or hostname of your UniFi Console.";
+            return false;
+        }
+
         _logger.LogInformation("Connecting to UniFi controller at {Url}", config.ControllerUrl);
 
         try
@@ -480,6 +491,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task<(bool Success, string? Error, string? ControllerInfo)> TestConnectionAsync(UniFiConnectionConfig config)
     {
+        if (string.IsNullOrWhiteSpace(config.ControllerUrl))
+            return (false, "Console URL is required. Enter the IP address or hostname of your UniFi Console.", null);
+
         _logger.LogInformation("Testing connection to UniFi controller at {Url}", config.ControllerUrl);
 
         UniFiApiClient? testClient = null;
@@ -539,6 +553,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task<(bool Success, string? Error, List<UniFiSite> Sites)> GetSitesAsync(UniFiConnectionConfig config)
     {
+        if (string.IsNullOrWhiteSpace(config.ControllerUrl))
+            return (false, "Console URL is required. Enter the IP address or hostname of your UniFi Console.", new List<UniFiSite>());
+
         _logger.LogInformation("Fetching sites from UniFi controller at {Url}", config.ControllerUrl);
 
         UniFiApiClient? testClient = null;
