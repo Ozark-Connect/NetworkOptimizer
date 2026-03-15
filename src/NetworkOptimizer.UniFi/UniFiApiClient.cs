@@ -111,7 +111,7 @@ public class UniFiApiClient : IDisposable
 
         _httpClient = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(15)
         };
 
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
@@ -159,6 +159,18 @@ public class UniFiApiClient : IDisposable
                 }
             }
         }
+        catch (TaskCanceledException ex)
+        {
+            // Timeout or cancellation - host is unreachable, don't bother trying login
+            _logger.LogDebug("Login type detection timed out: {Message}", ex.Message);
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            // Connection refused, DNS failure, etc. - host is unreachable
+            _logger.LogDebug("Login type detection failed: {Message}", ex.Message);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogDebug("Login type detection failed: {Message}", ex.Message);
@@ -188,8 +200,10 @@ public class UniFiApiClient : IDisposable
             // Reset client to clear old cookies
             InitializeHttpClient();
 
-            // Detect which login endpoint to use
-            await DetectLoginTypeAsync(cancellationToken);
+            // Detect which login endpoint to use (5s timeout per call, not shared)
+            using var detectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            detectCts.CancelAfter(TimeSpan.FromSeconds(5));
+            await DetectLoginTypeAsync(detectCts.Token);
 
             var loginRequest = new UniFiLoginRequest
             {
@@ -211,7 +225,9 @@ public class UniFiApiClient : IDisposable
                 Encoding.UTF8,
                 "application/json");
 
-            var response = await _httpClient!.PostAsync(loginUrl, content, cancellationToken);
+            using var loginCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            loginCts.CancelAfter(TimeSpan.FromSeconds(5));
+            var response = await _httpClient!.PostAsync(loginUrl, content, loginCts.Token);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -367,6 +383,13 @@ public class UniFiApiClient : IDisposable
             {
                 return "Connection timed out. Check network connectivity and firewall settings.";
             }
+        }
+
+        // Timeout from HttpClient.Timeout (TaskCanceledException, not HttpRequestException)
+        if (ex is TaskCanceledException ||
+            ex.Message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Connection timed out. Check the console URL and firewall/VPN settings.";
         }
 
         // Generic fallback
