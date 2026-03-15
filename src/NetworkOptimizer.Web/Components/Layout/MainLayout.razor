@@ -320,9 +320,9 @@
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
-        // Clear stale callbacks so pages without PTR fall through to reload
-        PullToRefreshState.RefreshCallback = null;
-        PullToRefreshState.NotifyStateChanged = null;
+        // Invalidate stale callbacks - pages that re-register after navigation will work,
+        // pages that don't will fall through to reload
+        PullToRefreshState.OnNavigated();
     }
 
     [JSInvokable]
