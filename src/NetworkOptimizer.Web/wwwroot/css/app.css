@@ -2268,12 +2268,9 @@ select.form-control {
 }
 
 @media (max-width: 768px) {
-    /* Lock viewport so only .main-content scrolls, not the page itself */
+    /* Prevent viewport from scrolling — only .main-content should scroll */
     html, body {
         overflow: hidden;
-        position: fixed;
-        width: 100%;
-        height: 100%;
     }
 
     /* Show hamburger button on mobile */
@@ -2337,6 +2334,7 @@ select.form-control {
     .main-content {
         overflow-y: auto;
         overflow-x: hidden;
+        overscroll-behavior-y: contain;
         /* scroll-padding-top set dynamically by JS based on top bar visibility */
     }
 
