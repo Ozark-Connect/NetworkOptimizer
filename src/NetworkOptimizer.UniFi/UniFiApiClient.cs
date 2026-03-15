@@ -159,6 +159,18 @@ public class UniFiApiClient : IDisposable
                 }
             }
         }
+        catch (TaskCanceledException ex)
+        {
+            // Timeout or cancellation - host is unreachable, don't bother trying login
+            _logger.LogDebug("Login type detection timed out: {Message}", ex.Message);
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            // Connection refused, DNS failure, etc. - host is unreachable
+            _logger.LogDebug("Login type detection failed: {Message}", ex.Message);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogDebug("Login type detection failed: {Message}", ex.Message);
