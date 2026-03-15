@@ -381,6 +381,13 @@ public class UniFiApiClient : IDisposable
             }
         }
 
+        // Timeout from HttpClient.Timeout (TaskCanceledException, not HttpRequestException)
+        if (ex is TaskCanceledException ||
+            ex.Message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Connection timed out. Check the console URL and firewall/VPN settings.";
+        }
+
         // Generic fallback
         return ex.Message;
     }
