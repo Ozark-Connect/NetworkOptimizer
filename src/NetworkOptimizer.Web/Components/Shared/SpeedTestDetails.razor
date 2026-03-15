@@ -774,6 +774,12 @@
     private RenderFragment RenderSignalBars(NetworkHop hop, NetworkHop nextHop) => __builder =>
     {
         var (signalDbm, band) = GetWirelessSignalInfo(hop, nextHop);
+        // For wireless client hops, signal lives on the Iperf3Result, not the hop
+        if (!signalDbm.HasValue && (hop.Type == HopType.WirelessClient || nextHop.Type == HopType.WirelessClient))
+        {
+            signalDbm = Result?.WifiSignalDbm;
+            band ??= Result?.WifiRadio;
+        }
         var signalClass = signalDbm.HasValue
             ? SignalClassification.GetSignalClass(signalDbm.Value, band)
             : "";
