@@ -2268,11 +2268,6 @@ select.form-control {
 }
 
 @media (max-width: 768px) {
-    /* Prevent viewport from scrolling — only .main-content should scroll */
-    html, body {
-        overflow: hidden;
-    }
-
     /* Show hamburger button on mobile */
     .hamburger-btn {
         display: block;
