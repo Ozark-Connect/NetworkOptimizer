@@ -118,12 +118,20 @@
             if (window.innerWidth <= 768) {
                 var topBar = document.querySelector('.top-bar');
 
-                if (topBar && Math.abs(st - lastScrollTop) > 10) {
+                var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
+                if (st <= 0) {
+                    // Always show nav bar at top of page
+                    topBar.classList.remove('top-bar-hidden');
+                    currentEl.style.scrollPaddingTop = '70px';
+                    startAutoHideTimer(topBar);
+                    lastScrollTop = st;
+                } else if (topBar && Math.abs(st - lastScrollTop) > 10) {
                     if (st > lastScrollTop && st > 60) {
                         topBar.classList.add('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
-                    } else {
+                    } else if (!nearBottom && (lastScrollTop - st) > 30) {
+                        // Require 30px+ upward scroll and not near bottom of page
                         topBar.classList.remove('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '70px';
                         startAutoHideTimer(topBar);
