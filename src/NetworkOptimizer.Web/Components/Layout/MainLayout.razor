@@ -16,7 +16,12 @@
     <div class="main-content">
         <div class="pull-to-refresh">
             <svg class="ptr-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/>
+                <defs>
+                    <marker id="ptr-arrow" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="auto">
+                        <path d="M0,0 L4,2 L0,4" fill="currentColor" stroke="none"/>
+                    </marker>
+                </defs>
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round" marker-end="url(#ptr-arrow)"/>
             </svg>
         </div>
         <header class="top-bar">
@@ -231,8 +236,8 @@
                 var ready = pullDist >= THRESHOLD;
                 indicator.style.transform = 'translateY(' + capped + 'px)';
                 indicator.style.opacity = Math.min(pullDist / THRESHOLD, 1);
-                spinner.style.transform = 'rotate(' + (pullDist / THRESHOLD * 360) + 'deg)' +
-                    (ready ? ' scale(1.3)' : '');
+                var scale = 1 + Math.min(pullDist / THRESHOLD, 1) * 0.3;
+                spinner.style.transform = 'rotate(' + (pullDist / THRESHOLD * 360) + 'deg) scale(' + scale + ')';
                 wasReady = ready;
                 indicator.classList.toggle('ptr-ready', ready);
             }, { passive: true });
