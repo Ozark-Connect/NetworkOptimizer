@@ -888,7 +888,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
             ex is TaskCanceledException)
         {
-            return "Connection timed out. Check network connectivity and firewall settings.";
+            return "Connection timed out. Check that the console is reachable and check firewall/VPN settings.";
         }
 
         return message;
