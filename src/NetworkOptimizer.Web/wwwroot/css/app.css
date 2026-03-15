@@ -2932,6 +2932,55 @@ select.form-control {
     }
 }
 
+/* PWA Install Banner */
+.pwa-banner {
+    background: linear-gradient(135deg, rgba(71, 151, 255, 0.12) 0%, rgba(71, 151, 255, 0.05) 100%);
+    border: 1px solid rgba(71, 151, 255, 0.3);
+}
+
+.pwa-banner .banner-text strong {
+    color: var(--info-color);
+}
+
+.pwa-banner .banner-text span {
+    color: var(--text-secondary);
+}
+
+.pwa-banner .btn-pwa-action {
+    background: rgba(71, 151, 255, 0.15);
+    color: var(--info-color);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.pwa-banner .btn-pwa-action:hover {
+    background: rgba(71, 151, 255, 0.3);
+    color: white;
+}
+
+.pwa-banner .btn-pwa-dismiss {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.pwa-banner .btn-pwa-dismiss:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+}
+
 /* Sponsorship Banner */
 .sponsorship-banner {
     background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.08) 100%);
@@ -9375,6 +9424,59 @@ a.path-hop.hop-clickable:hover {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.5rem;
+}
+
+.channel-disclaimer {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(234, 179, 8, 0.08);
+    border: 1px solid rgba(234, 179, 8, 0.25);
+    border-radius: var(--border-radius);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.channel-disclaimer .disclaimer-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.channel-disclaimer .disclaimer-icon {
+    flex-shrink: 0;
+    color: var(--warning-color);
+    margin-top: 2px;
+}
+
+.channel-disclaimer .disclaimer-link {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+.channel-disclaimer .disclaimer-link:hover {
+    color: var(--primary-hover);
+}
+
+.channel-disclaimer .disclaimer-dismiss-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.channel-disclaimer .disclaimer-dismiss-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 /* Score coloring */
