@@ -1,0 +1,462 @@
+@page "/pwa-install"
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+
+<PageTitle>Install as App - Network Optimizer</PageTitle>
+
+<a href="/" class="back-link" title="Back to Dashboard">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+</a>
+
+<div class="page-header">
+    <h1>Install as App</h1>
+    <p class="page-description">Add Network Optimizer to your home screen for a native app experience</p>
+</div>
+
+<div class="pwa-install-content">
+    <div class="card">
+        <div class="card-body">
+            <p class="pwa-intro">
+                Network Optimizer is a Progressive Web App (PWA). You can install it on your phone or tablet
+                and it will look and feel like a native app - full screen, its own icon, no browser toolbar.
+            </p>
+        </div>
+    </div>
+
+    @if (_detected)
+    {
+        @if (_platform == Platform.Desktop)
+        {
+            <div class="card">
+                <div class="card-body">
+                    <p class="pwa-intro">
+                        You're viewing this on a desktop browser. PWA installation works best on mobile devices.
+                        Open Network Optimizer on your phone or tablet to install it as an app.
+                    </p>
+                </div>
+            </div>
+        }
+
+        @* Show the matching card first, highlighted *@
+        @if (_platform == Platform.Ios)
+        {
+            @if (_browser == Browser.Safari)
+            {
+                @RenderIosSafariCard(true)
+            }
+            else if (_browser == Browser.Chrome || _browser == Browser.Firefox || _browser == Browser.Edge)
+            {
+                @* These browsers support Add to Home Screen on iOS 16.4+ *@
+                @RenderIosSupportedBrowserCard()
+                @RenderIosSafariCard(false)
+            }
+            else
+            {
+                @* Brave and other unsupported browsers - must switch to Safari *@
+                @RenderIosUnsupportedBrowserCard()
+                @RenderIosSafariCard(false)
+            }
+        }
+        else if (_platform == Platform.Android)
+        {
+            @switch (_browser)
+            {
+                case Browser.Chrome:
+                    @RenderAndroidChromeCard(true)
+                    @RenderAndroidFirefoxCard(false)
+                    @RenderSamsungInternetCard(false)
+                    break;
+                case Browser.Firefox:
+                    @RenderAndroidFirefoxCard(true)
+                    @RenderAndroidChromeCard(false)
+                    @RenderSamsungInternetCard(false)
+                    break;
+                case Browser.Samsung:
+                    @RenderSamsungInternetCard(true)
+                    @RenderAndroidChromeCard(false)
+                    @RenderAndroidFirefoxCard(false)
+                    break;
+                default:
+                    @RenderAndroidChromeCard(false)
+                    @RenderAndroidFirefoxCard(false)
+                    @RenderSamsungInternetCard(false)
+                    break;
+            }
+        }
+        else
+        {
+            @* Desktop or unknown - show all *@
+            @RenderIosSafariCard(false)
+            @RenderAndroidChromeCard(false)
+            @RenderAndroidFirefoxCard(false)
+            @RenderSamsungInternetCard(false)
+        }
+    }
+    else
+    {
+        @* Pre-detection: show all cards without highlights *@
+        @RenderIosSafariCard(false)
+        @RenderAndroidChromeCard(false)
+        @RenderAndroidFirefoxCard(false)
+        @RenderSamsungInternetCard(false)
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <p class="pwa-faq-note">
+                Once installed, Network Optimizer opens in its own window without browser controls,
+                just like a native app. Your data and settings stay the same - the app connects to
+                the same server.
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private enum Platform { Unknown, Ios, Android, Desktop }
+    private enum Browser { Unknown, Safari, Chrome, Firefox, Samsung, Edge, Brave }
+
+    private bool _detected;
+    private Platform _platform = Platform.Unknown;
+    private Browser _browser = Browser.Unknown;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var ua = await JS.InvokeAsync<string>("eval", "navigator.userAgent");
+                ParseUserAgent(ua ?? "");
+                _detected = true;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch
+            {
+                _detected = true;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void ParseUserAgent(string ua)
+    {
+        // iOS detection: iPhone, iPad, or iPod in UA
+        // Note: iPad with "Request Desktop Site" shows as Mac, but we check for "Mobile" or touch
+        if (ua.Contains("iPhone", StringComparison.OrdinalIgnoreCase) ||
+            ua.Contains("iPad", StringComparison.OrdinalIgnoreCase) ||
+            ua.Contains("iPod", StringComparison.OrdinalIgnoreCase))
+        {
+            _platform = Platform.Ios;
+
+            // On iOS, all browsers use WebKit. Safari is identified by NOT having CriOS/FxiOS/EdgiOS/Brave
+            if (ua.Contains("CriOS", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Chrome;
+            else if (ua.Contains("FxiOS", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Firefox;
+            else if (ua.Contains("EdgiOS", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Edge;
+            else if (ua.Contains("Brave", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Brave;
+            else
+                _browser = Browser.Safari;
+        }
+        else if (ua.Contains("Android", StringComparison.OrdinalIgnoreCase))
+        {
+            _platform = Platform.Android;
+
+            // Order matters: check specific browsers before generic Chrome (many are Chromium-based)
+            if (ua.Contains("SamsungBrowser", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Samsung;
+            else if (ua.Contains("Firefox", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Firefox;
+            else if (ua.Contains("Brave", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Chrome; // Brave on Android works like Chrome for PWA
+            else if (ua.Contains("Chrome", StringComparison.OrdinalIgnoreCase))
+                _browser = Browser.Chrome;
+        }
+        else
+        {
+            _platform = Platform.Desktop;
+        }
+    }
+
+    private string BrowserName => _browser switch
+    {
+        Browser.Chrome => "Chrome",
+        Browser.Firefox => "Firefox",
+        Browser.Edge => "Edge",
+        Browser.Brave => "Brave",
+        _ => "this browser"
+    };
+
+    private RenderFragment RenderIosSupportedBrowserCard() => __builder =>
+    {
+        <div class="card pwa-card-highlight">
+            <div class="card-header">
+                <h2 class="card-title">
+                    @RenderAppleIcon()
+                    Install from @BrowserName
+                </h2>
+            </div>
+            <div class="card-body">
+                <ol class="install-steps">
+                    <li>
+                        Tap the <strong>Share</strong> button
+                        @RenderShareIcon()
+                        @(_browser == Browser.Chrome
+                            ? " in the address bar area"
+                            : " in the toolbar")
+                    </li>
+                    <li>Tap <strong>"Add to Home Screen"</strong></li>
+                    <li>Tap <strong>"Add"</strong> in the top right</li>
+                </ol>
+                <p class="install-note">
+                    Requires iOS 16.4 or later. If you don't see "Add to Home Screen",
+                    try Safari instead (instructions below).
+                </p>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderIosUnsupportedBrowserCard() => __builder =>
+    {
+        <div class="card pwa-card-highlight">
+            <div class="card-header">
+                <h2 class="card-title">
+                    @RenderAppleIcon()
+                    Switch to Safari
+                </h2>
+            </div>
+            <div class="card-body">
+                <p class="pwa-intro" style="margin-bottom: 0.5rem;">
+                    @BrowserName doesn't support installing web apps on iOS.
+                    Open Network Optimizer in <strong>Safari</strong> to add it to your home screen.
+                </p>
+                <p class="install-note" style="margin-top: 0.5rem;">
+                    Alternatively, Chrome, Firefox, or Edge on iOS 16.4+ also support this.
+                </p>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderIosSafariCard(bool highlight) => __builder =>
+    {
+        <div class="card @(highlight ? "pwa-card-highlight" : "")">
+            <div class="card-header">
+                <h2 class="card-title">
+                    @RenderAppleIcon()
+                    iPhone and iPad (Safari)
+                </h2>
+            </div>
+            <div class="card-body">
+                <ol class="install-steps">
+                    <li>Open Network Optimizer in <strong>Safari</strong></li>
+                    <li>
+                        Tap the <strong>Share</strong> button
+                        @RenderShareIcon()
+                        in the bottom toolbar
+                    </li>
+                    <li>Scroll down and tap <strong>"Add to Home Screen"</strong></li>
+                    <li>Tap <strong>"Add"</strong> in the top right</li>
+                </ol>
+                @if (!highlight)
+                {
+                    <p class="install-note">
+                        On iOS 16.4 and later, Chrome, Firefox, and Edge can also add to home screen via the Share menu.
+                    </p>
+                }
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderAndroidChromeCard(bool highlight) => __builder =>
+    {
+        <div class="card @(highlight ? "pwa-card-highlight" : "")">
+            <div class="card-header">
+                <h2 class="card-title">
+                    @RenderAndroidIcon()
+                    Android (Chrome)
+                </h2>
+            </div>
+            <div class="card-body">
+                <ol class="install-steps">
+                    @if (!highlight)
+                    {
+                        <li>Open Network Optimizer in <strong>Chrome</strong></li>
+                    }
+                    <li>
+                        Tap the <strong>three-dot menu</strong>
+                        <span class="key-hint">&#8942;</span>
+                        in the top right
+                    </li>
+                    <li>Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong></li>
+                    <li>Tap <strong>"Install"</strong></li>
+                </ol>
+                <p class="install-note">
+                    Chrome may also show an install banner automatically at the bottom of the screen.
+                </p>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderAndroidFirefoxCard(bool highlight) => __builder =>
+    {
+        <div class="card @(highlight ? "pwa-card-highlight" : "")">
+            <div class="card-header">
+                <h2 class="card-title">
+                    @RenderAndroidIcon()
+                    Android (Firefox)
+                </h2>
+            </div>
+            <div class="card-body">
+                <ol class="install-steps">
+                    @if (!highlight)
+                    {
+                        <li>Open Network Optimizer in <strong>Firefox</strong></li>
+                    }
+                    <li>
+                        Tap the <strong>three-dot menu</strong>
+                        <span class="key-hint">&#8942;</span>
+                    </li>
+                    <li>Tap <strong>"Add to Home screen"</strong></li>
+                    <li>Tap <strong>"Add"</strong></li>
+                </ol>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderSamsungInternetCard(bool highlight) => __builder =>
+    {
+        <div class="card @(highlight ? "pwa-card-highlight" : "")">
+            <div class="card-header">
+                <h2 class="card-title">
+                    @RenderAndroidIcon()
+                    Samsung Internet
+                </h2>
+            </div>
+            <div class="card-body">
+                <ol class="install-steps">
+                    @if (!highlight)
+                    {
+                        <li>Open Network Optimizer in <strong>Samsung Internet</strong></li>
+                    }
+                    <li>
+                        Tap the <strong>menu</strong>
+                        <span class="key-hint">&#9776;</span>
+                        in the bottom right
+                    </li>
+                    <li>Tap <strong>"Add page to"</strong>, then <strong>"Home screen"</strong></li>
+                    <li>Tap <strong>"Add"</strong></li>
+                </ol>
+                <p class="install-note">
+                    Samsung Internet may also show a download icon in the address bar when it detects the app.
+                </p>
+            </div>
+        </div>
+    };
+
+    private static RenderFragment RenderAppleIcon() => __builder =>
+    {
+        <span class="platform-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+            </svg>
+        </span>
+    };
+
+    private static RenderFragment RenderAndroidIcon() => __builder =>
+    {
+        <span class="platform-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V7H6v11zM3.5 7C2.67 7 2 7.67 2 8.5v7c0 .83.67 1.5 1.5 1.5S5 16.33 5 15.5v-7C5 7.67 4.33 7 3.5 7zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85 1.23 12.95 1 12 1c-.96 0-1.86.23-2.66.63L7.85.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 3.26 6 5.01 6 7h12c0-1.99-.97-3.75-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/>
+            </svg>
+        </span>
+    };
+
+    private static RenderFragment RenderShareIcon() => __builder =>
+    {
+        <span class="key-hint">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                <polyline points="16 6 12 2 8 6"/>
+                <line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+        </span>
+    };
+}
+
+<style>
+    .pwa-install-content {
+        max-width: 720px;
+    }
+
+    .pwa-install-content .card {
+        margin-bottom: 1rem;
+    }
+
+    .pwa-card-highlight {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 1px var(--primary-color);
+    }
+
+    .pwa-intro {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        line-height: 1.6;
+        margin: 0;
+    }
+
+    .platform-icon {
+        display: inline-flex;
+        align-items: center;
+        color: var(--text-secondary);
+        margin-right: 0.25rem;
+    }
+
+    .install-steps {
+        margin: 0;
+        padding-left: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        color: var(--text-primary);
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+
+    .install-steps li::marker {
+        color: var(--primary-color);
+        font-weight: 600;
+    }
+
+    .key-hint {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg-tertiary);
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        vertical-align: middle;
+        line-height: 1;
+    }
+
+    .install-note {
+        margin: 0.75rem 0 0;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    .pwa-faq-note {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        line-height: 1.6;
+        margin: 0;
+    }
+</style>
