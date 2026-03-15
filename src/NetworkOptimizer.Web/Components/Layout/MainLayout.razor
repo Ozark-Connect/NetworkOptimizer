@@ -5,6 +5,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject PullToRefreshState PullToRefreshState
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
@@ -219,7 +220,6 @@
             var startY = 0;
             var pulling = false;
             var hasMoved = false;
-            var wasReady = false;
             var THRESHOLD = 90;
             var DEAD_ZONE = THRESHOLD / 3;
             var MIN_RESISTANCE = 1.0;
@@ -232,7 +232,6 @@
                     startY = e.touches[0].pageY;
                     pulling = true;
                     hasMoved = false;
-                    wasReady = false;
                     indicator.classList.remove('ptr-refreshing');
                     indicator.classList.remove('ptr-ready');
                     // Adaptive resistance: no overflow = light pull, some overflow = heavy quickly.
@@ -261,7 +260,6 @@
                 var scaleProgress = Math.max(0, (pullDist - DEAD_ZONE) / (THRESHOLD - DEAD_ZONE));
                 var scale = 1 + Math.min(scaleProgress, 1) * 0.4;
                 spinner.style.transform = 'rotate(' + (pullDist / THRESHOLD * 360) + 'deg) scale(' + scale + ')';
-                wasReady = ready;
                 indicator.classList.toggle('ptr-ready', ready);
             }, { passive: true });
 
@@ -315,7 +313,15 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("__setPtrRef", _dotNetRef);
+            NavigationManager.LocationChanged += OnLocationChanged;
         }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Clear stale callbacks so pages without PTR fall through to reload
+        PullToRefreshState.RefreshCallback = null;
+        PullToRefreshState.NotifyStateChanged = null;
     }
 
     [JSInvokable]
@@ -346,6 +352,7 @@
 
     public void Dispose()
     {
+        NavigationManager.LocationChanged -= OnLocationChanged;
         _dotNetRef?.Dispose();
     }
 }
