@@ -60,7 +60,13 @@
                     }
                 </button>
 
-                @if (hasResults)
+                @if (_isStandalone)
+                {
+                    <button class="btn btn-secondary" disabled="@(!hasResults)" @onclick="DownloadLatestPdf">
+                        Download PDF
+                    </button>
+                }
+                else if (hasResults)
                 {
                     <a href="/api/reports/latest/pdf" class="btn btn-secondary" download>
                         Download PDF
@@ -878,6 +884,7 @@
     private Dictionary<string, bool> _purposeSaved = new();
     private Dictionary<string, System.Timers.Timer> _purposeSavedTimers = new();
     private bool _purposeOverridesPending;
+    private bool _isStandalone;
 
     private static readonly List<(string Value, string Display)> _purposeOptions =
     [
@@ -929,6 +936,21 @@
 
         // Load network purpose overrides
         _purposeOverrides = await AuditService.GetNetworkPurposeOverridesAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _isStandalone = await JSRuntime.InvokeAsync<bool>("eval",
+                    "window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true");
+                if (_isStandalone)
+                    StateHasChanged();
+            }
+            catch { }
+        }
     }
 
     private async Task RunAudit()
@@ -1000,6 +1022,28 @@
     }
 
     private string? exportError;
+
+    private async Task DownloadLatestPdf()
+    {
+        try
+        {
+            // Use JS fetch + blob to force download - Safari PWA opens PDFs inline with <a download>
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                fetch('/api/reports/latest/pdf')
+                    .then(r => r.blob())
+                    .then(b => {
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(b);
+                        a.download = 'NetworkAudit_Latest.pdf';
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                    })");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading latest PDF");
+        }
+    }
 
     private async Task ExportReport()
     {
