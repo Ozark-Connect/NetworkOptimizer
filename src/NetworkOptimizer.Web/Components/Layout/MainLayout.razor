@@ -218,6 +218,7 @@
 
             var startY = 0;
             var pulling = false;
+            var hasMoved = false;
             var wasReady = false;
             var THRESHOLD = 90;
             var DEAD_ZONE = THRESHOLD / 3;
@@ -228,13 +229,16 @@
                 if (container.scrollTop <= 0) {
                     startY = e.touches[0].pageY;
                     pulling = true;
+                    hasMoved = false;
                     wasReady = false;
                     indicator.classList.remove('ptr-refreshing');
+                    indicator.classList.remove('ptr-ready');
                 }
             }, { passive: true });
 
             container.addEventListener('touchmove', function(e) {
                 if (!pulling) return;
+                hasMoved = true;
                 var pullDist = (e.touches[0].pageY - startY) / RESISTANCE;
                 if (pullDist <= 0) { pullDist = 0; pulling = false; }
                 var capped = Math.min(pullDist, THRESHOLD * 1.3);
@@ -259,7 +263,7 @@
             container.addEventListener('touchend', function() {
                 if (!pulling) return;
                 pulling = false;
-                if (indicator.classList.contains('ptr-ready')) {
+                if (hasMoved && indicator.classList.contains('ptr-ready')) {
                     spinner.style.removeProperty('transform');
                     indicator.classList.add('ptr-refreshing');
                     indicator.style.transform = 'translateY(' + THRESHOLD + 'px)';
