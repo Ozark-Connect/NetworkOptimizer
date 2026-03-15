@@ -111,7 +111,7 @@ public class UniFiApiClient : IDisposable
 
         _httpClient = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = TimeSpan.FromSeconds(15)
         };
 
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
@@ -200,8 +200,14 @@ public class UniFiApiClient : IDisposable
             // Reset client to clear old cookies
             InitializeHttpClient();
 
+            // Use a shorter timeout for connection calls (detect + login) than for data API calls.
+            // Console should respond quickly; long waits here just delay error feedback.
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(5));
+            var connectToken = connectCts.Token;
+
             // Detect which login endpoint to use
-            await DetectLoginTypeAsync(cancellationToken);
+            await DetectLoginTypeAsync(connectToken);
 
             var loginRequest = new UniFiLoginRequest
             {
@@ -223,7 +229,7 @@ public class UniFiApiClient : IDisposable
                 Encoding.UTF8,
                 "application/json");
 
-            var response = await _httpClient!.PostAsync(loginUrl, content, cancellationToken);
+            var response = await _httpClient!.PostAsync(loginUrl, content, connectToken);
 
             if (!response.IsSuccessStatusCode)
             {
