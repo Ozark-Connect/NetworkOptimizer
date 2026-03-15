@@ -669,6 +669,20 @@ docker compose build --no-cache
 docker compose up -d
 ```
 
+### Windows Installer
+
+Download the latest MSI from [GitHub Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) and run it. The installer upgrades in-place, preserving your database, settings, and encryption keys. The Network Optimizer service restarts automatically after the upgrade.
+
+### macOS Native
+
+```bash
+cd NetworkOptimizer
+git pull
+./scripts/install-macos-native.sh
+```
+
+The install script preserves your database, encryption keys, and `start.sh` configuration by backing them up before reinstalling. See the [macOS Installation Guide](../docs/MACOS-INSTALLATION.md) for details.
+
 ### Verify Update
 
 ```bash
