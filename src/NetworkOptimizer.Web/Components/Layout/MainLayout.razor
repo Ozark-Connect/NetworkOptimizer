@@ -139,8 +139,8 @@
                         topBar.classList.add('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
-                    } else if (!nearBottom && scrollUpAccum > 40) {
-                        // Require 40px cumulative upward scroll, not near bottom
+                    } else if (!nearBottom && scrollUpAccum > 60) {
+                        // Require 60px cumulative upward scroll, not near bottom
                         topBar.classList.remove('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '70px';
                         startAutoHideTimer(topBar);

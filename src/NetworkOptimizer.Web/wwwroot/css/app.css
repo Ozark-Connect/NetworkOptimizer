@@ -2333,15 +2333,17 @@ select.form-control {
         /* scroll-padding-top set dynamically by JS based on top bar visibility */
     }
 
-    /* Prevent interactive elements from capturing touch and blocking scroll */
-    .main-content button,
-    .main-content a,
-    .main-content .card-header-collapsible,
-    .main-content input,
-    .main-content select,
-    .main-content [onclick],
-    .main-content [role="button"] {
-        touch-action: manipulation;
+    /* Prevent any element from capturing touch and blocking vertical scroll */
+    .main-content * {
+        touch-action: pan-y;
+    }
+
+    /* Allow horizontal scroll where needed (tables, tabs) */
+    .main-content .table-responsive,
+    .main-content .table-responsive *,
+    .main-content .wifi-view-tabs,
+    .main-content .wifi-view-tabs * {
+        touch-action: pan-x pan-y;
     }
 
     .page-content {
