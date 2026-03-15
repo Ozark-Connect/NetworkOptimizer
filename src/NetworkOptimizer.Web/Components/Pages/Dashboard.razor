@@ -9,6 +9,7 @@
 @inject IAdminAuthService AdminAuthService
 @inject ThreatDashboardService ThreatService
 @inject NavigationManager NavigationManager
+@inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -434,6 +435,9 @@
     {
         NavigationManager.LocationChanged += OnLocationChanged;
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        PtrState.RefreshCallback = () => Task.WhenAll(
+            LoadDashboardData(), LoadSpeedTestData(), LoadWanTestData(), LoadThreatData());
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         // Fire and forget - page renders immediately with spinners, data loads in background
         _ = LoadAllDataAsync();
