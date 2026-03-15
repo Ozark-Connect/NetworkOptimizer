@@ -127,8 +127,9 @@
         {
             try
             {
-                var ua = await JS.InvokeAsync<string>("eval", "navigator.userAgent");
-                ParseUserAgent(ua ?? "");
+                var ua = await JS.InvokeAsync<string>("eval", "navigator.userAgent") ?? "";
+                var maxTouchPoints = await JS.InvokeAsync<int>("eval", "navigator.maxTouchPoints || 0");
+                ParseUserAgent(ua, maxTouchPoints);
                 _detected = true;
                 await InvokeAsync(StateHasChanged);
             }
@@ -140,13 +141,16 @@
         }
     }
 
-    private void ParseUserAgent(string ua)
+    private void ParseUserAgent(string ua, int maxTouchPoints)
     {
         // iOS detection: iPhone, iPad, or iPod in UA
-        // Note: iPad with "Request Desktop Site" shows as Mac, but we check for "Mobile" or touch
-        if (ua.Contains("iPhone", StringComparison.OrdinalIgnoreCase) ||
-            ua.Contains("iPad", StringComparison.OrdinalIgnoreCase) ||
-            ua.Contains("iPod", StringComparison.OrdinalIgnoreCase))
+        // iPads with "Request Desktop Site" (default) report as Macintosh but have touch support
+        var isIos = ua.Contains("iPhone", StringComparison.OrdinalIgnoreCase) ||
+                    ua.Contains("iPad", StringComparison.OrdinalIgnoreCase) ||
+                    ua.Contains("iPod", StringComparison.OrdinalIgnoreCase) ||
+                    (ua.Contains("Macintosh", StringComparison.OrdinalIgnoreCase) && maxTouchPoints > 0);
+
+        if (isIos)
         {
             _platform = Platform.Ios;
 
