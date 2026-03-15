@@ -18,6 +18,7 @@
 @inject IJSRuntime JS
 @inject IHttpContextAccessor HttpContextAccessor
 @inject ApMapService ApMapService
+@inject PullToRefreshState PtrState
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -919,6 +920,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = () => LoadTabDataAsync();
+
         // Parse tab from URL
         if (!string.IsNullOrEmpty(TabParam))
         {

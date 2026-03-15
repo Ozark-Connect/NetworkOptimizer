@@ -10,6 +10,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<Audit> Logger
 @inject NavigationManager NavigationManager
+@inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -896,6 +897,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = async () => { if (hasResults) await RunAudit(); };
+
         // Wait for auto-connect to complete (if credentials are saved)
         // This prevents the "Not Connected" banner from flashing after page reload
         await ConnectionService.WaitForConnectionAsync();

@@ -6,6 +6,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<UpnpInspector> Logger
 @inject NetworkOptimizerDbContext Db
+@inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -311,6 +312,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = () => RefreshData();
+
         await ConnectionService.WaitForConnectionAsync();
 
         // Load notes from API

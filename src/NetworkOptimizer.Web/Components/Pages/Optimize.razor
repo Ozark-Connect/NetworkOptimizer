@@ -5,6 +5,7 @@
 @inject DiagnosticsService DiagnosticsService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<Optimize> Logger
+@inject PullToRefreshState PtrState
 @rendermode InteractiveServer
 
 <PageTitle>Config Optimizer - Network Optimizer</PageTitle>
@@ -474,6 +475,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = async () => { if (_result != null) await RunDiagnostics(); };
+
         // Wait for auto-connect to complete (if credentials are saved)
         // This prevents the button from staying disabled after a restart
         await ConnectionService.WaitForConnectionAsync();

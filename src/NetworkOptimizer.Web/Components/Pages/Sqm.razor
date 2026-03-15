@@ -8,6 +8,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject IJSRuntime JS
 @inject ILogger<Sqm> Logger
+@inject PullToRefreshState PtrState
 @rendermode InteractiveServer
 @using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
 @using NetworkOptimizer.Sqm.Models
@@ -1601,6 +1602,7 @@
 
         // Subscribe to connection changes (handles reconnection after server restart)
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        PtrState.RefreshCallback = () => RefreshStatus();
 
         // Check cache synchronously BEFORE first render to avoid loading flash
         if (IsCacheValid())

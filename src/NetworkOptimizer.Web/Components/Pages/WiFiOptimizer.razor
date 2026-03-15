@@ -11,6 +11,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
 @inject ApMapService ApMapService
+@inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -765,6 +766,7 @@
         }
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        PtrState.RefreshCallback = () => RefreshData();
         _ = LoadDataAsync();
 
         // Poll for new speed test results and signal data every 5 seconds

@@ -21,6 +21,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject WanDataUsageService DataUsageService
 @inject IJSRuntime JS
+@inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -1708,6 +1709,7 @@
     {
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
+        PtrState.RefreshCallback = () => SetActiveTab(_activeTab, pushHistory: false);
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 

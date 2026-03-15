@@ -1,7 +1,10 @@
 @inherits LayoutComponentBase
+@implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using System.Reflection
 @inject UniFiConnectionService ConnectionService
+@inject PullToRefreshState PullToRefreshState
+@inject IJSRuntime JS
 
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
@@ -205,6 +208,7 @@
                 }
             }).observe(sidebar, { attributes: true, attributeFilter: ['class'] });
         }
+        window.__setPtrRef = function(ref) { window.__ptrDotNetRef = ref; };
         // Custom pull-to-refresh (replaces native, blocked by overscroll-behavior)
         (function() {
             if (window.innerWidth > 768) return;
@@ -245,6 +249,13 @@
                 indicator.classList.toggle('ptr-ready', ready);
             }, { passive: true });
 
+            function resetIndicator() {
+                spinner.style.removeProperty('transform');
+                indicator.style.transform = '';
+                indicator.style.opacity = '0';
+                indicator.classList.remove('ptr-refreshing');
+            }
+
             container.addEventListener('touchend', function() {
                 if (!pulling) return;
                 pulling = false;
@@ -253,7 +264,15 @@
                     indicator.classList.add('ptr-refreshing');
                     indicator.style.transform = 'translateY(' + THRESHOLD + 'px)';
                     indicator.style.opacity = '1';
-                    setTimeout(function() { location.reload(); }, 600);
+                    // Try Blazor page refresh callback, fall back to full reload
+                    if (window.__ptrDotNetRef) {
+                        window.__ptrDotNetRef.invokeMethodAsync('OnPullToRefresh').then(function(handled) {
+                            if (!handled) location.reload();
+                            else resetIndicator();
+                        }).catch(function() { location.reload(); });
+                    } else {
+                        setTimeout(function() { location.reload(); }, 600);
+                    }
                 } else {
                     spinner.style.removeProperty('transform');
                     indicator.style.transform = '';
@@ -266,6 +285,31 @@
 
 @code {
     private bool sidebarOpen = false;
+    private DotNetObjectReference<MainLayout>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("__setPtrRef", _dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public async Task<bool> OnPullToRefresh()
+    {
+        var callback = PullToRefreshState.RefreshCallback;
+        if (callback == null)
+            return false;
+
+        await InvokeAsync(async () =>
+        {
+            await callback();
+            StateHasChanged();
+        });
+        return true;
+    }
 
     private void ToggleSidebar()
     {
@@ -276,5 +320,10 @@
     {
         sidebarOpen = false;
         StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
     }
 }

@@ -15,6 +15,7 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<ThreatDashboard> Logger
 @inject IJSRuntime JS
+@inject PullToRefreshState PtrState
 
 <PageTitle>Threat Intelligence - Network Optimizer</PageTitle>
 
@@ -2428,6 +2429,7 @@ else
                 _timeRange = "90d";
         }
 
+        PtrState.RefreshCallback = () => LoadDataAsync();
         await LoadDataAsync();
 
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection

@@ -17,6 +17,7 @@
 @inject IJSRuntime JS
 @inject SystemSettingsService SettingsService
 @inject ApMapService ApMapService
+@inject PullToRefreshState PtrState
 @using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
@@ -1297,6 +1298,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = () => LoadHistory();
+
         // Check schedule banner dismissal and local iperf3 availability
         _lanScheduleBannerDismissed = await SettingsService.GetAsync("banner.lan_schedule_dismissed") != null;
         localIperf3Status = await SettingsService.CheckLocalIperf3Async();
