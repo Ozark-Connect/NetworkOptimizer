@@ -3847,6 +3847,9 @@ select.form-control {
 }
 
 /* Mini signal strength bars on wireless connectors */
+/* TEMP: disable tooltip on wireless connectors for debugging */
+.path-analysis .path-connector.wireless[data-tooltip] { pointer-events: none; }
+
 .mini-signal-bars {
     display: flex;
     align-items: flex-end;
