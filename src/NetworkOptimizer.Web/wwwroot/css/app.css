@@ -2268,6 +2268,46 @@ select.form-control {
 }
 
 @media (max-width: 768px) {
+    /* Pull-to-refresh indicator */
+    .pull-to-refresh {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 40px;
+        transform: translateY(-40px);
+        opacity: 0;
+        z-index: 1000;
+        pointer-events: none;
+        transition: none;
+    }
+
+    .pull-to-refresh.ptr-refreshing {
+        transition: transform 0.2s ease;
+    }
+
+    .ptr-spinner {
+        width: 24px;
+        height: 24px;
+        color: var(--primary-color);
+        transition: none;
+    }
+
+    .pull-to-refresh.ptr-ready .ptr-spinner {
+        color: var(--success-color);
+    }
+
+    .pull-to-refresh.ptr-refreshing .ptr-spinner {
+        animation: ptr-spin 0.8s linear infinite;
+    }
+
+    @keyframes ptr-spin {
+        to { transform: rotate(360deg); }
+    }
+
     /* Show hamburger button on mobile */
     .hamburger-btn {
         display: block;
