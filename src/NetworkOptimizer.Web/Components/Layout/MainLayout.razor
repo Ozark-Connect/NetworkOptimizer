@@ -222,7 +222,9 @@
             var wasReady = false;
             var THRESHOLD = 90;
             var DEAD_ZONE = THRESHOLD / 3;
-            var RESISTANCE = 2.5;
+            var MIN_RESISTANCE = 1.5;
+            var MAX_RESISTANCE = 2.5;
+            var resistance = MAX_RESISTANCE;
             var spinner = indicator.querySelector('.ptr-spinner');
 
             container.addEventListener('touchstart', function(e) {
@@ -233,13 +235,17 @@
                     wasReady = false;
                     indicator.classList.remove('ptr-refreshing');
                     indicator.classList.remove('ptr-ready');
+                    // Lighter pull on short pages, heavier on long scrollable pages
+                    var overflow = container.scrollHeight - container.clientHeight;
+                    var t = Math.min(overflow / 500, 1); // 0 = no scroll, 1 = 500px+ of scroll
+                    resistance = MIN_RESISTANCE + t * (MAX_RESISTANCE - MIN_RESISTANCE);
                 }
             }, { passive: true });
 
             container.addEventListener('touchmove', function(e) {
                 if (!pulling) return;
                 hasMoved = true;
-                var pullDist = (e.touches[0].pageY - startY) / RESISTANCE;
+                var pullDist = (e.touches[0].pageY - startY) / resistance;
                 if (pullDist <= 0) { pullDist = 0; pulling = false; }
                 var capped = Math.min(pullDist, THRESHOLD * 1.3);
                 var ready = pullDist >= THRESHOLD;
