@@ -159,7 +159,7 @@ public class ChannelRecommendationService
             var radio = ap.Radios.First(r => r.Band == band && r.Channel.HasValue);
             var isPlaced = propContext?.ApsByMac.ContainsKey(ap.Mac.ToLowerInvariant()) == true;
 
-            var (validChannels, effectiveWidth, hadDfsFallback) = GetValidChannelsWithWidth(band, radio, regulatoryData, opts.DfsPreference);
+            var (validChannels, effectiveWidth, hadDfsFallback) = GetValidChannelsWithWidth(band, radio, regulatoryData, opts.DfsPreference, radio.Channel!.Value);
             if (hadDfsFallback) graph.DfsAvoidanceFallback = true;
             var currentWidth = radio.ChannelWidth ?? 20;
 
@@ -959,7 +959,8 @@ public class ChannelRecommendationService
     private (int[] Channels, int Width, bool DfsFallback) GetValidChannelsWithWidth(
         RadioBand band, RadioSnapshot radio,
         RegulatoryChannelData? regulatoryData,
-        DfsPreference dfsPref)
+        DfsPreference dfsPref,
+        int currentChannel)
     {
         var width = radio.ChannelWidth ?? 20;
         var channels = GetValidChannels(band, radio, regulatoryData, dfsPref, width);
@@ -972,10 +973,37 @@ public class ChannelRecommendationService
             band == RadioBand.Band5GHz)
         {
             channels = GetValidChannels(band, radio, regulatoryData, DfsPreference.IncludeWithPenalty, width);
-            return (channels, width, true);
+            return (DeduplicateByBondingGroup(channels, band, width, currentChannel), width, true);
         }
 
-        return (channels, width, false);
+        return (DeduplicateByBondingGroup(channels, band, width, currentChannel), width, false);
+    }
+
+    /// <summary>
+    /// Deduplicate channels that map to the same bonding group at the given width.
+    /// At 80 MHz, channels 149/153/157/161 all produce the same (149-161) block,
+    /// so the optimizer should only see one of them. Keeps the lowest channel
+    /// (bonding group start) as the representative.
+    /// </summary>
+    private static int[] DeduplicateByBondingGroup(int[] channels, RadioBand band, int width, int? currentChannel = null)
+    {
+        if (width <= 20 || band == RadioBand.Band2_4GHz)
+            return channels;
+
+        var deduped = channels
+            .GroupBy(ch => ChannelSpanHelper.GetChannelSpan(band, ch, width))
+            .Select(g =>
+            {
+                // If the AP's current channel is in this group, keep it as the
+                // representative so the optimizer can correctly identify "no change"
+                if (currentChannel.HasValue && g.Contains(currentChannel.Value))
+                    return currentChannel.Value;
+                return g.Min();
+            })
+            .OrderBy(ch => ch)
+            .ToArray();
+
+        return deduped;
     }
 
     private int[] GetValidChannels(
