@@ -234,7 +234,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         // Validate URL before attempting connection
         if (string.IsNullOrWhiteSpace(config.ControllerUrl))
         {
-            _lastError = "Console URL is required. Enter the IP address or hostname of your UniFi Console.";
+            _lastError = "Console URL is required. Enter the URL or hostname of your UniFi Console.";
             return false;
         }
 
@@ -492,7 +492,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public async Task<(bool Success, string? Error, string? ControllerInfo)> TestConnectionAsync(UniFiConnectionConfig config)
     {
         if (string.IsNullOrWhiteSpace(config.ControllerUrl))
-            return (false, "Console URL is required. Enter the IP address or hostname of your UniFi Console.", null);
+            return (false, "Console URL is required. Enter the URL or hostname of your UniFi Console.", null);
 
         _logger.LogInformation("Testing connection to UniFi controller at {Url}", config.ControllerUrl);
 
@@ -554,7 +554,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public async Task<(bool Success, string? Error, List<UniFiSite> Sites)> GetSitesAsync(UniFiConnectionConfig config)
     {
         if (string.IsNullOrWhiteSpace(config.ControllerUrl))
-            return (false, "Console URL is required. Enter the IP address or hostname of your UniFi Console.", new List<UniFiSite>());
+            return (false, "Console URL is required. Enter the URL or hostname of your UniFi Console.", new List<UniFiSite>());
 
         _logger.LogInformation("Fetching sites from UniFi controller at {Url}", config.ControllerUrl);
 
