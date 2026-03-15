@@ -5,7 +5,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject PullToRefreshState PullToRefreshState
 @inject IJSRuntime JS
-@inject NavigationManager NavigationManager
+@inject ILogger<MainLayout> Logger
 
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
@@ -281,17 +281,21 @@
                     indicator.style.opacity = '1';
                     // Try Blazor page refresh callback, fall back to full reload
                     if (window.__ptrDotNetRef) {
+                        console.log('[PTR] invoking OnPullToRefresh via DotNet ref');
                         window.__ptrDotNetRef.invokeMethodAsync('OnPullToRefresh').then(function(handled) {
+                            console.log('[PTR] OnPullToRefresh returned:', handled);
                             if (!handled) {
                                 setTimeout(function() { location.reload(); }, 600);
                             } else {
                                 // Keep spinner visible briefly so user sees feedback
                                 setTimeout(resetIndicator, 400);
                             }
-                        }).catch(function() {
+                        }).catch(function(err) {
+                            console.error('[PTR] OnPullToRefresh error:', err);
                             setTimeout(function() { location.reload(); }, 600);
                         });
                     } else {
+                        console.log('[PTR] no DotNet ref, falling back to reload');
                         setTimeout(function() { location.reload(); }, 600);
                     }
                 } else {
@@ -314,30 +318,38 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("__setPtrRef", _dotNetRef);
-            NavigationManager.LocationChanged += OnLocationChanged;
         }
-    }
-
-    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
-    {
-        // Invalidate stale callbacks - pages that re-register after navigation will work,
-        // pages that don't will fall through to reload
-        PullToRefreshState.OnNavigated();
     }
 
     [JSInvokable]
     public async Task<bool> OnPullToRefresh()
     {
         var callback = PullToRefreshState.RefreshCallback;
-        if (callback == null)
-            return false;
+        var hasNotify = PullToRefreshState.NotifyStateChanged != null;
+        Logger.LogDebug("PTR: OnPullToRefresh called. Callback={HasCallback}, Notify={HasNotify}",
+            callback != null, hasNotify);
 
-        await InvokeAsync(async () =>
+        if (callback == null)
         {
-            await callback();
-            PullToRefreshState.NotifyStateChanged?.Invoke();
-        });
-        return true;
+            Logger.LogDebug("PTR: No callback registered, falling back to reload");
+            return false;
+        }
+
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await callback();
+                PullToRefreshState.NotifyStateChanged?.Invoke();
+            });
+            Logger.LogDebug("PTR: Callback executed successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "PTR: Callback threw, falling back to reload");
+            return false;
+        }
     }
 
     private void ToggleSidebar()
@@ -353,7 +365,6 @@
 
     public void Dispose()
     {
-        NavigationManager.LocationChanged -= OnLocationChanged;
         _dotNetRef?.Dispose();
     }
 }

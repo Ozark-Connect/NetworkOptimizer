@@ -6,25 +6,6 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class PullToRefreshState
 {
-    private Func<Task>? _refreshCallback;
-    private int _navigationGeneration;
-    private int _callbackGeneration;
-
-    public Func<Task>? RefreshCallback
-    {
-        get => _callbackGeneration >= _navigationGeneration ? _refreshCallback : null;
-        set { _refreshCallback = value; _callbackGeneration = _navigationGeneration; }
-    }
-
+    public Func<Task>? RefreshCallback { get; set; }
     public Action? NotifyStateChanged { get; set; }
-
-    /// <summary>
-    /// Called by layout on navigation. Increments the generation so stale callbacks
-    /// from previous pages are ignored unless the new page re-registers.
-    /// </summary>
-    public void OnNavigated()
-    {
-        _navigationGeneration++;
-        NotifyStateChanged = null;
-    }
 }
