@@ -72,6 +72,7 @@
             return document.querySelector('.page-content');
         }
         var lastScrollTop = 0;
+        var scrollUpAccum = 0; // cumulative upward scroll distance
         var currentEl = null;
 
         function attachListener(el) {
@@ -118,15 +119,32 @@
             if (window.innerWidth <= 768) {
                 var topBar = document.querySelector('.top-bar');
 
-                if (topBar && Math.abs(st - lastScrollTop) > 10) {
+                var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
+                if (st <= 0) {
+                    // Always show nav bar at top of page
+                    topBar.classList.remove('top-bar-hidden');
+                    currentEl.style.scrollPaddingTop = '70px';
+                    startAutoHideTimer(topBar);
+                    scrollUpAccum = 0;
+                    lastScrollTop = st;
+                } else if (topBar) {
+                    var delta = lastScrollTop - st; // positive = scrolling up
+                    if (delta > 0) {
+                        scrollUpAccum += delta;
+                    } else {
+                        scrollUpAccum = 0; // reset on any downward scroll
+                    }
+
                     if (st > lastScrollTop && st > 60) {
                         topBar.classList.add('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
-                    } else {
+                    } else if (!nearBottom && scrollUpAccum > 60) {
+                        // Require 60px cumulative upward scroll, not near bottom
                         topBar.classList.remove('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '70px';
                         startAutoHideTimer(topBar);
+                        scrollUpAccum = 0;
                     }
                     lastScrollTop = st;
                 }
