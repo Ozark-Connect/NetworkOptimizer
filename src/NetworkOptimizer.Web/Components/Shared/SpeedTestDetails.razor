@@ -3,6 +3,7 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.WiFi.Helpers
 @implements IDisposable
 
 @if (!PathOnly)
@@ -241,7 +242,7 @@
                                     <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
-                                            <span class="wireless-icon">📶</span>
+                                            @RenderSignalBars(lastHop, nextHopGlobal)
                                         }
                                         <span class="connector-line"></span>
                                         <span class="connector-speed" style="@(linkSpeed == 0 ? "visibility:hidden" : "")">@(linkSpeed > 0 ? FormatSpeed(linkSpeed) : "0")</span>
@@ -271,7 +272,7 @@
                                     <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
-                                            <span class="wireless-icon">📶</span>
+                                            @RenderSignalBars(hop, nextHopGlobal)
                                         }
                                         <span class="connector-line"></span>
                                         <span class="connector-speed" style="@(linkSpeed == 0 ? "visibility:hidden" : "")">@(linkSpeed > 0 ? FormatSpeed(linkSpeed) : "0")</span>
@@ -322,7 +323,7 @@
                                     <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
-                                            <span class="wireless-icon">📶</span>
+                                            @RenderSignalBars(hop, nextHopGlobal)
                                         }
                                         <span class="connector-line"></span>
                                         <span class="connector-speed" style="@(linkSpeed == 0 ? "visibility:hidden" : "")">@(linkSpeed > 0 ? FormatSpeed(linkSpeed) : "0")</span>
@@ -756,6 +757,39 @@
             ? hop.IngressSpeedMbps
             : (hop.EgressSpeedMbps > 0 ? hop.EgressSpeedMbps : nextHop.IngressSpeedMbps);
     }
+
+    /// <summary>
+    /// Get signal strength info for the wireless link between two hops.
+    /// Returns the signal dBm and band from whichever hop owns the wireless data.
+    /// </summary>
+    private static (int? signalDbm, string? band) GetWirelessSignalInfo(NetworkHop hop, NetworkHop nextHop)
+    {
+        if (hop.IsWirelessEgress && hop.WirelessSignalDbm.HasValue)
+            return (hop.WirelessSignalDbm, hop.WirelessEgressBand);
+        if (nextHop.IsWirelessIngress && nextHop.WirelessSignalDbm.HasValue)
+            return (nextHop.WirelessSignalDbm, nextHop.WirelessIngressBand);
+        return (null, null);
+    }
+
+    private RenderFragment RenderSignalBars(NetworkHop hop, NetworkHop nextHop) => __builder =>
+    {
+        var (signalDbm, band) = GetWirelessSignalInfo(hop, nextHop);
+        var signalClass = signalDbm.HasValue
+            ? SignalClassification.GetSignalClass(signalDbm.Value, band)
+            : "";
+        var activeBars = signalDbm.HasValue
+            ? SignalClassification.GetBarCount(signalClass)
+            : 0;
+
+        <span class="wireless-icon">
+            <span class="mini-signal-bars @signalClass">
+                @for (int i = 1; i <= 5; i++)
+                {
+                    <span class="bar @(i <= activeBars ? "active" : "")"></span>
+                }
+            </span>
+        </span>
+    };
 
     /// <summary>
     /// Determine if the link between two hops should be highlighted as a bottleneck.

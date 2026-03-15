@@ -3839,13 +3839,35 @@ select.form-control {
 
 .path-analysis .path-connector .wireless-icon {
     position: absolute;
-    top: -0.9rem;
+    top: -1.1rem;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 0.9rem;
     line-height: 1;
     cursor: pointer;
 }
+
+/* Mini signal strength bars on wireless connectors */
+.mini-signal-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5px;
+    height: 14px;
+}
+.mini-signal-bars .bar {
+    width: 3px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.15);
+}
+.mini-signal-bars .bar:nth-child(1) { height: 20%; }
+.mini-signal-bars .bar:nth-child(2) { height: 40%; }
+.mini-signal-bars .bar:nth-child(3) { height: 60%; }
+.mini-signal-bars .bar:nth-child(4) { height: 80%; }
+.mini-signal-bars .bar:nth-child(5) { height: 100%; }
+.mini-signal-bars.signal-excellent .bar.active { background: #10b981; }
+.mini-signal-bars.signal-good .bar.active { background: #22c55e; }
+.mini-signal-bars.signal-fair .bar.active { background: #eab308; }
+.mini-signal-bars.signal-weak .bar.active { background: #f97316; }
+.mini-signal-bars.signal-poor .bar.active { background: #ef4444; }
 
 /* Path row - base styling (always flex) */
 .path-analysis .path-row {
