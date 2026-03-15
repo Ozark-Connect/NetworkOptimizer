@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.WiFi.Data;
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Services;
 using Xunit;
@@ -475,5 +476,28 @@ public class ChannelRecommendationServiceTests
             rec.RecommendedChannel.Should().BeOneOf(new[] { 1, 6, 11 },
                 $"2.4 GHz should only recommend 1/6/11 but got {rec.RecommendedChannel}");
         }
+    }
+
+    [Fact]
+    public void Optimize_80MHz_DoesNotRecommendSameBondingGroup()
+    {
+        // Two APs on 80 MHz should not both end up in the 149-161 bonding group
+        // (ch 149 and ch 153 are the same 80 MHz block)
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36, width: 80),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 36, width: 80)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        var ch1 = plan.Recommendations[0].RecommendedChannel;
+        var ch2 = plan.Recommendations[1].RecommendedChannel;
+
+        // Verify they're in different bonding groups
+        var span1 = ChannelSpanHelper.GetChannelSpan(RadioBand.Band5GHz, ch1, 80);
+        var span2 = ChannelSpanHelper.GetChannelSpan(RadioBand.Band5GHz, ch2, 80);
+        ChannelSpanHelper.SpansOverlap(span1, span2).Should().BeFalse(
+            $"APs should be on different 80 MHz blocks but got ch{ch1} ({span1}) and ch{ch2} ({span2})");
     }
 }
