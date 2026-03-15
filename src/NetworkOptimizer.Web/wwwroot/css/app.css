@@ -9464,7 +9464,7 @@ a.path-hop.hop-clickable:hover {
 .channel-disclaimer .disclaimer-dismiss-btn {
     flex-shrink: 0;
     white-space: nowrap;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     color: var(--text-secondary);
     border: none;
     padding: 0.35rem 0.75rem;
@@ -9475,7 +9475,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .channel-disclaimer .disclaimer-dismiss-btn:hover {
-    background: var(--bg-hover);
+    background: var(--bg-secondary);
     color: var(--text-primary);
 }
 
