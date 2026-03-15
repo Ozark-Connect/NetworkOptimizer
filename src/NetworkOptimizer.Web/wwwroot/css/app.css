@@ -3850,7 +3850,7 @@ select.form-control {
 .mini-signal-bars {
     display: flex;
     align-items: flex-end;
-    gap: 1.5px;
+    gap: 0.1rem;
     height: 14px;
 }
 .mini-signal-bars .bar {
