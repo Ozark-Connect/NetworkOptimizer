@@ -236,8 +236,8 @@
                     indicator.classList.remove('ptr-refreshing');
                     indicator.classList.remove('ptr-ready');
                     // Adaptive resistance: no overflow = light pull, any overflow = near-max.
-                    // Zero-scroll pages get lighter resistance (0.8x = ~72px finger travel).
-                    // Pages with overflow start at 2.0x and ramp to 2.5x by 500px.
+                    // Zero-scroll pages get lighter resistance (0.7x = ~63px finger travel).
+                    // Pages with overflow start at 2.1x and ramp to 2.5x by 500px.
                     var overflow = container.scrollHeight - container.clientHeight;
                     if (overflow <= 5) {
                         resistance = RESISTANCE_ZERO;
