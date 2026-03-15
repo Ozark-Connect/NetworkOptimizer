@@ -898,6 +898,7 @@
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = async () => { if (hasResults) await RunAudit(); };
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         // Wait for auto-connect to complete (if credentials are saved)
         // This prevents the "Not Connected" banner from flashing after page reload

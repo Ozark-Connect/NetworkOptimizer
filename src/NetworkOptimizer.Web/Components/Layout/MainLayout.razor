@@ -328,7 +328,7 @@
         await InvokeAsync(async () =>
         {
             await callback();
-            StateHasChanged();
+            PullToRefreshState.NotifyStateChanged?.Invoke();
         });
         return true;
     }

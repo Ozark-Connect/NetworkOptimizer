@@ -313,6 +313,7 @@
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => RefreshData();
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         await ConnectionService.WaitForConnectionAsync();
 

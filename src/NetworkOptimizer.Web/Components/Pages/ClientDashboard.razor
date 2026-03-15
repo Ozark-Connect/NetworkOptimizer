@@ -921,6 +921,7 @@
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadTabDataAsync();
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         // Parse tab from URL
         if (!string.IsNullOrEmpty(TabParam))

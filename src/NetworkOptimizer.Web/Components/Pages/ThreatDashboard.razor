@@ -2430,6 +2430,7 @@ else
         }
 
         PtrState.RefreshCallback = () => LoadDataAsync();
+        PtrState.NotifyStateChanged = StateHasChanged;
         await LoadDataAsync();
 
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection

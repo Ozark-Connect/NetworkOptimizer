@@ -7,4 +7,5 @@ namespace NetworkOptimizer.Web.Services;
 public class PullToRefreshState
 {
     public Func<Task>? RefreshCallback { get; set; }
+    public Action? NotifyStateChanged { get; set; }
 }

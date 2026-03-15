@@ -1603,6 +1603,7 @@
         // Subscribe to connection changes (handles reconnection after server restart)
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         PtrState.RefreshCallback = () => RefreshStatus();
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         // Check cache synchronously BEFORE first render to avoid loading flash
         if (IsCacheValid())

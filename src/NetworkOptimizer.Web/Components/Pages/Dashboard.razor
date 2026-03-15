@@ -437,6 +437,7 @@
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         PtrState.RefreshCallback = () => Task.WhenAll(
             LoadDashboardData(), LoadSpeedTestData(), LoadWanTestData(), LoadThreatData());
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         // Fire and forget - page renders immediately with spinners, data loads in background
         _ = LoadAllDataAsync();

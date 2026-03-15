@@ -767,6 +767,7 @@
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         PtrState.RefreshCallback = () => RefreshData();
+        PtrState.NotifyStateChanged = StateHasChanged;
         _ = LoadDataAsync();
 
         // Poll for new speed test results and signal data every 5 seconds

@@ -733,6 +733,7 @@
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadHistory();
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();

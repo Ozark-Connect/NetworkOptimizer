@@ -1724,6 +1724,7 @@
                 case "incidents": await LoadIncidents(); break;
             }
         };
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
