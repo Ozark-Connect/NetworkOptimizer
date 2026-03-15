@@ -255,19 +255,20 @@
                 <ol class="install-steps">
                     <li>Open Network Optimizer in <strong>Safari</strong></li>
                     <li>
-                        Tap the <strong>Share</strong> button
+                        Tap <strong><span class="key-hint">&#8230;</span></strong> (More) in the bottom toolbar,
+                        then tap <strong>Share</strong>
                         @RenderShareIcon()
-                        in the bottom toolbar
                     </li>
                     <li>Scroll down and tap <strong>"Add to Home Screen"</strong></li>
                     <li>Tap <strong>"Add"</strong> in the top right</li>
                 </ol>
-                @if (!highlight)
-                {
-                    <p class="install-note">
-                        On iOS 16.4 and later, Chrome, Firefox, and Edge can also add to home screen via the Share menu.
-                    </p>
-                }
+                <p class="install-note">
+                    If you see a Share button directly in the toolbar (older iOS or Bottom toolbar layout), you can tap that instead.
+                    @if (!highlight)
+                    {
+                        <text>On iOS 16.4+, Chrome, Firefox, and Edge can also add to home screen via the Share menu.</text>
+                    }
+                </p>
             </div>
         </div>
     };
