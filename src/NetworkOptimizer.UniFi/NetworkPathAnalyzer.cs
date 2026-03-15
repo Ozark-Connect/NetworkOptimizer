@@ -121,8 +121,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private static long FilterIdleRate(long rateKbps) =>
         rateKbps == WifiIdleRateKbps ? 0 : rateKbps;
 
-    // Mesh backhaul overhead factor - ~55% overhead due to half-duplex, retransmits, etc.
-    private const double MeshBackhaulOverheadFactor = 0.45;
+    // Mesh backhaul overhead factor - ~45% overhead due to half-duplex, retransmits, etc.
+    private const double MeshBackhaulOverheadFactor = 0.55;
 
     // WAN overhead factor - same as wired (6% overhead)
     private const double WanOverheadFactor = 0.94;
@@ -560,7 +560,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 Order = 0,
                 Type = HopType.Wan,
-                DeviceName = "WAN",
+                DeviceName = !string.IsNullOrEmpty(wanNetwork?.Name) ? wanNetwork.Name : "WAN",
                 IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 IngressPortName = "WAN",
@@ -702,7 +702,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     Order = 0,
                     Type = targetClient.IsWired ? HopType.Client : HopType.WirelessClient,
                     DeviceMac = targetClient.Mac,
-                    DeviceName = targetClient.Name ?? targetClient.Hostname,
+                    DeviceName = !string.IsNullOrEmpty(targetClient.Name) ? targetClient.Name : targetClient.Hostname,
                     DeviceIp = targetClient.IpAddress,
                     Notes = targetClient.IsWired ? "Client (wired)" : $"Client ({targetClient.ConnectionType})"
                 };
@@ -786,6 +786,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
                 {
                     deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                    if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue)
+                    {
+                        deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, targetDevice.Mac, targetDevice.LocalUplinkPort);
+                    }
                     deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
                 }
 
@@ -806,6 +810,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     && device.UplinkSpeedMbps > 0;
 
                 int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                // If this device has no port table (e.g., AP with empty port_table),
+                // use the previous hop's egress speed (same physical link, same negotiated speed)
+                if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0)
+                {
+                    ingressSpeed = hops[^1].EgressSpeedMbps;
+                }
                 string? ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
 
                 var hop = new NetworkHop
@@ -848,6 +858,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     {
                         hop.EgressPort = device.UplinkPort;
                         hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                        // If upstream device has no port table (e.g., AP with empty port_table),
+                        // fall back to local device's uplink port speed (same physical link, same negotiated speed)
+                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue)
+                        {
+                            hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
+                        }
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
                     }
                 }
@@ -1466,6 +1482,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 // Wired uplink - get port speed from upstream switch
                 deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                // If upstream device has no port table (e.g., AP with empty port_table),
+                // fall back to local device's uplink port speed (same physical link, same negotiated speed)
+                if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue)
+                {
+                    deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, targetDevice.Mac, targetDevice.LocalUplinkPort);
+                }
                 deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
             }
 
@@ -1492,7 +1514,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 Order = 0,
                 Type = targetClient.IsWired ? HopType.Client : HopType.WirelessClient,
                 DeviceMac = targetClient.Mac,
-                DeviceName = targetClient.Name ?? targetClient.Hostname,
+                DeviceName = !string.IsNullOrEmpty(targetClient.Name) ? targetClient.Name : targetClient.Hostname,
                 DeviceIp = targetClient.IpAddress,
                 Notes = targetClient.IsWired ? "Target client (wired)" : $"Target client ({targetClient.ConnectionType})"
             };
@@ -1729,6 +1751,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // Ingress speed comes from the port/connection from the PREVIOUS hop, not this device's uplink
                 // For APs after a wireless client, ingress is the client's wireless connection (handled by client hop's egress)
                 int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                // If this device has no port table (e.g., AP with empty port_table),
+                // use the previous hop's egress speed (same physical link, same negotiated speed)
+                if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0)
+                {
+                    ingressSpeed = hops[^1].EgressSpeedMbps;
+                }
                 string? ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
 
                 var hop = new NetworkHop
@@ -1795,6 +1823,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     {
                         hop.EgressPort = device.UplinkPort;
                         hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                        // If upstream device has no port table (e.g., AP with empty port_table),
+                        // fall back to local device's uplink port speed (same physical link, same negotiated speed)
+                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue)
+                        {
+                            hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
+                        }
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
                     }
                 }
@@ -2085,7 +2119,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return new NetworkHop
             {
                 Type = HopType.Wan,
-                DeviceName = "WAN",
+                DeviceName = !string.IsNullOrEmpty(wanNetwork?.Name) ? wanNetwork.Name : "WAN",
                 DeviceIp = clientIp,
                 IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),

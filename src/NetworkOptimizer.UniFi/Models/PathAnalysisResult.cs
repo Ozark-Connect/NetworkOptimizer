@@ -144,7 +144,7 @@ public class PathAnalysisResult
     /// Overhead factors for different link types
     /// </summary>
     public const double ClientWifiOverheadFactor = 0.75;    // 25% overhead
-    public const double MeshBackhaulOverheadFactor = 0.45;  // 55% overhead
+    public const double MeshBackhaulOverheadFactor = 0.55;  // 45% overhead
     public const double WiredOverheadFactor = 0.94;         // 6% overhead
     public const double WanOverheadFactor = 0.94;           // 6% overhead
 
@@ -215,44 +215,43 @@ public class PathAnalysisResult
         {
             // Determine overhead based on path type
             double overheadFactor;
+            // Find mesh hop if present (used for overhead selection and max speed capping)
+            var meshHop = Path.Hops.FirstOrDefault(h =>
+                h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
+                h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
+
             if (Path.IsExternalPath)
             {
                 // WAN/VPN paths use wired overhead (6%)
                 overheadFactor = WanOverheadFactor;
             }
-            else
+            else if (meshHop != null)
             {
-                // Find mesh hop if present
-                var meshHop = Path.Hops.FirstOrDefault(h =>
-                    h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
-                    h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
-
-                if (meshHop != null)
+                // If target IS the mesh AP, mesh IS the connection - always use mesh overhead
+                if (Path.TargetIsAccessPoint)
                 {
-                    // If target IS the mesh AP, mesh IS the connection - always use mesh overhead
-                    if (Path.TargetIsAccessPoint)
-                    {
-                        overheadFactor = MeshBackhaulOverheadFactor;
-                    }
-                    else
-                    {
-                        // For Wi-Fi clients behind mesh: check if mesh is the bottleneck
-                        var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
-                            ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
-                            : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
-
-                        var clientSpeedMbps = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value) / 1000.0;
-
-                        // Mesh overhead only if mesh is the bottleneck
-                        overheadFactor = meshSpeedMbps < clientSpeedMbps
-                            ? MeshBackhaulOverheadFactor
-                            : ClientWifiOverheadFactor;
-                    }
+                    overheadFactor = MeshBackhaulOverheadFactor;
                 }
                 else
                 {
-                    overheadFactor = ClientWifiOverheadFactor;
+                    // For Wi-Fi clients behind mesh: check if mesh is the bottleneck.
+                    // Use the speed from the mesh-specific port only - the other side of the hop
+                    // may be the client wireless link (not mesh).
+                    var meshSpeedMbps = meshHop.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true
+                        ? meshHop.EgressSpeedMbps
+                        : meshHop.IngressSpeedMbps;
+
+                    var clientSpeedMbps = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value) / 1000.0;
+
+                    // Mesh overhead only if mesh link is slower than client wifi
+                    overheadFactor = meshSpeedMbps > 0 && meshSpeedMbps < clientSpeedMbps
+                        ? MeshBackhaulOverheadFactor
+                        : ClientWifiOverheadFactor;
                 }
+            }
+            else
+            {
+                overheadFactor = ClientWifiOverheadFactor;
             }
             var overheadPercent = (int)Math.Round((1 - overheadFactor) * 100);
 
@@ -260,6 +259,18 @@ public class PathAnalysisResult
             // TX = AP transmits to client = ToDevice direction limit
             var fromDeviceMaxMbps = wifiRxRateKbps.Value / 1000.0;
             var toDeviceMaxMbps = wifiTxRateKbps.Value / 1000.0;
+
+            // When mesh is the bottleneck, cap max to mesh directional rates (client wifi is
+            // faster but data must traverse the slower mesh link). Mesh hop stores child AP's
+            // perspective: TX = child sends toward server (FromDevice), RX = child receives (ToDevice).
+            if (overheadFactor == MeshBackhaulOverheadFactor && meshHop != null)
+            {
+                if (meshHop.WirelessTxRateMbps is > 0)
+                    fromDeviceMaxMbps = Math.Min(fromDeviceMaxMbps, meshHop.WirelessTxRateMbps.Value);
+                if (meshHop.WirelessRxRateMbps is > 0)
+                    toDeviceMaxMbps = Math.Min(toDeviceMaxMbps, meshHop.WirelessRxRateMbps.Value);
+            }
+
             var fromRealistic = fromDeviceMaxMbps * overheadFactor;
             var toRealistic = toDeviceMaxMbps * overheadFactor;
 

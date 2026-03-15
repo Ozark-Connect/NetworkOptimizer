@@ -93,6 +93,18 @@ public static class SignalClassification
         _ => -78
     };
 
+    /// <summary>
+    /// Get the number of signal bars (1-5) for a given signal class.
+    /// </summary>
+    public static int GetBarCount(string signalClass) => signalClass switch
+    {
+        "signal-excellent" => 5,
+        "signal-good" => 4,
+        "signal-fair" => 3,
+        "signal-weak" => 2,
+        _ => 1
+    };
+
     private static RadioBand ParseBand(string? bandString) => bandString switch
     {
         "ng" => RadioBand.Band2_4GHz,

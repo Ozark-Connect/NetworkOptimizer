@@ -21,7 +21,7 @@
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
-<div class="client-dashboard-page">
+<div class="client-dashboard-page" data-autohide-nav="2000">
     @* Page Header *@
     <div class="page-header">
         <h1>Client Performance</h1>
@@ -241,24 +241,22 @@
                     </button>
                 }
             </div>
-        </div>
-
-        @* Tabs + Time Filter *@
-        <div class="dashboard-controls">
-            <div class="tab-bar">
-                <button class="tab-btn @(_activeTab == "speed" ? "active" : "")"
-                        @onclick='() => SetActiveTab("speed")'>Speed</button>
-                <button class="tab-btn @(_activeTab == "signal" ? "active" : "")"
-                        @onclick='() => SetActiveTab("signal")'>Signal</button>
-                <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
-                        @onclick='() => SetActiveTab("connection")'>Connection</button>
-            </div>
-            <div class="time-range-selector">
-                @foreach (var tf in _timeFilters)
-                {
-                    <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
-                            @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
-                }
+            <div class="dashboard-controls">
+                <div class="tab-bar">
+                    <button class="tab-btn @(_activeTab == "speed" ? "active" : "")"
+                            @onclick='() => SetActiveTab("speed")'>Speed</button>
+                    <button class="tab-btn @(_activeTab == "signal" ? "active" : "")"
+                            @onclick='() => SetActiveTab("signal")'>Signal</button>
+                    <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
+                            @onclick='() => SetActiveTab("connection")'>Connection</button>
+                </div>
+                <div class="time-range-selector">
+                    @foreach (var tf in _timeFilters)
+                    {
+                        <button class="time-btn @(_selectedTimeFilter == tf.hours ? "active" : "")"
+                                @onclick="() => SetTimeFilter(tf.hours)">@tf.label</button>
+                    }
+                </div>
             </div>
         </div>
 
@@ -406,15 +404,19 @@
                                     <thead>
                                         <tr>
                                             <th>Time</th>
-                                            <th>From Device</th>
-                                            <th>To Device</th>
+                                            <th class="hide-mobile">From Device</th>
+                                            <th class="hide-mobile">To Device</th>
+                                            <th class="show-mobile">Result</th>
                                             @if (!(_client?.IsWired == true))
                                             {
-                                                <th data-tooltip="AP receive rate (from device)">RX Rate</th>
-                                                <th data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                                <th class="hide-mobile" data-tooltip="AP receive rate (from device)">RX Rate</th>
+                                                <th class="hide-mobile" data-tooltip="AP transmit rate (to device)">TX Rate</th>
+                                                <th class="show-mobile" data-tooltip="AP link rates (RX / TX)">RX / TX Rate</th>
                                             }
+
                                             <th class="hide-mobile">Ping</th>
                                             <th class="hide-mobile">Type</th>
+                                            <th></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -422,23 +424,26 @@
                                         {
                                             <tr class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
-                                                <td>@FormatSignalTime(r.TestTime)</td>
-                                                <td><span class="speed-down">@r.DownloadMbps.ToString("F1")</span> Mbps</td>
-                                                <td><span class="speed-up">@r.UploadMbps.ToString("F1")</span> Mbps</td>
+                                                <td>@FormatTimeShort(r.TestTime)</td>
+                                                <td class="hide-mobile"><span class="speed-down">@r.DownloadMbps.ToString("F1")</span> Mbps</td>
+                                                <td class="hide-mobile"><span class="speed-up">@r.UploadMbps.ToString("F1")</span> Mbps</td>
+                                                <td class="show-mobile"><span class="speed-down">@r.DownloadMbps.ToString("F0")</span> / <span class="speed-up">@r.UploadMbps.ToString("F0")</span></td>
                                                 @if (!(_client?.IsWired == true))
                                                 {
-                                                    <td>@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
-                                                    <td>@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                    <td class="hide-mobile">@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
+                                                    <td class="hide-mobile">@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
+                                                    <td class="show-mobile">@RenderRateShort(r.WifiRxRateKbps, "wifi-speed-rx") / @RenderRateShort(r.WifiTxRateKbps, "wifi-speed-tx")</td>
                                                 }
                                                 <td class="hide-mobile">@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
                                                 <td class="hide-mobile">@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
+                                                <td class="expand-chevron"><span>@(_expandedResultId == r.Id ? "▲" : "▼")</span></td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
                                             {
                                                 <tr class="result-details-row">
-                                                    <td colspan="@(_client?.IsWired == true ? 5 : 7)">
+                                                    <td colspan="@(_client?.IsWired == true ? 6 : 8)">
                                                         <div class="result-details">
-                                                            <SpeedTestDetails Result="r" />
+                                                            <SpeedTestDetails Result="r" HideDeviceName="true" />
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -636,7 +641,8 @@
                     {
                         <div class="card trace-card">
                             <h3>Network Path</h3>
-                            <SpeedTestDetails PathAnalysis="_latestPoll.PathAnalysis" PathOnly="true" />
+                            <SpeedTestDetails PathAnalysis="_latestPoll.PathAnalysis" PathOnly="true"
+                                              ClientSignalDbm="@(_client?.SignalDbm)" ClientRadio="@(_client?.Band)" />
                         </div>
                     }
 
@@ -2001,12 +2007,28 @@
             : local.ToString("MMM dd HH:mm:ss");
     }
 
+    private static string FormatTimeShort(DateTime utcTimestamp)
+    {
+        var local = utcTimestamp.ToLocalTime();
+        return local.Date == DateTime.Now.Date
+            ? local.ToString("HH:mm")
+            : local.ToString("MMM dd HH:mm");
+    }
+
     private static MarkupString RenderRate(long? rateKbps, string colorClass)
     {
         if (!rateKbps.HasValue || rateKbps == 0)
             return new MarkupString("-");
         var value = $"{rateKbps.Value / 1000.0:F0}";
         return new MarkupString($"<span class=\"{colorClass}\">{value}</span> Mbps");
+    }
+
+    private static MarkupString RenderRateShort(long? rateKbps, string colorClass)
+    {
+        if (!rateKbps.HasValue || rateKbps == 0)
+            return new MarkupString("-");
+        var value = $"{rateKbps.Value / 1000.0:F0}";
+        return new MarkupString($"<span class=\"{colorClass}\">{value}</span>");
     }
 
     private static string FormatBand(string? band) => band switch
@@ -2195,10 +2217,16 @@
     .identity-bar {
         padding: 12px 16px;
         position: sticky;
-        top: 0;
+        top: -24px;
         z-index: 10;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        transition: top 0.3s ease, padding 0.3s ease;
+        border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+        box-shadow: none;
+        overflow: visible;
+        margin-bottom: 0;
+        transition: top 0.3s ease, padding 0.3s ease, box-shadow 0.3s ease;
+    }
+    .identity-bar.identity-collapsed {
+        box-shadow: 0 4px 6px -2px rgba(0, 0, 0, 0.3);
     }
     .identity-row-1 {
         display: flex;
@@ -2297,6 +2325,7 @@
         gap: 8px 12px;
         font-size: 0.8125rem;
         color: var(--text-secondary);
+        margin-bottom: 1rem;
     }
     .identity-detail {
         white-space: nowrap;
@@ -2342,8 +2371,31 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 16px;
+        padding: 8px 0;
+        margin: 0 -16px -12px;
+        background: var(--bg-primary);
+        border-radius: 0;
+        position: relative;
         flex-wrap: wrap;
+    }
+    .dashboard-controls::before,
+    .dashboard-controls::after {
+        content: '';
+        position: absolute;
+        top: -6px;
+        width: 6px;
+        height: 6px;
+        background: var(--bg-primary);
+    }
+    .dashboard-controls::before {
+        left: 0;
+        mask: radial-gradient(circle at 100% 0, transparent 6px, black 6px);
+        -webkit-mask: radial-gradient(circle at 100% 0, transparent 6px, black 6px);
+    }
+    .dashboard-controls::after {
+        right: 0;
+        mask: radial-gradient(circle at 0 0, transparent 6px, black 6px);
+        -webkit-mask: radial-gradient(circle at 0 0, transparent 6px, black 6px);
     }
     .tab-bar {
         display: flex;
@@ -2490,10 +2542,21 @@
     .result-details-row td {
         padding: 0;
     }
+    .expand-chevron {
+        width: 2rem;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
     .result-details {
-        padding: 16px;
+        padding: 2px 0 0;
+        margin-bottom: 0.5rem;
         background: rgba(0,0,0,0.2);
         border-bottom: 1px solid var(--border-color);
+    }
+    .result-details .test-details {
+        padding-left: 1rem;
+        padding-right: 1rem;
     }
 
     /* Signal Bars (used in identity bar) */
@@ -2659,7 +2722,12 @@
     /* Mobile responsive */
     @@media (max-width: 768px) {
         .client-dashboard-page {
-            padding: 0 0 24px;
+            padding: 0 0 80px;
+        }
+        .identity-bar {
+            top: 0;
+            border-radius: var(--border-radius-lg);
+            margin-bottom: 1rem;
         }
         .identity-row-1 {
             flex-direction: column;
@@ -2673,6 +2741,7 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 6px 12px;
+            margin-bottom: 0;
         }
         .logging-toggle-desktop {
             display: none;
@@ -2686,15 +2755,30 @@
             display: inline-flex;
         }
         .dashboard-controls {
-            flex-direction: column;
-            align-items: stretch;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 10;
+            background: var(--bg-card);
+            padding: 8px 12px;
+            box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+            flex-direction: row;
+            align-items: center;
+            margin: 0;
+        }
+        .dashboard-controls::before,
+        .dashboard-controls::after {
+            display: none;
         }
         .tab-bar {
             justify-content: stretch;
+            flex: 1;
         }
         .tab-btn {
             flex: 1;
             text-align: center;
+            padding: 0.5rem 0.5rem;
         }
         .speed-hero-results {
             display: grid;
