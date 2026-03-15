@@ -82,26 +82,58 @@
             el.addEventListener('scroll', onScroll, { passive: true });
         }
 
-        function onScroll() {
-            if (window.innerWidth > 768) return;
-            var st = currentEl.scrollTop;
-            var topBar = document.querySelector('.top-bar');
+        var autoHideTimer = null;
 
-            if (topBar && Math.abs(st - lastScrollTop) > 10) {
-                if (st > lastScrollTop && st > 60) {
+        function startAutoHideTimer(topBar) {
+            clearAutoHideTimer();
+            var page = document.querySelector('[data-autohide-nav]');
+            if (!page) return;
+            var delay = parseInt(page.getAttribute('data-autohide-nav')) || 3000;
+            autoHideTimer = setTimeout(function() {
+                var sidebarOpen = document.querySelector('.sidebar.open');
+                if (sidebarOpen) return;
+                if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.add('top-bar-hidden');
-                    currentEl.style.scrollPaddingTop = '0px';
-                } else {
-                    topBar.classList.remove('top-bar-hidden');
-                    currentEl.style.scrollPaddingTop = '70px';
+                    if (currentEl) currentEl.style.scrollPaddingTop = '0px';
+                    var identityBar = document.querySelector('.identity-bar');
+                    if (identityBar) identityBar.classList.remove('below-topbar');
                 }
-                lastScrollTop = st;
-            }
+            }, delay);
+        }
 
+        function clearAutoHideTimer() {
+            if (autoHideTimer) { clearTimeout(autoHideTimer); autoHideTimer = null; }
+        }
+
+        function onScroll() {
+            var st = currentEl.scrollTop;
+
+            // Identity bar collapse (all screen sizes)
             var identityBar = document.querySelector('.identity-bar');
             if (identityBar) {
                 identityBar.classList.toggle('identity-collapsed', st > 80);
-                identityBar.classList.toggle('below-topbar', topBar && !topBar.classList.contains('top-bar-hidden'));
+            }
+
+            // Mobile-only: top bar hide/show, below-topbar offset
+            if (window.innerWidth <= 768) {
+                var topBar = document.querySelector('.top-bar');
+
+                if (topBar && Math.abs(st - lastScrollTop) > 10) {
+                    if (st > lastScrollTop && st > 60) {
+                        topBar.classList.add('top-bar-hidden');
+                        currentEl.style.scrollPaddingTop = '0px';
+                        clearAutoHideTimer();
+                    } else {
+                        topBar.classList.remove('top-bar-hidden');
+                        currentEl.style.scrollPaddingTop = '70px';
+                        startAutoHideTimer(topBar);
+                    }
+                    lastScrollTop = st;
+                }
+
+                if (identityBar) {
+                    identityBar.classList.toggle('below-topbar', topBar && !topBar.classList.contains('top-bar-hidden'));
+                }
             }
 
             // Footer: fade in when near bottom (opacity, no layout shift)
@@ -134,6 +166,17 @@
 
         attachListener(getScrollEl());
         window.addEventListener('resize', function() { attachListener(getScrollEl()); });
+
+        // Restart auto-hide timer when sidebar closes
+        var sidebar = document.querySelector('.sidebar');
+        if (sidebar) {
+            new MutationObserver(function() {
+                if (!sidebar.classList.contains('open')) {
+                    var topBar = document.querySelector('.top-bar');
+                    if (topBar) startAutoHideTimer(topBar);
+                }
+            }).observe(sidebar, { attributes: true, attributeFilter: ['class'] });
+        }
     })();
 </script>
 

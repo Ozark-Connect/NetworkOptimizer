@@ -2344,11 +2344,12 @@ select.form-control {
         height: auto;
         padding: 0.75rem 1rem;
         gap: 0.5rem;
-        transition: transform 0.3s ease;
+        transition: transform 0.2s ease, margin 0.2s ease;
     }
 
     .top-bar.top-bar-hidden {
         transform: translateY(-100%);
+        margin-bottom: -3rem;
     }
 
     .app-footer {
@@ -2385,6 +2386,14 @@ select.form-control {
         max-height: 0;
         opacity: 0;
         margin: 0;
+    }
+
+    .identity-bar.identity-collapsed {
+        border-radius: 0;
+        margin-left: -16px;
+        margin-right: -16px;
+        padding-left: 16px;
+        padding-right: 16px;
     }
 
     .status-indicators {
@@ -3346,7 +3355,7 @@ select.form-control {
 
 .speed-results > .detail-actions {
     position: absolute;
-    right: 0.5rem;
+    right: 1.25rem;
     top: 0;
     bottom: 0;
     display: flex;
@@ -3640,6 +3649,15 @@ select.form-control {
         display: table-cell !important;
     }
 
+    .host-truncate {
+        display: inline-block;
+        max-width: 125px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: bottom;
+    }
+
     .speedtest-container .data-table,
     .client-speedtest-container .data-table {
         min-width: 350px;
@@ -3653,8 +3671,9 @@ select.form-control {
         margin-bottom: 0.25rem;
     }
 
+    .data-table th,
     .data-table td {
-        padding: 0.75rem 0.5rem;
+        padding: 0.75rem 0.4rem;
     }
 
     td .btn {
@@ -3678,6 +3697,8 @@ select.form-control {
 .history-details .test-details {
     position: relative;
     border-top: 1px solid var(--bg-card);
+    padding-left: 1rem;
+    padding-right: 1rem;
 }
 
 .history-details .path-analysis {
@@ -3782,6 +3803,14 @@ select.form-control {
     cursor: default;
 }
 
+.path-analysis .path-hop[data-tooltip] {
+    cursor: pointer;
+}
+.path-analysis .path-hop[data-tooltip] .hop-icon,
+.path-analysis .path-hop[data-tooltip] .hop-name {
+    cursor: pointer;
+}
+
 .path-analysis .path-hop.bottleneck {
     border: 1px solid var(--warning-color);
 }
@@ -3819,6 +3848,10 @@ select.form-control {
     cursor: default;
 }
 
+.path-analysis .path-connector .connector-speed-spacer {
+    display: none;
+}
+
 .path-analysis .path-connector.bottleneck .connector-line {
     background: var(--warning-color);
 }
@@ -3837,21 +3870,51 @@ select.form-control {
     position: relative;
 }
 
+.path-analysis .path-connector[data-tooltip] {
+    cursor: pointer;
+}
+.path-analysis .path-connector[data-tooltip] .connector-speed {
+    cursor: pointer;
+}
+
 .path-analysis .path-connector .wireless-icon {
     position: absolute;
-    top: -0.9rem;
+    top: -1.05rem;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 0.9rem;
     line-height: 1;
     cursor: pointer;
 }
+
+/* Mini signal strength bars on wireless connectors */
+.mini-signal-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.1rem;
+    height: 14px;
+}
+.mini-signal-bars .bar {
+    width: 3px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.15);
+}
+.mini-signal-bars .bar:nth-child(1) { height: 20%; }
+.mini-signal-bars .bar:nth-child(2) { height: 40%; }
+.mini-signal-bars .bar:nth-child(3) { height: 60%; }
+.mini-signal-bars .bar:nth-child(4) { height: 80%; }
+.mini-signal-bars .bar:nth-child(5) { height: 100%; }
+.mini-signal-bars.signal-excellent .bar.active { background: #10b981; }
+.mini-signal-bars.signal-good .bar.active { background: #22c55e; }
+.mini-signal-bars.signal-fair .bar.active { background: #eab308; }
+.mini-signal-bars.signal-weak .bar.active { background: #f97316; }
+.mini-signal-bars.signal-poor .bar.active { background: #ef4444; }
 
 /* Path row - base styling (always flex) */
 .path-analysis .path-row {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    padding: 0.5rem 0;
 }
 
 /* Switchback layout - snake pattern for multi-row traces */
@@ -4070,10 +4133,20 @@ select.form-control {
         display: none;
     }
 
-    /* Rotate speed badges to be readable on mobile */
+    /* Position speed badges beside connector on mobile */
     .path-analysis .path-connector .connector-speed {
         transform: rotate(-90deg);
-        padding-right: 65%;
+        position: absolute;
+        top: 28px;
+        width: 60px;
+        text-align: end;
+    }
+
+    /* Spacer holds vertical space for the absolute-positioned speed label */
+    .path-analysis .path-connector .connector-speed-spacer {
+        display: block;
+        visibility: hidden;
+        font-size: 0.6rem;
     }
 
     /* Reset turn connector margins on mobile */
@@ -4087,6 +4160,8 @@ select.form-control {
 
     /* Counter-rotate wireless icon to stay upright when connector is rotated */
     .path-analysis .path-connector .wireless-icon {
+        top: -1.2rem;
+        left: 43%;
         transform: translateX(-50%) rotate(-90deg);
     }
 
@@ -4237,6 +4312,10 @@ a.path-hop.hop-clickable {
     color: inherit;
     cursor: pointer;
 }
+a.path-hop.hop-clickable .hop-icon,
+a.path-hop.hop-clickable .hop-name {
+    cursor: pointer;
+}
 
 a.path-hop.hop-clickable:hover {
     border-color: var(--primary-light);
@@ -4301,6 +4380,7 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.8rem;
     color: var(--warning-color);
     margin-bottom: 0.5rem;
+    white-space: normal;
 }
 
 .path-analysis .routing-badge {
@@ -4326,6 +4406,7 @@ a.path-hop.hop-clickable:hover {
 /* Notes section */
 .path-analysis .path-notes {
     border-top: 1px solid var(--border-color);
+    white-space: normal;
 }
 
 .path-analysis .note {
@@ -4410,7 +4491,8 @@ a.path-hop.hop-clickable:hover {
 }
 
 .history-details {
-    padding: 1rem 1.5rem 1.5rem;
+    padding: 2px 0 0;
+    margin-bottom: 0.5rem;
 }
 
 /* ============================================

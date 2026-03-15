@@ -325,7 +325,6 @@
                             <th class="hide-mobile">Model</th>
                             <th class="show-mobile">Device</th>
                             <th class="hide-mobile">IP Address</th>
-                            <th class="show-mobile">IP</th>
                             <th class="hide-mobile">Type</th>
                             <th>Status</th>
                             <th>Action</th>
@@ -344,7 +343,6 @@
                                     <code class="text-muted">@device.FriendlyModelName</code>
                                 </td>
                                 <td class="hide-mobile"><code>@device.IpAddress</code></td>
-                                <td class="show-mobile"><code>@ShortenIp(device.IpAddress)</code></td>
                                 <td class="hide-mobile">@device.Type.ToDisplayName()</td>
                                 <td>
                                     @if (isOnline)
@@ -457,7 +455,7 @@
                                 <td class="hide-mobile"><code>@device.Host</code></td>
                                 <td class="show-mobile">
                                     @device.Name<br />
-                                    <code class="text-muted">@device.Host</code>
+                                    <code class="text-muted host-truncate">@device.Host</code>
                                 </td>
                                 <td class="hide-mobile">@device.DeviceType.ToDisplayName()</td>
                                 <td>
@@ -2112,15 +2110,6 @@
         historyPage = 1; // Reset to first page on filter change
         expandedHistoryId = null; // Collapse any expanded row
         StateHasChanged();
-    }
-
-    private static string ShortenIp(string? ip)
-    {
-        if (string.IsNullOrEmpty(ip)) return "";
-        var parts = ip.Split('.');
-        if (parts.Length == 4)
-            return $"...{parts[2]}.{parts[3]}";
-        return ip;
     }
 
 }
