@@ -235,10 +235,16 @@
                     wasReady = false;
                     indicator.classList.remove('ptr-refreshing');
                     indicator.classList.remove('ptr-ready');
-                    // Lighter pull on short pages, heavier on long scrollable pages
+                    // Adaptive resistance: no overflow = light pull, some overflow = heavy quickly.
+                    // Use sqrt curve so resistance jumps to near-max with small overflow,
+                    // only dropping to minimum for truly zero-scroll pages.
                     var overflow = container.scrollHeight - container.clientHeight;
-                    var t = Math.min(overflow / 500, 1); // 0 = no scroll, 1 = 500px+ of scroll
-                    resistance = MIN_RESISTANCE + t * (MAX_RESISTANCE - MIN_RESISTANCE);
+                    if (overflow <= 5) {
+                        resistance = MIN_RESISTANCE;
+                    } else {
+                        var t = Math.min(overflow / 500, 1);
+                        resistance = MIN_RESISTANCE + Math.sqrt(t) * (MAX_RESISTANCE - MIN_RESISTANCE);
+                    }
                 }
             }, { passive: true });
 
@@ -277,9 +283,15 @@
                     // Try Blazor page refresh callback, fall back to full reload
                     if (window.__ptrDotNetRef) {
                         window.__ptrDotNetRef.invokeMethodAsync('OnPullToRefresh').then(function(handled) {
-                            if (!handled) location.reload();
-                            else resetIndicator();
-                        }).catch(function() { location.reload(); });
+                            if (!handled) {
+                                setTimeout(function() { location.reload(); }, 600);
+                            } else {
+                                // Keep spinner visible briefly so user sees feedback
+                                setTimeout(resetIndicator, 400);
+                            }
+                        }).catch(function() {
+                            setTimeout(function() { location.reload(); }, 600);
+                        });
                     } else {
                         setTimeout(function() { location.reload(); }, 600);
                     }

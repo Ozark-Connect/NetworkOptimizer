@@ -1709,7 +1709,21 @@
     {
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
-        PtrState.RefreshCallback = () => SetActiveTab(_activeTab, pushHistory: false);
+        PtrState.RefreshCallback = async () =>
+        {
+            switch (_activeTab)
+            {
+                case "active": await LoadActiveAlerts(); break;
+                case "schedule": await LoadSchedules(); break;
+                case "data-usage":
+                    await DataUsageService.TriggerPollAsync();
+                    await LoadDataUsageAsync();
+                    break;
+                case "history": await LoadHistory(); break;
+                case "rules": await LoadRules(); break;
+                case "incidents": await LoadIncidents(); break;
+            }
+        };
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
