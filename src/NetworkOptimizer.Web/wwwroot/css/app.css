@@ -3837,6 +3837,9 @@ select.form-control {
     position: relative;
     cursor: pointer;
 }
+.path-analysis .path-connector.wireless .connector-speed {
+    cursor: pointer;
+}
 
 .path-analysis .path-connector .wireless-icon {
     position: absolute;
