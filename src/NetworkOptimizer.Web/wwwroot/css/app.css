@@ -2338,11 +2338,21 @@ select.form-control {
         touch-action: pan-y;
     }
 
-    /* Allow horizontal scroll where needed (tables, tabs) */
+    /* Allow horizontal scroll where needed (tables, tabs, code blocks) */
     .main-content .table-responsive,
     .main-content .table-responsive *,
+    .main-content .results-table-container,
+    .main-content .results-table-container *,
+    .main-content .client-list-section,
+    .main-content .client-list-section *,
     .main-content .wifi-view-tabs,
-    .main-content .wifi-view-tabs * {
+    .main-content .wifi-view-tabs *,
+    .main-content .view-tabs,
+    .main-content .view-tabs *,
+    .main-content .heatmap-container,
+    .main-content .heatmap-container *,
+    .main-content .config-block,
+    .main-content .config-block * {
         touch-action: pan-x pan-y;
     }
 
