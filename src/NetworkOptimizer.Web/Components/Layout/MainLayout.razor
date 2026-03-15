@@ -222,9 +222,10 @@
             var hasMoved = false;
             var THRESHOLD = 90;
             var DEAD_ZONE = THRESHOLD / 3;
-            var MIN_RESISTANCE = 1.0;
-            var MAX_RESISTANCE = 2.5;
-            var resistance = MAX_RESISTANCE;
+            var RESISTANCE_ZERO = 0.8;
+            var RESISTANCE_MIN = 2.0;
+            var RESISTANCE_MAX = 2.5;
+            var resistance = RESISTANCE_MAX;
             var spinner = indicator.querySelector('.ptr-spinner');
 
             container.addEventListener('touchstart', function(e) {
@@ -234,15 +235,15 @@
                     hasMoved = false;
                     indicator.classList.remove('ptr-refreshing');
                     indicator.classList.remove('ptr-ready');
-                    // Adaptive resistance: no overflow = light pull, some overflow = heavy quickly.
-                    // Use sqrt curve so resistance jumps to near-max with small overflow,
-                    // only dropping to minimum for truly zero-scroll pages.
+                    // Adaptive resistance: no overflow = light pull, any overflow = near-max.
+                    // Zero-scroll pages get lighter resistance (0.8x = ~72px finger travel).
+                    // Pages with overflow start at 2.0x and ramp to 2.5x by 500px.
                     var overflow = container.scrollHeight - container.clientHeight;
                     if (overflow <= 5) {
-                        resistance = MIN_RESISTANCE;
+                        resistance = RESISTANCE_ZERO;
                     } else {
                         var t = Math.min(overflow / 500, 1);
-                        resistance = MIN_RESISTANCE + Math.sqrt(t) * (MAX_RESISTANCE - MIN_RESISTANCE);
+                        resistance = RESISTANCE_MIN + t * (RESISTANCE_MAX - RESISTANCE_MIN);
                     }
                 }
             }, { passive: true });
