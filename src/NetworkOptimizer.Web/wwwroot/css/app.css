@@ -9428,7 +9428,7 @@ a.path-hop.hop-clickable:hover {
 
 .channel-disclaimer {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 0.75rem;
     padding: 0.75rem 1rem;
     background: rgba(234, 179, 8, 0.08);
@@ -9452,9 +9452,31 @@ a.path-hop.hop-clickable:hover {
     margin-top: 2px;
 }
 
-.channel-disclaimer .disclaimer-dismiss {
+.channel-disclaimer .disclaimer-link {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+.channel-disclaimer .disclaimer-link:hover {
+    color: var(--primary-hover);
+}
+
+.channel-disclaimer .disclaimer-dismiss-btn {
     flex-shrink: 0;
     white-space: nowrap;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.channel-disclaimer .disclaimer-dismiss-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 /* Score coloring */

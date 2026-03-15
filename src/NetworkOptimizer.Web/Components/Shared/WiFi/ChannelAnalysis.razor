@@ -118,11 +118,11 @@
                             </svg>
                             <span>
                                 These recommendations rely on neighbor scan data from UniFi, which may not always report accurate channels.
-                                Check <strong>RF Environment</strong> first to verify that neighboring networks show unique, realistic channels
+                                Check <a href="/wifi-optimizer?tab=spectrum" class="disclaimer-link">RF Environment</a> first to verify that neighboring networks show unique, realistic channels
                                 before acting on these recommendations.
                             </span>
                         </div>
-                        <button class="btn btn-sm btn-ghost disclaimer-dismiss" @onclick="DismissChannelDisclaimerAsync">Got it</button>
+                        <button class="disclaimer-dismiss-btn" @onclick="DismissChannelDisclaimerAsync">Got it</button>
                     </div>
                 }
 
