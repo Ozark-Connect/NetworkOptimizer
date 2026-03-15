@@ -2306,8 +2306,8 @@ select.form-control {
     }
 
     @keyframes ptr-spin {
-        from { transform: rotate(0deg) scale(1.3); }
-        to { transform: rotate(360deg) scale(1.3); }
+        from { transform: rotate(0deg) scale(1.4); }
+        to { transform: rotate(360deg) scale(1.4); }
     }
 
     /* Show hamburger button on mobile */
