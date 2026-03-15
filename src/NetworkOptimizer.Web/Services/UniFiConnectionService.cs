@@ -107,7 +107,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Auto-connect if we have credentials and RememberCredentials is true
                 if (settings.RememberCredentials && settings.HasCredentials)
                 {
-                    await Task.Delay(2000); // Wait for app startup
+                    await Task.Delay(1000); // Brief wait for app startup
                     await ConnectWithSettingsAsync(settings);
                 }
             }
@@ -318,6 +318,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         if (!settings.HasCredentials) return false;
 
+        // Use a shorter timeout for startup auto-connect so the dashboard
+        // shows the "unreachable" banner quickly instead of waiting 60s+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
         try
         {
             // Decrypt password
@@ -350,12 +354,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.IgnoreControllerSSLErrors
             );
 
-            var success = await _client.LoginAsync();
+            var success = await _client.LoginAsync(cts.Token);
 
             if (success)
             {
                 // Validate the site ID by making a site-specific call
-                var (siteValid, siteError) = await _client.ValidateSiteAsync();
+                var (siteValid, siteError) = await _client.ValidateSiteAsync(cts.Token);
                 if (!siteValid)
                 {
                     _lastError = siteError;
@@ -391,6 +395,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _client = null;
                 return false;
             }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            _lastError = "UniFi Console is unreachable. Check that it's powered on and the URL is correct.";
+            _logger.LogWarning("Startup auto-connect timed out after 10s - console unreachable");
+            _client?.Dispose();
+            _client = null;
+            return false;
         }
         catch (Exception ex)
         {
