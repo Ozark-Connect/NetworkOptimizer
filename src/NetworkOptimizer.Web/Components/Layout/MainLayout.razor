@@ -209,13 +209,16 @@
 
             var startY = 0;
             var pulling = false;
-            var THRESHOLD = 70;
+            var wasReady = false;
+            var THRESHOLD = 90;
             var RESISTANCE = 2.5;
+            var spinner = indicator.querySelector('.ptr-spinner');
 
             container.addEventListener('touchstart', function(e) {
                 if (container.scrollTop <= 0) {
                     startY = e.touches[0].pageY;
                     pulling = true;
+                    wasReady = false;
                     indicator.classList.remove('ptr-refreshing');
                 }
             }, { passive: true });
@@ -225,22 +228,26 @@
                 var pullDist = (e.touches[0].pageY - startY) / RESISTANCE;
                 if (pullDist <= 0) { pullDist = 0; pulling = false; }
                 var capped = Math.min(pullDist, THRESHOLD * 1.3);
+                var ready = pullDist >= THRESHOLD;
                 indicator.style.transform = 'translateY(' + capped + 'px)';
                 indicator.style.opacity = Math.min(pullDist / THRESHOLD, 1);
-                indicator.querySelector('.ptr-spinner').style.transform =
-                    'rotate(' + (pullDist / THRESHOLD * 360) + 'deg)';
-                indicator.classList.toggle('ptr-ready', pullDist >= THRESHOLD);
+                spinner.style.transform = 'rotate(' + (pullDist / THRESHOLD * 360) + 'deg)' +
+                    (ready ? ' scale(1.3)' : '');
+                wasReady = ready;
+                indicator.classList.toggle('ptr-ready', ready);
             }, { passive: true });
 
             container.addEventListener('touchend', function() {
                 if (!pulling) return;
                 pulling = false;
                 if (indicator.classList.contains('ptr-ready')) {
+                    spinner.style.removeProperty('transform');
                     indicator.classList.add('ptr-refreshing');
                     indicator.style.transform = 'translateY(' + THRESHOLD + 'px)';
                     indicator.style.opacity = '1';
-                    setTimeout(function() { location.reload(); }, 300);
+                    setTimeout(function() { location.reload(); }, 600);
                 } else {
+                    spinner.style.removeProperty('transform');
                     indicator.style.transform = '';
                     indicator.style.opacity = '0';
                 }
