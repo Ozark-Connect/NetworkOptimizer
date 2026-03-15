@@ -244,10 +244,7 @@
                                             <span class="wireless-icon">📶</span>
                                         }
                                         <span class="connector-line"></span>
-                                        @if (linkSpeed > 0)
-                                        {
-                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
-                                        }
+                                        <span class="connector-speed" style="@(linkSpeed == 0 ? "visibility:hidden" : "")">@(linkSpeed > 0 ? FormatSpeed(linkSpeed) : "0")</span>
                                         <span class="turn-corner"></span>
                                     </div>
                                 }
@@ -277,10 +274,7 @@
                                             <span class="wireless-icon">📶</span>
                                         }
                                         <span class="connector-line"></span>
-                                        @if (linkSpeed > 0)
-                                        {
-                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
-                                        }
+                                        <span class="connector-speed" style="@(linkSpeed == 0 ? "visibility:hidden" : "")">@(linkSpeed > 0 ? FormatSpeed(linkSpeed) : "0")</span>
                                     </div>
                                 }
 
@@ -331,10 +325,7 @@
                                             <span class="wireless-icon">📶</span>
                                         }
                                         <span class="connector-line"></span>
-                                        @if (linkSpeed > 0)
-                                        {
-                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
-                                        }
+                                        <span class="connector-speed" style="@(linkSpeed == 0 ? "visibility:hidden" : "")">@(linkSpeed > 0 ? FormatSpeed(linkSpeed) : "0")</span>
                                         @if (needsTurn)
                                         {
                                             <span class="turn-corner"></span>
