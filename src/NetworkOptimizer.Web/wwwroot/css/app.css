@@ -2946,6 +2946,26 @@ select.form-control {
     color: var(--text-secondary);
 }
 
+.pwa-banner .btn-pwa-action,
+.pwa-banner .btn-pwa-dismiss {
+    background: rgba(71, 151, 255, 0.15);
+    color: var(--info-color);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.pwa-banner .btn-pwa-action:hover,
+.pwa-banner .btn-pwa-dismiss:hover {
+    background: rgba(71, 151, 255, 0.3);
+    color: white;
+}
+
 /* Sponsorship Banner */
 .sponsorship-banner {
     background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.08) 100%);
