@@ -21,6 +21,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject WanDataUsageService DataUsageService
 @inject IJSRuntime JS
+@inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -1708,6 +1709,22 @@
     {
         _activeTab = ResolveTab(TabParam);
         _lastTabParam = TabParam;
+        PtrState.RefreshCallback = async () =>
+        {
+            switch (_activeTab)
+            {
+                case "active": await LoadActiveAlerts(); break;
+                case "schedule": await LoadSchedules(); break;
+                case "data-usage":
+                    await DataUsageService.TriggerPollAsync();
+                    await LoadDataUsageAsync();
+                    break;
+                case "history": await LoadHistory(); break;
+                case "rules": await LoadRules(); break;
+                case "incidents": await LoadIncidents(); break;
+            }
+        };
+        PtrState.NotifyStateChanged = StateHasChanged;
 
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 

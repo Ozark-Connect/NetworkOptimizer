@@ -2267,6 +2267,11 @@ select.form-control {
     display: none;
 }
 
+/* Hidden on desktop, shown only in mobile media query below */
+.pull-to-refresh {
+    display: none;
+}
+
 @media (max-width: 768px) {
     /* Pull-to-refresh indicator */
     .pull-to-refresh {

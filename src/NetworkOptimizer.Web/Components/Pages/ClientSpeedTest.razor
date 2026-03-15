@@ -16,6 +16,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject Iperf3ServerService Iperf3Server
 @inject ApMapService ApMapService
+@inject PullToRefreshState PtrState
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -731,6 +732,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = () => LoadHistory();
+        PtrState.NotifyStateChanged = StateHasChanged;
+
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
 
