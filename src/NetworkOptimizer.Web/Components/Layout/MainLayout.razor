@@ -72,6 +72,7 @@
             return document.querySelector('.page-content');
         }
         var lastScrollTop = 0;
+        var scrollUpAccum = 0; // cumulative upward scroll distance
         var currentEl = null;
 
         function attachListener(el) {
@@ -124,17 +125,26 @@
                     topBar.classList.remove('top-bar-hidden');
                     currentEl.style.scrollPaddingTop = '70px';
                     startAutoHideTimer(topBar);
+                    scrollUpAccum = 0;
                     lastScrollTop = st;
-                } else if (topBar && Math.abs(st - lastScrollTop) > 10) {
+                } else if (topBar) {
+                    var delta = lastScrollTop - st; // positive = scrolling up
+                    if (delta > 0) {
+                        scrollUpAccum += delta;
+                    } else {
+                        scrollUpAccum = 0; // reset on any downward scroll
+                    }
+
                     if (st > lastScrollTop && st > 60) {
                         topBar.classList.add('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
-                    } else if (!nearBottom && (lastScrollTop - st) > 30) {
-                        // Require 30px+ upward scroll and not near bottom of page
+                    } else if (!nearBottom && scrollUpAccum > 40) {
+                        // Require 40px cumulative upward scroll, not near bottom
                         topBar.classList.remove('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '70px';
                         startAutoHideTimer(topBar);
+                        scrollUpAccum = 0;
                     }
                     lastScrollTop = st;
                 }

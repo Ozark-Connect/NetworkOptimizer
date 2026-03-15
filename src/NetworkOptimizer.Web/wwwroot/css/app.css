@@ -2329,7 +2329,19 @@ select.form-control {
     .main-content {
         overflow-y: auto;
         overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
         /* scroll-padding-top set dynamically by JS based on top bar visibility */
+    }
+
+    /* Prevent interactive elements from capturing touch and blocking scroll */
+    .main-content button,
+    .main-content a,
+    .main-content .card-header-collapsible,
+    .main-content input,
+    .main-content select,
+    .main-content [onclick],
+    .main-content [role="button"] {
+        touch-action: manipulation;
     }
 
     .page-content {
