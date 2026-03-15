@@ -3854,7 +3854,7 @@ select.form-control {
 
 .path-analysis .path-connector .wireless-icon {
     position: absolute;
-    top: -1.1rem;
+    top: -1.05rem;
     left: 50%;
     transform: translateX(-50%);
     line-height: 1;
