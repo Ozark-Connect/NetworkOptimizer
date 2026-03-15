@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @inject ISystemSettingsService SettingsService
+@inject IJSRuntime JS
 
 @if (_visible)
 {
@@ -33,6 +34,11 @@
         {
             try
             {
+                // Already installed as PWA - no need to show the banner
+                var isStandalone = await JS.InvokeAsync<bool>("eval",
+                    "window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true");
+                if (isStandalone) return;
+
                 var dismissed = await SettingsService.GetAsync(SystemSettingKeys.PwaBannerDismissed);
                 if (string.IsNullOrEmpty(dismissed) || !dismissed.Equals("true", StringComparison.OrdinalIgnoreCase))
                 {
