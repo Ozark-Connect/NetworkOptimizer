@@ -3782,6 +3782,14 @@ select.form-control {
     cursor: default;
 }
 
+.path-analysis .path-hop[data-tooltip] {
+    cursor: pointer;
+}
+.path-analysis .path-hop[data-tooltip] .hop-icon,
+.path-analysis .path-hop[data-tooltip] .hop-name {
+    cursor: pointer;
+}
+
 .path-analysis .path-hop.bottleneck {
     border: 1px solid var(--warning-color);
 }
@@ -3835,9 +3843,12 @@ select.form-control {
 /* Wireless link indicator - shows wifi icon above the connector line */
 .path-analysis .path-connector.wireless {
     position: relative;
+}
+
+.path-analysis .path-connector[data-tooltip] {
     cursor: pointer;
 }
-.path-analysis .path-connector.wireless .connector-speed {
+.path-analysis .path-connector[data-tooltip] .connector-speed {
     cursor: pointer;
 }
 
