@@ -5,7 +5,6 @@
 @inject UniFiConnectionService ConnectionService
 @inject PullToRefreshState PullToRefreshState
 @inject IJSRuntime JS
-@inject ILogger<MainLayout> Logger
 
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
@@ -281,21 +280,17 @@
                     indicator.style.opacity = '1';
                     // Try Blazor page refresh callback, fall back to full reload
                     if (window.__ptrDotNetRef) {
-                        console.log('[PTR] invoking OnPullToRefresh via DotNet ref');
                         window.__ptrDotNetRef.invokeMethodAsync('OnPullToRefresh').then(function(handled) {
-                            console.log('[PTR] OnPullToRefresh returned:', handled);
                             if (!handled) {
                                 setTimeout(function() { location.reload(); }, 600);
                             } else {
                                 // Keep spinner visible briefly so user sees feedback
                                 setTimeout(resetIndicator, 400);
                             }
-                        }).catch(function(err) {
-                            console.error('[PTR] OnPullToRefresh error:', err);
+                        }).catch(function() {
                             setTimeout(function() { location.reload(); }, 600);
                         });
                     } else {
-                        console.log('[PTR] no DotNet ref, falling back to reload');
                         setTimeout(function() { location.reload(); }, 600);
                     }
                 } else {
@@ -325,15 +320,8 @@
     public async Task<bool> OnPullToRefresh()
     {
         var callback = PullToRefreshState.RefreshCallback;
-        var hasNotify = PullToRefreshState.NotifyStateChanged != null;
-        Logger.LogDebug("PTR: OnPullToRefresh called. Callback={HasCallback}, Notify={HasNotify}",
-            callback != null, hasNotify);
-
         if (callback == null)
-        {
-            Logger.LogDebug("PTR: No callback registered, falling back to reload");
             return false;
-        }
 
         try
         {
@@ -342,12 +330,11 @@
                 await callback();
                 PullToRefreshState.NotifyStateChanged?.Invoke();
             });
-            Logger.LogDebug("PTR: Callback executed successfully");
             return true;
         }
-        catch (Exception ex)
+        catch
         {
-            Logger.LogDebug(ex, "PTR: Callback threw, falling back to reload");
+            // Stale callback from a previous page - fall back to reload
             return false;
         }
     }
