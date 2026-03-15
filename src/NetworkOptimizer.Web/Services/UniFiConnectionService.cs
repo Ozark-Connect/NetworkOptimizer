@@ -320,7 +320,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         // Use a shorter timeout for startup auto-connect so the dashboard
         // shows the "unreachable" banner quickly instead of waiting 60s+
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
 
         try
         {
@@ -399,7 +399,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             _lastError = "UniFi Console is unreachable. Check that it's powered on and the URL is correct.";
-            _logger.LogWarning("Startup auto-connect timed out after 10s - console unreachable");
+            _logger.LogWarning("Startup auto-connect timed out - console unreachable");
             _client?.Dispose();
             _client = null;
             return false;
@@ -883,8 +883,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return "Host not found. Check the controller URL.";
         }
 
-        // Timeout
-        if (message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+        // Timeout (includes HttpClient.Timeout and TaskCanceledException)
+        if (message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
+            ex is TaskCanceledException)
         {
             return "Connection timed out. Check network connectivity and firewall settings.";
         }
