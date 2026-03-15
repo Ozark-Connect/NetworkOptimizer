@@ -107,7 +107,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Auto-connect if we have credentials and RememberCredentials is true
                 if (settings.RememberCredentials && settings.HasCredentials)
                 {
-                    await Task.Delay(2000); // Wait for app startup
+                    await Task.Delay(1000); // Brief wait for app startup
                     await ConnectWithSettingsAsync(settings);
                 }
             }
@@ -119,6 +119,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         finally
         {
             IsInitialized = true;
+
+            // Notify subscribers so the dashboard can show the connection banner
+            // (especially when auto-connect fails and WaitForConnectionAsync has already timed out)
+            OnConnectionChanged?.Invoke();
         }
     }
 
@@ -227,6 +231,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task<bool> ConnectAsync(UniFiConnectionConfig config)
     {
+        // Validate URL before attempting connection
+        if (string.IsNullOrWhiteSpace(config.ControllerUrl))
+        {
+            _lastError = "Console URL is required. Enter the URL or hostname of your UniFi Console.";
+            return false;
+        }
+
         _logger.LogInformation("Connecting to UniFi controller at {Url}", config.ControllerUrl);
 
         try
@@ -307,6 +318,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         if (!settings.HasCredentials) return false;
 
+        // Use a shorter timeout for startup auto-connect so the dashboard
+        // shows the "unreachable" banner quickly instead of waiting 60s+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+
         try
         {
             // Decrypt password
@@ -339,12 +354,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.IgnoreControllerSSLErrors
             );
 
-            var success = await _client.LoginAsync();
+            var success = await _client.LoginAsync(cts.Token);
 
             if (success)
             {
                 // Validate the site ID by making a site-specific call
-                var (siteValid, siteError) = await _client.ValidateSiteAsync();
+                var (siteValid, siteError) = await _client.ValidateSiteAsync(cts.Token);
                 if (!siteValid)
                 {
                     _lastError = siteError;
@@ -380,6 +395,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _client = null;
                 return false;
             }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            _lastError = "UniFi Console is unreachable. Check that it's powered on and the URL is correct.";
+            _logger.LogWarning("Startup auto-connect timed out - console unreachable");
+            _client?.Dispose();
+            _client = null;
+            return false;
         }
         catch (Exception ex)
         {
@@ -480,6 +503,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task<(bool Success, string? Error, string? ControllerInfo)> TestConnectionAsync(UniFiConnectionConfig config)
     {
+        if (string.IsNullOrWhiteSpace(config.ControllerUrl))
+            return (false, "Console URL is required. Enter the URL or hostname of your UniFi Console.", null);
+
         _logger.LogInformation("Testing connection to UniFi controller at {Url}", config.ControllerUrl);
 
         UniFiApiClient? testClient = null;
@@ -539,6 +565,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task<(bool Success, string? Error, List<UniFiSite> Sites)> GetSitesAsync(UniFiConnectionConfig config)
     {
+        if (string.IsNullOrWhiteSpace(config.ControllerUrl))
+            return (false, "Console URL is required. Enter the URL or hostname of your UniFi Console.", new List<UniFiSite>());
+
         _logger.LogInformation("Fetching sites from UniFi controller at {Url}", config.ControllerUrl);
 
         UniFiApiClient? testClient = null;
@@ -854,10 +883,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return "Host not found. Check the controller URL.";
         }
 
-        // Timeout
-        if (message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+        // Timeout (includes HttpClient.Timeout and TaskCanceledException)
+        if (message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
+            ex is TaskCanceledException)
         {
-            return "Connection timed out. Check network connectivity and firewall settings.";
+            return "Connection timed out. Check the console URL and firewall/VPN settings.";
         }
 
         return message;
