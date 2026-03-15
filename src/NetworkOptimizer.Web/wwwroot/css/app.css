@@ -2352,7 +2352,18 @@ select.form-control {
     .main-content .heatmap-container,
     .main-content .heatmap-container *,
     .main-content .config-block,
-    .main-content .config-block * {
+    .main-content .config-block *,
+    .main-content .code-block,
+    .main-content .code-block *,
+    .main-content .log-output,
+    .main-content .log-output *,
+    .main-content .chart-container,
+    .main-content .chart-container *,
+    .main-content .band-chart-container,
+    .main-content .band-chart-container *,
+    .main-content .wan-chart-container,
+    .main-content .wan-chart-container *,
+    .main-content canvas {
         touch-action: pan-x pan-y;
     }
 
