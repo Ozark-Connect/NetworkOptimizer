@@ -44,4 +44,10 @@ public static class SystemSettingKeys
     public const string SponsorshipLastShownLevel = "ui.sponsorship_last_shown_level";
     public const string SponsorshipLastNagTime = "ui.sponsorship_last_nag_time";
     public const string SponsorshipAlreadySponsor = "ui.sponsorship_already_sponsor";
+
+    // PWA install banner
+    public const string PwaBannerDismissed = "ui.pwa_banner_dismissed";
+
+    // Channel recommendation disclaimer
+    public const string ChannelDisclaimerDismissed = "ui.channel_disclaimer_dismissed";
 }

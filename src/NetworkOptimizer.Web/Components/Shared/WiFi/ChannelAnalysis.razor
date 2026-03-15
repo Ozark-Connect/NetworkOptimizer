@@ -2,8 +2,10 @@
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.Storage.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
+@inject ISystemSettingsService SettingsService
 
 <div class="channel-analysis-container wifi-sections">
     <div class="channel-header">
@@ -106,6 +108,23 @@
                     <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
                     <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans.Clear(); }">Back to Current</button>
                 </div>
+
+                @if (!_channelDisclaimerDismissed)
+                {
+                    <div class="channel-disclaimer">
+                        <div class="disclaimer-content">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="disclaimer-icon">
+                                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                            <span>
+                                These recommendations rely on neighbor scan data from UniFi, which may not always report accurate channels.
+                                Check <a href="/wifi-optimizer?tab=spectrum" class="disclaimer-link">RF Environment</a> first to verify that neighboring networks show unique, realistic channels
+                                before acting on these recommendations.
+                            </span>
+                        </div>
+                        <button class="disclaimer-dismiss-btn" @onclick="DismissChannelDisclaimerAsync">Got it</button>
+                    </div>
+                }
 
                 @if (_channelPlan is { } plan)
                 {
@@ -500,6 +519,9 @@
     private RadioBand _selectedBand = RadioBand.Band5GHz;
     private int? _selectedChannel;
 
+    // Channel disclaimer
+    private bool _channelDisclaimerDismissed;
+
     // Channel recommendation state
     private bool _showRecommendations;
     private bool _loadingRecommendations;
@@ -526,6 +548,13 @@
 
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var dismissed = await SettingsService.GetAsync(SystemSettingKeys.ChannelDisclaimerDismissed);
+            _channelDisclaimerDismissed = !string.IsNullOrEmpty(dismissed) && dismissed.Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { /* Non-critical */ }
+
         await LoadDataAsync();
 
         // Apply initial filters from parent navigation
@@ -1044,5 +1073,15 @@
             : "middle";
 
         return $"width-group {bandClass} group-{position} {oddEvenClass}";
+    }
+
+    private async Task DismissChannelDisclaimerAsync()
+    {
+        _channelDisclaimerDismissed = true;
+        try
+        {
+            await SettingsService.SetAsync(SystemSettingKeys.ChannelDisclaimerDismissed, "true");
+        }
+        catch { /* Still hide it */ }
     }
 }

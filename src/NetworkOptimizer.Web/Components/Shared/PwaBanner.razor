@@ -1,0 +1,62 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject ISystemSettingsService SettingsService
+
+@if (_visible)
+{
+    <div class="connection-banner pwa-banner">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: var(--info-color); color: white;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                    <line x1="12" y1="18" x2="12.01" y2="18"/>
+                </svg>
+            </span>
+            <div class="banner-text">
+                <strong style="color: var(--info-color);">Did you know?</strong>
+                <span style="color: var(--text-secondary);">You can install Network Optimizer on your phone or tablet as an app - no app store needed.</span>
+            </div>
+            <div class="banner-actions">
+                <a href="/pwa-install" class="btn-pwa-action">Show Me</a>
+                <button class="btn-pwa-dismiss" @onclick="DismissAsync">Dismiss</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _visible;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var dismissed = await SettingsService.GetAsync(SystemSettingKeys.PwaBannerDismissed);
+                if (string.IsNullOrEmpty(dismissed) || !dismissed.Equals("true", StringComparison.OrdinalIgnoreCase))
+                {
+                    _visible = true;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch
+            {
+                // Non-critical - don't show banner if we can't check
+            }
+        }
+    }
+
+    private async Task DismissAsync()
+    {
+        _visible = false;
+        try
+        {
+            await SettingsService.SetAsync(SystemSettingKeys.PwaBannerDismissed, "true");
+        }
+        catch
+        {
+            // Still hide it
+        }
+    }
+}
