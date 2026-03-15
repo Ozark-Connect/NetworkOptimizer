@@ -3835,6 +3835,7 @@ select.form-control {
 /* Wireless link indicator - shows wifi icon above the connector line */
 .path-analysis .path-connector.wireless {
     position: relative;
+    cursor: pointer;
 }
 
 .path-analysis .path-connector .wireless-icon {
@@ -3847,17 +3848,11 @@ select.form-control {
 }
 
 /* Mini signal strength bars on wireless connectors */
-/* TEMP: disable tooltip on wireless connectors for debugging */
-.path-analysis .path-connector.wireless[data-tooltip] { pointer-events: none; }
-
 .mini-signal-bars {
     display: flex;
     align-items: flex-end;
     gap: 0.1rem;
     height: 14px;
-}
-.mini-signal-bars, .mini-signal-bars .bar {
-    cursor: pointer;
 }
 .mini-signal-bars .bar {
     width: 3px;
