@@ -773,7 +773,7 @@ public class ChannelRecommendationService
         }
 
         // Phase 2: For each unique BSSID, estimate its effect at every AP
-        int directCount = 0, triangulatedCount = 0;
+        int directCount = 0, triangulatedCount = 0, filteredCount = 0;
 
         foreach (var (bssid, sightings) in allNeighbors)
         {
@@ -784,11 +784,14 @@ public class ChannelRecommendationService
                 int bestChannel = -1;
                 int? bestWidth = null;
                 bool isDirect = false;
+                int bestObserverIndex = -1;
+                double bestProximity = 0;
 
                 foreach (var (observerIndex, channel, width, signal) in sightings)
                 {
                     var neighborWeight = ChannelSpanHelper.SignalToInterferenceWeight(signal);
                     double effectiveWeight;
+                    double proximity = 0;
 
                     if (observerIndex == j)
                     {
@@ -798,7 +801,7 @@ public class ChannelRecommendationService
                     else
                     {
                         // Triangulated: scale by proximity between observer and target
-                        var proximity = graph.InternalWeights[observerIndex, j];
+                        proximity = graph.InternalWeights[observerIndex, j];
                         effectiveWeight = neighborWeight * proximity;
                     }
 
@@ -813,6 +816,8 @@ public class ChannelRecommendationService
                         bestChannel = channel;
                         bestWidth = width;
                         isDirect = observerIndex == j;
+                        bestObserverIndex = observerIndex;
+                        bestProximity = proximity;
                     }
                 }
 
@@ -822,7 +827,10 @@ public class ChannelRecommendationService
                 // For triangulated entries, apply minimum weight threshold to avoid
                 // noise from distant observers. Direct observations are always kept.
                 if (!isDirect && bestWeight < MinTriangulatedWeight)
+                {
+                    filteredCount++;
                     continue;
+                }
 
                 if (!graph.ExternalLoad[j].ContainsKey(bestChannel))
                     graph.ExternalLoad[j][bestChannel] = 0;
@@ -834,17 +842,18 @@ public class ChannelRecommendationService
                 {
                     triangulatedCount++;
                     _logger.LogDebug(
-                        "Triangulated neighbor {Bssid} on ch{Channel}/{Width} → {ApName} weight={Weight:F3}",
-                        bssid, bestChannel, bestWidth ?? 20, graph.Nodes[j].Name, bestWeight);
+                        "Triangulated neighbor {Bssid} on ch{Channel}/{Width} → {ApName} weight={Weight:F3} (via {ObserverName}, proximity={Proximity:F3})",
+                        bssid, bestChannel, bestWidth ?? 20, graph.Nodes[j].Name, bestWeight,
+                        graph.Nodes[bestObserverIndex].Name, bestProximity);
                 }
             }
         }
 
-        if (directCount > 0 || triangulatedCount > 0)
+        if (allNeighbors.Count > 0 || directCount > 0 || triangulatedCount > 0)
         {
             _logger.LogDebug(
-                "External load for {Band}: {Direct} direct + {Triangulated} triangulated neighbor entries",
-                band, directCount, triangulatedCount);
+                "External load for {Band}: {BssidCount} unique BSSIDs pooled, {Direct} direct + {Triangulated} triangulated entries ({Filtered} filtered below threshold)",
+                band, allNeighbors.Count, directCount, triangulatedCount, filteredCount);
         }
     }
 
