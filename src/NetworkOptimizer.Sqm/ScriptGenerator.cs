@@ -522,12 +522,23 @@ calc_burst() {
 #     Bufferbloat test shows ~5ms regression vs 6MB, but real-world latency is at idle levels
 #     because the extra headroom lets fq_codel do proper AQM instead of panic-dropping
 # Combined with 95% safety cap on fiber (950 Mbps vs 980), htb has room to shape properly
-# Scale: 8192 bytes per Mbps, floor 4MB (stock), cap 8MB
+# Piecewise scaling:
+#   0-300 Mbps: 4MB floor (stock is fine, no GSO pressure at these rates)
+#   300-750 Mbps: linear ramp from 4MB to 8MB
+#   750+ Mbps: 8MB cap (needed for multi-stream gig downloads regardless of exact rate)
+# This avoids a cliff at the threshold while ensuring gig connections always get 8MB
 calc_fq_mem() {
     local rate_mbps=$1
-    local mem=$((rate_mbps * 8192))
-    [ ""$mem"" -lt 4194304 ] && mem=4194304
-    [ ""$mem"" -gt 8388608 ] && mem=8388608
+    local mem
+    if [ ""$rate_mbps"" -ge 750 ]; then
+        mem=8388608
+    elif [ ""$rate_mbps"" -le 300 ]; then
+        mem=4194304
+    else
+        # Linear ramp: 4MB at 300 Mbps to 8MB at 750 Mbps
+        # slope = (8388608 - 4194304) / (750 - 300) = 9320 bytes per Mbps
+        mem=$(( 4194304 + (rate_mbps - 300) * 9320 ))
+    fi
     echo ""$mem""
 }
 
