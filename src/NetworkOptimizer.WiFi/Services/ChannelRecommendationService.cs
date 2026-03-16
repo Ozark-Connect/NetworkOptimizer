@@ -630,7 +630,7 @@ public class ChannelRecommendationService
         (int Channel, int Width)[] assignment)
     {
         int currentCoChannel = 0;
-        int remainingCoChannel = 0;
+        int proposedCoChannel = 0;
         var n = graph.Nodes.Count;
 
         for (int j = 0; j < n; j++)
@@ -642,25 +642,27 @@ public class ChannelRecommendationService
             var otherCurrentSpan = ChannelSpanHelper.GetChannelSpan(band,
                 graph.Nodes[j].CurrentChannel, graph.Nodes[j].CurrentWidth);
 
-            if (!ChannelSpanHelper.SpansOverlap(currentSpan, otherCurrentSpan))
-                continue;
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, otherCurrentSpan))
+                currentCoChannel++;
 
-            currentCoChannel++;
-
-            // Does this other AP stay co-channel in the proposed assignment?
+            // Is this other AP co-channel in the proposed assignment?
             var otherAssignedSpan = ChannelSpanHelper.GetChannelSpan(band,
                 assignment[j].Channel, assignment[j].Width);
 
             if (ChannelSpanHelper.SpansOverlap(currentSpan, otherAssignedSpan))
-                remainingCoChannel++;
+                proposedCoChannel++;
         }
 
-        // No internal co-channel APs - stress is purely external, keep full penalty
+        // No internal co-channel APs in either current or proposed - stress is purely external
         if (currentCoChannel == 0)
             return 1.0;
 
-        // Scale by fraction of co-channel APs remaining
-        return (double)remainingCoChannel / currentCoChannel;
+        // If proposed has at least as many co-channel APs as current, stress is not resolved
+        if (proposedCoChannel >= currentCoChannel)
+            return 1.0;
+
+        // Scale by fraction of co-channel APs remaining (including new arrivals)
+        return (double)proposedCoChannel / currentCoChannel;
     }
 
     private double ComputeInternalWeight(
