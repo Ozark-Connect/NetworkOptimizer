@@ -363,13 +363,14 @@ public class Iperf3ServerService : BackgroundService
             }
 
             // Parse end results - from SERVER perspective:
-            // sum_received = data server received FROM client = "From Device" = DownloadBitsPerSecond
-            // sum_sent = data server sent TO client = "To Device" = UploadBitsPerSecond
+            // sum_received = data server received FROM client = "From Device"
+            // sum_sent = data server sent TO client = "To Device"
             //
-            // For bidir tests (--bidir), iperf3 also outputs:
-            // sum_sent_bidir_reverse / sum_received_bidir_reverse for the reverse direction
-            double fromDeviceBps = 0;  // Server download = received from client
-            double toDeviceBps = 0;    // Server upload = sent to client
+            // For bidir tests, _bidir_reverse fields carry the second direction.
+            // Prefer sum_received variants for bps (accurate goodput from receiver's
+            // measurement). Retransmits come from sum_sent (sender tracks them).
+            double fromDeviceBps = 0;
+            double toDeviceBps = 0;
             long fromDeviceBytes = 0;
             long toDeviceBytes = 0;
             int? fromDeviceRetransmits = null;
@@ -377,8 +378,7 @@ public class Iperf3ServerService : BackgroundService
 
             if (root.TryGetProperty("end", out var end))
             {
-                // Data received FROM client (server download = "From Device")
-                // Check both regular and bidir_reverse variants
+                // From Device: sum_received = server received from client (goodput)
                 if (end.TryGetProperty("sum_received", out var sumReceived))
                 {
                     fromDeviceBps = sumReceived.GetProperty("bits_per_second").GetDouble();
@@ -388,7 +388,7 @@ public class Iperf3ServerService : BackgroundService
                         fromDeviceRetransmits = rt.GetInt32();
                 }
 
-                // Data sent TO client (server upload = "To Device")
+                // To Device: sum_sent = server sent to client
                 if (end.TryGetProperty("sum_sent", out var sumSent))
                 {
                     toDeviceBps = sumSent.GetProperty("bits_per_second").GetDouble();
@@ -398,16 +398,12 @@ public class Iperf3ServerService : BackgroundService
                         toDeviceRetransmits = rt.GetInt32();
                 }
 
-                // For bidir tests: check _bidir_reverse variants
-                // In bidir mode, there are two simultaneous tests:
-                //   Normal: client → server (sum_received has client upload data)
-                //   Reverse: server → client (sum_sent_bidir_reverse has client download data)
-                //
-                // sum_sent_bidir_reverse = server sent TO client in reverse channel = "To Device"
+                // Bidir: to-device from _bidir_reverse fields
+                // Server-side JSON only has sum_sent_bidir_reverse (sender's view);
+                // sum_received_bidir_reverse is zero on the server side.
                 if (end.TryGetProperty("sum_sent_bidir_reverse", out var sumSentReverse))
                 {
                     var reverseBps = sumSentReverse.GetProperty("bits_per_second").GetDouble();
-                    // This is the actual download speed in bidir mode
                     if (reverseBps > 0)
                     {
                         toDeviceBps = reverseBps;

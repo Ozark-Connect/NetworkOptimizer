@@ -414,8 +414,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             result.RawUploadJson = jsonOutput;
         }
 
-        // For download tests (reverse mode), prefer sum_received for accurate received bytes
-        var parsed = Iperf3JsonParser.Parse(jsonOutput, useSumReceived: isDownload, _logger);
+        var parsed = Iperf3JsonParser.Parse(jsonOutput, _logger);
 
         // Extract local IP (only need to do this once)
         if (string.IsNullOrEmpty(result.LocalIp) && !string.IsNullOrEmpty(parsed.LocalIp))
