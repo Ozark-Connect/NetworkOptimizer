@@ -147,8 +147,8 @@ public class ChannelRecommendationServiceTests
                 Band = RadioBand.Band5GHz,
                 Neighbors = new()
                 {
-                    new NeighborNetwork { Channel = 36, Signal = -60, IsOwnNetwork = false },
-                    new NeighborNetwork { Channel = 36, Signal = -70, IsOwnNetwork = false }
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 36, Signal = -60, IsOwnNetwork = false },
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:02", Channel = 36, Signal = -70, IsOwnNetwork = false }
                 }
             }
         };
@@ -175,7 +175,7 @@ public class ChannelRecommendationServiceTests
                 Band = RadioBand.Band5GHz,
                 Neighbors = new()
                 {
-                    new NeighborNetwork { Channel = 36, Signal = -60, IsOwnNetwork = true }
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 36, Signal = -60, IsOwnNetwork = true }
                 }
             }
         };
@@ -499,5 +499,153 @@ public class ChannelRecommendationServiceTests
         var span2 = ChannelSpanHelper.GetChannelSpan(RadioBand.Band5GHz, ch2, 80);
         ChannelSpanHelper.SpansOverlap(span1, span2).Should().BeFalse(
             $"APs should be on different 80 MHz blocks but got ch{ch1} ({span1}) and ch{ch2} ({span2})");
+    }
+
+    // --- Neighbor Triangulation ---
+
+    [Fact]
+    public void BuildExternalLoad_TriangulatedNeighborApplied()
+    {
+        // AP-1 on ch36, AP-2 on ch149. AP-2 sees a neighbor on ch36.
+        // AP-1 should get a triangulated external load entry on ch36 (scaled by internal weight).
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 149)
+        };
+
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:02",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 36, Signal = -55, Width = 80, IsOwnNetwork = false }
+                }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        // AP-1 (index 0) should have triangulated external load on ch36
+        graph.ExternalLoad[0].Should().ContainKey(36);
+        // Unplaced APs have internal weight 0.625. Neighbor at -55 dBm → weight 0.875.
+        // Width matches AP (80=80), no width scaling.
+        // Triangulated weight = 0.875 * 0.625 = 0.547 (above MinTriangulatedWeight of 0.2)
+        graph.ExternalLoad[0][36].Should().BeApproximately(0.547, 0.05);
+
+        // AP-2 (index 1) should also have direct external load on ch36
+        graph.ExternalLoad[1].Should().ContainKey(36);
+        graph.ExternalLoad[1][36].Should().BeApproximately(0.875, 0.05);
+    }
+
+    [Fact]
+    public void BuildExternalLoad_DirectObservationUnchanged()
+    {
+        // Same scenario as BuildInterferenceGraph_ExternalLoad_FromScanResults
+        // but with BSSID - verifies direct observation behavior is preserved
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36)
+        };
+
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:01",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 36, Signal = -60, Width = 80, IsOwnNetwork = false },
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:02", Channel = 36, Signal = -70, Width = 80, IsOwnNetwork = false }
+                }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        graph.ExternalLoad[0].Should().ContainKey(36);
+        // -60 dBm → 0.75, -70 dBm → 0.5, sum = 1.25
+        graph.ExternalLoad[0][36].Should().BeApproximately(1.25, 0.05);
+    }
+
+    [Fact]
+    public void BuildExternalLoad_OwnNetworkExcludedFromTriangulation()
+    {
+        // AP-1 on ch36, AP-2 on ch149. AP-2 sees an own-network BSSID on ch36.
+        // Own-network should NOT be triangulated to AP-1.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 149)
+        };
+
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:02",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 36, Signal = -55, IsOwnNetwork = true }
+                }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        // Neither AP should have external load - own-network is excluded
+        graph.ExternalLoad[0].Should().BeEmpty();
+        graph.ExternalLoad[1].Should().BeEmpty();
+    }
+
+    [Fact]
+    public void BuildExternalLoad_MultipleObserversTakeMax()
+    {
+        // Three APs. AP-1 and AP-2 both see the same neighbor BSSID.
+        // AP-3 should get the triangulated weight from the closer observer.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band5GHz, 149),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band5GHz, 161)
+        };
+
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:01",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    // AP-1 sees neighbor at -75 dBm (weak)
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 100, Signal = -75, Width = 80, IsOwnNetwork = false }
+                }
+            },
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:02",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    // AP-2 sees same neighbor at -55 dBm (strong)
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 100, Signal = -55, Width = 80, IsOwnNetwork = false }
+                }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        // AP-3 (index 2) should have external load on ch100 from the best estimate
+        graph.ExternalLoad[2].Should().ContainKey(100);
+
+        // The stronger sighting (-55 dBm → weight 0.875) × proximity 0.625 = 0.547
+        // beats the weaker sighting (-75 dBm → weight 0.375) × proximity 0.625 = 0.234
+        graph.ExternalLoad[2][100].Should().BeApproximately(0.547, 0.05);
     }
 }

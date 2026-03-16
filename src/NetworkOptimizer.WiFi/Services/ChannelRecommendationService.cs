@@ -93,6 +93,17 @@ public class ChannelRecommendationService
     /// </summary>
     private const int CcaThresholdDbm = -82;
 
+    /// <summary>How far back to look for neighbor scan data (hours).</summary>
+    public const double ScanLookbackHours = 1.0;
+
+    /// <summary>
+    /// Minimum triangulated weight to count as interference. After scaling a neighbor's
+    /// signal weight by the observer→target proximity, weights below this threshold
+    /// are too attenuated to cause real interference and are discarded.
+    /// 0.2 ≈ a neighbor at -82 dBm observed by an AP with proximity weight 0.8.
+    /// </summary>
+    private const double MinTriangulatedWeight = 0.2;
+
     /// <summary>
     /// Multiplier for internal (own AP) co-channel interference. Co-channeling your
     /// own APs is worse than external neighbors: your APs are permanent, always-on,
@@ -731,36 +742,109 @@ public class ChannelRecommendationService
         RadioBand band,
         List<ChannelScanResult> scanResults)
     {
+        var n = bandAps.Count;
+
         // Map AP MAC to graph index
         var macToIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < bandAps.Count; i++)
+        for (int i = 0; i < n; i++)
             macToIndex[bandAps[i].Mac] = i;
+
+        // Phase 1: Pool all neighbor sightings by BSSID across all observers
+        // Each entry: (observerIndex, channel, width, signal)
+        var allNeighbors = new Dictionary<string, List<(int ObserverIndex, int Channel, int? Width, int Signal)>>(
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (var scan in scanResults.Where(s => s.Band == band))
         {
-            if (!macToIndex.TryGetValue(scan.ApMac, out var apIndex))
+            if (!macToIndex.TryGetValue(scan.ApMac, out var observerIndex))
                 continue;
 
-            var apWidth = graph.Nodes[apIndex].CurrentWidth;
-
-            // Only count neighbors strong enough to trigger CCA (Clear Channel Assessment).
-            // Below -82 dBm, radios don't defer transmission so no real co-channel interference.
-            foreach (var neighbor in scan.Neighbors.Where(n =>
-                !n.IsOwnNetwork && n.Signal.HasValue && n.Signal.Value >= CcaThresholdDbm))
+            foreach (var neighbor in scan.Neighbors.Where(nb =>
+                !nb.IsOwnNetwork && nb.Signal.HasValue && nb.Signal.Value >= CcaThresholdDbm
+                && !string.IsNullOrEmpty(nb.Bssid)))
             {
-                var weight = ChannelSpanHelper.SignalToInterferenceWeight(neighbor.Signal!.Value);
-
-                // Scale by width ratio: a 20 MHz neighbor only impacts a fraction of a 160 MHz channel
-                var neighborWidth = neighbor.Width ?? 20;
-                if (neighborWidth < apWidth)
-                    weight *= (double)neighborWidth / apWidth;
-
-                var channel = neighbor.Channel;
-
-                if (!graph.ExternalLoad[apIndex].ContainsKey(channel))
-                    graph.ExternalLoad[apIndex][channel] = 0;
-                graph.ExternalLoad[apIndex][channel] += weight;
+                if (!allNeighbors.TryGetValue(neighbor.Bssid, out var sightings))
+                {
+                    sightings = new List<(int, int, int?, int)>();
+                    allNeighbors[neighbor.Bssid] = sightings;
+                }
+                sightings.Add((observerIndex, neighbor.Channel, neighbor.Width, neighbor.Signal!.Value));
             }
+        }
+
+        // Phase 2: For each unique BSSID, estimate its effect at every AP
+        int directCount = 0, triangulatedCount = 0;
+
+        foreach (var (bssid, sightings) in allNeighbors)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                var apWidth = graph.Nodes[j].CurrentWidth;
+                double bestWeight = 0;
+                int bestChannel = -1;
+                int? bestWidth = null;
+                bool isDirect = false;
+
+                foreach (var (observerIndex, channel, width, signal) in sightings)
+                {
+                    var neighborWeight = ChannelSpanHelper.SignalToInterferenceWeight(signal);
+                    double effectiveWeight;
+
+                    if (observerIndex == j)
+                    {
+                        // Direct observation - identical to previous behavior
+                        effectiveWeight = neighborWeight;
+                    }
+                    else
+                    {
+                        // Triangulated: scale by proximity between observer and target
+                        var proximity = graph.InternalWeights[observerIndex, j];
+                        effectiveWeight = neighborWeight * proximity;
+                    }
+
+                    // Scale by width ratio: a 20 MHz neighbor only impacts a fraction of a wider channel
+                    var neighborWidth = width ?? 20;
+                    if (neighborWidth < apWidth)
+                        effectiveWeight *= (double)neighborWidth / apWidth;
+
+                    if (effectiveWeight > bestWeight)
+                    {
+                        bestWeight = effectiveWeight;
+                        bestChannel = channel;
+                        bestWidth = width;
+                        isDirect = observerIndex == j;
+                    }
+                }
+
+                if (bestChannel < 0)
+                    continue;
+
+                // For triangulated entries, apply minimum weight threshold to avoid
+                // noise from distant observers. Direct observations are always kept.
+                if (!isDirect && bestWeight < MinTriangulatedWeight)
+                    continue;
+
+                if (!graph.ExternalLoad[j].ContainsKey(bestChannel))
+                    graph.ExternalLoad[j][bestChannel] = 0;
+                graph.ExternalLoad[j][bestChannel] += bestWeight;
+
+                if (isDirect)
+                    directCount++;
+                else
+                {
+                    triangulatedCount++;
+                    _logger.LogDebug(
+                        "Triangulated neighbor {Bssid} on ch{Channel}/{Width} → {ApName} weight={Weight:F3}",
+                        bssid, bestChannel, bestWidth ?? 20, graph.Nodes[j].Name, bestWeight);
+                }
+            }
+        }
+
+        if (directCount > 0 || triangulatedCount > 0)
+        {
+            _logger.LogDebug(
+                "External load for {Band}: {Direct} direct + {Triangulated} triangulated neighbor entries",
+                band, directCount, triangulatedCount);
         }
     }
 
@@ -1373,8 +1457,8 @@ public class ChannelRecommendationService
             }
         }
 
-        // External load per AP per channel
-        sb.AppendLine("  External load (neighbor RSSI → weight, by channel):");
+        // External load per AP per channel (includes direct observations + triangulated from other APs)
+        sb.AppendLine("  External load (direct + triangulated neighbor weight, by channel):");
         for (int i = 0; i < n; i++)
         {
             if (graph.ExternalLoad[i].Count == 0)
