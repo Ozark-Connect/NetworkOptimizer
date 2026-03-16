@@ -26,6 +26,13 @@ public class SqmConfiguration
     public int NominalUploadSpeed { get; set; } = 35;
 
     /// <summary>
+    /// Enable upload/egress rate shaping on the WAN interface (not just the IFB).
+    /// When false, upstream still gets performance tuning (burst, fq_codel memory)
+    /// but the rate is left at whatever UniFi/stock SQM sets.
+    /// </summary>
+    public bool ShapeUpload { get; set; } = false;
+
+    /// <summary>
     /// WAN interface name (e.g., "eth2", "eth4")
     /// </summary>
     public string Interface { get; set; } = "eth2";

@@ -227,6 +227,8 @@ public class ScriptGenerator
         sb.AppendLine($"MAX_DOWNLOAD_SPEED=\"{_config.MaxDownloadSpeed}\"");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
+        sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
+        sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
@@ -268,6 +270,12 @@ public class ScriptGenerator
         // Set absolute max before speedtest for clean, unlimited test
         sb.AppendLine("# Set SQM to absolute max before speedtest for accurate measurement");
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $ABSOLUTE_MAX_DOWNLOAD_SPEED");
+        sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
+        sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
+        sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
+        sb.AppendLine("else");
+        sb.AppendLine("    tune_tc_performance $INTERFACE");
+        sb.AppendLine("fi");
         sb.AppendLine();
 
         // Run speedtest
@@ -308,10 +316,20 @@ public class ScriptGenerator
         sb.AppendLine("# Save result for ping script");
         sb.AppendLine("echo \"Measured download speed: $download_speed_mbps Mbps\" > \"$RESULT_FILE\"");
         sb.AppendLine();
-        sb.AppendLine("# Apply TC classes");
+        sb.AppendLine("# Apply TC classes (downstream and upstream)");
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $download_speed_mbps");
+        sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
+        sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
+        sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
+        sb.AppendLine("else");
+        sb.AppendLine("    tune_tc_performance $INTERFACE");
+        sb.AppendLine("fi");
         sb.AppendLine();
-        sb.AppendLine("echo \"[$(date)] Adjusted to $download_speed_mbps Mbps\" >> $LOG_FILE");
+        sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
+        sb.AppendLine("    echo \"[$(date)] Adjusted to $download_speed_mbps Mbps (down), $UPLOAD_SPEED Mbps (up)\" >> $LOG_FILE");
+        sb.AppendLine("else");
+        sb.AppendLine("    echo \"[$(date)] Adjusted to $download_speed_mbps Mbps (down), upstream perf-tuned\" >> $LOG_FILE");
+        sb.AppendLine("fi");
 
         return sb.ToString();
     }
@@ -340,6 +358,8 @@ public class ScriptGenerator
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
         sb.AppendLine($"MAX_DOWNLOAD_SPEED_CONFIG=\"{_config.MaxDownloadSpeed}\"");
+        sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
+        sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
@@ -460,8 +480,18 @@ public class ScriptGenerator
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate_int");
+        sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
+        sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
+        sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
+        sb.AppendLine("else");
+        sb.AppendLine("    tune_tc_performance $INTERFACE");
+        sb.AppendLine("fi");
         sb.AppendLine();
-        sb.AppendLine("echo \"[$(date)] Ping adjusted to $new_rate_int Mbps (latency: ${latency}ms)\" >> $LOG_FILE");
+        sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
+        sb.AppendLine("    echo \"[$(date)] Ping adjusted to $new_rate_int Mbps (down), $UPLOAD_SPEED Mbps (up) (latency: ${latency}ms)\" >> $LOG_FILE");
+        sb.AppendLine("else");
+        sb.AppendLine("    echo \"[$(date)] Ping adjusted to $new_rate_int Mbps (down), upstream perf-tuned (latency: ${latency}ms)\" >> $LOG_FILE");
+        sb.AppendLine("fi");
 
         return sb.ToString();
     }
@@ -471,16 +501,53 @@ public class ScriptGenerator
     /// </summary>
     private string GetTcUpdateFunction()
     {
-        return @"# Function to update all TC classes on a device
+        return @"# Calculate burst size scaled to rate (prevents frame drops at high speeds)
+# Config E testing showed 5KB is optimal at gig speeds: eliminates downstream drop_overmemory
+# without the bufferbloat regression seen at 8KB+ (which feeds fq_codel faster than it can react)
+# Scale: 5 bytes per Mbps, floor 1500b (stock), cap 5000b
+calc_burst() {
+    local rate_mbps=$1
+    local burst=$((rate_mbps * 5))
+    [ ""$burst"" -lt 1500 ] && burst=1500
+    [ ""$burst"" -gt 5000 ] && burst=5000
+    echo ""$burst""
+}
+
+# Calculate fq_codel memory_limit scaled to rate (prevents drop_overmemory at high speeds)
+# Config E testing showed 6MB is the sweet spot at gig speeds:
+#   - 4MB (stock): ~1400 drop_overmemory per bufferbloat test (both directions)
+#   - 6MB: eliminates downstream drop_overmemory, bufferbloat within 1ms of stock
+#   - 8MB: eliminates all drop_overmemory but adds ~5ms bufferbloat and fails gaming latency
+# Scale: 6144 bytes per Mbps, floor 4MB (stock), cap 6MB
+calc_fq_mem() {
+    local rate_mbps=$1
+    local mem=$((rate_mbps * 6144))
+    [ ""$mem"" -lt 4194304 ] && mem=4194304
+    [ ""$mem"" -gt 6291456 ] && mem=6291456
+    echo ""$mem""
+}
+
+# Calculate fq_codel packet limit scaled to rate
+# Stock 2000p is fine for all tested rates — not the binding constraint
+calc_fq_limit() {
+    local rate_mbps=$1
+    local limit=2000
+    echo ""$limit""
+}
+
+# Function to update all TC classes on a device
 update_all_tc_classes() {
     local device=$1
     local new_rate=$2
+    local burst=$(calc_burst $new_rate)
+    local fq_mem=$(calc_fq_mem $new_rate)
+    local fq_limit=$(calc_fq_limit $new_rate)
 
     # Update the root class 1:1 with rate and ceil
-    tc class change dev $device parent 1: classid 1:1 htb rate ${new_rate}Mbit ceil ${new_rate}Mbit burst 1500b cburst 1500b
+    tc class change dev $device parent 1: classid 1:1 htb rate ${new_rate}Mbit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b
 
     # Get all child classes and update their ceil values (skip classes with rate > 64bit)
-    tc class show dev $device | grep ""parent 1:1"" | while read line; do
+    tc class show dev $device | grep -E ""parent 1:1( |$)"" | while read line; do
         classid=$(echo ""$line"" | grep -o ""class htb [0-9:]*"" | awk '{print $3}')
         prio=$(echo ""$line"" | grep -o ""prio [0-9]*"" | awk '{print $2}')
         rate=$(echo ""$line"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
@@ -491,13 +558,51 @@ update_all_tc_classes() {
         fi
 
         if [ -n ""$classid"" ]; then
+            # Tune the fq_codel leaf qdisc for this class (if present)
+            # tc qdisc show format: ""qdisc fq_codel 8004: parent 1:4 ...""
+            #   field 1=qdisc, field 2=type, field 3=handle
+            local qdisc_line=$(tc qdisc show dev $device | grep -E ""parent ${classid}( |$)"")
+            local qdisc_type=$(echo ""$qdisc_line"" | awk '{print $2}')
+            local leaf_qdisc=$(echo ""$qdisc_line"" | awk '{print $3}')
+            if [ ""$qdisc_type"" = ""fq_codel"" ] && [ -n ""$leaf_qdisc"" ]; then
+                tc qdisc change dev $device parent $classid handle $leaf_qdisc fq_codel limit $fq_limit memory_limit $fq_mem target 5ms interval 100ms ecn
+            fi
+
             if [ -n ""$prio"" ]; then
-                tc class change dev $device parent 1:1 classid $classid htb rate 64bit ceil ${new_rate}Mbit burst 1500b cburst 1500b prio $prio
+                tc class change dev $device parent 1:1 classid $classid htb rate 64bit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b prio $prio
             else
-                tc class change dev $device parent 1:1 classid $classid htb rate 64bit ceil ${new_rate}Mbit burst 1500b cburst 1500b
+                tc class change dev $device parent 1:1 classid $classid htb rate 64bit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b
             fi
         fi
     done
+}
+
+# Tune performance params (burst, fq_codel) on a device without changing rates
+# Reads the current root rate and applies scaled burst/memory params
+tune_tc_performance() {
+    local device=$1
+
+    # Read current root rate string from 1:1 class (e.g., ""1Gbit"", ""980Mbit"", ""29Mbit"")
+    local rate_str=$(tc class show dev $device | grep ""class htb 1:1 root"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
+    if [ -z ""$rate_str"" ]; then
+        return
+    fi
+
+    # Convert to Mbps based on unit suffix
+    local current_rate
+    case ""$rate_str"" in
+        *Gbit)  current_rate=$(echo ""$rate_str"" | sed 's/Gbit//') ; current_rate=$((current_rate * 1000)) ;;
+        *Mbit)  current_rate=$(echo ""$rate_str"" | sed 's/Mbit//') ;;
+        *Kbit)  current_rate=$(echo ""$rate_str"" | sed 's/Kbit//') ; current_rate=$(( (current_rate + 500) / 1000 )) ;;
+        *bit)   current_rate=$(echo ""$rate_str"" | sed 's/bit//') ; current_rate=$(( (current_rate + 500000) / 1000000 )) ;;
+        *)      return ;;
+    esac
+
+    if [ ""$current_rate"" -le 0 ] 2>/dev/null; then
+        return
+    fi
+
+    update_all_tc_classes $device $current_rate
 }";
     }
 
