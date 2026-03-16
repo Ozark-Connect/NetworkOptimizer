@@ -120,22 +120,12 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 return cached;
         }
 
-        // Try uname -s first (works on Linux/macOS/Unix)
-        var unameResult = await _sshService.RunCommandWithDeviceAsync(device, "uname -s 2>/dev/null");
-        if (unameResult.success)
-        {
-            var os = unameResult.output.Trim().ToLowerInvariant();
-            if (os.Contains("linux") || os.Contains("darwin") || os.Contains("freebsd") || os.Contains("unix"))
-            {
-                lock (_lock) { _isWindowsCache[device.Host] = false; }
-                _logger.LogInformation("Detected {Host} as Linux/Unix", device.Host);
-                return false;
-            }
-        }
-
-        // Check for Windows by testing pwsh availability (pwsh comes with Windows SSH)
-        var pwshCheck = await _sshService.RunCommandWithDeviceAsync(device, "pwsh -Version 2>nul");
-        var isWindows = pwshCheck.success && pwshCheck.output.Contains("PowerShell");
+        // Detect OS by trying uname (present on all Unix-like systems, absent on Windows).
+        // No stderr redirect needed - we just check success and output content.
+        // If uname fails or returns unrecognized output, assume Windows.
+        var unameResult = await _sshService.RunCommandWithDeviceAsync(device, "uname -s");
+        var os = unameResult.success ? unameResult.output.Trim().ToLowerInvariant() : "";
+        var isWindows = !(os.Contains("linux") || os.Contains("darwin") || os.Contains("freebsd") || os.Contains("unix"));
 
         lock (_lock) { _isWindowsCache[device.Host] = isWindows; }
         _logger.LogInformation("Detected {Host} as {OS}", device.Host, isWindows ? "Windows" : "Linux/Unix");
@@ -150,7 +140,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         if (isWindows)
         {
             // Use taskkill directly - simpler and more reliable
-            await _sshService.RunCommandWithDeviceAsync(device, "taskkill /F /IM iperf3.exe 2>nul || echo done");
+            await _sshService.RunCommandWithDeviceAsync(device, "taskkill /F /IM iperf3.exe 2>&1 || echo done");
         }
         else
         {
@@ -169,7 +159,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 return cached;
         }
 
-        var result = await _sshService.RunCommandWithDeviceAsync(device, "where iperf3 2>nul");
+        var result = await _sshService.RunCommandWithDeviceAsync(device, "where.exe iperf3");
         if (result.success && !string.IsNullOrWhiteSpace(result.output))
         {
             // Take first line (in case multiple are found)
@@ -200,9 +190,12 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 return (false, "iperf3 not found. Install iperf3 and ensure it's in the system PATH, or configure a custom path.");
             }
 
-            // Use WMI to create a detached process that survives SSH session end
-            // Quote the path to handle spaces (e.g., "C:\Program Files\iperf3\iperf3.exe")
-            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList '\\\"{iperf3Path}\\\" -s -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
+            // Use WMI to create a detached process that survives SSH session end.
+            // Base64-encode the PowerShell script to avoid quoting issues across
+            // cmd and pwsh SSH shells (pwsh double-parses nested quotes).
+            var psScript = $"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList '\"{iperf3Path}\" -s -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}";
+            var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(psScript));
+            var cmd = $"pwsh -EncodedCommand {encoded}";
             return await _sshService.RunCommandWithDeviceAsync(device, cmd);
         }
         else
@@ -225,7 +218,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         {
             // Use tasklist to check if iperf3 is running - output process list for better debugging
             var result = await _sshService.RunCommandWithDeviceAsync(device,
-                "tasklist /FI \"IMAGENAME eq iperf3.exe\" 2>nul");
+                "tasklist /FI \"IMAGENAME eq iperf3.exe\"");
             _logger.LogDebug("Windows tasklist output for iperf3: {Output}", result.output);
 
             // tasklist shows the process info if found, or "INFO: No tasks are running..." if not
@@ -264,7 +257,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         if (isWindows)
         {
             // Try to get more helpful info about what went wrong
-            var checkIperf3 = await _sshService.RunCommandWithDeviceAsync(device, "where iperf3 2>nul || echo NOT_FOUND");
+            var checkIperf3 = await _sshService.RunCommandWithDeviceAsync(device, "where.exe iperf3 || echo NOT_FOUND");
             if (checkIperf3.output.Contains("NOT_FOUND"))
             {
                 return "iperf3 not found in PATH. Install iperf3 and ensure it's in system PATH.";
