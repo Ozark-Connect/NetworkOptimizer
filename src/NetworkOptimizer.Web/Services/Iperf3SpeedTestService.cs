@@ -693,8 +693,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
     private void ParseIperf3Result(string json, Iperf3Result result, bool isUpload)
     {
-        // For download tests, prefer sum_received for accurate received bytes
-        var parsed = Iperf3JsonParser.Parse(json, useSumReceived: !isUpload, _logger);
+        var parsed = Iperf3JsonParser.Parse(json, _logger);
 
         // Extract local IP (only need to do this once)
         if (string.IsNullOrEmpty(result.LocalIp) && !string.IsNullOrEmpty(parsed.LocalIp))
