@@ -113,6 +113,17 @@ public static class WiFiAnalysisHelpers
     }
 
     /// <summary>
+    /// Get the interference threshold for a given band. 2.4 GHz uses a more lenient
+    /// threshold because with only 3 non-overlapping channels, co-channel is often
+    /// unavoidable and the band has longer range through walls.
+    /// </summary>
+    public static double GetInterferenceThresholdDbm(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => -67.0,
+        _ => -70.0
+    };
+
+    /// <summary>
     /// Filter APs on the same channel by propagation modeling. Removes APs whose signal
     /// doesn't reach any other AP on the channel (i.e., they're too far apart to interfere).
     /// APs not placed on the map are kept (assume interference).
@@ -173,7 +184,7 @@ public static class WiFiAnalysisHelpers
             for (int j = i + 1; j < placed.Count; j++)
             {
                 if (propagationSvc.DoApsInterfere(placed[i].Prop, placed[j].Prop, bandStr,
-                    propCtx.WallsByFloor, propCtx.Buildings))
+                    propCtx.WallsByFloor, propCtx.Buildings, GetInterferenceThresholdDbm(band)))
                 {
                     interferingMacs.Add(placed[i].Snapshot.Mac);
                     interferingMacs.Add(placed[j].Snapshot.Mac);
