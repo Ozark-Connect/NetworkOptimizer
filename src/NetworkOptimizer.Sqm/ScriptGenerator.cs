@@ -514,16 +514,20 @@ calc_burst() {
 }
 
 # Calculate fq_codel memory_limit scaled to rate (prevents drop_overmemory at high speeds)
-# Config E testing showed 6MB is the sweet spot at gig speeds:
-#   - 4MB (stock): ~1400 drop_overmemory per bufferbloat test (both directions)
-#   - 6MB: eliminates downstream drop_overmemory, bufferbloat within 1ms of stock
-#   - 8MB: eliminates all drop_overmemory but adds ~5ms bufferbloat and fails gaming latency
-# Scale: 6144 bytes per Mbps, floor 4MB (stock), cap 6MB
+# Testing showed 8MB is needed for real-world multi-stream workloads (Steam, backups):
+#   - 4MB (stock): ~1400 drop_overmemory per bufferbloat test, ~300/sec during Steam downloads
+#   - 6MB: eliminates most downstream drop_overmemory on synthetic tests, but still hits
+#     memory wall during heavy multi-stream downloads (Steam: 5.6/5.7MB = 99% full)
+#   - 8MB: zero drop_overmemory during Steam downloads, memory stays at ~30-40% utilization
+#     Bufferbloat test shows ~5ms regression vs 6MB, but real-world latency is at idle levels
+#     because the extra headroom lets fq_codel do proper AQM instead of panic-dropping
+# Combined with 95% safety cap on fiber (950 Mbps vs 980), htb has room to shape properly
+# Scale: 8192 bytes per Mbps, floor 4MB (stock), cap 8MB
 calc_fq_mem() {
     local rate_mbps=$1
-    local mem=$((rate_mbps * 6144))
+    local mem=$((rate_mbps * 8192))
     [ ""$mem"" -lt 4194304 ] && mem=4194304
-    [ ""$mem"" -gt 6291456 ] && mem=6291456
+    [ ""$mem"" -gt 8388608 ] && mem=8388608
     echo ""$mem""
 }
 
