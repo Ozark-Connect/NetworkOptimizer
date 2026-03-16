@@ -35,6 +35,9 @@ public class SqmWanConfiguration
     /// <summary>Advertised/nominal upload speed in Mbps</summary>
     public int NominalUploadMbps { get; set; } = 35;
 
+    /// <summary>Whether to shape upstream rate to the nominal upload speed</summary>
+    public bool ShapeUpload { get; set; } = false;
+
     /// <summary>Ping target host for latency monitoring</summary>
     [MaxLength(255)]
     public string PingHost { get; set; } = "1.1.1.1";
