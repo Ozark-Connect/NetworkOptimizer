@@ -936,9 +936,6 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("ShapeUpload")
-                        .HasColumnType("INTEGER");
-
                     b.Property<int>("SpeedtestEveningHour")
                         .HasColumnType("INTEGER");
 

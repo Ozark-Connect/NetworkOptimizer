@@ -544,14 +544,6 @@
                 </div>
             </div>
 
-            <div class="form-group" style="margin-top: 0.5rem;">
-                <label class="toggle-label">
-                    <input type="checkbox" @bind="wan1Config.ShapeUpload" />
-                    <span>Shape upstream rate</span>
-                </label>
-                <small class="form-hint">Apply the nominal upload speed as the upstream tc rate. Leave off to let UniFi manage the upstream rate.</small>
-            </div>
-
             <!-- Calculated Parameters (read-only preview) -->
             <div class="calculated-params">
                 <h4>Calculated SQM Parameters</h4>
@@ -697,14 +689,6 @@
                     <label class="form-label">Nominal Upload Speed (Mbps)</label>
                     <input type="number" class="form-control" @bind="wan2Config.NominalUpload" min="1" max="10000" />
                 </div>
-            </div>
-
-            <div class="form-group" style="margin-top: 0.5rem;">
-                <label class="toggle-label">
-                    <input type="checkbox" @bind="wan2Config.ShapeUpload" />
-                    <span>Shape upstream rate</span>
-                </label>
-                <small class="form-hint">Apply the nominal upload speed as the upstream tc rate. Leave off to let UniFi manage the upstream rate.</small>
             </div>
 
             <!-- Calculated Parameters -->
@@ -1827,7 +1811,6 @@
                     config.Interface = saved.Interface;
                     config.NominalDownload = saved.NominalDownloadMbps;
                     config.NominalUpload = saved.NominalUploadMbps;
-                    config.ShapeUpload = saved.ShapeUpload;
                     config.PingHost = saved.PingHost;
                     config.SpeedtestServerId = saved.SpeedtestServerId;
                     config.MorningHour = saved.SpeedtestMorningHour;
@@ -1884,7 +1867,6 @@
                     Interface = wan1Config.Interface,
                     NominalDownloadMbps = wan1Config.NominalDownload,
                     NominalUploadMbps = wan1Config.NominalUpload,
-                    ShapeUpload = wan1Config.ShapeUpload,
                     PingHost = wan1Config.PingHost,
                     SpeedtestServerId = wan1Config.SpeedtestServerId,
                     BaselineLatencyMs = wan1Config.BaselineLatency,
@@ -1909,7 +1891,6 @@
                     Interface = wan2Config.Interface,
                     NominalDownloadMbps = wan2Config.NominalDownload,
                     NominalUploadMbps = wan2Config.NominalUpload,
-                    ShapeUpload = wan2Config.ShapeUpload,
                     PingHost = wan2Config.PingHost,
                     SpeedtestServerId = wan2Config.SpeedtestServerId,
                     BaselineLatencyMs = wan2Config.BaselineLatency,
@@ -2921,7 +2902,7 @@
             Interface = model.Interface,
             NominalDownloadSpeed = model.NominalDownload,
             NominalUploadSpeed = model.NominalUpload,
-            ShapeUpload = model.ShapeUpload,
+            ShapeUpload = true,
             PingHost = model.PingHost,
             PreferredSpeedtestServerId = model.SpeedtestServerId,
             // Use user-configured schedule times
@@ -3027,7 +3008,6 @@
         public ConnectionType ConnectionType { get; set; }
         public int NominalDownload { get; set; }
         public int NominalUpload { get; set; }
-        public bool ShapeUpload { get; set; }
         public string PingHost { get; set; } = "1.1.1.1";
         public string? SpeedtestServerId { get; set; }
 
@@ -3054,7 +3034,7 @@
 
         // Create a snapshot of the deployable config values
         public WanConfigSnapshot ToSnapshot() => new(
-            Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload, ShapeUpload,
+            Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
             BaselineLatency);
 
@@ -3068,7 +3048,6 @@
                    ConnectionType != snapshot.ConnectionType ||
                    NominalDownload != snapshot.NominalDownload ||
                    NominalUpload != snapshot.NominalUpload ||
-                   ShapeUpload != snapshot.ShapeUpload ||
                    PingHost != snapshot.PingHost ||
                    SpeedtestServerId != snapshot.SpeedtestServerId ||
                    MorningHour != snapshot.MorningHour ||
@@ -3082,7 +3061,7 @@
     // Immutable snapshot of WAN config for change detection
     private record WanConfigSnapshot(
         bool Enabled, string Name, string Interface, ConnectionType ConnectionType,
-        int NominalDownload, int NominalUpload, bool ShapeUpload, string PingHost, string? SpeedtestServerId,
+        int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
         double BaselineLatency);
 
