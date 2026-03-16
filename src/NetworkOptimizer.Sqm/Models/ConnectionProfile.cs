@@ -327,8 +327,10 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber: minimal cap - WAN link speed already provides most of the headroom
-            ConnectionType.Fiber => 0.98,
+            // Fiber: 95% cap gives htb headroom to shape properly at near-line-rate
+            // At 98% (980 Mbps on 1G), fq_codel memory fills before AQM can react
+            // At 95% (950 Mbps on 1G), htb absorbs bursts and fq_codel manages flows cleanly
+            ConnectionType.Fiber => 0.95,
 
             // All other types: 95% safety margin below the bottleneck
             _ => 0.95
