@@ -1548,7 +1548,15 @@
 
         if (dns.DohEnabled)
         {
-            return DisplayFormatters.GetDohStatusDisplay(dns.DohEnabled, dns.DohState, dns.DohProviders.ToList(), dns.DohConfigNames.ToList());
+            var dohDisplay = DisplayFormatters.GetDohStatusDisplay(dns.DohEnabled, dns.DohState, dns.DohProviders.ToList(), dns.DohConfigNames.ToList());
+
+            // If Pi-hole/AdGuard Home is also detected, mention it alongside DoH
+            if (dns.HasThirdPartyDns && !string.IsNullOrEmpty(dns.ThirdPartyDnsProviderName))
+            {
+                dohDisplay += $" via {dns.ThirdPartyDnsProviderName}";
+            }
+
+            return dohDisplay;
         }
 
         if (dns.HasThirdPartyDns)
@@ -1646,7 +1654,7 @@
                 lowerMeasure.Contains("wan dns") ||
                 lowerMeasure.Contains("nextdns") ||
                 lowerMeasure.Contains("cloudflare") ||
-                lowerMeasure.Contains("point to gateway") ||
+                lowerMeasure.Contains("point to configured dns") ||
                 lowerMeasure.Contains("leak prevention"))
             {
                 return false;

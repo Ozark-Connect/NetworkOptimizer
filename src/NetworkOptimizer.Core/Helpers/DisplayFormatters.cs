@@ -449,11 +449,11 @@ public static class DisplayFormatters
         if (totalDevicesChecked > 0)
         {
             if (deviceDnsPointsToGateway)
-                parts.Add($"{totalDevicesChecked} static IP device(s) point to gateway");
+                parts.Add($"{totalDevicesChecked} static IP device(s) point to configured DNS");
             else
             {
                 var misconfigured = totalDevicesChecked - devicesWithCorrectDns;
-                parts.Add($"{misconfigured} of {totalDevicesChecked} have non-gateway DNS");
+                parts.Add($"{misconfigured} of {totalDevicesChecked} have unexpected DNS");
             }
         }
 

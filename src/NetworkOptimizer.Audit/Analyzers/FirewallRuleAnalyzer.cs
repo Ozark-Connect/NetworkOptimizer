@@ -869,6 +869,11 @@ public class FirewallRuleAnalyzer
 
         var effectiveRule = evalResult.EffectiveRule!;
 
+        // DNS rules (port 53 only, UDP or TCP+UDP) are legitimate cross-VLAN exceptions
+        // for Pi-hole, AdGuard Home, or other DNS servers
+        if (IsDnsOnlyRule(effectiveRule))
+            return;
+
         issues.Add(new AuditIssue
         {
             Type = IssueTypes.IsolationBypassed,
@@ -887,6 +892,40 @@ public class FirewallRuleAnalyzer
             RuleId = "FW-ISOLATION-BYPASS",
             ScoreImpact = 12
         });
+    }
+
+    /// <summary>
+    /// Check if a firewall rule only allows DNS traffic (port 53 with UDP or TCP+UDP).
+    /// DNS-only rules are legitimate cross-VLAN exceptions for Pi-hole, AdGuard Home, etc.
+    /// </summary>
+    private static bool IsDnsOnlyRule(FirewallRule rule)
+    {
+        // Must have a destination port specified (no port = allows all traffic)
+        if (string.IsNullOrEmpty(rule.DestinationPort))
+            return false;
+
+        // Port must be exactly 53 (not a range or list with other ports)
+        // Parse the port spec to check
+        if (!IsDnsPortOnly(rule.DestinationPort))
+            return false;
+
+        // Protocol must include UDP (DNS is primarily UDP, TCP is for zone transfers/large responses)
+        var protocol = rule.Protocol?.ToLowerInvariant();
+        return protocol is "udp" or "tcp_udp";
+    }
+
+    /// <summary>
+    /// Check if a port specification contains only port 53.
+    /// Returns false for ranges, lists with other ports, etc.
+    /// </summary>
+    private static bool IsDnsPortOnly(string portSpec)
+    {
+        // Simple case: exactly "53"
+        if (portSpec.Trim() == "53")
+            return true;
+
+        // Could be "53,853" or a range - those aren't DNS-only
+        return false;
     }
 
     /// <summary>

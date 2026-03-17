@@ -1713,8 +1713,8 @@ public class DnsSecurityAnalyzer
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
-                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({displayGateway})",
+                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to an unexpected address",
+                    RecommendedAction = $"Configure device DNS to point to a valid DNS target ({displayGateway})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
@@ -1829,8 +1829,8 @@ public class DnsSecurityAnalyzer
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
-                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({displayGateway})",
+                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to an unexpected address",
+                    RecommendedAction = $"Configure device DNS to point to a valid DNS target ({displayGateway})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
@@ -2117,6 +2117,71 @@ public class DnsSecurityAnalyzer
             _logger.LogInformation(
                 "DNS consistency check passed: All {Count} DHCP-enabled networks use {ProviderName}",
                 dhcpNetworks.Count, result.ThirdPartyDnsProviderName);
+        }
+
+        // Check for networks using a different DNS IP than the majority
+        // e.g., most networks use 192.168.53.220 (Pi-hole) but one uses 192.168.1.220
+        CheckDnsIpConsistency(thirdPartyResults, result);
+    }
+
+    /// <summary>
+    /// Check if all networks using third-party DNS point to the same IP.
+    /// If most use one IP but some use a different one, flag the outliers.
+    /// </summary>
+    private void CheckDnsIpConsistency(
+        List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> thirdPartyResults,
+        DnsSecurityResult result)
+    {
+        if (thirdPartyResults.Count < 2)
+            return;
+
+        // Group by DNS IP to find the most common one
+        var ipGroups = thirdPartyResults
+            .GroupBy(r => r.DnsServerIp)
+            .OrderByDescending(g => g.Count())
+            .ToList();
+
+        // If all networks use the same IP, no inconsistency
+        if (ipGroups.Count <= 1)
+            return;
+
+        // The most common IP is considered the "expected" one
+        var expectedIp = ipGroups[0].Key;
+        var providerName = result.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+
+        // Flag networks using a different IP
+        var mismatchedNetworks = ipGroups
+            .Skip(1)
+            .SelectMany(g => g.Select(r => new { r.NetworkName, r.DnsServerIp }))
+            .ToList();
+
+        if (mismatchedNetworks.Any())
+        {
+            var networkDetails = mismatchedNetworks
+                .Select(n => $"{n.NetworkName} ({n.DnsServerIp})")
+                .ToList();
+
+            _logger.LogWarning(
+                "DNS IP inconsistency: Most networks use {ExpectedIp} but {Count} network(s) use a different IP: {Details}",
+                expectedIp, mismatchedNetworks.Count, string.Join(", ", networkDetails));
+
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsInconsistentConfig,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"{providerName} IP mismatch: most networks use {expectedIp} but {string.Join(", ", networkDetails)} use a different IP. This may indicate misconfiguration.",
+                RecommendedAction = $"Update the DHCP DNS settings for the affected network(s) to use {expectedIp}.",
+                RuleId = "DNS-IP-MISMATCH-001",
+                ScoreImpact = 5,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "expected_ip", expectedIp },
+                    { "mismatched_networks", mismatchedNetworks.Select(n => n.NetworkName).ToList() },
+                    { "mismatched_ips", mismatchedNetworks.Select(n => n.DnsServerIp).Distinct().ToList() },
+                    { "provider_name", providerName }
+                }
+            });
         }
     }
 
