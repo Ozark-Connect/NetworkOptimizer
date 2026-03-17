@@ -74,7 +74,7 @@ public class DnsSecurityAnalyzer
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
     /// <param name="zoneLookup">Optional firewall zone lookup for DMZ/Hotspot network identification</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null)
     {
         var result = new DnsSecurityResult();
 
@@ -128,7 +128,7 @@ public class DnsSecurityAnalyzer
         // Detect third-party LAN DNS (Pi-hole, AdGuard Home, etc.)
         if (networks?.Any() == true)
         {
-            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup);
+            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup, customDnsManagementUrl);
         }
 
         // Analyze DNAT DNS rules (alternative to firewall blocking)
@@ -1846,9 +1846,9 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Detect third-party LAN DNS servers (like Pi-hole, AdGuard Home) across networks
     /// </summary>
-    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null)
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null, string? customDnsManagementUrl = null)
     {
-        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPort);
+        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPort, customDnsManagementUrl);
 
         if (thirdPartyResults.Any())
         {
@@ -2143,9 +2143,17 @@ public class DnsSecurityAnalyzer
             .Select(n => n.Gateway!)
             .ToHashSet();
 
-        // Filter out results where the DNS IP is a gateway
+        // Build a set of corporate network names to exclude - corporate networks often use
+        // different DNS infrastructure (e.g., Active Directory DNS)
+        var corporateNetworkNames = networks
+            .Where(n => n.Purpose == NetworkPurpose.Corporate && !string.IsNullOrEmpty(n.Name))
+            .Select(n => n.Name!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Filter out results where the DNS IP is a gateway or the network is corporate
         var nonGatewayResults = thirdPartyResults
             .Where(r => !gatewayIps.Contains(r.DnsServerIp))
+            .Where(r => !corporateNetworkNames.Contains(r.NetworkName))
             .ToList();
 
         if (nonGatewayResults.Count < 2)

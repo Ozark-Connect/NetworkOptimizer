@@ -4225,6 +4225,160 @@ public class FirewallRuleAnalyzerTests
             i.Message.Contains("IoT") && i.Message.Contains("Server"));
     }
 
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_DnsOnlyUdp_NotFlaggedAsBypassed()
+    {
+        // A DNS-only rule (port 53 UDP) from IoT to Server should NOT be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "dns-iot-to-server",
+                Name = "[DNS] IoT to Pi-hole",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp",
+                DestinationPort = "53",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "server-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "ISOLATION_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_DnsTcpUdp_NotFlaggedAsBypassed()
+    {
+        // A DNS rule with tcp_udp protocol should also be exempt
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "dns-iot-to-server",
+                Name = "[DNS] VLANs to Pi-hole",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp_udp",
+                DestinationPort = "53",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "server-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "ISOLATION_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_DnsWithOtherPorts_StillFlagged()
+    {
+        // A rule with port 53 PLUS other ports should still be flagged (not DNS-only)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-iot-to-server",
+                Name = "Allow IoT to Server",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp",
+                DestinationPort = "53,80,443",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "server-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_AllPortsTcp_StillFlagged()
+    {
+        // A TCP-only rule on port 53 should still be flagged (DNS is primarily UDP)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-iot-to-server",
+                Name = "Allow IoT to Server",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                DestinationPort = "53",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "server-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToServer_NoPortSpecified_StillFlagged()
+    {
+        // A rule with no port restriction should still be flagged (allows all traffic)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Server VLAN", NetworkPurpose.Server, id: "server-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-iot-to-server",
+                Name = "Allow IoT to Server",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "server-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED");
+    }
+
     #endregion
 
     #region Media Network Isolation Tests
