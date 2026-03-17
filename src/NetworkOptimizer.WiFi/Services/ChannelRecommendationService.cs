@@ -533,7 +533,8 @@ public class ChannelRecommendationService
         }
 
         // Unobserved channel uncertainty: inflate triangulated load on channels where the
-        // AP has no direct neighbor observations, accounting for undiscovered neighbors.
+        // AP has no direct neighbor observations. Uses max of (triangulated × multiplier)
+        // and (minimum direct load) as a floor so zero-data channels don't score 0.0.
         for (int i = 0; i < n; i++)
         {
             var directChannels = graph.DirectlyObservedChannels[i];
@@ -551,7 +552,16 @@ public class ChannelRecommendationService
                     if (ChannelSpanHelper.SpansOverlap(apSpan, (extChannel, extChannel)))
                         triangulatedLoad += extWeight;
                 }
-                score += triangulatedLoad * UnobservedChannelMultiplier;
+
+                double minDirectLoad = double.MaxValue;
+                foreach (var dc in directChannels)
+                {
+                    if (graph.ExternalLoad[i].TryGetValue(dc, out var directWeight))
+                        minDirectLoad = Math.Min(minDirectLoad, directWeight);
+                }
+                if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
+
+                score += Math.Max(triangulatedLoad * UnobservedChannelMultiplier, minDirectLoad);
             }
         }
 
@@ -596,8 +606,10 @@ public class ChannelRecommendationService
         // Unobserved channel uncertainty: if this AP has direct neighbor observations on
         // some channels but NOT on the candidate channel, the external load is based only
         // on triangulated estimates which typically underestimate (observers miss neighbors
-        // visible from the target's location). Inflate the triangulated load by a multiplier
-        // to account for undiscovered neighbors.
+        // visible from the target's location). Two adjustments:
+        // 1. Inflate existing triangulated load by a multiplier (accounts for missed neighbors)
+        // 2. Apply a floor = minimum direct external load across observed channels (prevents
+        //    channels with zero triangulated data from scoring 0.0 when the site has active neighbors)
         var directChannels = graph.DirectlyObservedChannels[apIndex];
         if (directChannels.Count > 0)
         {
@@ -614,7 +626,18 @@ public class ChannelRecommendationService
                         triangulatedLoad += extWeight;
                 }
 
-                score += triangulatedLoad * UnobservedChannelMultiplier;
+                // Minimum direct external load across observed channels as a floor.
+                // "An unobserved channel is at least as good as your best known channel."
+                double minDirectLoad = double.MaxValue;
+                foreach (var dc in directChannels)
+                {
+                    if (graph.ExternalLoad[apIndex].TryGetValue(dc, out var directWeight))
+                        minDirectLoad = Math.Min(minDirectLoad, directWeight);
+                }
+                if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
+
+                var uncertainty = Math.Max(triangulatedLoad * UnobservedChannelMultiplier, minDirectLoad);
+                score += uncertainty;
             }
         }
 
@@ -1697,7 +1720,7 @@ public class ChannelRecommendationService
                     }
                 }
 
-                // Unobserved channel penalty
+                // Unobserved channel uncertainty
                 double unobservedPenalty = 0;
                 var directChannels = graph.DirectlyObservedChannels[i];
                 if (directChannels.Count > 0)
@@ -1706,8 +1729,14 @@ public class ChannelRecommendationService
                         ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
                     if (!hasDirectOnCh)
                     {
-                        // Inflate triangulated load to account for undiscovered neighbors
-                        unobservedPenalty = externalScore * UnobservedChannelMultiplier;
+                        double minDirectLoad = double.MaxValue;
+                        foreach (var dc in directChannels)
+                        {
+                            if (graph.ExternalLoad[i].TryGetValue(dc, out var dw))
+                                minDirectLoad = Math.Min(minDirectLoad, dw);
+                        }
+                        if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
+                        unobservedPenalty = Math.Max(externalScore * UnobservedChannelMultiplier, minDirectLoad);
                     }
                 }
 
