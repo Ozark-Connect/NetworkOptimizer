@@ -76,21 +76,6 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
 - **Severity:** Informational (user may have intentionally blocked bidirectional)
 - **Context:** This is a usability issue, not a security issue - blocking return traffic is actually more secure
 
-### 802.1X / RADIUS MAC Auth Awareness for VLAN Placement Rules
-- Wired VLAN placement rules (`CameraVlanRule`, `IotVlanRule`) use `port.NativeNetworkId` (static port config) to determine which VLAN a device is on
-- Problem: When 802.1X or RADIUS MAC authentication is enabled, the switch dynamically assigns the VLAN based on RADIUS response - this may differ from the port's native VLAN config
-- Result: False positive VLAN placement issues for devices that are correctly placed by RADIUS but whose port native VLAN doesn't match the expected network
-- Neither rule checks `port.IsDot1xSecured` today
-- **Context:** These rules only fire for access ports (`ForwardMode == "native"`). The existing `AccessPortVlanRule` already handles 802.1X on **trunk ports** (curated VLAN sets trusted, "Allow All" flagged as Informational) - that's a different concern. This item is specifically about access ports only. Revisited in v1.5.x dev cycle: no users have reported false positives here, and in practice admins typically configure the native/unauth VLAN to match what RADIUS assigns anyway, so this may be a non-issue. Hold until a user actually reports a false positive from a 802.1X wired camera or IoT device.
-- **Not affected:**
-  - Wireless client rules - use `client.EffectiveNetworkId` (actual runtime network from client data, reflects RADIUS assignment)
-  - Protect camera path - uses `ConnectionNetworkId` from the Protect API (actual runtime VLAN)
-- Implementation options:
-  1. Skip VLAN placement check entirely for 802.1X-secured ports (trust RADIUS)
-  2. Use `ConnectedClient.NetworkId` instead of `port.NativeNetworkId` when 802.1X is active - UniFi may populate this with the actual RADIUS-assigned VLAN for wired clients, but unverified without a real 802.1X wired test environment
-  3. Lower severity to Informational for 802.1X ports with a note that RADIUS may override
-- Severity: Low priority (most home/prosumer networks don't use 802.1X; affects enterprise deployments only)
-
 ### Third-Party DNS Firewall Rule Check
 - When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
 - Without this rule, clients could bypass third-party DNS by using the gateway directly
