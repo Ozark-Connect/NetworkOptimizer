@@ -496,6 +496,35 @@ public class ChannelRecommendationService
             score += historicalPenalty + fallbackPenalty * bandStress;
         }
 
+        // Unobserved channel penalty: if an AP has direct neighbor observations on some
+        // channels but is assigned to a channel with no direct data, add a penalty equal
+        // to the average direct external load. Prevents "no data" from looking better than
+        // "measured noisy" and discourages moves to unobserved channels.
+        for (int i = 0; i < n; i++)
+        {
+            var directChannels = graph.DirectlyObservedChannels[i];
+            if (directChannels.Count == 0) continue;
+
+            var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
+            bool hasDirectOnAssigned = directChannels.Any(dc =>
+                ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
+
+            if (!hasDirectOnAssigned)
+            {
+                double directLoadSum = 0; int directLoadCount = 0;
+                foreach (var (extChannel, extWeight) in graph.ExternalLoad[i])
+                {
+                    if (directChannels.Contains(extChannel))
+                    {
+                        directLoadSum += extWeight;
+                        directLoadCount++;
+                    }
+                }
+                if (directLoadCount > 0)
+                    score += directLoadSum / directLoadCount;
+            }
+        }
+
         return score;
     }
 
