@@ -57,7 +57,7 @@ public class ThirdPartyDnsDetector
     /// </summary>
     /// <param name="networks">List of networks to check</param>
     /// <param name="customPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
-    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPort = null)
+    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPort = null, string? customUrl = null)
     {
         var results = new List<ThirdPartyDnsInfo>();
         var probedIps = new HashSet<string>(); // Avoid probing the same IP multiple times
@@ -124,7 +124,7 @@ public class ThirdPartyDnsDetector
                     probedIps.Add(dnsServer);
 
                     // Try Pi-hole detection first
-                    (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPort);
+                    (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPort, customUrl);
                     if (isPihole)
                     {
                         providerName = "Pi-hole";
@@ -133,7 +133,7 @@ public class ThirdPartyDnsDetector
                     else
                     {
                         // If not Pi-hole, try AdGuard Home detection
-                        (isAdGuardHome, adGuardHomeVersion) = await ProbeAdGuardHomeAsync(dnsServer, customPort);
+                        (isAdGuardHome, adGuardHomeVersion) = await ProbeAdGuardHomeAsync(dnsServer, customPort, customUrl);
                         if (isAdGuardHome)
                         {
                             providerName = "AdGuard Home";
@@ -254,8 +254,17 @@ public class ThirdPartyDnsDetector
     /// </summary>
     /// <param name="ipAddress">IP address to probe</param>
     /// <param name="customPort">Optional custom port to try (both HTTP and HTTPS)</param>
-    private async Task<(bool IsPihole, string? Version)> ProbePiholeAsync(string ipAddress, int? customPort = null)
+    private async Task<(bool IsPihole, string? Version)> ProbePiholeAsync(string ipAddress, int? customPort = null, string? customUrl = null)
     {
+        // If a custom URL is provided, try it first (reverse proxy scenario)
+        if (!string.IsNullOrEmpty(customUrl))
+        {
+            var baseUrl = customUrl.TrimEnd('/');
+            var result = await TryProbePiholeEndpointAsync($"{baseUrl}/api/info/login");
+            if (result.IsPihole)
+                return result;
+        }
+
         // Build list of ports to try
         var portsToTry = new List<(int Port, bool UseHttps)>();
 
@@ -279,6 +288,59 @@ public class ThirdPartyDnsDetector
         }
 
         return (false, null);
+    }
+
+    /// <summary>
+    /// Probe a direct URL endpoint for Pi-hole (used for reverse proxy scenarios)
+    /// </summary>
+    private async Task<(bool IsPihole, string? Version)> TryProbePiholeEndpointAsync(string url)
+    {
+        try
+        {
+            _logger.LogDebug("Probing Pi-hole at {Url}", url);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var response = await _httpClient.GetAsync(url, cts.Token);
+
+            if (!response.IsSuccessStatusCode)
+                return (false, null);
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+
+            if (content.Contains("\"dns\""))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(content);
+                    if (doc.RootElement.TryGetProperty("dns", out var dnsProp) && dnsProp.GetBoolean())
+                    {
+                        _logger.LogInformation("Detected Pi-hole at {Url}", url);
+                        return (true, "detected");
+                    }
+                }
+                catch
+                {
+                    return (true, "detected");
+                }
+            }
+
+            return (false, null);
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogDebug("Pi-hole probe to {Url} timed out", url);
+            return (false, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug("Pi-hole probe to {Url} failed: {Message}", url, ex.Message);
+            return (false, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Pi-hole probe to {Url} error: {Type} - {Message}", url, ex.GetType().Name, ex.Message);
+            return (false, null);
+        }
     }
 
     private async Task<(bool IsPihole, string? Version)> TryProbePiholeEndpointAsync(string ipAddress, int port, bool useHttps = false)
@@ -341,8 +403,17 @@ public class ThirdPartyDnsDetector
     /// </summary>
     /// <param name="ipAddress">IP address to probe</param>
     /// <param name="customPort">Optional custom port (default: 80)</param>
-    private async Task<(bool IsAdGuardHome, string? Version)> ProbeAdGuardHomeAsync(string ipAddress, int? customPort = null)
+    private async Task<(bool IsAdGuardHome, string? Version)> ProbeAdGuardHomeAsync(string ipAddress, int? customPort = null, string? customUrl = null)
     {
+        // If a custom URL is provided, try it first (reverse proxy scenario)
+        if (!string.IsNullOrEmpty(customUrl))
+        {
+            var baseUrl = customUrl.TrimEnd('/');
+            var result = await TryProbeAdGuardHomeEndpointAsync(baseUrl);
+            if (result.IsAdGuardHome)
+                return result;
+        }
+
         // Build list of ports to try
         var portsToTry = new List<(int Port, bool UseHttps)>();
 
@@ -366,6 +437,65 @@ public class ThirdPartyDnsDetector
         }
 
         return (false, null);
+    }
+
+    /// <summary>
+    /// Probe a direct base URL for AdGuard Home (used for reverse proxy scenarios)
+    /// </summary>
+    private async Task<(bool IsAdGuardHome, string? Version)> TryProbeAdGuardHomeEndpointAsync(string baseUrl)
+    {
+        try
+        {
+            var loginUrl = $"{baseUrl}/login.html";
+
+            _logger.LogDebug("Probing AdGuard Home at {Url}", loginUrl);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var response = await _httpClient.GetAsync(loginUrl, cts.Token);
+
+            if (!response.IsSuccessStatusCode)
+                return (false, null);
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+
+            var jsMatch = System.Text.RegularExpressions.Regex.Match(content, @"src=""(login\.[^""]+\.js)""");
+            if (!jsMatch.Success)
+                return (false, null);
+
+            var jsFileName = jsMatch.Groups[1].Value;
+            var jsUrl = $"{baseUrl}/{jsFileName}";
+
+            _logger.LogDebug("Fetching AdGuard Home JS bundle at {Url}", jsUrl);
+
+            var jsResponse = await _httpClient.GetAsync(jsUrl, cts.Token);
+            if (!jsResponse.IsSuccessStatusCode)
+                return (false, null);
+
+            var jsContent = await jsResponse.Content.ReadAsStringAsync(cts.Token);
+
+            if (jsContent.Contains("AdGuard"))
+            {
+                _logger.LogInformation("Detected AdGuard Home at {Url}", loginUrl);
+                return (true, "detected");
+            }
+
+            return (false, null);
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogDebug("AdGuard Home probe to {Url} timed out", baseUrl);
+            return (false, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug("AdGuard Home probe to {Url} failed: {Message}", baseUrl, ex.Message);
+            return (false, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("AdGuard Home probe to {Url} error: {Type} - {Message}", baseUrl, ex.GetType().Name, ex.Message);
+            return (false, null);
+        }
     }
 
     private async Task<(bool IsAdGuardHome, string? Version)> TryProbeAdGuardHomeEndpointAsync(string ipAddress, int port, bool useHttps = false)

@@ -179,7 +179,7 @@ public class AuditService
             var mediaPlayers = await _settingsService.GetAsync("audit:allowMediaPlayersOnMainNetwork");
             var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
             var dnatExcludedVlans = await _settingsService.GetAsync("audit:dnatExcludedVlans");
-            var piholePort = await _settingsService.GetAsync("audit:piholeManagementPort");
+            var piholeEndpoint = await _settingsService.GetAsync("audit:piholeManagementPort");
             var unusedPortDays = await _settingsService.GetAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await _settingsService.GetAsync("audit:namedPortInactivityDays");
 
@@ -192,8 +192,15 @@ public class AuditService
             options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // DNAT excluded VLANs (parse comma-separated VLAN IDs)
             options.DnatExcludedVlanIds = ParseVlanIds(dnatExcludedVlans);
-            // Third-party DNS port (Pi-hole, AdGuard Home, etc.) - null means auto-detect
-            options.PiholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
+            // Third-party DNS endpoint (Pi-hole, AdGuard Home, etc.) - null means auto-detect
+            if (int.TryParse(piholeEndpoint, out var port) && port > 0)
+            {
+                options.PiholeManagementPort = port;
+            }
+            else if (!string.IsNullOrWhiteSpace(piholeEndpoint) && Uri.TryCreate(piholeEndpoint, UriKind.Absolute, out _))
+            {
+                options.PiholeManagementUrl = piholeEndpoint;
+            }
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
@@ -1438,6 +1445,7 @@ public class AuditService
                 ClientName = "Network Audit",
                 DnatExcludedVlanIds = options.DnatExcludedVlanIds,
                 PiholeManagementPort = options.PiholeManagementPort,
+                PiholeManagementUrl = options.PiholeManagementUrl,
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,
                 NetworkConfigs = networkConfigs,
@@ -2057,6 +2065,7 @@ public class AuditOptions
     public bool IsScheduled { get; set; }
     public List<int>? DnatExcludedVlanIds { get; set; }
     public int? PiholeManagementPort { get; set; }
+    public string? PiholeManagementUrl { get; set; }
 
     // Unused port detection thresholds
     public int UnusedPortInactivityDays { get; set; } = 15;
