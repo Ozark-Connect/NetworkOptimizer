@@ -323,8 +323,10 @@ public class DnatDnsAnalyzer
             }
 
             // Parse destination filter address and invert flag
+            // UniFi may use either "invert_address" or "match_opposite" to negate the destination
             var destAddress = destFilter.Value.GetStringOrNull("address");
-            var destInvertAddress = destFilter.Value.GetBoolOrDefault("invert_address", false);
+            var destInvertAddress = destFilter.Value.GetBoolOrDefault("invert_address", false)
+                || destFilter.Value.GetBoolOrDefault("match_opposite", false);
 
             // This is a valid DNAT DNS rule - parse it
             var id = rule.GetStringOrNull("_id") ?? Guid.NewGuid().ToString();
