@@ -628,14 +628,14 @@ public class DisplayFormattersTests
     public void GetDeviceDnsDisplay_AllPointToGateway_ReturnsCorrectMessage()
     {
         var result = DisplayFormatters.GetDeviceDnsDisplay(5, 5, 0, true);
-        result.Should().Contain("5 static IP device(s) point to gateway");
+        result.Should().Contain("5 static IP device(s) point to configured DNS");
     }
 
     [Fact]
     public void GetDeviceDnsDisplay_SomeMisconfigured_ShowsCount()
     {
         var result = DisplayFormatters.GetDeviceDnsDisplay(5, 3, 0, false);
-        result.Should().Contain("2 of 5 have non-gateway DNS");
+        result.Should().Contain("2 of 5 have unexpected DNS");
     }
 
     [Fact]

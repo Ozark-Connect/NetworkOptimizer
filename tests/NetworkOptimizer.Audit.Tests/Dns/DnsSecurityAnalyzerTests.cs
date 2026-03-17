@@ -6842,6 +6842,111 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
     #endregion
 
+    #region DNS IP Consistency Tests
+
+    [Fact]
+    public async Task Analyze_AllNetworksSameDnsIp_NoIpMismatchIssue()
+    {
+        // All networks use the same third-party DNS IP - no mismatch
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Home", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "192.168.42.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Gaming", VlanId = 30, DhcpEnabled = true, Gateway = "192.168.30.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
+    }
+
+    [Fact]
+    public async Task Analyze_OneNetworkDifferentDnsIp_FlagsIpMismatch()
+    {
+        // Two networks use 192.168.53.220, one uses 192.168.1.220 - flag the outlier
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Home", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "192.168.42.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Problem VLAN", VlanId = 30, DhcpEnabled = true, Gateway = "192.168.30.1",
+                DnsServers = new List<string> { "192.168.1.220" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull();
+        mismatchIssue!.Message.Should().Contain("Problem VLAN");
+        mismatchIssue.Message.Should().Contain("192.168.1.220");
+    }
+
+    [Fact]
+    public async Task Analyze_DualDnsWithGatewaySecondary_NoIpMismatch()
+    {
+        // Networks with both Pi-hole + gateway DNS should not trigger mismatch
+        // (gateway IPs are excluded from the consistency check)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Home", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "192.168.42.1",
+                DnsServers = new List<string> { "192.168.53.220", "192.168.1.1" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Gaming", VlanId = 30, DhcpEnabled = true, Gateway = "192.168.30.1",
+                DnsServers = new List<string> { "192.168.53.220", "192.168.1.1" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
+    }
+
+    [Fact]
+    public async Task Analyze_CorporateNetworkDifferentDnsIp_NotFlaggedAsMismatch()
+    {
+        // Corporate networks with different DNS IPs should be excluded from mismatch check
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Home", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "192.168.42.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Corp Network", VlanId = 100, DhcpEnabled = true, Gateway = "192.168.100.1",
+                DnsServers = new List<string> { "10.0.0.53" }, Purpose = NetworkPurpose.Corporate }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        // No mismatch issue - Corporate is excluded
+        result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
+    }
+
+    [Fact]
+    public async Task Analyze_SingleNetworkWithThirdPartyDns_NoIpMismatchCheck()
+    {
+        // Only one network has third-party DNS - can't compare IPs, skip check
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Home", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.53.220" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
+    }
+
+    #endregion
+
     #region Raw Device Data DNS Analysis Tests
 
     [Fact]

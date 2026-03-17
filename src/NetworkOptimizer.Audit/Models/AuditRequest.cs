@@ -85,6 +85,12 @@ public class AuditRequest
     public int? PiholeManagementPort { get; init; }  // Name kept for backwards compatibility
 
     /// <summary>
+    /// Optional: Custom URL for third-party DNS management interface (e.g., https://pihole.local)
+    /// Used when Pi-hole/AdGuard Home is behind a reverse proxy.
+    /// </summary>
+    public string? PiholeManagementUrl { get; init; }
+
+    /// <summary>
     /// Optional: Whether UPnP is enabled on the gateway (from GetUpnpEnabledAsync)
     /// </summary>
     public bool? UpnpEnabled { get; init; }
