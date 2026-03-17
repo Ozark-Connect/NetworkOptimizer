@@ -150,9 +150,14 @@ public class ConfigAuditEngine
         _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>(), firewallParser);
 
         // HttpClient here is fine - audits run infrequently (manual/daily), not per-request
+        // Skip cert validation for internal LAN probing (Pi-hole, AdGuard Home behind reverse proxies)
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
         var thirdPartyDetector = new ThirdPartyDnsDetector(
             loggerFactory.CreateLogger<ThirdPartyDnsDetector>(),
-            new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+            new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3) });
         _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>(), thirdPartyDetector);
         _upnpAnalyzer = new UpnpSecurityAnalyzer(loggerFactory.CreateLogger<UpnpSecurityAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
