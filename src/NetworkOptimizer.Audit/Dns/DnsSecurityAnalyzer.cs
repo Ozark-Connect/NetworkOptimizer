@@ -2121,22 +2121,38 @@ public class DnsSecurityAnalyzer
 
         // Check for networks using a different DNS IP than the majority
         // e.g., most networks use 192.168.53.220 (Pi-hole) but one uses 192.168.1.220
-        CheckDnsIpConsistency(thirdPartyResults, result);
+        CheckDnsIpConsistency(thirdPartyResults, networks, result);
     }
 
     /// <summary>
     /// Check if all networks using third-party DNS point to the same IP.
     /// If most use one IP but some use a different one, flag the outliers.
+    /// Excludes gateway IPs since networks often have both Pi-hole + gateway as DNS.
     /// </summary>
     private void CheckDnsIpConsistency(
         List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> thirdPartyResults,
+        List<NetworkInfo> networks,
         DnsSecurityResult result)
     {
         if (thirdPartyResults.Count < 2)
             return;
 
+        // Build a set of gateway IPs to exclude - networks often list both Pi-hole and gateway
+        var gatewayIps = networks
+            .Where(n => !string.IsNullOrEmpty(n.Gateway))
+            .Select(n => n.Gateway!)
+            .ToHashSet();
+
+        // Filter out results where the DNS IP is a gateway
+        var nonGatewayResults = thirdPartyResults
+            .Where(r => !gatewayIps.Contains(r.DnsServerIp))
+            .ToList();
+
+        if (nonGatewayResults.Count < 2)
+            return;
+
         // Group by DNS IP to find the most common one
-        var ipGroups = thirdPartyResults
+        var ipGroups = nonGatewayResults
             .GroupBy(r => r.DnsServerIp)
             .OrderByDescending(g => g.Count())
             .ToList();
