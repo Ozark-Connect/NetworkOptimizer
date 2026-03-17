@@ -74,7 +74,7 @@ public class DnsSecurityAnalyzer
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
     /// <param name="zoneLookup">Optional firewall zone lookup for DMZ/Hotspot network identification</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null)
     {
         var result = new DnsSecurityResult();
 
@@ -128,13 +128,13 @@ public class DnsSecurityAnalyzer
         // Detect third-party LAN DNS (Pi-hole, AdGuard Home, etc.)
         if (networks?.Any() == true)
         {
-            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup);
+            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup, customDnsManagementUrl);
         }
 
         // Analyze DNAT DNS rules (alternative to firewall blocking)
         if (natRulesData.HasValue && networks?.Any() == true)
         {
-            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds);
+            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds, firewallGroups);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -1713,8 +1713,8 @@ public class DnsSecurityAnalyzer
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
-                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({displayGateway})",
+                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to an unexpected address",
+                    RecommendedAction = $"Configure device DNS to point to a valid DNS target ({displayGateway})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
@@ -1829,8 +1829,8 @@ public class DnsSecurityAnalyzer
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
-                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({displayGateway})",
+                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to an unexpected address",
+                    RecommendedAction = $"Configure device DNS to point to a valid DNS target ({displayGateway})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
@@ -1846,9 +1846,9 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Detect third-party LAN DNS servers (like Pi-hole, AdGuard Home) across networks
     /// </summary>
-    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null)
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null, Services.FirewallZoneLookup? zoneLookup = null, string? customDnsManagementUrl = null)
     {
-        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPort);
+        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPort, customDnsManagementUrl);
 
         if (thirdPartyResults.Any())
         {
@@ -2118,6 +2118,95 @@ public class DnsSecurityAnalyzer
                 "DNS consistency check passed: All {Count} DHCP-enabled networks use {ProviderName}",
                 dhcpNetworks.Count, result.ThirdPartyDnsProviderName);
         }
+
+        // Check for networks using a different DNS IP than the majority
+        // e.g., most networks use 192.168.53.220 (Pi-hole) but one uses 192.168.1.220
+        CheckDnsIpConsistency(thirdPartyResults, networks, result);
+    }
+
+    /// <summary>
+    /// Check if all networks using third-party DNS point to the same IP.
+    /// If most use one IP but some use a different one, flag the outliers.
+    /// Excludes gateway IPs since networks often have both Pi-hole + gateway as DNS.
+    /// </summary>
+    private void CheckDnsIpConsistency(
+        List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> thirdPartyResults,
+        List<NetworkInfo> networks,
+        DnsSecurityResult result)
+    {
+        if (thirdPartyResults.Count < 2)
+            return;
+
+        // Build a set of gateway IPs to exclude - networks often list both Pi-hole and gateway
+        var gatewayIps = networks
+            .Where(n => !string.IsNullOrEmpty(n.Gateway))
+            .Select(n => n.Gateway!)
+            .ToHashSet();
+
+        // Build a set of corporate network names to exclude - corporate networks often use
+        // different DNS infrastructure (e.g., Active Directory DNS)
+        var corporateNetworkNames = networks
+            .Where(n => n.Purpose == NetworkPurpose.Corporate && !string.IsNullOrEmpty(n.Name))
+            .Select(n => n.Name!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Filter out results where the DNS IP is a gateway or the network is corporate
+        var nonGatewayResults = thirdPartyResults
+            .Where(r => !gatewayIps.Contains(r.DnsServerIp))
+            .Where(r => !corporateNetworkNames.Contains(r.NetworkName))
+            .ToList();
+
+        if (nonGatewayResults.Count < 2)
+            return;
+
+        // Group by DNS IP to find the most common one
+        var ipGroups = nonGatewayResults
+            .GroupBy(r => r.DnsServerIp)
+            .OrderByDescending(g => g.Count())
+            .ToList();
+
+        // If all networks use the same IP, no inconsistency
+        if (ipGroups.Count <= 1)
+            return;
+
+        // The most common IP is considered the "expected" one
+        var expectedIp = ipGroups[0].Key;
+        var providerName = result.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+
+        // Flag networks using a different IP
+        var mismatchedNetworks = ipGroups
+            .Skip(1)
+            .SelectMany(g => g.Select(r => new { r.NetworkName, r.DnsServerIp }))
+            .ToList();
+
+        if (mismatchedNetworks.Any())
+        {
+            var networkDetails = mismatchedNetworks
+                .Select(n => $"{n.NetworkName} ({n.DnsServerIp})")
+                .ToList();
+
+            _logger.LogWarning(
+                "DNS IP inconsistency: Most networks use {ExpectedIp} but {Count} network(s) use a different IP: {Details}",
+                expectedIp, mismatchedNetworks.Count, string.Join(", ", networkDetails));
+
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsInconsistentConfig,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"{providerName} IP mismatch: most networks use {expectedIp} but {string.Join(", ", networkDetails)} use a different IP. This may indicate misconfiguration.",
+                RecommendedAction = $"Update the DHCP DNS settings for the affected network(s) to use {expectedIp}.",
+                RuleId = "DNS-IP-MISMATCH-001",
+                ScoreImpact = 5,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "expected_ip", expectedIp },
+                    { "mismatched_networks", mismatchedNetworks.Select(n => n.NetworkName).ToList() },
+                    { "mismatched_ips", mismatchedNetworks.Select(n => n.DnsServerIp).Distinct().ToList() },
+                    { "provider_name", providerName }
+                }
+            });
+        }
     }
 
     /// <summary>
@@ -2125,10 +2214,10 @@ public class DnsSecurityAnalyzer
     /// DNAT rules that redirect UDP port 53 to a trusted DNS server (gateway, Pi-hole)
     /// can be an alternative to firewall blocking when DoH or third-party DNS is configured.
     /// </summary>
-    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result, List<int>? excludedVlanIds = null)
+    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result, List<int>? excludedVlanIds = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null)
     {
         var dnatAnalyzer = new DnatDnsAnalyzer();
-        var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks, excludedVlanIds);
+        var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks, excludedVlanIds, firewallGroups);
 
         result.HasDnatDnsRules = coverageResult.HasDnatDnsRules;
         result.DnatProvidesFullCoverage = coverageResult.HasFullCoverage;

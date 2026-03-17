@@ -50,6 +50,7 @@ public class ConfigAuditEngine
         public required List<UniFiPortProfile>? PortProfiles { get; init; }
         public List<int>? DnatExcludedVlanIds { get; init; }
         public int? PiholeManagementPort { get; init; }  // Used for all third-party DNS (Pi-hole, AdGuard Home, etc.)
+        public string? PiholeManagementUrl { get; init; }
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
         public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
@@ -149,9 +150,14 @@ public class ConfigAuditEngine
         _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>(), firewallParser);
 
         // HttpClient here is fine - audits run infrequently (manual/daily), not per-request
+        // Skip cert validation for internal LAN probing (Pi-hole, AdGuard Home behind reverse proxies)
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
         var thirdPartyDetector = new ThirdPartyDnsDetector(
             loggerFactory.CreateLogger<ThirdPartyDnsDetector>(),
-            new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+            new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3) });
         _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>(), thirdPartyDetector);
         _upnpAnalyzer = new UpnpSecurityAnalyzer(loggerFactory.CreateLogger<UpnpSecurityAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
@@ -422,6 +428,7 @@ public class ConfigAuditEngine
             PortProfiles = request.PortProfiles,
             DnatExcludedVlanIds = request.DnatExcludedVlanIds,
             PiholeManagementPort = request.PiholeManagementPort,
+            PiholeManagementUrl = request.PiholeManagementUrl,
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules,
             NetworkConfigs = request.NetworkConfigs,
@@ -953,8 +960,11 @@ public class ConfigAuditEngine
 
         if (ctx.SettingsData.HasValue || ctx.FirewallRules?.Count > 0 || ctx.NatRulesData.HasValue)
         {
+            var firewallGroupsDict = ctx.FirewallGroups?
+                .Where(g => !string.IsNullOrEmpty(g.Id))
+                .ToDictionary(g => g.Id, g => g);
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup);
+                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup, firewallGroupsDict, ctx.PiholeManagementUrl);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

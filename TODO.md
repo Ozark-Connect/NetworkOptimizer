@@ -291,39 +291,58 @@ The following were implemented in the WiFi Optimizer feature:
 - **Priority:** Medium - not blocking but makes maintenance harder as the app grows
 
 ### Refactor DnsSecurityAnalyzer.AnalyzeAsync() Parameter Hell
-- **Issue:** `DnsSecurityAnalyzer.AnalyzeAsync()` takes 7 nullable parameters, making it error-prone:
+- **Issue:** `DnsSecurityAnalyzer.AnalyzeAsync()` now takes 12 parameters (was 7, grew during DNAT/firewall groups/URL work):
   ```csharp
   public async Task<DnsSecurityResult> AnalyzeAsync(
-      JsonElement? settingsData,
-      JsonElement? firewallData,
-      List<SwitchInfo>? switches,
-      List<NetworkInfo>? networks,
-      JsonElement? deviceData,
-      int? customPiholePort,
-      JsonElement? natRulesData)
+      JsonElement? settingsData, List<FirewallRule>? firewallRules,
+      List<SwitchInfo>? switches, List<NetworkInfo>? networks,
+      JsonElement? deviceData, int? customDnsManagementPort,
+      JsonElement? natRulesData, List<int>? dnatExcludedVlanIds,
+      string? externalZoneId, FirewallZoneLookup? zoneLookup,
+      Dictionary<string, UniFiFirewallGroup>? firewallGroups,
+      string? customDnsManagementUrl)
   ```
+  Plus 5 convenience overloads that chain to it.
 - **Problems:**
   - Easy to pass arguments in wrong order (all are nullable)
   - Tests are verbose with many `null` placeholders
-  - Adding new parameters requires updating all call sites
+  - Adding new parameters requires updating all call sites and overloads
+  - The overload chain (lines 47-77) is getting unwieldy
 - **Proposed fix:** Create `DnsAnalysisRequest` record/class:
   ```csharp
   public record DnsAnalysisRequest
   {
       public JsonElement? SettingsData { get; init; }
-      public JsonElement? FirewallData { get; init; }
+      public List<FirewallRule>? FirewallRules { get; init; }
       public List<SwitchInfo>? Switches { get; init; }
       public List<NetworkInfo>? Networks { get; init; }
       public JsonElement? DeviceData { get; init; }
-      public int? CustomPiholePort { get; init; }
+      public int? CustomDnsManagementPort { get; init; }
+      public string? CustomDnsManagementUrl { get; init; }
       public JsonElement? NatRulesData { get; init; }
+      public List<int>? DnatExcludedVlanIds { get; init; }
+      public string? ExternalZoneId { get; init; }
+      public FirewallZoneLookup? ZoneLookup { get; init; }
+      public Dictionary<string, UniFiFirewallGroup>? FirewallGroups { get; init; }
   }
   ```
 - **Benefits:**
   - Named parameters make call sites self-documenting
   - Adding new fields doesn't break existing callers
+  - Eliminates the 5 overloads - just one method with a request object
   - Test setup becomes clearer
 - **Also applies to:** Other analyzers with similar parameter patterns
+
+### Consolidate DNAT Rule Coverage Type Strings
+- **Issue:** `DnatRuleInfo.CoverageType` uses magic strings: `"network"`, `"subnet"`, `"single_ip"`, `"inverted_address"`, `"interface"`
+- **Current usage:** Set in `ParseSourceFilter()`, consumed in `Analyze()` switch statement
+- **Fix:** Replace with an enum `DnatCoverageType` for type safety and discoverability
+- **Scope:** `DnatDnsAnalyzer.cs` only - fully self-contained
+
+### ThirdPartyDnsDetector Probe Method Duplication
+- **Issue:** Two overloads of `TryProbePiholeEndpointAsync` and `TryProbeAdGuardHomeEndpointAsync` - one takes a full URL, one takes IP+port+scheme. The logic is nearly identical.
+- **Fix:** Unify into a single method that takes a URL string. The IP+port caller can construct the URL before calling.
+- **Scope:** `ThirdPartyDnsDetector.cs` only
 
 ### Rename ISpeedTestRepository to IGatewayRepository
 - **Issue:** `ISpeedTestRepository` is a misleading name - it handles Gateway SSH settings, iperf3 results, AND SQM WAN configuration
