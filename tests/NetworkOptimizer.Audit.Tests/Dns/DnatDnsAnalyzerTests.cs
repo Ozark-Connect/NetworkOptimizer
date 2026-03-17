@@ -48,13 +48,19 @@ public class DnatDnsAnalyzerTests
         bool enabled = true,
         string redirectIp = "192.168.1.1",
         string? inInterface = null,
-        string? description = null)
+        string? description = null,
+        bool matchOpposite = false)
     {
         var sourceFilter = sourceFilterType == "NETWORK_CONF"
             ? $"\"filter_type\": \"NETWORK_CONF\", \"network_conf_id\": \"{networkConfId}\""
             : sourceFilterType == "ANY"
                 ? "\"filter_type\": \"ANY\""
                 : $"\"filter_type\": \"ADDRESS_AND_PORT\", \"address\": \"{sourceAddress}\"";
+
+        if (matchOpposite)
+        {
+            sourceFilter += ", \"match_opposite\": true";
+        }
 
         var inInterfaceField = inInterface != null ? $"\"in_interface\": \"{inInterface}\"," : "";
         var desc = description ?? "Test DNAT";
@@ -280,6 +286,60 @@ public class DnatDnsAnalyzerTests
         var result = _analyzer.Analyze(natRules, networks);
 
         Assert.Equal(2, result.SingleIpRules.Count);
+    }
+
+    #endregion
+
+    #region Inverted Address Tests (match_opposite on source address)
+
+    [Fact]
+    public void Analyze_WithInvertedSingleIp_CoversAllNetworks()
+    {
+        // Source is "NOT 192.168.1.220" - this covers all networks (everything except one IP)
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true),
+            ("net3", "Guest", "192.168.3.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "ADDRESS_AND_PORT", sourceAddress: "192.168.1.220", matchOpposite: true));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.True(result.HasFullCoverage);
+        Assert.Equal(3, result.CoveredNetworkIds.Count);
+        Assert.Empty(result.UncoveredNetworkIds);
+        Assert.Empty(result.SingleIpRules); // Should NOT be flagged as single IP
+    }
+
+    [Fact]
+    public void Analyze_WithInvertedSingleIp_SetsCorrectCoverageType()
+    {
+        var networks = CreateTestNetworks(("net1", "LAN", "192.168.1.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "ADDRESS_AND_PORT", sourceAddress: "192.168.1.220", matchOpposite: true));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.Single(result.Rules);
+        Assert.Equal("inverted_address", result.Rules[0].CoverageType);
+        Assert.True(result.Rules[0].MatchOpposite);
+        Assert.Equal("192.168.1.220", result.Rules[0].SingleIp);
+    }
+
+    [Fact]
+    public void Analyze_WithNonInvertedSingleIp_StillFlaggedAsAbnormal()
+    {
+        // Without match_opposite, a single IP is still abnormal
+        var networks = CreateTestNetworks(("net1", "LAN", "192.168.1.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "ADDRESS_AND_PORT", sourceAddress: "192.168.1.220", matchOpposite: false));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.Single(result.SingleIpRules);
+        Assert.Contains("192.168.1.220", result.SingleIpRules);
+        Assert.False(result.HasFullCoverage);
     }
 
     #endregion

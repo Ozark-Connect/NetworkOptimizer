@@ -238,6 +238,14 @@ public class DnatDnsAnalyzer
                     }
                     break;
 
+                case "inverted_address":
+                    // Inverted source address covers all networks (excludes only one IP)
+                    foreach (var network in allNetworks)
+                    {
+                        coveredNetworkIds.Add(network.Id);
+                    }
+                    break;
+
                 case "single_ip":
                     if (!string.IsNullOrEmpty(rule.SingleIp))
                     {
@@ -354,7 +362,25 @@ public class DnatDnsAnalyzer
             }
             else if (!string.IsNullOrEmpty(address))
             {
-                if (address.Contains('/'))
+                if (matchOpposite)
+                {
+                    // Inverted source address - covers everything EXCEPT this address.
+                    // e.g., "not 192.168.1.220" means all devices except the DNS server itself.
+                    // This is effectively full coverage for all networks.
+                    ruleInfo = new DnatRuleInfo
+                    {
+                        Id = id,
+                        Description = description,
+                        CoverageType = "inverted_address",
+                        SingleIp = address,
+                        RedirectIp = redirectIp,
+                        InInterface = inInterface,
+                        MatchOpposite = true,
+                        DestinationAddress = destAddress,
+                        InvertDestinationAddress = destInvertAddress
+                    };
+                }
+                else if (address.Contains('/'))
                 {
                     // CIDR subnet
                     ruleInfo = new DnatRuleInfo
