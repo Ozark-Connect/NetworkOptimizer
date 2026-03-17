@@ -113,13 +113,12 @@ public static class WiFiAnalysisHelpers
     }
 
     /// <summary>
-    /// Get the interference threshold for a given band. 2.4 GHz uses a more lenient
-    /// threshold because with only 3 non-overlapping channels, co-channel is often
-    /// unavoidable and the band has longer range through walls.
+    /// Get the interference threshold for a given band. Per-band facility for future
+    /// tuning (e.g., 2.4 GHz may warrant a different threshold given only 3 channels).
     /// </summary>
     public static double GetInterferenceThresholdDbm(RadioBand band) => band switch
     {
-        RadioBand.Band2_4GHz => -67.0,
+        RadioBand.Band2_4GHz => -70.0,
         _ => -70.0
     };
 
