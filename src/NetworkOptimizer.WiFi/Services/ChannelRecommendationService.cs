@@ -64,12 +64,12 @@ public class ChannelRecommendationService
     private const double MinAvgImprovementPerAp = 0.15;
 
     /// <summary>
-    /// Minimum current score for an AP to be worth moving. APs with scores
-    /// below this have negligible interference and shouldn't be disrupted.
-    /// After optimization, APs below this threshold are reverted to their
-    /// current channel assignment.
+    /// Minimum current score for an AP to be worth moving. APs scoring below
+    /// this are performing well enough to leave alone - the risk and disruption
+    /// of a channel change isn't justified. A score of 1.3 means light interference
+    /// that clients can handle; 2.0+ means real problems worth fixing.
     /// </summary>
-    private const double MinApScoreToMove = 0.5;
+    private const double MinApScoreToMove = 2.0;
 
     /// <summary>
     /// Minimum absolute score improvement for an individual AP to justify a move.
