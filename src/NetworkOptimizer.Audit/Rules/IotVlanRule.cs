@@ -62,8 +62,14 @@ public class IotVlanRule : AuditRuleBase
         if (!detection.Category.IsIoT() && !isPrinter)
             return null;
 
-        // Get the network this port is on
-        var network = GetNetwork(port.NativeNetworkId, networks);
+        // Get the network this port is on.
+        // For 802.1X/RADIUS-secured ports, use the connected client's network_id which reflects
+        // the actual RADIUS-assigned VLAN, not the port's static native (unauth) VLAN.
+        // If 802.1X is active but no client is connected, skip - we can't determine the assigned VLAN.
+        if (port.IsDot1xSecured && port.ConnectedClient == null)
+            return null;
+        var networkId = port.IsDot1xSecured ? port.ConnectedClient!.EffectiveNetworkId : port.NativeNetworkId;
+        var network = GetNetwork(networkId, networks);
         if (network == null)
             return null;
 

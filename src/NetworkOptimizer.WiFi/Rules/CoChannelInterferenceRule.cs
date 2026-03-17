@@ -59,14 +59,31 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                     if (hasUnplacedAps)
                         recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
 
+                    // Dense deployment check: when APs are placed on the floor plan map, compare
+                    // the total number of radios on this band against the number of non-overlapping
+                    // channels available. If there are more APs than channels, some co-channel
+                    // overlap is structurally unavoidable regardless of channel assignment.
+                    // Only applies when the floor plan is set up (empirical density signal).
+                    var nonOverlappingChannels = band switch
+                    {
+                        RadioBand.Band2_4GHz => 3,   // Channels 1, 6, 11
+                        RadioBand.Band5GHz => 9,     // UNII-1 + UNII-3 without DFS
+                        RadioBand.Band6GHz => 14,    // 80 MHz non-overlapping channels in 6 GHz
+                        _ => 3
+                    };
+                    var isDenseDeployment = ctx.PropagationContext != null
+                        && radiosInBand.Count > nonOverlappingChannels;
+
                     yield return new HealthIssue
                     {
-                        Severity = HealthIssueSeverity.Warning,
+                        Severity = isDenseDeployment ? HealthIssueSeverity.Info : HealthIssueSeverity.Warning,
                         Dimensions = { HealthDimension.ChannelHealth },
                         Title = $"Co-Channel Interference on {band.ToDisplayString()} Channel {group.Key}",
-                        Description = $"{nonMeshAps.Count} APs ({string.Join(", ", apNames)}) are using the same channel.",
+                        Description = isDenseDeployment
+                            ? $"{nonMeshAps.Count} APs ({string.Join(", ", apNames)}) are using the same channel. With {radiosInBand.Count} APs on {band.ToDisplayString()} and only {nonOverlappingChannels} non-overlapping channels, some overlap is unavoidable."
+                            : $"{nonMeshAps.Count} APs ({string.Join(", ", apNames)}) are using the same channel.",
                         Recommendation = recommendation,
-                        ScoreImpact = -5
+                        ScoreImpact = isDenseDeployment ? -1 : -5
                     };
                 }
             }

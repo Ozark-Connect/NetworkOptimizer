@@ -76,20 +76,6 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
 - **Severity:** Informational (user may have intentionally blocked bidirectional)
 - **Context:** This is a usability issue, not a security issue - blocking return traffic is actually more secure
 
-### 802.1X / RADIUS MAC Auth Awareness for VLAN Placement Rules
-- Wired VLAN placement rules (`CameraVlanRule`, `IotVlanRule`) use `port.NativeNetworkId` (static port config) to determine which VLAN a device is on
-- Problem: When 802.1X or RADIUS MAC authentication is enabled, the switch dynamically assigns the VLAN based on RADIUS response - this may differ from the port's native VLAN config
-- Result: False positive VLAN placement issues for devices that are correctly placed by RADIUS but whose port native VLAN doesn't match the expected network
-- Neither rule checks `port.IsDot1xSecured` today
-- **Not affected:**
-  - Wireless client rules - use `client.EffectiveNetworkId` (actual runtime network from client data, reflects RADIUS assignment)
-  - Protect camera path - uses `ConnectionNetworkId` from the Protect API (actual runtime VLAN)
-- Implementation options:
-  1. Skip VLAN placement check entirely for 802.1X-secured ports (trust RADIUS)
-  2. Use the connected client's actual network assignment instead of port native VLAN when 802.1X is active
-  3. Lower severity to Informational for 802.1X ports with a note that RADIUS may override
-- Severity: Low priority (most home/prosumer networks don't use 802.1X; affects enterprise deployments)
-
 ### Third-Party DNS Firewall Rule Check
 - When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
 - Without this rule, clients could bypass third-party DNS by using the gateway directly
@@ -146,7 +132,6 @@ New audit section focused on network performance issues (distinct from security 
 - Prerequisite: Reuse SSH infrastructure from SQM/gateway speed tests
 
 ### WiFi Optimizer Enhancements
-- **Co-channel interference severity scaling:** Reduce urgency/severity of co-channel interference warnings as AP count increases. With many APs in a dense deployment, some co-channel overlap is unavoidable and expected. Current warnings may be too aggressive for larger deployments.
 - **MLO per-AP detection:** Check MLO status per-AP based on which SSIDs each AP broadcasts (via vap_table), not just global WLAN config. An AP only has MLO impact if it broadcasts an MLO-enabled SSID.
 
 ### Floor Plan Heatmap - Per-Channel Frequency
