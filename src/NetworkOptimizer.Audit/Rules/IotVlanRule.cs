@@ -23,11 +23,6 @@ public class IotVlanRule : AuditRuleBase
         if (port.ForwardMode != "native" || port.IsUplink || port.IsWan)
             return null;
 
-        // Skip 802.1X/RADIUS-secured ports - VLAN is dynamically assigned by RADIUS,
-        // not static port config, so NativeNetworkId doesn't reflect the actual runtime VLAN.
-        if (port.IsDot1xSecured)
-            return null;
-
         DeviceDetectionResult detection;
         bool isOfflineDevice = false;
 
