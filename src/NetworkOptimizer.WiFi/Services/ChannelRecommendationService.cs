@@ -105,13 +105,15 @@ public class ChannelRecommendationService
     private const double MinTriangulatedWeight = 0.2;
 
     /// <summary>
-    /// Discount factor for triangulated (non-direct) external load entries.
-    /// Triangulated load uses AP-to-AP proximity as a proxy for neighbor-to-AP proximity,
-    /// which is fundamentally unreliable - the neighbor could be closer to or further from
-    /// the target than the observer. 0.5 means triangulated entries have half the scoring
-    /// influence of direct observations, so they inform but don't drive channel changes.
+    /// Uncertainty multiplier for external load on channels with no direct neighbor
+    /// observations. Triangulation discovers some neighbors but not all - the observer
+    /// AP may miss neighbors visible from the target's location. This multiplier inflates
+    /// the triangulated estimate to account for missing neighbors. Applied on top of the
+    /// base triangulated load: total = base + base * multiplier = base * (1 + multiplier).
+    /// 2.0 means unobserved channels see 3x their triangulated estimate, which roughly
+    /// matches the ~3x underestimate observed in testing.
     /// </summary>
-    private const double TriangulatedDiscountFactor = 0.5;
+    private const double UnobservedChannelMultiplier = 2.0;
 
     /// <summary>
     /// Multiplier for internal (own AP) co-channel interference. Co-channeling your
@@ -496,10 +498,8 @@ public class ChannelRecommendationService
             score += historicalPenalty + fallbackPenalty * bandStress;
         }
 
-        // Unobserved channel penalty: if an AP has direct neighbor observations on some
-        // channels but is assigned to a channel with no direct data, add a penalty equal
-        // to the average direct external load. Prevents "no data" from looking better than
-        // "measured noisy" and discourages moves to unobserved channels.
+        // Unobserved channel uncertainty: inflate triangulated load on channels where the
+        // AP has no direct neighbor observations, accounting for undiscovered neighbors.
         for (int i = 0; i < n; i++)
         {
             var directChannels = graph.DirectlyObservedChannels[i];
@@ -511,17 +511,13 @@ public class ChannelRecommendationService
 
             if (!hasDirectOnAssigned)
             {
-                double directLoadSum = 0; int directLoadCount = 0;
+                double triangulatedLoad = 0;
                 foreach (var (extChannel, extWeight) in graph.ExternalLoad[i])
                 {
-                    if (directChannels.Contains(extChannel))
-                    {
-                        directLoadSum += extWeight;
-                        directLoadCount++;
-                    }
+                    if (ChannelSpanHelper.SpansOverlap(apSpan, (extChannel, extChannel)))
+                        triangulatedLoad += extWeight;
                 }
-                if (directLoadCount > 0)
-                    score += directLoadSum / directLoadCount;
+                score += triangulatedLoad * UnobservedChannelMultiplier;
             }
         }
 
@@ -563,37 +559,28 @@ public class ChannelRecommendationService
                 score += extWeight;
         }
 
-        // Unobserved channel penalty: if this AP has direct neighbor observations on some
-        // channels but NOT on the candidate channel, the external load for this channel is
-        // based only on triangulated estimates (which underestimate real load). Apply a
-        // penalty equal to the average direct external load across observed channels so
-        // "no data" doesn't look better than "measured noisy."
+        // Unobserved channel uncertainty: if this AP has direct neighbor observations on
+        // some channels but NOT on the candidate channel, the external load is based only
+        // on triangulated estimates which typically underestimate (observers miss neighbors
+        // visible from the target's location). Inflate the triangulated load by a multiplier
+        // to account for undiscovered neighbors.
         var directChannels = graph.DirectlyObservedChannels[apIndex];
         if (directChannels.Count > 0)
         {
-            var assignedChannel = assignment[apIndex].Channel;
             bool hasDirectOnAssigned = directChannels.Any(dc =>
-            {
-                var dcSpan = (Low: dc, High: dc);
-                return ChannelSpanHelper.SpansOverlap(apSpan, dcSpan);
-            });
+                ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
 
             if (!hasDirectOnAssigned)
             {
-                // Average external load across directly observed channels
-                double directLoadSum = 0;
-                int directLoadCount = 0;
+                // Sum up the external load already added for this channel (all triangulated)
+                double triangulatedLoad = 0;
                 foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
                 {
-                    if (directChannels.Contains(extChannel))
-                    {
-                        directLoadSum += extWeight;
-                        directLoadCount++;
-                    }
+                    if (ChannelSpanHelper.SpansOverlap(apSpan, (extChannel, extChannel)))
+                        triangulatedLoad += extWeight;
                 }
 
-                if (directLoadCount > 0)
-                    score += directLoadSum / directLoadCount;
+                score += triangulatedLoad * UnobservedChannelMultiplier;
             }
         }
 
@@ -908,13 +895,9 @@ public class ChannelRecommendationService
                     continue;
                 }
 
-                // Discount triangulated entries - AP-to-AP proximity is an unreliable
-                // proxy for neighbor-to-AP proximity, so reduce their scoring influence
-                var contributedWeight = isDirect ? bestWeight : bestWeight * TriangulatedDiscountFactor;
-
                 if (!graph.ExternalLoad[j].ContainsKey(bestChannel))
                     graph.ExternalLoad[j][bestChannel] = 0;
-                graph.ExternalLoad[j][bestChannel] += contributedWeight;
+                graph.ExternalLoad[j][bestChannel] += bestWeight;
 
                 if (isDirect)
                 {
@@ -1689,12 +1672,8 @@ public class ChannelRecommendationService
                         ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
                     if (!hasDirectOnCh)
                     {
-                        double dSum = 0; int dCount = 0;
-                        foreach (var (eCh, eW) in graph.ExternalLoad[i])
-                        {
-                            if (directChannels.Contains(eCh)) { dSum += eW; dCount++; }
-                        }
-                        if (dCount > 0) unobservedPenalty = dSum / dCount;
+                        // Inflate triangulated load to account for undiscovered neighbors
+                        unobservedPenalty = externalScore * UnobservedChannelMultiplier;
                     }
                 }
 
