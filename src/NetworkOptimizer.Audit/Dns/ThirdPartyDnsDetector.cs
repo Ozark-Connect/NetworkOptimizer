@@ -302,14 +302,6 @@ public class ThirdPartyDnsDetector
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             var response = await _httpClient.GetAsync(url, cts.Token);
 
-            // Pi-hole's /api/info/login endpoint returns 200 with {"dns":true} when unauthenticated,
-            // or 403 Forbidden when authentication is required. Either response proves Pi-hole is present.
-            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            {
-                _logger.LogInformation("Detected Pi-hole at {Url} (403 Forbidden - auth required)", url);
-                return (true, "detected");
-            }
-
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogDebug("Pi-hole probe to {Url} returned {StatusCode}", url, (int)response.StatusCode);
@@ -365,13 +357,6 @@ public class ThirdPartyDnsDetector
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
             var response = await _httpClient.GetAsync(url, cts.Token);
-
-            // 403 proves Pi-hole is present (auth required)
-            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-            {
-                _logger.LogInformation("Detected Pi-hole at {Ip}:{Port} (403 - auth required)", ipAddress, port);
-                return (true, "detected");
-            }
 
             if (!response.IsSuccessStatusCode)
             {
