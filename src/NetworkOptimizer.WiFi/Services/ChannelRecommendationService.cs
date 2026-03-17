@@ -72,6 +72,20 @@ public class ChannelRecommendationService
     private const double MinApScoreToMove = 0.5;
 
     /// <summary>
+    /// Minimum absolute score improvement for an individual AP to justify a move.
+    /// Prevents churn when the gain is negligible (e.g., 0.7 → 0.1 = 0.6 gain).
+    /// Both this AND MinApImprovementPercent must be met.
+    /// </summary>
+    private const double MinApAbsoluteImprovement = 1.0;
+
+    /// <summary>
+    /// Minimum percentage score improvement for an individual AP to justify a move.
+    /// Prevents moving APs where the improvement is small relative to current score
+    /// (e.g., 3.0 → 2.8 = 7%). Both this AND MinApAbsoluteImprovement must be met.
+    /// </summary>
+    private const double MinApImprovementPercent = 0.30;
+
+    /// <summary>
     /// Penalty for channels with no historical data. Unknown channels carry more
     /// risk than channels we have measured data for, so they shouldn't score as
     /// perfect (0.0). Applied per-AP when historical stress data exists for the AP
@@ -380,21 +394,41 @@ public class ChannelRecommendationService
             var currentApScore = ScoreAp(graph, currentAssignment, i, band);
             var recommendedApScore = ScoreAp(graph, bestAssignment, i, band);
 
-            // Don't recommend moving APs with negligible current interference,
+            // Don't recommend moving APs unless the improvement justifies the disruption,
             // unless the AP is on a non-valid channel (e.g., 2.4 GHz ch3 should always be moved to 1/6/11)
             var recommendedChannel = bestAssignment[i].Channel;
             var recommendedWidth = bestAssignment[i].Width;
             var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
-            if (isOnValidChannel && currentApScore < MinApScoreToMove &&
-                (recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth))
+            var isChanged = recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth;
+
+            if (isOnValidChannel && isChanged)
             {
-                _logger.LogDebug(
-                    "[ChannelRec] {ApName} current score {Score:F3} below per-AP threshold {Threshold:F3}, " +
-                    "keeping current ch{Channel}/{Width} MHz",
-                    node.Name, currentApScore, MinApScoreToMove, node.CurrentChannel, node.CurrentWidth);
-                recommendedChannel = node.CurrentChannel;
-                recommendedWidth = node.CurrentWidth;
-                recommendedApScore = currentApScore;
+                var absoluteImprovement = currentApScore - recommendedApScore;
+                var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
+
+                if (currentApScore < MinApScoreToMove)
+                {
+                    _logger.LogDebug(
+                        "[ChannelRec] {ApName} current score {Score:F3} below threshold {Threshold:F3}, " +
+                        "keeping current ch{Channel}/{Width} MHz",
+                        node.Name, currentApScore, MinApScoreToMove, node.CurrentChannel, node.CurrentWidth);
+                    recommendedChannel = node.CurrentChannel;
+                    recommendedWidth = node.CurrentWidth;
+                    recommendedApScore = currentApScore;
+                }
+                else if (absoluteImprovement < MinApAbsoluteImprovement ||
+                         percentImprovement < MinApImprovementPercent)
+                {
+                    _logger.LogDebug(
+                        "[ChannelRec] {ApName} improvement too small (abs={Abs:F3}, pct={Pct:P0}), " +
+                        "keeping current ch{Channel}/{Width} MHz (thresholds: abs>={AbsThresh:F1}, pct>={PctThresh:P0})",
+                        node.Name, absoluteImprovement, percentImprovement,
+                        node.CurrentChannel, node.CurrentWidth,
+                        MinApAbsoluteImprovement, MinApImprovementPercent);
+                    recommendedChannel = node.CurrentChannel;
+                    recommendedWidth = node.CurrentWidth;
+                    recommendedApScore = currentApScore;
+                }
             }
 
             plan.Recommendations.Add(new ApChannelRecommendation
