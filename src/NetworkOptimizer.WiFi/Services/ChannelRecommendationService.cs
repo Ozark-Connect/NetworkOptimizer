@@ -105,6 +105,15 @@ public class ChannelRecommendationService
     private const double MinTriangulatedWeight = 0.2;
 
     /// <summary>
+    /// Discount factor for triangulated (non-direct) external load entries.
+    /// Triangulated load uses AP-to-AP proximity as a proxy for neighbor-to-AP proximity,
+    /// which is fundamentally unreliable - the neighbor could be closer to or further from
+    /// the target than the observer. 0.5 means triangulated entries have half the scoring
+    /// influence of direct observations, so they inform but don't drive channel changes.
+    /// </summary>
+    private const double TriangulatedDiscountFactor = 0.5;
+
+    /// <summary>
     /// Multiplier for internal (own AP) co-channel interference. Co-channeling your
     /// own APs is worse than external neighbors: your APs are permanent, always-on,
     /// high-duty-cycle, and you control them. A 3x multiplier ensures the engine
@@ -159,6 +168,7 @@ public class ChannelRecommendationService
             Nodes = new List<ApNode>(n),
             InternalWeights = new double[n, n],
             ExternalLoad = new Dictionary<int, double>[n],
+            DirectlyObservedChannels = new HashSet<int>[n],
             ScanChannelData = new Dictionary<int, (int Utilization, int Interference)>[n],
             MeshConstraints = new List<MeshConstraint>()
         };
@@ -198,6 +208,7 @@ public class ChannelRecommendationService
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
+            graph.DirectlyObservedChannels[i] = new HashSet<int>();
             graph.ScanChannelData[i] = new Dictionary<int, (int, int)>();
         }
 
@@ -523,6 +534,40 @@ public class ChannelRecommendationService
                 score += extWeight;
         }
 
+        // Unobserved channel penalty: if this AP has direct neighbor observations on some
+        // channels but NOT on the candidate channel, the external load for this channel is
+        // based only on triangulated estimates (which underestimate real load). Apply a
+        // penalty equal to the average direct external load across observed channels so
+        // "no data" doesn't look better than "measured noisy."
+        var directChannels = graph.DirectlyObservedChannels[apIndex];
+        if (directChannels.Count > 0)
+        {
+            var assignedChannel = assignment[apIndex].Channel;
+            bool hasDirectOnAssigned = directChannels.Any(dc =>
+            {
+                var dcSpan = (Low: dc, High: dc);
+                return ChannelSpanHelper.SpansOverlap(apSpan, dcSpan);
+            });
+
+            if (!hasDirectOnAssigned)
+            {
+                // Average external load across directly observed channels
+                double directLoadSum = 0;
+                int directLoadCount = 0;
+                foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+                {
+                    if (directChannels.Contains(extChannel))
+                    {
+                        directLoadSum += extWeight;
+                        directLoadCount++;
+                    }
+                }
+
+                if (directLoadCount > 0)
+                    score += directLoadSum / directLoadCount;
+            }
+        }
+
         // Channel scan data (scaled by band stress multiplier)
         var bandStress = GetBandStressMultiplier(band);
         var ch = assignment[apIndex].Channel;
@@ -834,12 +879,19 @@ public class ChannelRecommendationService
                     continue;
                 }
 
+                // Discount triangulated entries - AP-to-AP proximity is an unreliable
+                // proxy for neighbor-to-AP proximity, so reduce their scoring influence
+                var contributedWeight = isDirect ? bestWeight : bestWeight * TriangulatedDiscountFactor;
+
                 if (!graph.ExternalLoad[j].ContainsKey(bestChannel))
                     graph.ExternalLoad[j][bestChannel] = 0;
-                graph.ExternalLoad[j][bestChannel] += bestWeight;
+                graph.ExternalLoad[j][bestChannel] += contributedWeight;
 
                 if (isDirect)
+                {
                     directCount++;
+                    graph.DirectlyObservedChannels[j].Add(bestChannel);
+                }
                 else
                 {
                     triangulatedCount++;
@@ -1599,10 +1651,29 @@ public class ChannelRecommendationService
                     }
                 }
 
-                var total = internalScore + externalScore + scanScore + stressScore;
+                // Unobserved channel penalty
+                double unobservedPenalty = 0;
+                var directChannels = graph.DirectlyObservedChannels[i];
+                if (directChannels.Count > 0)
+                {
+                    bool hasDirectOnCh = directChannels.Any(dc =>
+                        ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
+                    if (!hasDirectOnCh)
+                    {
+                        double dSum = 0; int dCount = 0;
+                        foreach (var (eCh, eW) in graph.ExternalLoad[i])
+                        {
+                            if (directChannels.Contains(eCh)) { dSum += eW; dCount++; }
+                        }
+                        if (dCount > 0) unobservedPenalty = dSum / dCount;
+                    }
+                }
+
+                var total = internalScore + externalScore + scanScore + stressScore + unobservedPenalty;
                 var marker = ch == currentAssignment[i].Channel ? " <<<" : "";
                 var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}(raw)" : "";
-                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3}{stressStr} = {total:F3}{marker}");
+                var unobsStr = unobservedPenalty > 0 ? $" + unobs={unobservedPenalty:F3}" : "";
+                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3}{stressStr}{unobsStr} = {total:F3}{marker}");
             }
         }
 

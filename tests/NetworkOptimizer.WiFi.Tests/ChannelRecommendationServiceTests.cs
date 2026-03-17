@@ -533,8 +533,8 @@ public class ChannelRecommendationServiceTests
         graph.ExternalLoad[0].Should().ContainKey(36);
         // Unplaced APs have internal weight 0.625. Neighbor at -55 dBm → weight 0.875.
         // Width matches AP (80=80), no width scaling.
-        // Triangulated weight = 0.875 * 0.625 = 0.547 (above MinTriangulatedWeight of 0.2)
-        graph.ExternalLoad[0][36].Should().BeApproximately(0.547, 0.05);
+        // Triangulated weight = 0.875 * 0.625 * 0.5 (discount) = 0.273
+        graph.ExternalLoad[0][36].Should().BeApproximately(0.273, 0.05);
 
         // AP-2 (index 1) should also have direct external load on ch36
         graph.ExternalLoad[1].Should().ContainKey(36);
@@ -646,6 +646,7 @@ public class ChannelRecommendationServiceTests
 
         // The stronger sighting (-55 dBm → weight 0.875) × proximity 0.625 = 0.547
         // beats the weaker sighting (-75 dBm → weight 0.375) × proximity 0.625 = 0.234
-        graph.ExternalLoad[2][100].Should().BeApproximately(0.547, 0.05);
+        // Triangulated discount: 0.547 * 0.5 = 0.273
+        graph.ExternalLoad[2][100].Should().BeApproximately(0.273, 0.05);
     }
 }
