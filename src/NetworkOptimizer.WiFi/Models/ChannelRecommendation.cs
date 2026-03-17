@@ -78,6 +78,13 @@ public class InterferenceGraph
     /// <summary>Per-AP external load by channel number. ExternalLoad[apIndex][channel] = weight</summary>
     public Dictionary<int, double>[] ExternalLoad { get; set; } = [];
 
+    /// <summary>
+    /// Per-AP set of channels with at least one direct neighbor observation.
+    /// Channels NOT in this set have only triangulated (estimated) external load data,
+    /// which is less reliable. Used by the scorer to penalize unobserved channels.
+    /// </summary>
+    public HashSet<int>[] DirectlyObservedChannels { get; set; } = [];
+
     /// <summary>Per-AP channel scan metrics (utilization/interference). ScanChannelData[apIndex][channel] = (util, interf)</summary>
     public Dictionary<int, (int Utilization, int Interference)>[] ScanChannelData { get; set; } = [];
 

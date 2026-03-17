@@ -775,7 +775,8 @@ public class WiFiOptimizerService
             // Load all required data once (shared across all bands)
             var apsTask = GetAccessPointsAsync();
             var regulatoryTask = GetRegulatoryChannelsAsync();
-            var scanTask = GetChannelScanResultsAsync();
+            var scanTask = GetChannelScanResultsAsync(
+                startTime: DateTimeOffset.UtcNow.AddHours(-ChannelRecommendationService.ScanLookbackHours));
 
             await Task.WhenAll(apsTask, regulatoryTask, scanTask);
 
