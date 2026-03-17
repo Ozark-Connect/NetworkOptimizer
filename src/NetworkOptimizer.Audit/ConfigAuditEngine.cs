@@ -953,8 +953,11 @@ public class ConfigAuditEngine
 
         if (ctx.SettingsData.HasValue || ctx.FirewallRules?.Count > 0 || ctx.NatRulesData.HasValue)
         {
+            var firewallGroupsDict = ctx.FirewallGroups?
+                .Where(g => !string.IsNullOrEmpty(g.Id))
+                .ToDictionary(g => g.Id, g => g);
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup);
+                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup, firewallGroupsDict);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

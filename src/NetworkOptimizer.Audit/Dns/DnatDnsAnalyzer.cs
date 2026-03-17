@@ -1,7 +1,9 @@
 using System.Net;
 using System.Text.Json;
+using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Dns;
 
@@ -77,7 +79,7 @@ public class DnatRuleInfo
     public string? Description { get; init; }
 
     /// <summary>
-    /// Coverage type: "network", "subnet", or "single_ip"
+    /// Coverage type: "network", "subnet", "single_ip", "inverted_address", "interface"
     /// </summary>
     public required string CoverageType { get; init; }
 
@@ -144,8 +146,9 @@ public class DnatDnsAnalyzer
     /// <param name="natRulesData">Raw NAT rules from UniFi API</param>
     /// <param name="networks">List of networks to check coverage against</param>
     /// <param name="excludedVlanIds">Optional VLAN IDs to exclude from coverage checks</param>
+    /// <param name="firewallGroups">Optional firewall groups for resolving FIREWALL_GROUPS filter types</param>
     /// <returns>Coverage analysis result</returns>
-    public DnatCoverageResult Analyze(JsonElement? natRulesData, List<NetworkInfo>? networks, List<int>? excludedVlanIds = null)
+    public DnatCoverageResult Analyze(JsonElement? natRulesData, List<NetworkInfo>? networks, List<int>? excludedVlanIds = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null)
     {
         var result = new DnatCoverageResult();
 
@@ -167,7 +170,7 @@ public class DnatDnsAnalyzer
             networks.Where(n => excludedVlanSet.Contains(n.VlanId)).Select(n => n.Name));
 
         // Parse DNAT rules targeting UDP port 53
-        var dnatDnsRules = ParseDnatDnsRules(natRulesData.Value);
+        var dnatDnsRules = ParseDnatDnsRules(natRulesData.Value, firewallGroups);
         result.Rules.AddRange(dnatDnsRules);
         result.HasDnatDnsRules = dnatDnsRules.Count > 0;
 
@@ -239,7 +242,7 @@ public class DnatDnsAnalyzer
                     break;
 
                 case "inverted_address":
-                    // Inverted source address covers all networks (excludes only one IP)
+                    // Inverted source address covers all networks (excludes only specific IPs)
                     foreach (var network in allNetworks)
                     {
                         coveredNetworkIds.Add(network.Id);
@@ -278,7 +281,7 @@ public class DnatDnsAnalyzer
     /// <summary>
     /// Parse NAT rules JSON and extract enabled DNAT rules targeting UDP port 53
     /// </summary>
-    private List<DnatRuleInfo> ParseDnatDnsRules(JsonElement natRulesData)
+    private List<DnatRuleInfo> ParseDnatDnsRules(JsonElement natRulesData, Dictionary<string, UniFiFirewallGroup>? firewallGroups)
     {
         var rules = new List<DnatRuleInfo>();
 
@@ -309,24 +312,26 @@ public class DnatDnsAnalyzer
                 continue;
             }
 
-            // Check destination port is 53
+            // Check destination port is 53 (directly or via firewall group)
             var destFilter = rule.GetPropertyOrNull("destination_filter");
             if (destFilter == null)
             {
                 continue;
             }
 
-            var destPort = destFilter.Value.GetStringOrNull("port");
-            if (!IncludesPort53(destPort))
+            if (!DestinationIncludesPort53(destFilter.Value, firewallGroups))
             {
                 continue;
             }
 
             // Parse destination filter address and invert flag
-            // UniFi may use either "invert_address" or "match_opposite" to negate the destination
-            var destAddress = destFilter.Value.GetStringOrNull("address");
-            var destInvertAddress = destFilter.Value.GetBoolOrDefault("invert_address", false)
-                || destFilter.Value.GetBoolOrDefault("match_opposite", false);
+            var destInvertAddress = destFilter.Value.GetBoolOrDefault("invert_address", false);
+            // For NETWORK_CONF destination filters, match_opposite serves as the invert flag
+            if (!destInvertAddress)
+            {
+                destInvertAddress = destFilter.Value.GetBoolOrDefault("match_opposite", false);
+            }
+            var destAddress = ResolveFilterAddress(destFilter.Value, firewallGroups);
 
             // This is a valid DNAT DNS rule - parse it
             var id = rule.GetStringOrNull("_id") ?? Guid.NewGuid().ToString();
@@ -336,107 +341,287 @@ public class DnatDnsAnalyzer
 
             // Parse source filter to determine coverage type
             var sourceFilter = rule.GetPropertyOrNull("source_filter");
-            var filterType = sourceFilter?.GetStringOrNull("filter_type");
-            var networkConfId = sourceFilter?.GetStringOrNull("network_conf_id");
-            var address = sourceFilter?.GetStringOrNull("address");
-            var matchOpposite = sourceFilter?.GetBoolOrDefault("match_opposite", false) ?? false;
+            var ruleInfo = ParseSourceFilter(sourceFilter, firewallGroups, id, description, redirectIp, inInterface, destAddress, destInvertAddress);
 
-            DnatRuleInfo ruleInfo;
-
-            if (string.Equals(filterType, "NETWORK_CONF", StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrEmpty(networkConfId))
+            if (ruleInfo != null)
             {
-                // Network reference - coverage depends on MatchOpposite
-                // If MatchOpposite=false: covers only the specified network
-                // If MatchOpposite=true: covers all networks EXCEPT the specified one
-                ruleInfo = new DnatRuleInfo
+                rules.Add(ruleInfo);
+            }
+        }
+
+        return rules;
+    }
+
+    /// <summary>
+    /// Check if the destination filter includes port 53, either directly or via a firewall port group
+    /// </summary>
+    private static bool DestinationIncludesPort53(JsonElement destFilter, Dictionary<string, UniFiFirewallGroup>? firewallGroups)
+    {
+        // Check direct port field first
+        var destPort = destFilter.GetStringOrNull("port");
+        if (IncludesPort53(destPort))
+        {
+            return true;
+        }
+
+        // Check firewall group IDs for port groups containing port 53
+        if (firewallGroups != null)
+        {
+            var groupIds = GetFirewallGroupIds(destFilter);
+            foreach (var groupId in groupIds)
+            {
+                var resolvedPorts = FirewallGroupHelper.ResolvePortGroup(groupId, firewallGroups);
+                if (resolvedPorts != null && FirewallGroupHelper.IncludesPort(resolvedPorts, "53"))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolve the address from a filter - either a direct address field or from firewall address groups
+    /// </summary>
+    private static string? ResolveFilterAddress(JsonElement filter, Dictionary<string, UniFiFirewallGroup>? firewallGroups)
+    {
+        // Check direct address field
+        var address = filter.GetStringOrNull("address");
+        if (!string.IsNullOrEmpty(address))
+        {
+            return address;
+        }
+
+        // Check firewall address groups
+        if (firewallGroups != null)
+        {
+            var groupIds = GetFirewallGroupIds(filter);
+            foreach (var groupId in groupIds)
+            {
+                var addresses = FirewallGroupHelper.ResolveAddressGroup(groupId, firewallGroups);
+                if (addresses != null && addresses.Count > 0)
+                {
+                    return string.Join(",", addresses);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extract firewall_group_ids array from a filter element
+    /// </summary>
+    private static List<string> GetFirewallGroupIds(JsonElement filter)
+    {
+        var ids = new List<string>();
+        var groupIdsElement = filter.GetPropertyOrNull("firewall_group_ids");
+        if (groupIdsElement?.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in groupIdsElement.Value.EnumerateArray())
+            {
+                var groupId = item.GetString();
+                if (!string.IsNullOrEmpty(groupId))
+                {
+                    ids.Add(groupId);
+                }
+            }
+        }
+        return ids;
+    }
+
+    /// <summary>
+    /// Parse source filter into a DnatRuleInfo, determining coverage type
+    /// </summary>
+    private static DnatRuleInfo? ParseSourceFilter(
+        JsonElement? sourceFilter,
+        Dictionary<string, UniFiFirewallGroup>? firewallGroups,
+        string id, string? description, string? redirectIp, string? inInterface,
+        string? destAddress, bool destInvertAddress)
+    {
+        var filterType = sourceFilter?.GetStringOrNull("filter_type");
+        var networkConfId = sourceFilter?.GetStringOrNull("network_conf_id");
+        var address = sourceFilter?.GetStringOrNull("address");
+        // UniFi uses "match_opposite" on NETWORK_CONF filters and "invert_address" on address/group filters
+        var isInverted = (sourceFilter?.GetBoolOrDefault("match_opposite", false) ?? false)
+            || (sourceFilter?.GetBoolOrDefault("invert_address", false) ?? false);
+
+        // NETWORK_CONF filter type - references a specific network
+        if (string.Equals(filterType, "NETWORK_CONF", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrEmpty(networkConfId))
+        {
+            return new DnatRuleInfo
+            {
+                Id = id,
+                Description = description,
+                CoverageType = "network",
+                NetworkId = networkConfId,
+                RedirectIp = redirectIp,
+                InInterface = inInterface,
+                MatchOpposite = isInverted,
+                DestinationAddress = destAddress,
+                InvertDestinationAddress = destInvertAddress
+            };
+        }
+
+        // FIREWALL_GROUPS filter type - resolve address groups
+        if (string.Equals(filterType, "FIREWALL_GROUPS", StringComparison.OrdinalIgnoreCase) && sourceFilter.HasValue)
+        {
+            // Resolve address groups to get the actual addresses
+            var resolvedAddresses = new List<string>();
+            if (firewallGroups != null)
+            {
+                var groupIds = GetFirewallGroupIds(sourceFilter.Value);
+                foreach (var groupId in groupIds)
+                {
+                    var addresses = FirewallGroupHelper.ResolveAddressGroup(groupId, firewallGroups);
+                    if (addresses != null)
+                    {
+                        resolvedAddresses.AddRange(addresses);
+                    }
+                }
+            }
+
+            if (isInverted)
+            {
+                // Inverted firewall group - covers everything EXCEPT the group members.
+                // Typically the group contains DNS server IPs, so this covers all other devices.
+                return new DnatRuleInfo
                 {
                     Id = id,
                     Description = description,
-                    CoverageType = "network",
-                    NetworkId = networkConfId,
+                    CoverageType = "inverted_address",
+                    SingleIp = resolvedAddresses.Count > 0 ? string.Join(",", resolvedAddresses) : null,
                     RedirectIp = redirectIp,
                     InInterface = inInterface,
-                    MatchOpposite = matchOpposite,
+                    MatchOpposite = true,
                     DestinationAddress = destAddress,
                     InvertDestinationAddress = destInvertAddress
                 };
             }
-            else if (!string.IsNullOrEmpty(address))
+
+            // Non-inverted firewall group with in_interface - treat as interface coverage
+            if (!string.IsNullOrEmpty(inInterface))
             {
-                if (matchOpposite)
-                {
-                    // Inverted source address - covers everything EXCEPT this address.
-                    // e.g., "not 192.168.1.220" means all devices except the DNS server itself.
-                    // This is effectively full coverage for all networks.
-                    ruleInfo = new DnatRuleInfo
-                    {
-                        Id = id,
-                        Description = description,
-                        CoverageType = "inverted_address",
-                        SingleIp = address,
-                        RedirectIp = redirectIp,
-                        InInterface = inInterface,
-                        MatchOpposite = true,
-                        DestinationAddress = destAddress,
-                        InvertDestinationAddress = destInvertAddress
-                    };
-                }
-                else if (address.Contains('/'))
-                {
-                    // CIDR subnet
-                    ruleInfo = new DnatRuleInfo
-                    {
-                        Id = id,
-                        Description = description,
-                        CoverageType = "subnet",
-                        SubnetCidr = address,
-                        RedirectIp = redirectIp,
-                        InInterface = inInterface,
-                        DestinationAddress = destAddress,
-                        InvertDestinationAddress = destInvertAddress
-                    };
-                }
-                else
-                {
-                    // Single IP (abnormal)
-                    ruleInfo = new DnatRuleInfo
-                    {
-                        Id = id,
-                        Description = description,
-                        CoverageType = "single_ip",
-                        SingleIp = address,
-                        RedirectIp = redirectIp,
-                        InInterface = inInterface,
-                        DestinationAddress = destAddress,
-                        InvertDestinationAddress = destInvertAddress
-                    };
-                }
-            }
-            else if (!string.IsNullOrEmpty(inInterface))
-            {
-                // Source is "any" but in_interface scopes to a specific VLAN
-                ruleInfo = new DnatRuleInfo
+                return new DnatRuleInfo
                 {
                     Id = id,
                     Description = description,
                     CoverageType = "interface",
-                    NetworkId = inInterface, // Use in_interface as the network ID for coverage
+                    NetworkId = inInterface,
                     RedirectIp = redirectIp,
                     InInterface = inInterface,
                     DestinationAddress = destAddress,
                     InvertDestinationAddress = destInvertAddress
                 };
             }
-            else
+
+            // Non-inverted firewall group without in_interface - check resolved addresses
+            if (resolvedAddresses.Count > 0)
             {
-                continue; // Unknown filter type and no in_interface
+                // Check if all resolved addresses are CIDRs (network coverage)
+                var allCidrs = resolvedAddresses.All(a => a.Contains('/'));
+                if (allCidrs)
+                {
+                    // Use first CIDR for subnet coverage (simplified - could be multiple)
+                    return new DnatRuleInfo
+                    {
+                        Id = id,
+                        Description = description,
+                        CoverageType = "subnet",
+                        SubnetCidr = resolvedAddresses[0],
+                        RedirectIp = redirectIp,
+                        InInterface = inInterface,
+                        DestinationAddress = destAddress,
+                        InvertDestinationAddress = destInvertAddress
+                    };
+                }
+
+                // Single IPs in group
+                return new DnatRuleInfo
+                {
+                    Id = id,
+                    Description = description,
+                    CoverageType = "single_ip",
+                    SingleIp = resolvedAddresses[0],
+                    RedirectIp = redirectIp,
+                    InInterface = inInterface,
+                    DestinationAddress = destAddress,
+                    InvertDestinationAddress = destInvertAddress
+                };
             }
 
-            rules.Add(ruleInfo);
+            // Couldn't resolve group - fall through to in_interface check
         }
 
-        return rules;
+        // Direct address in source filter
+        if (!string.IsNullOrEmpty(address))
+        {
+            if (isInverted)
+            {
+                // Inverted source address - covers everything EXCEPT this address.
+                // e.g., "not 192.168.1.220" means all devices except the DNS server itself.
+                return new DnatRuleInfo
+                {
+                    Id = id,
+                    Description = description,
+                    CoverageType = "inverted_address",
+                    SingleIp = address,
+                    RedirectIp = redirectIp,
+                    InInterface = inInterface,
+                    MatchOpposite = true,
+                    DestinationAddress = destAddress,
+                    InvertDestinationAddress = destInvertAddress
+                };
+            }
+
+            if (address.Contains('/'))
+            {
+                return new DnatRuleInfo
+                {
+                    Id = id,
+                    Description = description,
+                    CoverageType = "subnet",
+                    SubnetCidr = address,
+                    RedirectIp = redirectIp,
+                    InInterface = inInterface,
+                    DestinationAddress = destAddress,
+                    InvertDestinationAddress = destInvertAddress
+                };
+            }
+
+            // Single IP (abnormal)
+            return new DnatRuleInfo
+            {
+                Id = id,
+                Description = description,
+                CoverageType = "single_ip",
+                SingleIp = address,
+                RedirectIp = redirectIp,
+                InInterface = inInterface,
+                DestinationAddress = destAddress,
+                InvertDestinationAddress = destInvertAddress
+            };
+        }
+
+        // Source is "any" but in_interface scopes to a specific VLAN
+        if (!string.IsNullOrEmpty(inInterface))
+        {
+            return new DnatRuleInfo
+            {
+                Id = id,
+                Description = description,
+                CoverageType = "interface",
+                NetworkId = inInterface,
+                RedirectIp = redirectIp,
+                InInterface = inInterface,
+                DestinationAddress = destAddress,
+                InvertDestinationAddress = destInvertAddress
+            };
+        }
+
+        return null; // Unknown filter type and no in_interface
     }
 
     /// <summary>

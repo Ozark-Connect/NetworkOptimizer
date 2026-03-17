@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
@@ -340,6 +341,100 @@ public class DnatDnsAnalyzerTests
         Assert.Single(result.SingleIpRules);
         Assert.Contains("192.168.1.220", result.SingleIpRules);
         Assert.False(result.HasFullCoverage);
+    }
+
+    #endregion
+
+    #region Firewall Groups Tests
+
+    private static Dictionary<string, UniFiFirewallGroup> CreateTestFirewallGroups()
+    {
+        return new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["port-group-dns"] = new UniFiFirewallGroup
+            {
+                Id = "port-group-dns",
+                Name = "DNS Ports",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            },
+            ["addr-group-dns-servers"] = new UniFiFirewallGroup
+            {
+                Id = "addr-group-dns-servers",
+                Name = "DNS Servers",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.1.220" }
+            }
+        };
+    }
+
+    [Fact]
+    public void Analyze_WithFirewallGroupPort53_RecognizesDnsRule()
+    {
+        var networks = CreateTestNetworks(("net1", "LAN", "192.168.1.0/24", true));
+        var firewallGroups = CreateTestFirewallGroups();
+
+        // Rule uses firewall groups for both source (inverted address group) and dest (port group)
+        var rule = """
+        {
+            "_id": "1",
+            "type": "DNAT",
+            "enabled": true,
+            "protocol": "tcp_udp",
+            "ip_address": "192.168.1.220",
+            "in_interface": "net1",
+            "destination_filter": {
+                "filter_type": "FIREWALL_GROUPS",
+                "firewall_group_ids": ["addr-group-dns-servers", "port-group-dns"],
+                "invert_address": true
+            },
+            "source_filter": {
+                "filter_type": "FIREWALL_GROUPS",
+                "firewall_group_ids": ["addr-group-dns-servers"],
+                "invert_address": true
+            }
+        }
+        """;
+        var natRules = JsonDocument.Parse($"[{rule}]").RootElement;
+
+        var result = _analyzer.Analyze(natRules, networks, firewallGroups: firewallGroups);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.Single(result.Rules);
+        Assert.Equal("inverted_address", result.Rules[0].CoverageType);
+        Assert.True(result.Rules[0].MatchOpposite);
+        Assert.True(result.HasFullCoverage);
+    }
+
+    [Fact]
+    public void Analyze_WithFirewallGroupPort53_NoGroups_SkipsRule()
+    {
+        // Without firewall groups data, can't resolve port groups - rule is skipped
+        var networks = CreateTestNetworks(("net1", "LAN", "192.168.1.0/24", true));
+        var rule = """
+        {
+            "_id": "1",
+            "type": "DNAT",
+            "enabled": true,
+            "protocol": "tcp_udp",
+            "ip_address": "192.168.1.220",
+            "in_interface": "net1",
+            "destination_filter": {
+                "filter_type": "FIREWALL_GROUPS",
+                "firewall_group_ids": ["port-group-dns"]
+            },
+            "source_filter": {
+                "filter_type": "FIREWALL_GROUPS",
+                "firewall_group_ids": ["addr-group-dns-servers"],
+                "invert_address": true
+            }
+        }
+        """;
+        var natRules = JsonDocument.Parse($"[{rule}]").RootElement;
+
+        var result = _analyzer.Analyze(natRules, networks, firewallGroups: null);
+
+        Assert.False(result.HasDnatDnsRules);
     }
 
     #endregion

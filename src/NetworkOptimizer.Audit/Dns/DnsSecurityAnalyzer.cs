@@ -74,7 +74,7 @@ public class DnsSecurityAnalyzer
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
     /// <param name="zoneLookup">Optional firewall zone lookup for DMZ/Hotspot network identification</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null)
     {
         var result = new DnsSecurityResult();
 
@@ -134,7 +134,7 @@ public class DnsSecurityAnalyzer
         // Analyze DNAT DNS rules (alternative to firewall blocking)
         if (natRulesData.HasValue && networks?.Any() == true)
         {
-            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds);
+            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds, firewallGroups);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -2125,10 +2125,10 @@ public class DnsSecurityAnalyzer
     /// DNAT rules that redirect UDP port 53 to a trusted DNS server (gateway, Pi-hole)
     /// can be an alternative to firewall blocking when DoH or third-party DNS is configured.
     /// </summary>
-    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result, List<int>? excludedVlanIds = null)
+    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result, List<int>? excludedVlanIds = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null)
     {
         var dnatAnalyzer = new DnatDnsAnalyzer();
-        var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks, excludedVlanIds);
+        var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks, excludedVlanIds, firewallGroups);
 
         result.HasDnatDnsRules = coverageResult.HasDnatDnsRules;
         result.DnatProvidesFullCoverage = coverageResult.HasFullCoverage;
