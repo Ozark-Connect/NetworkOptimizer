@@ -562,8 +562,9 @@ update_all_tc_classes() {
     tc class change dev $device parent 1: classid 1:1 htb rate ${new_rate}Mbit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b
 
     # Get all child classes and update their ceil values (skip classes with rate > 64bit)
+    # Note: tc uses hex for class IDs >= 10 (e.g., 1:a, 1:b), so include a-f in patterns
     tc class show dev $device | grep -E ""parent 1:1( |$)"" | while read line; do
-        classid=$(echo ""$line"" | grep -o ""class htb [0-9:]*"" | awk '{print $3}')
+        classid=$(echo ""$line"" | grep -o ""class htb [0-9a-f:]*"" | awk '{print $3}')
         prio=$(echo ""$line"" | grep -o ""prio [0-9]*"" | awk '{print $2}')
         rate=$(echo ""$line"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
 
