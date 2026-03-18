@@ -1858,7 +1858,6 @@
     private bool allowMediaPlayersOnMainNetwork = false;
     private bool allowPrintersOnMainNetwork = true;
     private string dnatExcludedVlans = "";
-    private int? piholeManagementPort = null;
     private string? piholeManagementEndpoint;
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
@@ -3252,7 +3251,6 @@
             dnatExcludedVlans = excludedVlans ?? "";
             // Third-party DNS endpoint (Pi-hole, AdGuard Home, etc.) - null means auto-detect
             piholeManagementEndpoint = string.IsNullOrWhiteSpace(piholePort) ? null : piholePort;
-            piholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
@@ -3279,7 +3277,18 @@
             await SystemSettings.SetAsync("audit:allowMediaPlayersOnMainNetwork", allowMediaPlayersOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowPrintersOnMainNetwork", allowPrintersOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:dnatExcludedVlans", dnatExcludedVlans ?? "");
-            await SystemSettings.SetAsync("audit:piholeManagementPort", piholeManagementEndpoint ?? "");
+            // Validate DNS endpoint: must be empty, a port number, or a valid absolute URL
+            var endpoint = piholeManagementEndpoint?.Trim();
+            if (!string.IsNullOrEmpty(endpoint) &&
+                !(int.TryParse(endpoint, out var validPort) && validPort > 0 && validPort <= 65535) &&
+                !Uri.TryCreate(endpoint, UriKind.Absolute, out _))
+            {
+                auditSettingsMessage = "Invalid DNS endpoint. Enter a port number (e.g., 8080) or full URL (e.g., https://pihole.local).";
+                auditSettingsMessageClass = "danger";
+                savingAuditSettings = false;
+                return;
+            }
+            await SystemSettings.SetAsync("audit:piholeManagementPort", endpoint ?? "");
             await SystemSettings.SetAsync("audit:unusedPortInactivityDays", unusedPortInactivityDays.ToString());
             await SystemSettings.SetAsync("audit:namedPortInactivityDays", namedPortInactivityDays.ToString());
 

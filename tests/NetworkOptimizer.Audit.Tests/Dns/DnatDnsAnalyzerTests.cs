@@ -437,6 +437,164 @@ public class DnatDnsAnalyzerTests
         Assert.False(result.HasDnatDnsRules);
     }
 
+    [Fact]
+    public void Analyze_WithFirewallGroupMultipleCidrs_CoversAllSubnets()
+    {
+        // Firewall address group with multiple CIDRs should cover all matching networks
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true),
+            ("net3", "Guest", "192.168.3.0/24", true));
+
+        var firewallGroups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["port-group-dns"] = new UniFiFirewallGroup
+            {
+                Id = "port-group-dns",
+                Name = "DNS Ports",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            },
+            ["addr-group-subnets"] = new UniFiFirewallGroup
+            {
+                Id = "addr-group-subnets",
+                Name = "All Subnets",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.1.0/24", "192.168.2.0/24", "192.168.3.0/24" }
+            }
+        };
+
+        var rule = """
+        {
+            "_id": "1",
+            "type": "DNAT",
+            "enabled": true,
+            "protocol": "tcp_udp",
+            "ip_address": "192.168.1.220",
+            "destination_filter": {
+                "port": "53"
+            },
+            "source_filter": {
+                "filter_type": "FIREWALL_GROUPS",
+                "firewall_group_ids": ["addr-group-subnets"]
+            }
+        }
+        """;
+        var natRules = JsonDocument.Parse($"[{rule}]").RootElement;
+
+        var result = _analyzer.Analyze(natRules, networks, firewallGroups: firewallGroups);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.Single(result.Rules);
+        Assert.Equal("subnet", result.Rules[0].CoverageType);
+        Assert.NotNull(result.Rules[0].SubnetCidrs);
+        Assert.Equal(3, result.Rules[0].SubnetCidrs!.Count);
+        Assert.True(result.HasFullCoverage);
+        Assert.Equal(3, result.CoveredNetworkIds.Count);
+        Assert.Empty(result.UncoveredNetworkIds);
+    }
+
+    [Fact]
+    public void Analyze_WithFirewallGroupMultipleCidrs_PartialCoverage()
+    {
+        // Firewall address group with 2 CIDRs should cover 2 of 3 networks
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true),
+            ("net3", "Guest", "10.0.0.0/24", true));
+
+        var firewallGroups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["addr-group-partial"] = new UniFiFirewallGroup
+            {
+                Id = "addr-group-partial",
+                Name = "Some Subnets",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.1.0/24", "192.168.2.0/24" }
+            }
+        };
+
+        var rule = """
+        {
+            "_id": "1",
+            "type": "DNAT",
+            "enabled": true,
+            "protocol": "tcp_udp",
+            "ip_address": "192.168.1.220",
+            "destination_filter": {
+                "port": "53"
+            },
+            "source_filter": {
+                "filter_type": "FIREWALL_GROUPS",
+                "firewall_group_ids": ["addr-group-partial"]
+            }
+        }
+        """;
+        var natRules = JsonDocument.Parse($"[{rule}]").RootElement;
+
+        var result = _analyzer.Analyze(natRules, networks, firewallGroups: firewallGroups);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.Equal("subnet", result.Rules[0].CoverageType);
+        Assert.Equal(2, result.Rules[0].SubnetCidrs!.Count);
+        Assert.False(result.HasFullCoverage);
+        Assert.Equal(2, result.CoveredNetworkIds.Count);
+        Assert.Single(result.UncoveredNetworkIds);
+        Assert.Contains("net3", result.UncoveredNetworkIds);
+    }
+
+    [Fact]
+    public void Analyze_WithMultipleAddressGroups_AggregatesAddresses()
+    {
+        // Multiple address groups in firewall_group_ids should all be resolved
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true));
+
+        var firewallGroups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["addr-group-1"] = new UniFiFirewallGroup
+            {
+                Id = "addr-group-1",
+                Name = "LAN Subnet",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.1.0/24" }
+            },
+            ["addr-group-2"] = new UniFiFirewallGroup
+            {
+                Id = "addr-group-2",
+                Name = "IoT Subnet",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "192.168.2.0/24" }
+            }
+        };
+
+        var rule = """
+        {
+            "_id": "1",
+            "type": "DNAT",
+            "enabled": true,
+            "protocol": "tcp_udp",
+            "ip_address": "192.168.1.220",
+            "destination_filter": {
+                "port": "53"
+            },
+            "source_filter": {
+                "filter_type": "FIREWALL_GROUPS",
+                "firewall_group_ids": ["addr-group-1", "addr-group-2"]
+            }
+        }
+        """;
+        var natRules = JsonDocument.Parse($"[{rule}]").RootElement;
+
+        var result = _analyzer.Analyze(natRules, networks, firewallGroups: firewallGroups);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.Equal("subnet", result.Rules[0].CoverageType);
+        Assert.Equal(2, result.Rules[0].SubnetCidrs!.Count);
+        Assert.True(result.HasFullCoverage);
+    }
+
     #endregion
 
     #region Protocol Filter Tests

@@ -89,9 +89,9 @@ public class DnatRuleInfo
     public string? NetworkId { get; init; }
 
     /// <summary>
-    /// CIDR notation (for subnet type)
+    /// CIDR notations (for subnet type) - supports multiple CIDRs from firewall address groups
     /// </summary>
-    public string? SubnetCidr { get; init; }
+    public List<string>? SubnetCidrs { get; init; }
 
     /// <summary>
     /// Single IP address (for single_ip type)
@@ -227,13 +227,13 @@ public class DnatDnsAnalyzer
                     break;
 
                 case "subnet":
-                    if (!string.IsNullOrEmpty(rule.SubnetCidr))
+                    if (rule.SubnetCidrs != null)
                     {
-                        // Check which networks are covered by this subnet
+                        // Check which networks are covered by any of the CIDRs
                         foreach (var network in allNetworks)
                         {
                             if (!string.IsNullOrEmpty(network.Subnet) &&
-                                CidrCoversSubnet(rule.SubnetCidr, network.Subnet))
+                                rule.SubnetCidrs.Any(cidr => CidrCoversSubnet(cidr, network.Subnet)))
                             {
                                 coveredNetworkIds.Add(network.Id);
                             }
@@ -393,17 +393,22 @@ public class DnatDnsAnalyzer
             return address;
         }
 
-        // Check firewall address groups
+        // Check firewall address groups - aggregate addresses from all address groups
         if (firewallGroups != null)
         {
+            var allAddresses = new List<string>();
             var groupIds = GetFirewallGroupIds(filter);
             foreach (var groupId in groupIds)
             {
                 var addresses = FirewallGroupHelper.ResolveAddressGroup(groupId, firewallGroups);
                 if (addresses != null && addresses.Count > 0)
                 {
-                    return string.Join(",", addresses);
+                    allAddresses.AddRange(addresses);
                 }
+            }
+            if (allAddresses.Count > 0)
+            {
+                return string.Join(",", allAddresses);
             }
         }
 
@@ -520,17 +525,18 @@ public class DnatDnsAnalyzer
             // Non-inverted firewall group without in_interface - check resolved addresses
             if (resolvedAddresses.Count > 0)
             {
-                // Check if all resolved addresses are CIDRs (network coverage)
-                var allCidrs = resolvedAddresses.All(a => a.Contains('/'));
-                if (allCidrs)
+                // Separate CIDRs from single IPs
+                var cidrs = resolvedAddresses.Where(a => a.Contains('/')).ToList();
+                var singleIps = resolvedAddresses.Where(a => !a.Contains('/')).ToList();
+
+                if (cidrs.Count > 0)
                 {
-                    // Use first CIDR for subnet coverage (simplified - could be multiple)
                     return new DnatRuleInfo
                     {
                         Id = id,
                         Description = description,
                         CoverageType = "subnet",
-                        SubnetCidr = resolvedAddresses[0],
+                        SubnetCidrs = cidrs,
                         RedirectIp = redirectIp,
                         InInterface = inInterface,
                         DestinationAddress = destAddress,
@@ -544,7 +550,7 @@ public class DnatDnsAnalyzer
                     Id = id,
                     Description = description,
                     CoverageType = "single_ip",
-                    SingleIp = resolvedAddresses[0],
+                    SingleIp = string.Join(",", singleIps),
                     RedirectIp = redirectIp,
                     InInterface = inInterface,
                     DestinationAddress = destAddress,
@@ -583,7 +589,7 @@ public class DnatDnsAnalyzer
                     Id = id,
                     Description = description,
                     CoverageType = "subnet",
-                    SubnetCidr = address,
+                    SubnetCidrs = new List<string> { address },
                     RedirectIp = redirectIp,
                     InInterface = inInterface,
                     DestinationAddress = destAddress,
