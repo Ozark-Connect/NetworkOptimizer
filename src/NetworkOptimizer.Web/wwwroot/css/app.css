@@ -3090,6 +3090,8 @@ select.form-control {
     .sponsorship-banner .banner-corgi {
         left: auto;
         right: 0.5rem;
+        top: auto;
+        bottom: 0;
         transform: translateY(-50px);
     }
 }
@@ -3104,6 +3106,8 @@ select.form-control {
     .sponsorship-banner .banner-corgi {
         left: auto;
         right: 0.5rem;
+        top: auto;
+        bottom: 0;
         transform: translateY(-50px);
     }
 }
