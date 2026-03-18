@@ -2994,7 +2994,7 @@ select.form-control {
 
 .sponsorship-banner .banner-corgi {
     position: absolute;
-    right: 360px;
+    right: 100%;
     top: 50%;
     height: 80px;
     opacity: 0.5;
@@ -3031,6 +3031,7 @@ select.form-control {
     flex-shrink: 0;
     flex-wrap: wrap;
     align-items: center;
+    position: relative;
 }
 
 .sponsorship-banner .banner-actions-secondary {
