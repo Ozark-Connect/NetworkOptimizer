@@ -3077,7 +3077,7 @@ select.form-control {
 
 @media (max-width: 1575px) {
     .sponsorship-banner .banner-text strong {
-        width: 80%;
+        width: 79%;
     }
 }
 
@@ -3087,7 +3087,7 @@ select.form-control {
     }
 
     .sponsorship-banner .banner-text strong {
-        width: auto;
+        width: 88%;
     }
 
     .sponsorship-banner .banner-actions {
@@ -3138,6 +3138,12 @@ select.form-control {
         display: block;
         margin-top: 0.25rem;
         font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 575px) {
+    .sponsorship-banner .banner-text strong {
+        width: auto;
     }
 }
 
