@@ -3086,6 +3086,15 @@ select.form-control {
     }
 }
 
+@media (max-width: 1353px) and (min-width: 901px) {
+    .sponsorship-banner .banner-corgi {
+        left: 0.5rem;
+        top: auto;
+        bottom: 1.6rem;
+        transform: none;
+    }
+}
+
 @media (max-width: 930px) {
     .sponsorship-banner .banner-icon {
         display: none;
