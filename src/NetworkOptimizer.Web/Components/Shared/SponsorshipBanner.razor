@@ -27,8 +27,10 @@ else if (_nag != null)
             </div>
             <div class="banner-actions">
                 <button class="btn-cta" @onclick="ShowModal">@_nag.ActionText</button>
-                <button class="btn-sponsor" @onclick="AlreadySponsorAsync">I already sponsor</button>
-                <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+                <span class="banner-actions-secondary">
+                    <button class="btn-sponsor" @onclick="AlreadySponsorAsync">I already sponsor</button>
+                    <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+                </span>
             </div>
         </div>
     </div>

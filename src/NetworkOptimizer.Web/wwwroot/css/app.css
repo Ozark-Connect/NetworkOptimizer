@@ -3033,6 +3033,13 @@ select.form-control {
     display: flex;
     gap: 0.5rem;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.sponsorship-banner .banner-actions-secondary {
+    display: flex;
+    gap: 0.5rem;
 }
 
 .sponsorship-banner .btn-dismiss,
