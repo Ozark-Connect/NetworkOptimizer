@@ -3104,7 +3104,7 @@ select.form-control {
     .sponsorship-banner .banner-corgi {
         left: auto;
         right: 0.5rem;
-        transform: translateY(-58%);
+        transform: translateY(-50%);
     }
 }
 
