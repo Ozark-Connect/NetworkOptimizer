@@ -3010,6 +3010,7 @@ select.form-control {
 
 .sponsorship-banner .banner-text strong {
     color: var(--purple-light);
+    width: 87%;
 }
 
 .sponsorship-banner .banner-text span {
@@ -3080,7 +3081,7 @@ select.form-control {
     }
 
     .sponsorship-banner .banner-text strong {
-        width: 87%;
+        width: auto;
     }
 
     .sponsorship-banner .banner-actions {
