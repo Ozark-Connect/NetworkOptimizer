@@ -3079,6 +3079,10 @@ select.form-control {
         flex-wrap: wrap;
     }
 
+    .sponsorship-banner .banner-text strong {
+        width: 87%;
+    }
+
     .sponsorship-banner .banner-actions {
         width: 100%;
         justify-content: flex-end;
