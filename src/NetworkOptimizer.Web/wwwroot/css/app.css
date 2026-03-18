@@ -3002,7 +3002,7 @@ select.form-control {
     bottom: -0.25rem;
     height: 90%;
     max-height: 80px;
-    opacity: 0.18;
+    opacity: 0.4;
     pointer-events: none;
     object-fit: contain;
 }
@@ -3151,7 +3151,7 @@ select.form-control {
     right: 0.75rem;
     bottom: 0;
     height: 140px;
-    opacity: 0.1;
+    opacity: 0.25;
     pointer-events: none;
     object-fit: contain;
 }
