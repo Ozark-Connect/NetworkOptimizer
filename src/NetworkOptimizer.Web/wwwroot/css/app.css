@@ -3143,6 +3143,17 @@ select.form-control {
     max-width: 480px;
     width: 90%;
     position: relative;
+    overflow: hidden;
+}
+
+.sponsor-modal .modal-corgi {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0;
+    height: 140px;
+    opacity: 0.1;
+    pointer-events: none;
+    object-fit: contain;
 }
 
 .sponsor-modal h3 {
@@ -3234,6 +3245,10 @@ select.form-control {
     .sponsor-modal {
         padding: 1.5rem;
         margin: 1rem;
+    }
+
+    .sponsor-modal .modal-corgi {
+        display: none;
     }
 }
 

@@ -14,10 +14,11 @@
 }
 else if (_nag != null)
 {
-    <div class="sponsorship-banner @(_nag.Level == 1 ? "has-corgi" : "")">
-        @if (_nag.Level == 1)
+    var corgiImage = GetCorgiImage(_nag.Level);
+    <div class="sponsorship-banner @(corgiImage != null ? "has-corgi" : "")">
+        @if (corgiImage != null)
         {
-            <img src="images/corgis.png" class="banner-corgi" alt="" />
+            <img src="images/corgis/@corgiImage" class="banner-corgi" alt="" />
         }
         <div class="banner-content">
             <span class="banner-icon">&#x2665;</span>
@@ -40,6 +41,7 @@ else if (_nag != null)
 {
     <div class="sponsor-modal-overlay" @onclick="HideModal">
         <div class="sponsor-modal" @onclick:stopPropagation>
+            <img src="images/corgis/corgi-sploot.png" class="modal-corgi" alt="" />
             <button class="sponsor-modal-close" @onclick="HideModal">&times;</button>
             <h3>Support Network Optimizer</h3>
             <p class="sponsor-modal-subtitle">Pick whichever works best for you, both are hugely appreciated.</p>
@@ -71,6 +73,20 @@ else if (_nag != null)
     private bool _showThankYou;
     private bool _showModal;
     private CancellationTokenSource? _cts;
+
+    /// <summary>
+    /// Map nag levels to corgi images. Returns null for levels without a corgi.
+    /// </summary>
+    private static string? GetCorgiImage(int level) => level switch
+    {
+        1 => "corgi-sleeping.png",   // "The corgis say hi" - two sleeping together
+        2 => "corgi-puppy.png",      // "More audits than hot meals" - cute puppy
+        4 => "corgi-eyes.png",       // "Cheaper than therapy" - sad puppy eyes
+        6 => "corgi-sitting.png",    // "One guy on 2 acres" - dignified sitting
+        9 => "corgi-cuddle.png",     // "I see you. I appreciate you" - cuddling bear
+        10 => "corgi-family.png",    // "Become family" - adult + puppy together
+        _ => null
+    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
