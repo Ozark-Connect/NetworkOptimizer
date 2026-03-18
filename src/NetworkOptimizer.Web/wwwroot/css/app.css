@@ -3101,15 +3101,17 @@ select.form-control {
     }
 }
 
-@media (max-width: 768px) {
-    .sponsorship-banner {
-        padding: 1rem;
-    }
-
+@media (max-width: 900px) {
     .sponsorship-banner .banner-corgi {
         left: auto;
         right: 0.5rem;
         transform: translateY(-58%);
+    }
+}
+
+@media (max-width: 768px) {
+    .sponsorship-banner {
+        padding: 1rem;
     }
 
     .sponsorship-banner .banner-separator {
