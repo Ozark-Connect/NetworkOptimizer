@@ -3089,7 +3089,7 @@ select.form-control {
 @media (max-width: 1353px) {
     .sponsorship-banner .banner-corgi {
         left: auto;
-        right: 0.5rem;
+        right: 360px;
         transform: translateY(-58%);
     }
 }
