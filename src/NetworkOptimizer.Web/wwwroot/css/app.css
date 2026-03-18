@@ -3092,7 +3092,7 @@ select.form-control {
         right: 0.5rem;
         top: auto;
         bottom: 0;
-        transform: translateY(-50px);
+        transform: none;
     }
 }
 
@@ -3108,7 +3108,7 @@ select.form-control {
         right: 0.5rem;
         top: auto;
         bottom: 0;
-        transform: translateY(-50px);
+        transform: none;
     }
 }
 
