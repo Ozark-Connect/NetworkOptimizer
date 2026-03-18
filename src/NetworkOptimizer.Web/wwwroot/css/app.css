@@ -3088,10 +3088,9 @@ select.form-control {
     }
 
     .sponsorship-banner .banner-corgi {
-        left: 0.5rem;
-        top: auto;
-        bottom: 0.5rem;
-        transform: none;
+        left: auto;
+        right: 0.5rem;
+        transform: translateY(-50%);
     }
 
     .sponsorship-banner .banner-separator {
@@ -3112,6 +3111,16 @@ select.form-control {
         width: 100%;
         justify-content: flex-end;
         margin-top: 0.5rem;
+    }
+}
+
+@@media (max-width: 421px) {
+    .sponsorship-banner .banner-corgi {
+        left: 0.5rem;
+        right: auto;
+        top: auto;
+        bottom: 0.5rem;
+        transform: none;
     }
 }
 
