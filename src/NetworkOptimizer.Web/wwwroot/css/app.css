@@ -2992,19 +2992,16 @@ select.form-control {
     overflow: hidden;
 }
 
-.sponsorship-banner.has-corgi {
-    padding-right: 7rem;
-}
-
 .sponsorship-banner .banner-corgi {
     position: absolute;
-    right: 0.5rem;
-    bottom: -0.25rem;
-    height: 90%;
-    max-height: 80px;
-    opacity: 0.4;
+    left: 55%;
+    bottom: 0;
+    height: 100%;
+    max-height: 56px;
+    opacity: 0.5;
     pointer-events: none;
     object-fit: contain;
+    transform: translateX(-50%);
 }
 
 .sponsorship-banner .banner-icon {
@@ -3081,14 +3078,6 @@ select.form-control {
 @media (max-width: 768px) {
     .sponsorship-banner {
         padding: 1rem;
-    }
-
-    .sponsorship-banner.has-corgi {
-        padding-right: 1rem;
-    }
-
-    .sponsorship-banner .banner-corgi {
-        display: none;
     }
 
     .sponsorship-banner .banner-content {
