@@ -3074,17 +3074,27 @@ select.form-control {
     color: white;
 }
 
-@media (max-width: 768px) {
-    .sponsorship-banner {
-        padding: 1rem;
-    }
-
+@media (max-width: 1353px) {
     .sponsorship-banner .banner-content {
         flex-wrap: wrap;
     }
 
+    .sponsorship-banner .banner-actions {
+        width: 100%;
+        justify-content: flex-end;
+        margin-top: 0.5rem;
+    }
+}
+
+@media (max-width: 930px) {
     .sponsorship-banner .banner-icon {
         display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .sponsorship-banner {
+        padding: 1rem;
     }
 
     .sponsorship-banner .banner-corgi {
@@ -3105,12 +3115,6 @@ select.form-control {
         display: block;
         margin-top: 0.25rem;
         font-size: 0.8rem;
-    }
-
-    .sponsorship-banner .banner-actions {
-        width: 100%;
-        justify-content: flex-end;
-        margin-top: 0.5rem;
     }
 }
 
