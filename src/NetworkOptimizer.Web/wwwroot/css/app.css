@@ -3087,6 +3087,12 @@ select.form-control {
         display: none;
     }
 
+    .sponsorship-banner .banner-corgi {
+        left: auto;
+        right: 0.5rem;
+        transform: translateY(-50%);
+    }
+
     .sponsorship-banner .banner-separator {
         display: none;
     }
