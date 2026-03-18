@@ -3114,7 +3114,7 @@ select.form-control {
     }
 }
 
-@@media (max-width: 421px) {
+@media (max-width: 421px) {
     .sponsorship-banner .banner-corgi {
         left: 0.5rem;
         right: auto;
