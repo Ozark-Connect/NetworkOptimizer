@@ -14,13 +14,17 @@
 }
 else if (_nag != null)
 {
-    <div class="sponsorship-banner">
+    <div class="sponsorship-banner @(_nag.Level == 1 ? "has-corgi" : "")">
+        @if (_nag.Level == 1)
+        {
+            <img src="images/corgis.png" class="banner-corgi" alt="" />
+        }
         <div class="banner-content">
             <span class="banner-icon">&#x2665;</span>
             <div class="banner-text">
                 <strong>@_nag.Quip</strong>
                 <span>
-                    <a href="@_nag.ActionUrl" target="_blank" rel="noopener noreferrer">@_nag.ActionText</a>
+                    <a href="#" @onclick="ShowModal" @onclick:preventDefault>@_nag.ActionText</a>
                     <span class="banner-separator">&nbsp;|&nbsp;</span>
                     <span class="banner-commercial">Commercial use? Email <a href="mailto:tj@ozarkconnect.net">tj@ozarkconnect.net</a> for licensing.</span>
                 </span>
@@ -28,6 +32,27 @@ else if (_nag != null)
             <div class="banner-actions">
                 <button class="btn-sponsor" @onclick="AlreadySponsorAsync">I already sponsor</button>
                 <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showModal && _nag != null)
+{
+    <div class="sponsor-modal-overlay" @onclick="HideModal">
+        <div class="sponsor-modal" @onclick:stopPropagation>
+            <button class="sponsor-modal-close" @onclick="HideModal">&times;</button>
+            <h3>Support Network Optimizer</h3>
+            <p class="sponsor-modal-subtitle">Pick whichever works best for you - both are hugely appreciated.</p>
+            <div class="sponsor-modal-options">
+                <a href="@_nag.KofiUrl" target="_blank" rel="noopener noreferrer" class="sponsor-option sponsor-option-kofi">
+                    <span class="sponsor-option-name">Ko-fi</span>
+                    <span class="sponsor-option-desc">Quick and easy - Apple Pay, Google Pay, Cash App, and credit/debit cards. No account needed.</span>
+                </a>
+                <a href="@_nag.GitHubSponsorUrl" target="_blank" rel="noopener noreferrer" class="sponsor-option sponsor-option-github">
+                    <span class="sponsor-option-name">GitHub Sponsors</span>
+                    <span class="sponsor-option-desc">Shows on your GitHub profile if you're an active user. 0% platform fee - every cent goes to me.</span>
+                </a>
             </div>
         </div>
     </div>
@@ -45,6 +70,7 @@ else if (_nag != null)
 
     private SponsorshipNag? _nag;
     private bool _showThankYou;
+    private bool _showModal;
     private CancellationTokenSource? _cts;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -70,6 +96,16 @@ else if (_nag != null)
         {
             // Silently fail - sponsorship banner is non-critical
         }
+    }
+
+    private void ShowModal()
+    {
+        _showModal = true;
+    }
+
+    private void HideModal()
+    {
+        _showModal = false;
     }
 
     private async Task DismissAsync()

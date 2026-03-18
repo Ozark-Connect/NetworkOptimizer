@@ -2988,6 +2988,23 @@ select.form-control {
     border-radius: var(--border-radius);
     padding: 1rem 1.5rem;
     margin-bottom: 1.5rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.sponsorship-banner.has-corgi {
+    padding-right: 7rem;
+}
+
+.sponsorship-banner .banner-corgi {
+    position: absolute;
+    right: 0.5rem;
+    bottom: -0.25rem;
+    height: 90%;
+    max-height: 80px;
+    opacity: 0.18;
+    pointer-events: none;
+    object-fit: contain;
 }
 
 .sponsorship-banner .banner-icon {
@@ -3042,6 +3059,14 @@ select.form-control {
         padding: 1rem;
     }
 
+    .sponsorship-banner.has-corgi {
+        padding-right: 1rem;
+    }
+
+    .sponsorship-banner .banner-corgi {
+        display: none;
+    }
+
     .sponsorship-banner .banner-content {
         flex-wrap: wrap;
     }
@@ -3068,6 +3093,123 @@ select.form-control {
         width: 100%;
         justify-content: flex-end;
         margin-top: 0.5rem;
+    }
+}
+
+/* Sponsorship Modal */
+.sponsor-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+}
+
+.sponsor-modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 2rem;
+    max-width: 480px;
+    width: 90%;
+    position: relative;
+}
+
+.sponsor-modal h3 {
+    color: var(--text-primary);
+    margin: 0 0 0.25rem 0;
+    font-size: 1.2rem;
+}
+
+.sponsor-modal-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin: 0 0 1.5rem 0;
+}
+
+.sponsor-modal-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.25rem;
+}
+
+.sponsor-modal-close:hover {
+    color: var(--text-primary);
+}
+
+.sponsor-modal-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.sponsor-option {
+    display: block;
+    padding: 1rem 1.25rem;
+    border-radius: var(--border-radius);
+    text-decoration: none;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.sponsor-option-kofi {
+    background: rgba(255, 94, 91, 0.08);
+    border: 1px solid rgba(255, 94, 91, 0.3);
+}
+
+.sponsor-option-kofi:hover {
+    background: rgba(255, 94, 91, 0.15);
+    border-color: rgba(255, 94, 91, 0.5);
+}
+
+.sponsor-option-github {
+    background: rgba(168, 85, 247, 0.08);
+    border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.sponsor-option-github:hover {
+    background: rgba(168, 85, 247, 0.15);
+    border-color: rgba(168, 85, 247, 0.5);
+}
+
+.sponsor-option-name {
+    display: block;
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+}
+
+.sponsor-option-kofi .sponsor-option-name {
+    color: #ff5e5b;
+}
+
+.sponsor-option-github .sponsor-option-name {
+    color: var(--purple-light);
+}
+
+.sponsor-option-desc {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+}
+
+@@media (max-width: 768px) {
+    .sponsor-modal {
+        padding: 1.5rem;
+        margin: 1rem;
     }
 }
 
