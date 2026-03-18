@@ -3095,9 +3095,7 @@ select.form-control {
         justify-content: flex-end;
         margin-top: 0.5rem;
     }
-}
 
-@media (max-width: 1353px) {
     .sponsorship-banner .banner-corgi {
         left: auto;
         right: 0.5rem;
@@ -3278,7 +3276,7 @@ select.form-control {
     line-height: 1.4;
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .sponsor-modal {
         padding: 1.5rem;
         margin: 1rem;
