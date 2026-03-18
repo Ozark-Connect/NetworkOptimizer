@@ -1606,9 +1606,9 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     }
 
     [Fact]
-    public async Task DetectThirdPartyDnsAsync_PiholeMalformedJsonWithDnsString_StillDetected()
+    public async Task DetectThirdPartyDnsAsync_PiholeMalformedJsonWithDnsString_NotFalsePositive()
     {
-        // Malformed JSON that contains "dns" string - should trigger catch block with true
+        // Malformed JSON that contains "dns" string - should NOT false-positive as Pi-hole
         var malformedResponse = @"{""dns"":true, this is invalid json}";
         var httpClient = CreateMockHttpClient(HttpStatusCode.OK, malformedResponse);
 
@@ -1629,7 +1629,7 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         var result = await detector.DetectThirdPartyDnsAsync(networks);
 
         result.Should().HaveCount(1);
-        result[0].IsPihole.Should().BeTrue(); // Fallback detection from "dns" string
+        result[0].IsPihole.Should().BeFalse(); // Malformed JSON should not be treated as Pi-hole
     }
 
     [Fact]

@@ -323,7 +323,9 @@ public class ThirdPartyDnsDetector
                 }
                 catch
                 {
-                    return (true, "detected");
+                    // JSON parsing failed - can't confirm this is Pi-hole
+                    _logger.LogDebug("Pi-hole probe to {Url}: content contained 'dns' but JSON parse failed", url);
+                    return (false, null);
                 }
             }
 
@@ -380,8 +382,9 @@ public class ThirdPartyDnsDetector
                 }
                 catch
                 {
-                    // JSON parsing failed, but content indicates Pi-hole
-                    return (true, "detected");
+                    // JSON parsing failed - can't confirm this is Pi-hole
+                    _logger.LogDebug("Pi-hole probe to {Ip}:{Port}: content contained 'dns' but JSON parse failed", ipAddress, port);
+                    return (false, null);
                 }
             }
 
