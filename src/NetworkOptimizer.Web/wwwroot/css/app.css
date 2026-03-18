@@ -3075,6 +3075,12 @@ select.form-control {
     color: white;
 }
 
+@media (max-width: 1500px) {
+    .sponsorship-banner .banner-text strong {
+        width: 80%;
+    }
+}
+
 @media (max-width: 1353px) {
     .sponsorship-banner .banner-content {
         flex-wrap: wrap;
