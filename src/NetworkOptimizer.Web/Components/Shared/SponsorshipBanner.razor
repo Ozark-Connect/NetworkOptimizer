@@ -23,13 +23,10 @@ else if (_nag != null)
             <span class="banner-icon">&#x2665;</span>
             <div class="banner-text">
                 <strong>@_nag.Quip</strong>
-                <span>
-                    <a href="#" @onclick="ShowModal" @onclick:preventDefault>@_nag.ActionText</a>
-                    <span class="banner-separator">&nbsp;|&nbsp;</span>
-                    <span class="banner-commercial">Commercial use? Email <a href="mailto:tj@ozarkconnect.net">tj@ozarkconnect.net</a> for licensing.</span>
-                </span>
+                <span class="banner-commercial">Commercial use? Email <a href="mailto:tj@ozarkconnect.net">tj@ozarkconnect.net</a> for licensing.</span>
             </div>
             <div class="banner-actions">
+                <button class="btn-cta" @onclick="ShowModal">@_nag.ActionText</button>
                 <button class="btn-sponsor" @onclick="AlreadySponsorAsync">I already sponsor</button>
                 <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
             </div>

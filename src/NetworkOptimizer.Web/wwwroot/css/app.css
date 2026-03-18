@@ -3048,6 +3048,23 @@ select.form-control {
     white-space: nowrap;
 }
 
+.sponsorship-banner .btn-cta {
+    background: var(--purple-color);
+    color: white;
+    border: none;
+    padding: 0.45rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.sponsorship-banner .btn-cta:hover {
+    background: var(--primary-hover);
+}
+
 .sponsorship-banner .btn-dismiss:hover,
 .sponsorship-banner .btn-sponsor:hover {
     background: rgba(168, 85, 247, 0.3);
