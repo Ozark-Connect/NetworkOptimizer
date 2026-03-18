@@ -3000,7 +3000,7 @@ select.form-control {
     opacity: 0.5;
     pointer-events: none;
     object-fit: contain;
-    transform: translate(-50%, -50%);
+    transform: translateY(-50%);
 }
 
 .sponsorship-banner .banner-icon {
