@@ -3088,9 +3088,10 @@ select.form-control {
     }
 
     .sponsorship-banner .banner-corgi {
-        left: auto;
-        right: 0.5rem;
-        transform: translateY(-58%);
+        left: 0.5rem;
+        top: auto;
+        bottom: 0.5rem;
+        transform: none;
     }
 
     .sponsorship-banner .banner-separator {
