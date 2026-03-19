@@ -1032,6 +1032,9 @@ window.onload = function() {
           if (location.hostname != myname.toLowerCase() + com) {
             // Build POST data for saving results
             saveTestData = "d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString + "&dur=" + originalDuration;
+            if (typeof externalServerId !== "undefined" && externalServerId && externalServerId !== "__EXTERNAL_SERVER_ID__") {
+              saveTestData += "&srv=" + encodeURIComponent(externalServerId);
+            }
             // Set initial results link to client speed test page (will be updated with result ID after save)
             if (typeof clientResultsUrl !== "undefined") {
               var circleSVG2 = document.getElementById("resultsData");

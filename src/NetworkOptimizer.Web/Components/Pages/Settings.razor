@@ -851,6 +851,71 @@
         </div>
     </div>
 
+    <!-- 8. External Speed Test Server -->
+    <div class="card" id="external-speedtest-settings">
+        <div class="card-header">
+            <h2 class="card-title">External Speed Test Server</h2>
+        </div>
+        <div class="card-body">
+            <p class="section-description">Configure an external OpenSpeedTest server for WAN speed testing. Deploy the speed test container to a remote server (e.g., a VPS) and clients can test their internet speed through it. Results are reported back here automatically.</p>
+
+            <div class="form-group">
+                <label class="form-label">Server Name</label>
+                <input type="text" class="form-control" @bind="extSpeedTestName" placeholder="e.g. vps-chi, datacenter-east" />
+                <small class="form-help">Friendly name for this server (shown in results)</small>
+            </div>
+
+            <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                <div class="form-group" style="flex: 1; min-width: 200px;">
+                    <label class="form-label">Hostname / IP</label>
+                    <input type="text" class="form-control" @bind="extSpeedTestHost" placeholder="e.g. speedtest.example.com or 203.0.113.10" />
+                </div>
+                <div class="form-group" style="width: 100px;">
+                    <label class="form-label">Port</label>
+                    <input type="number" class="form-control" @bind="extSpeedTestPort" min="1" max="65535" />
+                </div>
+                <div class="form-group" style="width: 120px;">
+                    <label class="form-label">Scheme</label>
+                    <select class="form-control" @bind="extSpeedTestScheme">
+                        <option value="http">HTTP</option>
+                        <option value="https">HTTPS</option>
+                    </select>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(extSpeedTestHost))
+            {
+                <div class="form-group">
+                    <label class="form-label">Speed Test URL</label>
+                    <div class="url-copy-row">
+                        <input type="text" class="url-display" value="@ComputeExternalSpeedTestUrl()" readonly />
+                    </div>
+                </div>
+            }
+
+            <div class="action-buttons">
+                <button class="btn btn-success" @onclick="SaveExternalSpeedTestSettings" disabled="@savingExtSpeedTest">
+                    @if (savingExtSpeedTest)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save Settings</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(extSpeedTestMessage))
+            {
+                <div class="alert alert-@extSpeedTestMessageClass">
+                    @extSpeedTestMessage
+                </div>
+            }
+        </div>
+    </div>
+
     @* InfluxDB Configuration - hidden until time-series metrics are implemented
     <div class="card">
         <div class="card-header">
@@ -1839,6 +1904,15 @@
     private string iperf3Message = "";
     private string iperf3MessageClass = "";
 
+    // External Speed Test Server
+    private string extSpeedTestHost = "";
+    private int extSpeedTestPort = 3005;
+    private string extSpeedTestScheme = "http";
+    private string extSpeedTestName = "";
+    private bool savingExtSpeedTest = false;
+    private string extSpeedTestMessage = "";
+    private string extSpeedTestMessageClass = "";
+
     // Admin Password
     private AdminPasswordSource adminPasswordSource = AdminPasswordSource.None;
     private string adminNewPassword = "";
@@ -1958,6 +2032,7 @@
         await LoadModemConfigs();
         await LoadDiscoveredModems();
         await LoadIperf3Settings();
+        await LoadExternalSpeedTestSettings();
         await LoadAdminPasswordSettings();
         await LoadAuditSettings();
         await LoadAlertChannels();
@@ -2016,6 +2091,69 @@
             savingIperf3Settings = false;
             StateHasChanged();
         }
+    }
+
+    private async Task LoadExternalSpeedTestSettings()
+    {
+        try
+        {
+            var settings = await SystemSettings.GetExternalSpeedTestSettingsAsync();
+            extSpeedTestHost = settings.Host ?? "";
+            extSpeedTestPort = settings.Port;
+            extSpeedTestScheme = settings.Scheme;
+            extSpeedTestName = settings.Name;
+        }
+        catch (Exception ex)
+        {
+            extSpeedTestMessage = $"Error loading settings: {ex.Message}";
+            extSpeedTestMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveExternalSpeedTestSettings()
+    {
+        savingExtSpeedTest = true;
+        extSpeedTestMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            extSpeedTestPort = Math.Clamp(extSpeedTestPort, 1, 65535);
+
+            var settings = new ExternalSpeedTestSettings
+            {
+                Host = extSpeedTestHost?.Trim(),
+                Port = extSpeedTestPort,
+                Scheme = extSpeedTestScheme,
+                Name = extSpeedTestName?.Trim() ?? ""
+            };
+
+            await SystemSettings.SaveExternalSpeedTestSettingsAsync(settings);
+
+            // Update CORS cache so the external server can immediately post results
+            SystemSettings.UpdateCachedExternalOrigin(settings);
+
+            extSpeedTestMessage = "External speed test server settings saved";
+            extSpeedTestMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            extSpeedTestMessage = $"Error saving settings: {ex.Message}";
+            extSpeedTestMessageClass = "danger";
+        }
+        finally
+        {
+            savingExtSpeedTest = false;
+            StateHasChanged();
+        }
+    }
+
+    private string ComputeExternalSpeedTestUrl()
+    {
+        if (string.IsNullOrWhiteSpace(extSpeedTestHost)) return "";
+        return (extSpeedTestPort == 443 || extSpeedTestPort == 80)
+            ? $"{extSpeedTestScheme}://{extSpeedTestHost}"
+            : $"{extSpeedTestScheme}://{extSpeedTestHost}:{extSpeedTestPort}";
     }
 
     private async Task LoadGatewaySettings()

@@ -1,0 +1,231 @@
+@page "/client-wan-speedtest"
+@rendermode InteractiveServer
+@implements IDisposable
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Helpers
+@using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.Core.Helpers
+@inject ClientSpeedTestService ClientSpeedTestService
+@inject SystemSettingsService SettingsService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject PullToRefreshState PtrState
+
+<PageTitle>Client WAN Speed Test - Network Optimizer</PageTitle>
+
+<a href="/wan-speedtest" class="back-link" title="Back to WAN Speed Test">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+</a>
+
+<div class="page-header">
+    <h1>Client WAN Speed Test</h1>
+    <p class="page-description">Test internet speed from any device using an external speed test server</p>
+</div>
+
+<div class="client-speedtest-container">
+    @if (!_serverConfigured)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <span class="empty-icon">🌐</span>
+                    <h3>External Speed Test Server Not Configured</h3>
+                    <p>To use Client WAN Speed Tests, you need to set up an external OpenSpeedTest server and configure it in Settings.</p>
+                    <a href="/settings#external-speedtest-settings" class="btn btn-primary">Configure External Server</a>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Run Speed Test -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Run a WAN Speed Test</h2>
+            </div>
+            <div class="card-body">
+                <div class="test-option">
+                    <div class="test-option-header">
+                        <h3>Browser Speed Test</h3>
+                        @if (!string.IsNullOrEmpty(_serverName))
+                        {
+                            <span class="badge badge-primary">@_serverName</span>
+                        }
+                    </div>
+                    <p>
+                        Run a speed test against the external server at <strong>@_serverUrl</strong>.
+                        This measures your internet speed (WAN), not your local network speed.
+                        The test runs in your browser and results are reported back automatically.
+                    </p>
+                    <div class="test-option-actions">
+                        <a href="@(_serverUrl)?Run" target="_blank" rel="opener" class="btn btn-primary">
+                            Run WAN Speed Test
+                        </a>
+                        <span class="form-help">Opens in a new tab and auto-starts</span>
+                    </div>
+                    <div class="url-copy-row">
+                        <input type="text" class="url-display" value="@_serverUrl" readonly />
+                        <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
+                            <span class="copy-icon">📋</span>
+                            <span class="copy-check" style="display:none;">✓</span>
+                        </button>
+                    </div>
+                    <p class="form-help browser-tip">
+                        <strong>Tip:</strong> Share this URL with any device on your network to test WAN speed from that device.
+                        The path is: client -> your WAN -> internet -> external server -> internet -> your WAN -> client.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results -->
+        @if (_results.Count > 0)
+        {
+            <!-- Latest Result -->
+            <div class="card" id="latest-result">
+                <div class="card-header">
+                    <h2 class="card-title">Latest Result</h2>
+                </div>
+                <div class="card-body">
+                    <SpeedTestDetails Result="_results[0]"
+                                      UseWanLabels="true"
+                                      OnNotesChanged="HandleNotesChanged" />
+                </div>
+            </div>
+
+            <!-- Speed History Chart -->
+            <div class="card chart-card">
+                <div class="chart-header">
+                    <h2 class="chart-title">Speed History</h2>
+                    <div class="time-range-selector">
+                        <button class="time-btn @(_hoursFilter == 24 ? "active" : "")" @onclick="() => SetTimeFilter(24)">24h</button>
+                        <button class="time-btn @(_hoursFilter == 168 ? "active" : "")" @onclick="() => SetTimeFilter(168)">7d</button>
+                        <button class="time-btn @(_hoursFilter == 720 ? "active" : "")" @onclick="() => SetTimeFilter(720)">30d</button>
+                        <button class="time-btn @(_hoursFilter == 0 ? "active" : "")" @onclick="() => SetTimeFilter(0)">All</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div style="height: 280px; display: flex; align-items: center; justify-content: center;">
+                        <table class="data-table" style="width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Client</th>
+                                    <th>Download</th>
+                                    <th>Upload</th>
+                                    <th>Ping</th>
+                                    <th class="hide-mobile">Server</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var result in _filteredResults.Take(20))
+                                {
+                                    <tr>
+                                        <td data-tooltip="@result.TestTime.ToString("yyyy-MM-dd HH:mm:ss") UTC">
+                                            @FormatTimeAgo(result.TestTime)
+                                        </td>
+                                        <td>@(result.DeviceName ?? result.DeviceHost)</td>
+                                        <td style="color: var(--success-color);">@result.DownloadMbps.ToString("F1") Mbps</td>
+                                        <td style="color: var(--info-color);">@result.UploadMbps.ToString("F1") Mbps</td>
+                                        <td>@(result.PingMs?.ToString("F0") ?? "-") ms</td>
+                                        <td class="hide-mobile">@(result.ExternalServerName ?? "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_loaded)
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="empty-state">
+                        <span class="empty-icon">📊</span>
+                        <h3>No Results Yet</h3>
+                        <p>Run a WAN speed test to see results here.</p>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _serverConfigured;
+    private string _serverUrl = "";
+    private string _serverName = "";
+    private bool _loaded;
+    private List<Iperf3Result> _results = new();
+    private int _hoursFilter = 0;
+    private System.Threading.Timer? _pollTimer;
+
+    private IEnumerable<Iperf3Result> _filteredResults =>
+        _hoursFilter > 0
+            ? _results.Where(r => r.TestTime >= DateTime.UtcNow.AddHours(-_hoursFilter))
+            : _results;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await SettingsService.GetExternalSpeedTestSettingsAsync();
+        _serverConfigured = settings.IsConfigured;
+        _serverUrl = settings.Url;
+        _serverName = settings.Name;
+
+        if (_serverConfigured)
+        {
+            await LoadResults();
+        }
+        _loaded = true;
+
+        // Poll for new results every 10 seconds
+        _pollTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadResults();
+                    StateHasChanged();
+                });
+            }
+            catch { }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task LoadResults()
+    {
+        _results = await ClientSpeedTestService.GetWanResultsAsync(100, _hoursFilter);
+    }
+
+    private async Task SetTimeFilter(int hours)
+    {
+        _hoursFilter = hours;
+        await LoadResults();
+    }
+
+    private async Task HandleNotesChanged((int Id, string? Notes) args)
+    {
+        await ClientSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
+        await LoadResults();
+    }
+
+    private static string FormatTimeAgo(DateTime utcTime)
+    {
+        var diff = DateTime.UtcNow - utcTime;
+        if (diff.TotalMinutes < 1) return "just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+        return utcTime.ToString("MMM d");
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
+    }
+}

@@ -54,8 +54,12 @@ public class ClientSpeedTestService
         double? latitude = null,
         double? longitude = null,
         int? locationAccuracy = null,
-        int? durationSeconds = null)
+        int? durationSeconds = null,
+        string? externalServerId = null)
     {
+        // Determine direction based on whether this came from an external server
+        var isWan = !string.IsNullOrWhiteSpace(externalServerId);
+
         // Get server's local IP for path analysis
         var serverIp = _configuration["HOST_IP"];
 
@@ -64,7 +68,8 @@ public class ClientSpeedTestService
         // - UploadBitsPerSecond = data server sent TO client = client's download
         var result = new Iperf3Result
         {
-            Direction = SpeedTestDirection.BrowserToServer,
+            Direction = isWan ? SpeedTestDirection.OpenSpeedTestWan : SpeedTestDirection.BrowserToServer,
+            ExternalServerName = isWan ? externalServerId : null,
             DeviceHost = clientIp,
             LocalIp = serverIp,
             DownloadBitsPerSecond = uploadMbps * 1_000_000.0,  // Client upload = server download
@@ -91,14 +96,18 @@ public class ClientSpeedTestService
         var resultId = result.Id;
 
         _logger.LogInformation(
-            "Recorded OpenSpeedTest result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps",
-            result.DeviceHost, result.DownloadMbps, result.UploadMbps);
+            "Recorded OpenSpeedTest{Wan} result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps{Server}",
+            isWan ? " WAN" : "", result.DeviceHost, result.DownloadMbps, result.UploadMbps,
+            isWan ? $" (server: {externalServerId})" : "");
 
         // Publish speed test alert event
         await PublishSpeedTestAlertAsync(result);
 
-        // Enrich and analyze in background (after WiFi rates stabilize)
-        _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
+        // Enrich and analyze in background (skip LAN path analysis for WAN tests)
+        if (!isWan)
+        {
+            _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
+        }
 
         return result;
     }
@@ -277,6 +286,29 @@ public class ClientSpeedTestService
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Get recent WAN speed test results from external OpenSpeedTest servers.
+    /// </summary>
+    public async Task<List<Iperf3Result>> GetWanResultsAsync(int count = 50, int hours = 0)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var query = db.Iperf3Results
+            .Where(r => r.Direction == SpeedTestDirection.OpenSpeedTestWan);
+
+        if (hours > 0)
+        {
+            var cutoff = DateTime.UtcNow.AddHours(-hours);
+            query = query.Where(r => r.TestTime >= cutoff);
+        }
+
+        query = query.OrderByDescending(r => r.TestTime);
+
+        if (count > 0)
+            query = query.Take(count);
+
+        return await query.ToListAsync();
     }
 
     /// <summary>

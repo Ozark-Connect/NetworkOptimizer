@@ -30,7 +30,10 @@ public enum SpeedTestDirection
     UwnWan = 5,
 
     /// <summary>WAN speed test via UWN: runs directly on the gateway via SSH</summary>
-    UwnWanGateway = 6
+    UwnWanGateway = 6,
+
+    /// <summary>Browser-based WAN: OpenSpeedTest running on an external server (e.g., VPS)</summary>
+    OpenSpeedTestWan = 7
 }
 
 /// <summary>
@@ -176,6 +179,10 @@ public class Iperf3Result
     [MaxLength(100)]
     public string? WanName { get; set; }
 
+    /// <summary>External speed test server name - e.g. "vps-chi" (OpenSpeedTestWan tests only)</summary>
+    [MaxLength(100)]
+    public string? ExternalServerName { get; set; }
+
     /// <summary>User notes about this test result</summary>
     [MaxLength(2000)]
     public string? Notes { get; set; }
@@ -241,7 +248,8 @@ public class Iperf3Result
     {
         // WAN directions are never local LAN clients
         if (Direction is SpeedTestDirection.CloudflareWan or SpeedTestDirection.CloudflareWanGateway
-            or SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway)
+            or SpeedTestDirection.UwnWan or SpeedTestDirection.UwnWanGateway
+            or SpeedTestDirection.OpenSpeedTestWan)
             return false;
 
         // Infrastructure device types are not clients

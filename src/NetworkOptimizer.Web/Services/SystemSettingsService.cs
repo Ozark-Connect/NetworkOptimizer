@@ -22,10 +22,30 @@ public class SystemSettingsService : ISystemSettingsService
     public const int DefaultIperf3UniFiParallelStreams = 3;
     public const int DefaultIperf3OtherParallelStreams = 10;
 
+    // Cached external speed test server origin for CORS checks (volatile for thread safety)
+    private volatile string? _cachedExternalOrigin;
+
     public SystemSettingsService(IServiceProvider serviceProvider, ILogger<SystemSettingsService> logger)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Check if an origin matches the external speed test server (for CORS)
+    /// </summary>
+    public bool IsExternalSpeedTestOrigin(string origin)
+    {
+        return !string.IsNullOrEmpty(_cachedExternalOrigin)
+            && string.Equals(origin, _cachedExternalOrigin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Update the cached external speed test origin (called after settings save)
+    /// </summary>
+    public void UpdateCachedExternalOrigin(ExternalSpeedTestSettings settings)
+    {
+        _cachedExternalOrigin = settings.IsConfigured ? settings.Url : null;
     }
 
     /// <summary>
@@ -278,6 +298,50 @@ public class SystemSettingsService : ISystemSettingsService
 
         return status;
     }
+
+    /// <summary>
+    /// Get external speed test server settings
+    /// </summary>
+    public async Task<ExternalSpeedTestSettings> GetExternalSpeedTestSettingsAsync()
+    {
+        return new ExternalSpeedTestSettings
+        {
+            Host = await GetAsync(SystemSettingKeys.ExternalSpeedTestHost),
+            Port = await GetIntAsync(SystemSettingKeys.ExternalSpeedTestPort, 3005),
+            Scheme = await GetAsync(SystemSettingKeys.ExternalSpeedTestScheme) ?? "http",
+            Name = await GetAsync(SystemSettingKeys.ExternalSpeedTestName) ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Save external speed test server settings
+    /// </summary>
+    public async Task SaveExternalSpeedTestSettingsAsync(ExternalSpeedTestSettings settings)
+    {
+        await SetAsync(SystemSettingKeys.ExternalSpeedTestHost, settings.Host);
+        await SetIntAsync(SystemSettingKeys.ExternalSpeedTestPort, settings.Port);
+        await SetAsync(SystemSettingKeys.ExternalSpeedTestScheme, settings.Scheme);
+        await SetAsync(SystemSettingKeys.ExternalSpeedTestName, settings.Name);
+    }
+}
+
+/// <summary>
+/// DTO for external speed test server settings
+/// </summary>
+public class ExternalSpeedTestSettings
+{
+    public string? Host { get; set; }
+    public int Port { get; set; } = 3005;
+    public string Scheme { get; set; } = "http";
+    public string Name { get; set; } = "";
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);
+
+    public string Url => IsConfigured
+        ? (Port == 443 || Port == 80)
+            ? $"{Scheme}://{Host}"
+            : $"{Scheme}://{Host}:{Port}"
+        : "";
 }
 
 /// <summary>
