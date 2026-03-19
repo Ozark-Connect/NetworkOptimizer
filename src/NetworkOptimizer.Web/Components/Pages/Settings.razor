@@ -859,9 +859,12 @@
         <div class="card-body">
             <p class="section-description">Configure an external OpenSpeedTest server for WAN speed testing. Deploy the speed test container to a remote server (e.g., a VPS) and clients can test their internet speed through it. Results are reported back here automatically.</p>
 
-            <div class="alert alert-warning" style="margin-bottom: 1rem;">
-                <strong>HTTPS Required:</strong> The external speed test server must be served over HTTPS (e.g., behind Caddy or nginx with a certificate). Browsers block requests from public HTTP sites to private network addresses (your Network Optimizer). Use a domain with a TLS certificate - a reverse proxy like Caddy with automatic Let's Encrypt works well.
-            </div>
+            @if (extSpeedTestScheme == "http")
+            {
+                <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                    <strong>HTTPS Required:</strong> The external speed test server must be served over HTTPS. Browsers block requests from public HTTP sites to private network addresses (your Network Optimizer). Use a reverse proxy like Caddy, nginx, or Traefik with a TLS certificate.
+                </div>
+            }
 
             <div class="form-group">
                 <label class="form-label">Server Name</label>
