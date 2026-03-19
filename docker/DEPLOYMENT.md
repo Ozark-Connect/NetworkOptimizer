@@ -1125,8 +1125,8 @@ docker compose up -d
 
 **Setting up HTTPS:** The reverse proxy must force HTTP/1.1 for accurate speed test results (HTTP/2 multiplexing interferes with throughput measurement). Options:
 
-- **Traefik** (recommended) - supports per-route HTTP/1.1 TLS options. If you already have Traefik on your network, add a route for the external speed test hostname pointing to the VPS.
-- **nginx** with `proxy_http_version 1.1;` and certbot for TLS
+- **Traefik** - supports per-route HTTP/1.1 TLS options. If you already have Traefik on your network, add a route for the external speed test hostname pointing to the VPS.
+- **Caddy** - automatic Let's Encrypt, simple configuration. Note: Caddy negotiates HTTP/2 by default at the TLS level. For the most accurate speed test results, configure it to use HTTP/1.1 for the speed test hostname.
 
 Then update the external server settings in Network Optimizer to use `https` scheme and port `443`.
 

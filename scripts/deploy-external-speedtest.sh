@@ -110,7 +110,7 @@ echo "IMPORTANT: HTTPS is required for results to post back to Network Optimizer
 echo "Browsers block requests from public HTTP pages to private network addresses."
 echo "The reverse proxy must also force HTTP/1.1 (HTTP/2 interferes with speed test accuracy)."
 echo ""
-echo "Recommended: Traefik or nginx with HTTP/1.1 and TLS."
+echo "Recommended: Traefik or Caddy with HTTP/1.1 and TLS."
 echo "See DEPLOYMENT.md for setup instructions."
 echo ""
 echo "Then configure Network Optimizer Settings -> External Speed Test Server:"
