@@ -1121,9 +1121,9 @@ docker compose up -d
 3. Give it a friendly name (e.g., "Chicago VPS")
 4. Save - this enables CORS for the remote server and populates the Client WAN Speed Test page
 
-**Setting up HTTPS:** The reverse proxy must force HTTP/1.1 for accurate speed test results (HTTP/2 multiplexing interferes with throughput measurement). Options:
+**Setting up HTTPS:** If you already have a reverse proxy for Network Optimizer and its LAN speed test server (e.g., Traefik or Caddy), you can add a route for the external speed test hostname pointing to your VPS - no need to install a separate proxy on the remote server. The reverse proxy must force HTTP/1.1 for accurate speed test results (HTTP/2 multiplexing interferes with throughput measurement).
 
-- **Traefik** - supports per-route HTTP/1.1 TLS options. If you already have Traefik on your network, add a route for the external speed test hostname pointing to the VPS.
+- **Traefik** - supports per-route HTTP/1.1 TLS options. Add a route like `speedtest-wan.example.com` pointing to your VPS on port 3005 with the same HTTP/1.1 config used for your LAN speed test.
 - **Caddy** - automatic Let's Encrypt, simple configuration. Note: Caddy negotiates HTTP/2 by default at the TLS level. For the most accurate speed test results, configure it to use HTTP/1.1 for the speed test hostname.
 
 Then update the external server settings in Network Optimizer to use `https` scheme and port `443`.
