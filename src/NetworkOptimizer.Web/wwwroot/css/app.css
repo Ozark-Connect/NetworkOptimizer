@@ -3175,7 +3175,7 @@ select.form-control {
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 2rem;
-    max-width: 480px;
+    max-width: 540px;
     width: 90%;
     position: relative;
     overflow: hidden;
@@ -3281,6 +3281,7 @@ select.form-control {
     .sponsor-modal {
         padding: 1.5rem;
         margin: 1rem;
+        max-width: 480px;
     }
 }
 
