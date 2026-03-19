@@ -76,6 +76,12 @@
                         <p class="form-help browser-tip">
                             <strong>Tip:</strong> Share this URL with any device on your network to test WAN speed from that device.
                         </p>
+                        @if (_serverUrl.StartsWith("http://"))
+                        {
+                            <div class="alert alert-warning" style="margin-top: 1rem;">
+                                <strong>HTTPS Required:</strong> This server is configured over HTTP. Modern browsers block requests from public HTTP sites to private network addresses. The external speed test server must use HTTPS (a domain with a TLS certificate) for results to post back successfully.
+                            </div>
+                        }
                     </div>
                 </div>
             </div>

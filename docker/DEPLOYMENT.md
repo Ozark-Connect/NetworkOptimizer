@@ -987,9 +987,13 @@ See `.env.example` for full documentation on each setting.
 2. Run the speed test
 3. Results automatically appear in Network Optimizer's Client Speed Test page
 
-### HTTPS Configuration Requirements
+### HTTPS and Private Network Access
 
-When serving OpenSpeedTest over HTTPS (`OPENSPEEDTEST_HTTPS=true`), the main Network Optimizer app **must also be accessible via HTTPS**. This is a browser security requirement—HTTPS pages cannot make requests to HTTP endpoints (mixed active content).
+**Important:** Modern browsers enforce [Private Network Access](https://developer.chrome.com/blog/private-network-access-update) rules. If your speed test page is served from a **public IP** (e.g., a cloud server or VPS) over HTTP, the browser will block it from posting results back to a private/local Network Optimizer instance. The fix is to serve the speed test over **HTTPS** - a secure context is allowed to make requests to private addresses.
+
+This applies to both the bundled LAN speed test (if accessed via a public hostname) and especially to [External WAN Speed Test Servers](#external-wan-speed-test-server-optional).
+
+When serving OpenSpeedTest over HTTPS (`OPENSPEEDTEST_HTTPS=true`), the main Network Optimizer app **must also be accessible via HTTPS**. This is a browser security requirement - HTTPS pages cannot make requests to HTTP endpoints (mixed active content).
 
 **Valid Configurations:**
 
@@ -1070,6 +1074,67 @@ docker stop openspeedtest && docker rm openspeedtest
 # Then start the Network Optimizer stack
 docker compose up -d
 ```
+
+### External WAN Speed Test Server (Optional)
+
+Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let clients test their **internet (WAN) speed** from any device on your network. Results are automatically posted back to your Network Optimizer instance.
+
+**How it works:** The client's browser connects to the remote speed test server. Traffic flows: client → your WAN → internet → remote server → internet → your WAN → client. The result is posted back to Network Optimizer with a server identifier, and stored as a WAN speed test result.
+
+**Requirements:**
+- A remote server with Docker (any cloud VPS works)
+- Port 3005 (or your chosen port) open on the remote server
+- **HTTPS on the remote server** (required - browsers block HTTP-to-private-network requests, see [HTTPS and Private Network Access](#https-and-private-network-access))
+- Network Optimizer accessible via HTTPS (`REVERSE_PROXIED_HOST_NAME` set)
+
+**Quick deploy** (run on the remote server):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- https://optimizer.example.com my-server-name 3005
+```
+
+Or manually:
+```bash
+git clone --depth 1 https://github.com/Ozark-Connect/NetworkOptimizer.git /opt/netopt-speed-test
+cd /opt/netopt-speed-test
+```
+
+Create `docker-compose.yml`:
+```yaml
+services:
+  speedtest:
+    build:
+      context: .
+      dockerfile: docker/openspeedtest/Dockerfile
+    container_name: netopt-wan-speedtest
+    restart: unless-stopped
+    ports:
+      - "3005:3000"
+    environment:
+      - REVERSE_PROXIED_HOST_NAME=optimizer.example.com
+      - EXTERNAL_SERVER_ID=my-server-name
+```
+
+```bash
+docker compose up -d
+```
+
+**Then in Network Optimizer Settings:**
+1. Go to Settings → External Speed Test Server
+2. Enter the remote server's hostname, port, and scheme (HTTPS)
+3. Give it a friendly name (e.g., "Chicago VPS")
+4. Save - this enables CORS for the remote server and populates the Client WAN Speed Test page
+
+**Setting up HTTPS** (recommended: Caddy for automatic Let's Encrypt):
+```bash
+apt install caddy
+# Edit /etc/caddy/Caddyfile:
+# speedtest.example.com {
+#     reverse_proxy localhost:3005
+# }
+systemctl restart caddy
+```
+
+Then update the external server settings in Network Optimizer to use `https` scheme and port `443`.
 
 ### Disabling Optional Services
 
