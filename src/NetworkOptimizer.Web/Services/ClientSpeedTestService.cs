@@ -400,11 +400,14 @@ public class ClientSpeedTestService
             }
 
             // Calculate path from server to client, using snapshot to pick max wireless rates
+            // For WAN tests (OpenSpeedTestWan), pass resolvedWanGroup to include the WAN hop
+            var isWanDirection = result.Direction == SpeedTestDirection.OpenSpeedTestWan;
             var path = await _pathAnalyzer.CalculatePathAsync(
                 result.DeviceHost,
                 result.LocalIp,
                 retryOnFailure: true,
-                priorSnapshot);
+                priorSnapshot,
+                resolvedWanGroup: isWanDirection ? "WAN" : null);
 
             // Analyze speed test against the path
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
