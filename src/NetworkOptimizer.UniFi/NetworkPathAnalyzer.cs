@@ -963,6 +963,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     : "External speed test server"
             };
 
+            // Reverse the LAN hops (Client → ... → Gateway becomes Gateway → ... → Client)
+            // then prepend WAN hop so final order is: WAN → Gateway → ... → Client
+            path.Hops.Reverse();
+            for (int i = 0; i < path.Hops.Count; i++)
+                path.Hops[i].Order = i + 1;
+
+            wanHop.Order = 0;
             path.Hops.Insert(0, wanHop);
             path.IsExternalPath = true;
 
