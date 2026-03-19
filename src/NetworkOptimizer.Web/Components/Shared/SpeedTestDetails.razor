@@ -774,6 +774,13 @@
                 return meshHop.WirelessRxRateMbps.Value;
         }
 
+        // For WAN client tests, the link to the wireless client should show TX rate (download to client)
+        // not RX rate (upload from client), since traffic flows WAN → client
+        if (nextHop.Type == HopType.WirelessClient && Result?.Direction == SpeedTestDirection.OpenSpeedTestWan)
+        {
+            return nextHop.IngressSpeedMbps; // TX rate (AP sends to client)
+        }
+
         var isWanType = hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport || hop.Type == HopType.Wan;
         return (hop.IsWirelessIngress || isWanType)
             ? hop.IngressSpeedMbps
