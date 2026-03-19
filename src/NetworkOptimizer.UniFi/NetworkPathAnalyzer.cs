@@ -2709,7 +2709,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 {
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
-                    bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress);
+                    // If this hop's egress feeds into a WirelessClient, it's a Wi-Fi link
+                    var hopIdx = path.Hops.IndexOf(hop);
+                    var nextIsWireless = hopIdx >= 0 && hopIdx + 1 < path.Hops.Count
+                        && path.Hops[hopIdx + 1].Type == HopType.WirelessClient;
+                    bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress || nextIsWireless);
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessEgress &&
                         hop.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
