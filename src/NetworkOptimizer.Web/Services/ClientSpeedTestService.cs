@@ -308,7 +308,30 @@ public class ClientSpeedTestService
         if (count > 0)
             query = query.Take(count);
 
-        return await query.ToListAsync();
+        var results = await query.ToListAsync();
+
+        // Retry path analysis for results without valid paths
+        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
+        var needsRetry = results.Where(r =>
+            r.TestTime > retryWindow &&
+            (r.PathAnalysis == null ||
+             r.PathAnalysis.Path == null ||
+             !r.PathAnalysis.Path.IsValid))
+            .ToList();
+
+        if (needsRetry.Count > 0)
+        {
+            _logger.LogInformation("Retrying path analysis for {Count} WAN results without valid paths", needsRetry.Count);
+            foreach (var result in needsRetry)
+            {
+                await AnalyzePathAsync(result);
+                BackfillFromPathAnalysis(result);
+                UpdateWifiRatesFromPathAnalysis(result);
+            }
+            await db.SaveChangesAsync();
+        }
+
+        return results;
     }
 
     /// <summary>
