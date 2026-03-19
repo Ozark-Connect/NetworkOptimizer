@@ -1558,8 +1558,16 @@
             return "";
 
         // Only override with Wi-Fi rates when the bottleneck IS a wireless link
-        // If bottleneck is wired (e.g., 1 GbE backhaul), use the stored description
+        // If bottleneck is wired, WAN, or VPN, use the stored description
         if (!IsBottleneckAsymmetric())
+        {
+            return PathAnalysis.Path.BottleneckDescription;
+        }
+
+        // For WAN client tests where WAN is the bottleneck, use stored description
+        // (don't substitute WiFi rates for a WAN bottleneck)
+        var bottleneckHopForDesc = PathAnalysis.Path.Hops.FirstOrDefault(h => h.IsBottleneck);
+        if (bottleneckHopForDesc?.Type is HopType.Wan or HopType.Vpn or HopType.Tailscale or HopType.Teleport)
         {
             return PathAnalysis.Path.BottleneckDescription;
         }
