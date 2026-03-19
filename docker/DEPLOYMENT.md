@@ -1084,8 +1084,7 @@ Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let
 **Requirements:**
 - A remote server with Docker (any cloud VPS works)
 - Port 3005 (or your chosen port) open on the remote server
-- **HTTPS on the remote server** (required - browsers block HTTP-to-private-network requests, see [HTTPS and Private Network Access](#https-and-private-network-access))
-- Network Optimizer accessible via HTTPS (`REVERSE_PROXIED_HOST_NAME` set)
+- **HTTPS on the external server** (required - browsers block requests from public HTTP pages to private network addresses, see [HTTPS and Private Network Access](#https-and-private-network-access))
 
 **Quick deploy** (run on the remote server):
 ```bash
@@ -1124,15 +1123,10 @@ docker compose up -d
 3. Give it a friendly name (e.g., "Chicago VPS")
 4. Save - this enables CORS for the remote server and populates the Client WAN Speed Test page
 
-**Setting up HTTPS** (recommended: Caddy for automatic Let's Encrypt):
-```bash
-apt install caddy
-# Edit /etc/caddy/Caddyfile:
-# speedtest.example.com {
-#     reverse_proxy localhost:3005
-# }
-systemctl restart caddy
-```
+**Setting up HTTPS:** The reverse proxy must force HTTP/1.1 for accurate speed test results (HTTP/2 multiplexing interferes with throughput measurement). Options:
+
+- **Traefik** (recommended) - supports per-route HTTP/1.1 TLS options. If you already have Traefik on your network, add a route for the external speed test hostname pointing to the VPS.
+- **nginx** with `proxy_http_version 1.1;` and certbot for TLS
 
 Then update the external server settings in Network Optimizer to use `https` scheme and port `443`.
 
