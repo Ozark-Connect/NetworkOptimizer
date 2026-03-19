@@ -81,7 +81,7 @@
                         <p class="form-help browser-tip">
                             <strong>Tip:</strong> Share this URL with any device on your network to test WAN speed from that device.
                         </p>
-                        @if (_serverUrl.StartsWith("http://"))
+                        @if (_showHttpsWarning)
                         {
                             <div class="alert alert-warning" style="margin-top: 1rem;">
                                 <strong>HTTPS Required:</strong> This server is configured over HTTP. Modern browsers block requests from public HTTP sites to private network addresses. The external speed test server must use HTTPS (a domain with a TLS certificate) for results to post back successfully.
@@ -500,6 +500,7 @@
     private bool _serverConfigured;
     private string _serverUrl = "";
     private string _serverName = "";
+    private bool _showHttpsWarning;
     private bool _loading;
     private List<Iperf3Result> _results = new();
     private int _expandedId;
@@ -516,6 +517,12 @@
         _serverConfigured = settings.IsConfigured;
         _serverUrl = settings.Url;
         _serverName = settings.Name;
+
+        // Show HTTPS warning when external server is not HTTPS.
+        // Browser loads page from external server (public origin), then XHRs results
+        // back to Network Optimizer (private LAN). Private Network Access requires
+        // the origin to be a secure context (HTTPS) to access private addresses.
+        _showHttpsWarning = settings.Scheme != "https";
 
         if (_serverConfigured)
         {
