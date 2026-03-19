@@ -934,16 +934,31 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         var path = await CalculatePathToGatewayAsync(clientIp, cancellationToken);
 
         // Apply snapshot rates to wireless hops (CalculatePathToGatewayAsync doesn't support snapshots natively)
+        // Covers both WiFi client hops and wireless mesh backhaul hops
         if (priorSnapshot != null && path.IsValid)
         {
             foreach (var hop in path.Hops)
             {
                 if (hop.Type == HopType.WirelessClient && !string.IsNullOrEmpty(hop.DeviceMac))
                 {
-                    if (priorSnapshot.ClientRates.TryGetValue(hop.DeviceMac, out var snapshotRates))
+                    if (priorSnapshot.ClientRates.TryGetValue(hop.DeviceMac, out var clientRates))
                     {
-                        var snapshotTxMbps = (int)(snapshotRates.TxKbps / 1000);
-                        var snapshotRxMbps = (int)(snapshotRates.RxKbps / 1000);
+                        var snapshotTxMbps = (int)(clientRates.TxKbps / 1000);
+                        var snapshotRxMbps = (int)(clientRates.RxKbps / 1000);
+                        if (snapshotTxMbps > hop.IngressSpeedMbps)
+                            hop.IngressSpeedMbps = snapshotTxMbps;
+                        if (snapshotRxMbps > hop.EgressSpeedMbps)
+                            hop.EgressSpeedMbps = snapshotRxMbps;
+                    }
+                }
+
+                // Mesh backhaul hops (wireless AP uplinks)
+                if (hop.IsWirelessEgress && !string.IsNullOrEmpty(hop.DeviceMac))
+                {
+                    if (priorSnapshot.MeshUplinkRates.TryGetValue(hop.DeviceMac, out var meshRates))
+                    {
+                        var snapshotTxMbps = (int)(meshRates.TxKbps / 1000);
+                        var snapshotRxMbps = (int)(meshRates.RxKbps / 1000);
                         if (snapshotTxMbps > hop.IngressSpeedMbps)
                             hop.IngressSpeedMbps = snapshotTxMbps;
                         if (snapshotRxMbps > hop.EgressSpeedMbps)
