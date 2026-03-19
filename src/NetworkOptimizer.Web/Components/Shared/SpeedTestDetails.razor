@@ -921,14 +921,29 @@
             if (!string.IsNullOrEmpty(Result.WifiRadioProto))
                 lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}</div>");
 
-            // RX/TX speeds (RX first = "from device", TX = "to device")
+            // RX/TX speeds - order depends on test direction:
+            // LAN (BrowserToServer): RX first (↓ from device) then TX (↑ to device)
+            // WAN (OpenSpeedTestWan): TX first (↓ download to client) then RX (↑ upload from client)
             if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
             {
+                var isWanClient = Result.Direction == SpeedTestDirection.OpenSpeedTestWan;
                 var speedParts = new List<string>();
-                if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
-                    speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
-                if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
-                    speedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
+                if (isWanClient)
+                {
+                    // WAN: TX = download (blue), RX = upload (green)
+                    if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-rx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-tx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
+                }
+                else
+                {
+                    // LAN: RX = from device (blue), TX = to device (green)
+                    if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
+                }
                 if (speedParts.Count > 0)
                     lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
             }
