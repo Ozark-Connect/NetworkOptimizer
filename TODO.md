@@ -134,6 +134,24 @@ New audit section focused on network performance issues (distinct from security 
 ### WiFi Optimizer Enhancements
 - **MLO per-AP detection:** Check MLO status per-AP based on which SSIDs each AP broadcasts (via vap_table), not just global WLAN config. An AP only has MLO impact if it broadcasts an MLO-enabled SSID.
 
+### AP Catalog: Enforce 5 GHz EIRP Cap (US Regulatory)
+- FCC caps EIRP at 36 dBm for 5 GHz non-DFS (UNII-3, ch 149-165) and 30 dBm for UNII-1 (ch 36-48)
+- The TX Power by Access Point section currently shows uncapped EIRP (TX + gain), which can exceed 36 dBm for high-gain models, implying there's TX power headroom when there isn't
+- Already handled for some models on 6 GHz (E7-Campus, E7-Audience have EIRP-aware TX caps in catalog)
+- **Affected 5 GHz models (TX + gain > 36):**
+  - U7-Outdoor directional: 26 + 13 = 39 (cap TX to 23)
+  - U7-Pro-Outdoor directional: 26 + 11 = 37 (cap TX to 25)
+  - E7-Campus: 30 + 12 = 42 (cap TX to 24)
+  - E7-Audience narrow: 30 + 15 = 45 (cap TX to 21)
+  - E7-Audience wide: 30 + 11 = 41 (cap TX to 25)
+  - UWB-XG narrow: 25 + 15 = 40 (cap TX to 21)
+- **Options:**
+  1. Cap MaxTxPowerDbm in the catalog so TX + gain <= 36 for all 5 GHz entries (like we do for 6 GHz on E7 models)
+  2. Add regulatory-domain-aware EIRP capping in the display/calculation layer (more complex, handles UNII-1 vs UNII-3 differently)
+  3. Show "regulatory max EIRP" alongside "hardware max EIRP" in the UI
+- Option 1 is simplest and matches the existing 6 GHz pattern. Option 2 is more accurate but needs channel-to-sub-band mapping.
+- **Note:** DFS channels (UNII-2/2C) have lower limits but are dynamic - firmware handles those
+
 ### Floor Plan Heatmap - Per-Channel Frequency
 - Current heatmap uses a single center frequency per band (2437, 5500, 6500 MHz)
 - 5 GHz spans 5150-5850 MHz (channels 36-165), ~1 dB FSPL difference at the extremes
