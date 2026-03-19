@@ -1001,13 +1001,27 @@
 
         // RX/TX speeds from parent AP's perspective (RX = FromDevice, TX = ToDevice)
         // Mesh hop stores child's perspective, so flip: child TX → parent RX, child RX → parent TX
+        // For WAN tests, swap order and colors (same as WiFi client tooltip)
         if (meshHop.WirelessTxRateMbps.HasValue || meshHop.WirelessRxRateMbps.HasValue)
         {
+            var isWanClient = Result?.Direction == SpeedTestDirection.OpenSpeedTestWan;
             var speedParts = new List<string>();
-            if (meshHop.WirelessTxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
-            if (meshHop.WirelessRxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
+            if (isWanClient)
+            {
+                // WAN: parent TX (child RX) = download (blue), parent RX (child TX) = upload (green)
+                if (meshHop.WirelessRxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-rx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
+                if (meshHop.WirelessTxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-tx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+            }
+            else
+            {
+                // LAN: parent RX (child TX) = from device (blue), parent TX (child RX) = to device (green)
+                if (meshHop.WirelessTxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+                if (meshHop.WirelessRxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
+            }
             lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
         }
 
