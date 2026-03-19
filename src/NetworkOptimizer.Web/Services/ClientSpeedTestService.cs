@@ -426,7 +426,9 @@ public class ClientSpeedTestService
             if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
             {
                 // WAN speed test: path is WAN → Gateway → ... → Client
-                path = await _pathAnalyzer.CalculateWanClientPathAsync(result.DeviceHost);
+                // Pass snapshot for stable WiFi rates (same as LAN tests)
+                path = await _pathAnalyzer.CalculateWanClientPathAsync(
+                    result.DeviceHost, result.LocalIp, priorSnapshot);
             }
             else
             {

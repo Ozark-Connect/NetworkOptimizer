@@ -58,7 +58,7 @@ public interface INetworkPathAnalyzer
     /// The path is WAN → Gateway → switches → (AP →) Client, showing the full route
     /// from the external speed test server through WAN to the client device.
     /// </summary>
-    Task<NetworkPath> CalculateWanClientPathAsync(string clientIp, string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
+    Task<NetworkPath> CalculateWanClientPathAsync(string clientIp, string? sourceIp = null, WirelessRateSnapshot? priorSnapshot = null, string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Identifies which WAN connection was used based on the Cloudflare-reported external IP.
@@ -925,11 +925,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// </summary>
     public async Task<NetworkPath> CalculateWanClientPathAsync(
         string clientIp,
+        string? sourceIp = null,
+        WirelessRateSnapshot? priorSnapshot = null,
         string? resolvedWanGroup = null,
         CancellationToken cancellationToken = default)
     {
-        // Get the LAN path from client to gateway
-        var path = await CalculatePathToGatewayAsync(clientIp, cancellationToken);
+        // Get the LAN path using the full CalculatePathAsync (supports snapshot for stable WiFi rates)
+        var path = await CalculatePathAsync(clientIp, sourceIp, retryOnFailure: true, priorSnapshot, cancellationToken: cancellationToken);
         if (!path.IsValid || path.Hops.Count == 0)
             return path;
 
