@@ -54,6 +54,13 @@ public interface INetworkPathAnalyzer
     Task<NetworkPath> CalculatePathToGatewayAsync(string clientIp, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Calculates the network path for a WAN client speed test (OpenSpeedTestWan).
+    /// The path is WAN → Gateway → switches → (AP →) Client, showing the full route
+    /// from the external speed test server through WAN to the client device.
+    /// </summary>
+    Task<NetworkPath> CalculateWanClientPathAsync(string clientIp, string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Identifies which WAN connection was used based on the Cloudflare-reported external IP.
     /// Returns the WAN network group (e.g. "WAN", "WAN2") and friendly name (e.g. "Starlink").
     /// When measured speeds are provided and no direct IP match is found (e.g. CGNAT),
@@ -906,6 +913,68 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             _logger.LogError(ex, "Error calculating path to gateway for {Client}", clientIp);
             path.IsValid = false;
             path.ErrorMessage = $"Error calculating path: {ex.Message}";
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// Calculates the network path for a WAN client speed test (OpenSpeedTestWan).
+    /// Builds: WAN → Gateway → switches → (AP →) Client by combining a WAN hop
+    /// with the CalculatePathToGatewayAsync result.
+    /// </summary>
+    public async Task<NetworkPath> CalculateWanClientPathAsync(
+        string clientIp,
+        string? resolvedWanGroup = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Get the LAN path from client to gateway
+        var path = await CalculatePathToGatewayAsync(clientIp, cancellationToken);
+        if (!path.IsValid || path.Hops.Count == 0)
+            return path;
+
+        // Build WAN hop from topology
+        try
+        {
+            var topology = await GetTopologyAsync(cancellationToken);
+            if (topology == null)
+                return path;
+
+            var rawDevices = await GetRawDevicesAsync(cancellationToken);
+            var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices, resolvedWanGroup: resolvedWanGroup);
+
+            var wanNetwork = topology.Networks.FirstOrDefault(n =>
+                n.IsWan && n.WanNetworkgroup != null &&
+                n.WanNetworkgroup.Equals(resolvedWanGroup ?? "WAN", StringComparison.OrdinalIgnoreCase))
+                ?? topology.Networks.FirstOrDefault(n => n.IsPrimaryWan);
+
+            var wanHop = new NetworkHop
+            {
+                Order = -1,
+                Type = HopType.Wan,
+                DeviceName = !string.IsNullOrEmpty(wanNetwork?.Name) ? wanNetwork.Name : "WAN",
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                IngressPortName = "WAN",
+                EgressPortName = "WAN",
+                SmartQueueEnabled = wanNetwork?.WanSmartqEnabled,
+                Notes = wanUploadMbps > 0
+                    ? $"External speed test (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : "External speed test server"
+            };
+
+            path.Hops.Insert(0, wanHop);
+            path.IsExternalPath = true;
+
+            // Recalculate bottleneck with the WAN hop included
+            CalculateBottleneck(path);
+
+            _logger.LogInformation("WAN client path calculated: WAN -> {Client}, {HopCount} hops, WAN {Down}/{Up} Mbps",
+                clientIp, path.Hops.Count, wanDownloadMbps, wanUploadMbps);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to add WAN hop to client path, returning LAN-only path");
         }
 
         return path;
