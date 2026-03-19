@@ -1391,6 +1391,12 @@
         // First check if rates are stored on the result (Wi-Fi clients)
         if (Result?.WifiRxRateKbps > 0 && Result?.WifiTxRateKbps > 0)
         {
+            // For WAN client tests, swap RX/TX for efficiency calculation.
+            // LAN: FromDevice = client upload = limited by RX, ToDevice = client download = limited by TX
+            // WAN: FromDevice = client download = limited by TX, ToDevice = client upload = limited by RX
+            if (Result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+                return (Result.WifiTxRateKbps, Result.WifiRxRateKbps);
+
             return (Result.WifiRxRateKbps, Result.WifiTxRateKbps);
         }
 
