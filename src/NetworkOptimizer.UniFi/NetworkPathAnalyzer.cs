@@ -952,17 +952,20 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     }
                 }
 
-                // Mesh backhaul hops (wireless AP uplinks)
-                if (hop.IsWirelessEgress && !string.IsNullOrEmpty(hop.DeviceMac))
+                // Mesh backhaul hops (wireless AP uplinks) - rates are in WirelessTxRateMbps/WirelessRxRateMbps
+                // Matches BuildHopList pattern: FilterIdleRate, then max(current, snapshot)
+                if (hop.IsWirelessEgress && hop.Type != HopType.WirelessClient && !string.IsNullOrEmpty(hop.DeviceMac))
                 {
                     if (priorSnapshot.MeshUplinkRates.TryGetValue(hop.DeviceMac, out var meshRates))
                     {
-                        var snapshotTxMbps = (int)(meshRates.TxKbps / 1000);
-                        var snapshotRxMbps = (int)(meshRates.RxKbps / 1000);
-                        if (snapshotTxMbps > hop.IngressSpeedMbps)
-                            hop.IngressSpeedMbps = snapshotTxMbps;
-                        if (snapshotRxMbps > hop.EgressSpeedMbps)
-                            hop.EgressSpeedMbps = snapshotRxMbps;
+                        var snapshotTxKbps = FilterIdleRate(meshRates.TxKbps);
+                        var snapshotRxKbps = FilterIdleRate(meshRates.RxKbps);
+                        var snapshotTxMbps = snapshotTxKbps > 0 ? (int)(snapshotTxKbps / 1000) : 0;
+                        var snapshotRxMbps = snapshotRxKbps > 0 ? (int)(snapshotRxKbps / 1000) : 0;
+                        if (snapshotTxMbps > (hop.WirelessTxRateMbps ?? 0))
+                            hop.WirelessTxRateMbps = snapshotTxMbps;
+                        if (snapshotRxMbps > (hop.WirelessRxRateMbps ?? 0))
+                            hop.WirelessRxRateMbps = snapshotRxMbps;
                     }
                 }
             }
@@ -1021,7 +1024,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             path.Hops.Insert(0, wanHop);
             path.IsExternalPath = true;
 
-            // Recalculate bottleneck with the WAN hop included
+            // Reset bottleneck flags from CalculatePathToGatewayAsync's initial calculation,
+            // then recalculate with the WAN hop included
+            foreach (var hop in path.Hops)
+                hop.IsBottleneck = false;
             CalculateBottleneck(path);
 
             _logger.LogInformation("WAN client path calculated: WAN -> {Client}, {HopCount} hops, WAN {Down}/{Up} Mbps",
