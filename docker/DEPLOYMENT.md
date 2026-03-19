@@ -987,11 +987,7 @@ See `.env.example` for full documentation on each setting.
 2. Run the speed test
 3. Results automatically appear in Network Optimizer's Client Speed Test page
 
-### HTTPS and Private Network Access
-
-**Important:** Modern browsers enforce [Private Network Access](https://developer.chrome.com/blog/private-network-access-update) rules. If your speed test page is served from a **public IP** (e.g., a cloud server or VPS) over HTTP, the browser will block it from posting results back to a private/local Network Optimizer instance. The fix is to serve the speed test over **HTTPS** - a secure context is allowed to make requests to private addresses.
-
-This applies to both the bundled LAN speed test (if accessed via a public hostname) and especially to [External WAN Speed Test Servers](#external-wan-speed-test-server-optional).
+### HTTPS Configuration Requirements
 
 When serving OpenSpeedTest over HTTPS (`OPENSPEEDTEST_HTTPS=true`), the main Network Optimizer app **must also be accessible via HTTPS**. This is a browser security requirement - HTTPS pages cannot make requests to HTTP endpoints (mixed active content).
 
@@ -1084,7 +1080,9 @@ Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let
 **Requirements:**
 - A remote server with Docker (any cloud VPS works)
 - Port 3005 (or your chosen port) open on the remote server
-- **HTTPS on the external server** (required - browsers block requests from public HTTP pages to private network addresses, see [HTTPS and Private Network Access](#https-and-private-network-access))
+- **HTTPS on the external server** (required - see note below)
+
+**Why HTTPS?** Modern browsers enforce [Private Network Access](https://developer.chrome.com/blog/private-network-access-update) rules. The speed test page is served from a public IP, but the browser (on your LAN) posts results back to Network Optimizer (a private IP). Browsers block this unless the page origin is HTTPS (a secure context).
 
 **Quick deploy** (run on the remote server):
 ```bash
