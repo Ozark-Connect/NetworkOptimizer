@@ -3147,10 +3147,10 @@ select.form-control {
 
 @media (max-width: 421px) {
     .sponsorship-banner .banner-corgi {
-        left: 0.5rem;
+        left: 10px;
         right: auto;
         top: auto;
-        bottom: 1.6rem;
+        bottom: 1.3rem;
         transform: none;
     }
 }
