@@ -1005,19 +1005,30 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             // Reverse the LAN hops (Client → ... → Gateway becomes Gateway → ... → Client)
             // then prepend WAN hop so final order is: WAN → Gateway → ... → Client.
-            // Swap ingress/egress on each hop since the traffic direction is reversed.
+            // Swap ingress/egress on WIRED hops since traffic direction is reversed.
+            // Wireless hops keep TX/RX as-is - they are physical properties of the radio link.
             path.Hops.Reverse();
             for (int i = 0; i < path.Hops.Count; i++)
             {
                 var hop = path.Hops[i];
                 hop.Order = i + 1;
 
-                // Swap ingress <-> egress (ports, speeds, wireless flags, bands)
-                (hop.IngressPort, hop.EgressPort) = (hop.EgressPort, hop.IngressPort);
-                (hop.IngressPortName, hop.EgressPortName) = (hop.EgressPortName, hop.IngressPortName);
-                (hop.IngressSpeedMbps, hop.EgressSpeedMbps) = (hop.EgressSpeedMbps, hop.IngressSpeedMbps);
-                (hop.IsWirelessIngress, hop.IsWirelessEgress) = (hop.IsWirelessEgress, hop.IsWirelessIngress);
-                (hop.WirelessIngressBand, hop.WirelessEgressBand) = (hop.WirelessEgressBand, hop.WirelessIngressBand);
+                if (hop.Type == HopType.WirelessClient)
+                {
+                    // WiFi client: TX/RX rates are physical link properties, don't swap
+                    // Just swap the port numbers/names for display order consistency
+                    (hop.IngressPort, hop.EgressPort) = (hop.EgressPort, hop.IngressPort);
+                    (hop.IngressPortName, hop.EgressPortName) = (hop.EgressPortName, hop.IngressPortName);
+                }
+                else
+                {
+                    // Wired hops: swap ingress <-> egress (ports, speeds, wireless flags, bands)
+                    (hop.IngressPort, hop.EgressPort) = (hop.EgressPort, hop.IngressPort);
+                    (hop.IngressPortName, hop.EgressPortName) = (hop.EgressPortName, hop.IngressPortName);
+                    (hop.IngressSpeedMbps, hop.EgressSpeedMbps) = (hop.EgressSpeedMbps, hop.IngressSpeedMbps);
+                    (hop.IsWirelessIngress, hop.IsWirelessEgress) = (hop.IsWirelessEgress, hop.IsWirelessIngress);
+                    (hop.WirelessIngressBand, hop.WirelessEgressBand) = (hop.WirelessEgressBand, hop.WirelessIngressBand);
+                }
             }
 
             wanHop.Order = 0;

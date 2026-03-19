@@ -479,13 +479,10 @@ public class ClientSpeedTestService
                 h.Type == HopType.WirelessClient);
             if (wirelessHop != null)
             {
-                // For WAN client tests, the path is reversed (WAN → Client), so
-                // ingress/egress are swapped relative to the normal direction.
-                // Normal: IngressSpeedMbps = Tx (ToDevice), EgressSpeedMbps = Rx (FromDevice)
-                // WAN:    IngressSpeedMbps = Rx (FromDevice), EgressSpeedMbps = Tx (ToDevice)
-                var isReversed = result.Direction == SpeedTestDirection.OpenSpeedTestWan;
-                var maxTxKbps = (long)((isReversed ? wirelessHop.EgressSpeedMbps : wirelessHop.IngressSpeedMbps) * 1000);
-                var maxRxKbps = (long)((isReversed ? wirelessHop.IngressSpeedMbps : wirelessHop.EgressSpeedMbps) * 1000);
+                // IngressSpeedMbps = Tx (ToDevice), EgressSpeedMbps = Rx (FromDevice)
+                // Wireless hops are NOT swapped during WAN path reversal (physical link properties)
+                var maxTxKbps = (long)(wirelessHop.IngressSpeedMbps * 1000);
+                var maxRxKbps = (long)(wirelessHop.EgressSpeedMbps * 1000);
 
                 // Only update if path analysis has higher values
                 if (maxTxKbps > (result.WifiTxRateKbps ?? 0))
