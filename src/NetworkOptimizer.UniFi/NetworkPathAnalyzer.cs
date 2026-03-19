@@ -930,8 +930,28 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? resolvedWanGroup = null,
         CancellationToken cancellationToken = default)
     {
-        // Get the LAN path using the full CalculatePathAsync (supports snapshot for stable WiFi rates)
-        var path = await CalculatePathAsync(clientIp, sourceIp, retryOnFailure: true, priorSnapshot, cancellationToken: cancellationToken);
+        // Get the LAN path (client → gateway) and apply snapshot for stable WiFi rates
+        var path = await CalculatePathToGatewayAsync(clientIp, cancellationToken);
+
+        // Apply snapshot rates to wireless hops (CalculatePathToGatewayAsync doesn't support snapshots natively)
+        if (priorSnapshot != null && path.IsValid)
+        {
+            foreach (var hop in path.Hops)
+            {
+                if (hop.Type == HopType.WirelessClient && !string.IsNullOrEmpty(hop.DeviceMac))
+                {
+                    if (priorSnapshot.ClientRates.TryGetValue(hop.DeviceMac, out var snapshotRates))
+                    {
+                        var snapshotTxMbps = (int)(snapshotRates.TxKbps / 1000);
+                        var snapshotRxMbps = (int)(snapshotRates.RxKbps / 1000);
+                        if (snapshotTxMbps > hop.IngressSpeedMbps)
+                            hop.IngressSpeedMbps = snapshotTxMbps;
+                        if (snapshotRxMbps > hop.EgressSpeedMbps)
+                            hop.EgressSpeedMbps = snapshotRxMbps;
+                    }
+                }
+            }
+        }
         if (!path.IsValid || path.Hops.Count == 0)
             return path;
 
