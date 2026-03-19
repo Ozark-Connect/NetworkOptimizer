@@ -7,7 +7,8 @@ public record SponsorshipNag(
     int Level,
     string Quip,
     string ActionText,
-    string ActionUrl
+    string GitHubSponsorUrl,
+    string KofiUrl
 );
 
 /// <summary>
