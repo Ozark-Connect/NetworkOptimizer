@@ -14,20 +14,46 @@
 }
 else if (_nag != null)
 {
-    <div class="sponsorship-banner">
+    var corgiImage = GetCorgiImage(_nag.Level);
+    <div class="sponsorship-banner @(corgiImage != null ? "has-corgi" : "")">
+        @if (corgiImage != null)
+        {
+            <img src="images/corgis/@corgiImage" class="banner-corgi" alt="" />
+        }
         <div class="banner-content">
             <span class="banner-icon">&#x2665;</span>
             <div class="banner-text">
                 <strong>@_nag.Quip</strong>
-                <span>
-                    <a href="@_nag.ActionUrl" target="_blank" rel="noopener noreferrer">@_nag.ActionText</a>
-                    <span class="banner-separator">&nbsp;|&nbsp;</span>
-                    <span class="banner-commercial">Commercial use? Email <a href="mailto:tj@ozarkconnect.net">tj@ozarkconnect.net</a> for licensing.</span>
-                </span>
+                <span class="banner-commercial">Commercial use? Email <a href="mailto:tj@ozarkconnect.net">tj@ozarkconnect.net</a> for licensing.</span>
             </div>
             <div class="banner-actions">
-                <button class="btn-sponsor" @onclick="AlreadySponsorAsync">I already sponsor</button>
-                <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+                <button class="btn-cta" @onclick="ShowModal">@_nag.ActionText</button>
+                <span class="banner-actions-secondary">
+                    <button class="btn-sponsor" @onclick="AlreadySponsorAsync">I already sponsor</button>
+                    <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+                </span>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showModal && _nag != null)
+{
+    <div class="sponsor-modal-overlay" @onclick="HideModal">
+        <div class="sponsor-modal" @onclick:stopPropagation>
+            <img src="images/corgis/corgi-sploot.png" class="modal-corgi" alt="" />
+            <button class="sponsor-modal-close" @onclick="HideModal">&times;</button>
+            <h3>Support Network Optimizer</h3>
+            <p class="sponsor-modal-subtitle">Pick whichever works best for you, both are hugely appreciated.</p>
+            <div class="sponsor-modal-options">
+                <a href="@_nag.KofiUrl" target="_blank" rel="noopener noreferrer" class="sponsor-option sponsor-option-kofi">
+                    <span class="sponsor-option-name">Ko-fi</span>
+                    <span class="sponsor-option-desc">Quick and easy. Apple Pay, Google Pay, Cash App, and credit/debit cards. No account needed.</span>
+                </a>
+                <a href="@_nag.GitHubSponsorUrl" target="_blank" rel="noopener noreferrer" class="sponsor-option sponsor-option-github">
+                    <span class="sponsor-option-name">GitHub Sponsors</span>
+                    <span class="sponsor-option-desc">Shows on your GitHub profile if you're an active user. 0% platform fee - every cent goes to me.</span>
+                </a>
             </div>
         </div>
     </div>
@@ -45,7 +71,22 @@ else if (_nag != null)
 
     private SponsorshipNag? _nag;
     private bool _showThankYou;
+    private bool _showModal;
     private CancellationTokenSource? _cts;
+
+    /// <summary>
+    /// Map nag levels to corgi images. Returns null for levels without a corgi.
+    /// </summary>
+    private static string? GetCorgiImage(int level) => level switch
+    {
+        1 => "corgi-family.png",     // "The corgis say hi" - adult + puppy looking at you
+        2 => "corgi-puppy.png",      // "More audits than hot meals" - cute puppy
+        4 => "corgi-eyes.png",       // "Cheaper than therapy" - sad puppy eyes
+        6 => "corgi-sitting.png",    // "One guy on 2 acres" - dignified sitting
+        9 => "corgi-cuddle.png",     // "I see you. I appreciate you" - cuddling bear
+        10 => "corgi-sleeping.png",  // "Become family" - two sleeping together
+        _ => null
+    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -70,6 +111,16 @@ else if (_nag != null)
         {
             // Silently fail - sponsorship banner is non-critical
         }
+    }
+
+    private void ShowModal()
+    {
+        _showModal = true;
+    }
+
+    private void HideModal()
+    {
+        _showModal = false;
     }
 
     private async Task DismissAsync()

@@ -11,8 +11,9 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class SponsorshipService : ISponsorshipService
 {
-    private const string SponsorUrl = "https://github.com/sponsors/tvancott42";
-    private const int SqmEnabledBonus = 5;
+    private const string GitHubSponsorUrl = "https://github.com/sponsors/tvancott42";
+    private const string KofiUrl = "https://ko-fi.com/tjtuna42";
+    private const int SqmEnabledBonus = 3;
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SponsorshipService> _logger;
@@ -21,40 +22,40 @@ public class SponsorshipService : ISponsorshipService
     // Order: friendly → self-deprecating → edgy → absurd
     private static readonly (string Quip, string ActionText)[] Tiers =
     [
-        // Level 1: 1-2 uses - friendly intro
-        ("The corgis say hi. They don't understand what GitHub Sponsors is either.", "Sponsor some treats"),
+        // Level 1: 1-3 uses - friendly intro
+        ("The corgis say hi. They don't understand what GitHub Sponsors is either.", "Send some treats"),
 
-        // Level 2: 3-5 uses - self-deprecating
+        // Level 2: 4-7 uses - self-deprecating
         ("You've run more audits than I've had hot meals this week.", "Buy me a hot meal"),
 
-        // Level 3: 6-10 uses - relatable UI Store dig
+        // Level 3: 8-15 uses - relatable UI Store dig
         ("You paid $15 to ship a patch cable from the UI Store!? I'm just saying...", "Spare $5?"),
 
-        // Level 4: 11-15 uses - getting personal
+        // Level 4: 16-20 uses - getting personal
         ("At this point you've used this more than my wife talks to me. Sponsorship is cheaper than therapy.", "Fund my therapy"),
 
-        // Level 5: 16-20 uses - earned the edge
+        // Level 5: 21-30 uses - earned the edge
         ("Still free. Still no VC funding. Still powered by coffee and spite.", "Fund the spite"),
 
-        // Level 6: 21-30 uses - stats flex
+        // Level 6: 31-40 uses - stats flex
         ("167,000 lines of code. 5,600 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
 
-        // Level 7: 31-40 uses - former employer dig
+        // Level 7: 41-50 uses - former employer dig
         ("You've used this more than some employers used my code. Just saying.", "Money me"),
 
-        // Level 8: 41-50 uses - another UI Store dig
+        // Level 8: 51-75 uses - another UI Store dig
         ("A year of sponsorship costs less than shipping one sensor from the UI store. And I won't charge you $40 for Ground.", "Combine orders, PIF"),
 
-        // Level 9: 51-75 uses - appreciative (for heavy users)
+        // Level 9: 76-100 uses - appreciative (for heavy users)
         ("Your Watchtower is working. I see you. I appreciate you.", "Power my homelab"),
 
-        // Level 10: 76+ uses - we're family now
+        // Level 10: 101+ uses - we're family now
         ("We've been through a lot together. I expect you at Thanksgiving. Bring a side dish. And maybe sponsor me, idk.", "Become family"),
     ];
 
     // Usage thresholds for each level (upper bound, inclusive)
-    // Level 1: 1-2, Level 2: 3-5, Level 3: 6-10, etc.
-    private static readonly int[] LevelThresholds = [2, 5, 10, 15, 20, 30, 40, 50, 75, int.MaxValue];
+    // Level 1: 1-3, Level 2: 4-7, Level 3: 8-15, etc.
+    private static readonly int[] LevelThresholds = [3, 7, 15, 20, 30, 40, 50, 75, 100, int.MaxValue];
 
     public SponsorshipService(IServiceProvider serviceProvider, ILogger<SponsorshipService> logger)
     {
@@ -95,7 +96,7 @@ public class SponsorshipService : ISponsorshipService
             var hoursSinceLastNag = (DateTime.UtcNow - lastNagTime).TotalHours;
 
             // Within 24h of last dismiss - stay hidden (unless alwaysShow for Settings preview)
-            if (hoursSinceLastNag < 24 && lastShownLevel > 0 && !alwaysShow)
+            if (hoursSinceLastNag < 48 && lastShownLevel > 0 && !alwaysShow)
             {
                 return null;
             }
@@ -121,7 +122,8 @@ public class SponsorshipService : ISponsorshipService
                 Level: levelToShow,
                 Quip: tier.Quip,
                 ActionText: tier.ActionText,
-                ActionUrl: SponsorUrl
+                GitHubSponsorUrl: GitHubSponsorUrl,
+                KofiUrl: KofiUrl
             );
         }
         catch (Exception ex)
