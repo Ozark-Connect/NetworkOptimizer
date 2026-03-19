@@ -886,10 +886,8 @@
             @if (!string.IsNullOrEmpty(extSpeedTestHost))
             {
                 <div class="form-group">
-                    <label class="form-label">Speed Test URL</label>
-                    <div class="url-copy-row">
-                        <input type="text" class="url-display" value="@ComputeExternalSpeedTestUrl()" readonly />
-                    </div>
+                    <label class="form-label">Speed Test URL (preview)</label>
+                    <input type="text" class="form-control" value="@ComputeExternalSpeedTestUrl()" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
                 </div>
             }
 

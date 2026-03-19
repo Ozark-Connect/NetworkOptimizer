@@ -33,7 +33,7 @@
                 <div class="empty-state">
                     <span class="empty-icon">🌐</span>
                     <h3>External Speed Test Server Not Configured</h3>
-                    <p>To use Client WAN Speed Tests, you need to set up an external OpenSpeedTest server and configure it in Settings.</p>
+                    <p>To use Client WAN Speed Tests, configure an external OpenSpeedTest server in Settings.</p>
                     <a href="/settings#external-speedtest-settings" class="btn btn-primary">Configure External Server</a>
                 </div>
             </div>
@@ -41,133 +41,453 @@
     }
     else
     {
-        <!-- Run Speed Test -->
+        <!-- Run Speed Test Card -->
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Run a WAN Speed Test</h2>
+                <h2 class="card-title">Run a Speed Test</h2>
             </div>
             <div class="card-body">
-                <div class="test-option">
-                    <div class="test-option-header">
-                        <h3>Browser Speed Test</h3>
-                        @if (!string.IsNullOrEmpty(_serverName))
-                        {
-                            <span class="badge badge-primary">@_serverName</span>
-                        }
+                <div class="test-options">
+                    <div class="test-option">
+                        <div class="test-option-header">
+                            <h3>Browser Speed Test</h3>
+                            @if (!string.IsNullOrEmpty(_serverName))
+                            {
+                                <span class="badge badge-wan">@_serverName</span>
+                            }
+                        </div>
+                        <p>
+                            Run a speed test against the external server. This measures your internet speed (WAN) -
+                            traffic goes from your device, out through your WAN, across the internet to the remote server, and back.
+                        </p>
+                        <div class="test-option-actions">
+                            <a href="@(_serverUrl)?Run" target="_blank" rel="opener" class="btn btn-primary">
+                                Run WAN Speed Test
+                            </a>
+                            <span class="form-help">Opens in a new tab and auto-starts</span>
+                        </div>
+                        <div class="url-copy-row">
+                            <input type="text" class="url-display" value="@_serverUrl" readonly />
+                            <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
+                                <span class="copy-icon">📋</span>
+                                <span class="copy-check" style="display:none;">✓</span>
+                            </button>
+                        </div>
+                        <p class="form-help browser-tip">
+                            <strong>Tip:</strong> Share this URL with any device on your network to test WAN speed from that device.
+                        </p>
                     </div>
-                    <p>
-                        Run a speed test against the external server at <strong>@_serverUrl</strong>.
-                        This measures your internet speed (WAN), not your local network speed.
-                        The test runs in your browser and results are reported back automatically.
-                    </p>
-                    <div class="test-option-actions">
-                        <a href="@(_serverUrl)?Run" target="_blank" rel="opener" class="btn btn-primary">
-                            Run WAN Speed Test
-                        </a>
-                        <span class="form-help">Opens in a new tab and auto-starts</span>
-                    </div>
-                    <div class="url-copy-row">
-                        <input type="text" class="url-display" value="@_serverUrl" readonly />
-                        <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
-                            <span class="copy-icon">📋</span>
-                            <span class="copy-check" style="display:none;">✓</span>
-                        </button>
-                    </div>
-                    <p class="form-help browser-tip">
-                        <strong>Tip:</strong> Share this URL with any device on your network to test WAN speed from that device.
-                        The path is: client -> your WAN -> internet -> external server -> internet -> your WAN -> client.
-                    </p>
                 </div>
             </div>
         </div>
 
-        <!-- Results -->
-        @if (_results.Count > 0)
-        {
-            <!-- Latest Result -->
-            <div class="card" id="latest-result">
-                <div class="card-header">
-                    <h2 class="card-title">Latest Result</h2>
-                </div>
-                <div class="card-body">
-                    <SpeedTestDetails Result="_results[0]"
-                                      UseWanLabels="true"
-                                      OnNotesChanged="HandleNotesChanged" />
-                </div>
-            </div>
-
-            <!-- Speed History Chart -->
-            <div class="card chart-card">
-                <div class="chart-header">
-                    <h2 class="chart-title">Speed History</h2>
-                    <div class="time-range-selector">
-                        <button class="time-btn @(_hoursFilter == 24 ? "active" : "")" @onclick="() => SetTimeFilter(24)">24h</button>
-                        <button class="time-btn @(_hoursFilter == 168 ? "active" : "")" @onclick="() => SetTimeFilter(168)">7d</button>
-                        <button class="time-btn @(_hoursFilter == 720 ? "active" : "")" @onclick="() => SetTimeFilter(720)">30d</button>
-                        <button class="time-btn @(_hoursFilter == 0 ? "active" : "")" @onclick="() => SetTimeFilter(0)">All</button>
+        <!-- Test History -->
+        <div class="card">
+            <div class="card-header history-card-header">
+                <div class="header-title-row">
+                    <h2 class="card-title">Test History</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-sm btn-secondary" @onclick="LoadResults" disabled="@_loading">
+                            @if (_loading)
+                            {
+                                <span class="spinner"></span>
+                                <span>Loading...</span>
+                            }
+                            else
+                            {
+                                <span>Refresh</span>
+                            }
+                        </button>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div style="height: 280px; display: flex; align-items: center; justify-content: center;">
-                        <table class="data-table" style="width: 100%;">
+            </div>
+            <div class="card-body">
+                @if (_results.Count > 0)
+                {
+                    <div class="table-responsive" id="history-table">
+                        <table class="data-table">
                             <thead>
                                 <tr>
                                     <th>Time</th>
-                                    <th>Client</th>
-                                    <th>Download</th>
-                                    <th>Upload</th>
-                                    <th>Ping</th>
-                                    <th class="hide-mobile">Server</th>
+                                    <th>Device</th>
+                                    <th class="hide-mobile">
+                                        <span class="tooltip-wrapper tooltip-bottom">
+                                            ↓ Mbps
+                                            <span class="tooltip-icon">?</span>
+                                            <span class="tooltip-content">
+                                                <strong>From Device</strong><br />
+                                                Data transferred from the client device through WAN to the external server.
+                                            </span>
+                                        </span>
+                                    </th>
+                                    <th class="hide-mobile">
+                                        <span class="tooltip-wrapper tooltip-bottom">
+                                            ↑ Mbps
+                                            <span class="tooltip-icon">?</span>
+                                            <span class="tooltip-content">
+                                                <strong>To Device</strong><br />
+                                                Data transferred from the external server through WAN to the client device.
+                                            </span>
+                                        </span>
+                                    </th>
+                                    <th class="show-mobile">Mbps</th>
+                                    <th class="hide-mobile">Ping</th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var result in _filteredResults.Take(20))
+                                @foreach (var result in _pagedResults)
                                 {
-                                    <tr>
-                                        <td data-tooltip="@result.TestTime.ToString("yyyy-MM-dd HH:mm:ss") UTC">
-                                            @FormatTimeAgo(result.TestTime)
+                                    var isExpanded = _expandedId == result.Id;
+                                    <tr id="result-@result.Id"
+                                        class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
+                                        @onclick="@(() => ToggleExpand(result.Id))">
+                                        <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(result.DeviceName))
+                                            {
+                                                <span>@result.DeviceName</span>
+                                                <br />
+                                                <code class="text-muted">@result.DeviceHost</code>
+                                            }
+                                            else
+                                            {
+                                                <code>@result.DeviceHost</code>
+                                            }
                                         </td>
-                                        <td>@(result.DeviceName ?? result.DeviceHost)</td>
-                                        <td style="color: var(--success-color);">@result.DownloadMbps.ToString("F1") Mbps</td>
-                                        <td style="color: var(--info-color);">@result.UploadMbps.ToString("F1") Mbps</td>
-                                        <td>@(result.PingMs?.ToString("F0") ?? "-") ms</td>
-                                        <td class="hide-mobile">@(result.ExternalServerName ?? "-")</td>
+                                        <td class="hide-mobile">
+                                            @if (result.DownloadMbps > 0)
+                                            {
+                                                <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
+                                                <span class="speed-unit">Mbps</span>
+                                            }
+                                            else
+                                            {
+                                                <span>-</span>
+                                            }
+                                        </td>
+                                        <td class="hide-mobile">
+                                            @if (result.UploadMbps > 0)
+                                            {
+                                                <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
+                                                <span class="speed-unit">Mbps</span>
+                                            }
+                                            else
+                                            {
+                                                <span>-</span>
+                                            }
+                                        </td>
+                                        <td class="show-mobile">@($"{(result.DownloadMbps > 0 ? $"↓{result.DownloadMbps:F0}" : "")}{(result.DownloadMbps > 0 && result.UploadMbps > 0 ? " " : "")}{(result.UploadMbps > 0 ? $"↑{result.UploadMbps:F0}" : "")}")</td>
+                                        <td class="hide-mobile">
+                                            @if (result.PingMs.HasValue)
+                                            {
+                                                <span>@(result.PingMs.Value % 1 == 0 && result.PingMs.Value >= 10 ? result.PingMs.Value.ToString("F0") : result.PingMs.Value.ToString("F1")) ms</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+                                        <td class="expand-chevron">
+                                            <span>@(isExpanded ? "▲" : "▼")</span>
+                                        </td>
+                                    </tr>
+                                    <tr class="history-details-row">
+                                        <td colspan="7">
+                                            <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                                                <div class="expand-content">
+                                                    <div class="history-details">
+                                                        <SpeedTestDetails Result="result"
+                                                                          UseWanLabels="true"
+                                                                          OnDelete="HandleDelete"
+                                                                          OnNotesChanged="HandleNotesChanged"
+                                                                          IsInTableRow="true" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
                         </table>
                     </div>
-                </div>
-            </div>
-        }
-        else if (_loaded)
-        {
-            <div class="card">
-                <div class="card-body">
+
+                    @if (_totalPages > 1)
+                    {
+                        <div class="pagination">
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
+                            <span class="pagination-info">Page @_page of @_totalPages (@_results.Count total)</span>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next</button>
+                        </div>
+                    }
+                }
+                else if (!_loading)
+                {
                     <div class="empty-state">
-                        <span class="empty-icon">📊</span>
-                        <h3>No Results Yet</h3>
-                        <p>Run a WAN speed test to see results here.</p>
+                        <p>No WAN speed tests recorded yet.</p>
+                        <p class="form-help">Run a speed test from any device to see results here.</p>
                     </div>
+                }
+            </div>
+        </div>
+
+        <!-- How it Works -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">How it Works</h2>
+            </div>
+            <div class="card-body">
+                <div class="info-section">
+                    <h4>WAN Speed Test via External Server</h4>
+                    <ol>
+                        <li>Open the speed test URL from any device on your network</li>
+                        <li>The test runs in your browser against the external server</li>
+                        <li>Traffic flows: your device → your WAN → internet → external server → internet → your WAN → your device</li>
+                        <li>Results are automatically reported back to Network Optimizer</li>
+                        <li>Device is identified by IP address and matched to UniFi client list</li>
+                    </ol>
+                    <p class="form-help">
+                        <strong>Note:</strong> This tests your internet (WAN) speed, not your LAN speed.
+                        Use the <a href="/client-speedtest">Client Speed Test</a> page to test LAN speed.
+                    </p>
                 </div>
             </div>
-        }
+        </div>
     }
 </div>
+
+<style>
+    .back-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--border-radius);
+        color: var(--text-secondary);
+        background: var(--bg-tertiary);
+        transition: all 0.15s ease;
+        margin-bottom: 0.75rem;
+    }
+
+    .back-link:hover {
+        color: var(--text-primary);
+        background: var(--bg-hover);
+    }
+
+    .client-speedtest-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .test-options {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .test-option {
+        background: var(--bg-tertiary);
+        border-radius: var(--border-radius);
+        padding: 1.25rem;
+    }
+
+    .test-option-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .test-option-header h3 {
+        margin: 0;
+        font-size: 1rem;
+    }
+
+    .test-option p {
+        margin: 0 0 1rem;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .test-option-actions {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .test-option .browser-tip {
+        margin-top: 1rem;
+    }
+
+    .url-copy-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding: 0.5rem;
+        background: var(--bg-primary);
+        border-radius: var(--border-radius);
+    }
+
+    .url-display {
+        flex: 1;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        word-break: break-all;
+        background: transparent;
+        border: none;
+        outline: none;
+        font-family: monospace;
+        width: 100%;
+    }
+
+    .btn-icon {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 0.25rem;
+        font-size: 1rem;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+    }
+
+    .btn-icon:hover {
+        opacity: 1;
+    }
+
+    .copy-check {
+        color: var(--success-color);
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .badge-wan {
+        background: rgba(59, 130, 246, 0.2);
+        color: #60a5fa;
+    }
+
+    .speed-value {
+        font-weight: 600;
+        font-size: 1rem;
+    }
+
+    .speed-unit {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        margin-left: 0.25rem;
+    }
+
+    .text-muted {
+        color: var(--text-muted);
+    }
+
+    .info-section h4 {
+        font-size: 0.9375rem;
+        margin: 0 0 0.75rem;
+    }
+
+    .info-section ol {
+        margin: 0 0 1rem;
+        padding-left: 1.5rem;
+    }
+
+    .info-section li {
+        margin-bottom: 0.375rem;
+        font-size: 0.875rem;
+    }
+
+    .pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .pagination-info {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .history-row-clickable {
+        cursor: pointer;
+    }
+
+    .history-row-clickable:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .history-row-expanded {
+        background: var(--bg-tertiary);
+    }
+
+    .history-card-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+    }
+
+    .header-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .expand-chevron {
+        width: 2rem;
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    .history-details-row {
+        border: none;
+    }
+
+    .history-details-row td {
+        padding: 0;
+        border: none;
+    }
+
+    .expand-wrapper {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease;
+    }
+
+    .expand-wrapper.expanded {
+        max-height: 2000px;
+    }
+
+    .expand-content {
+        padding: 0 1rem 1rem;
+    }
+</style>
 
 @code {
     private bool _serverConfigured;
     private string _serverUrl = "";
     private string _serverName = "";
-    private bool _loaded;
+    private bool _loading;
     private List<Iperf3Result> _results = new();
-    private int _hoursFilter = 0;
+    private int _expandedId;
+    private int _page = 1;
+    private const int PageSize = 20;
     private System.Threading.Timer? _pollTimer;
 
-    private IEnumerable<Iperf3Result> _filteredResults =>
-        _hoursFilter > 0
-            ? _results.Where(r => r.TestTime >= DateTime.UtcNow.AddHours(-_hoursFilter))
-            : _results;
+    private int _totalPages => Math.Max(1, (int)Math.Ceiling(_results.Count / (double)PageSize));
+    private IEnumerable<Iperf3Result> _pagedResults => _results.Skip((_page - 1) * PageSize).Take(PageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -180,7 +500,6 @@
         {
             await LoadResults();
         }
-        _loaded = true;
 
         // Poll for new results every 10 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
@@ -199,12 +518,30 @@
 
     private async Task LoadResults()
     {
-        _results = await ClientSpeedTestService.GetWanResultsAsync(100, _hoursFilter);
+        _loading = true;
+        try
+        {
+            _results = await ClientSpeedTestService.GetWanResultsAsync(200);
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
-    private async Task SetTimeFilter(int hours)
+    private void ToggleExpand(int id)
     {
-        _hoursFilter = hours;
+        _expandedId = _expandedId == id ? 0 : id;
+    }
+
+    private void ChangePage(int delta)
+    {
+        _page = Math.Clamp(_page + delta, 1, _totalPages);
+    }
+
+    private async Task HandleDelete(int id)
+    {
+        await ClientSpeedTestService.DeleteResultAsync(id);
         await LoadResults();
     }
 
@@ -212,16 +549,6 @@
     {
         await ClientSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
         await LoadResults();
-    }
-
-    private static string FormatTimeAgo(DateTime utcTime)
-    {
-        var diff = DateTime.UtcNow - utcTime;
-        if (diff.TotalMinutes < 1) return "just now";
-        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
-        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
-        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
-        return utcTime.ToString("MMM d");
     }
 
     public void Dispose()
