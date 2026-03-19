@@ -3225,6 +3225,8 @@ select.form-control {
     flex-direction: column;
     gap: 0.75rem;
     width: 80%;
+    min-width: 300px;
+    max-width: 100%;
 }
 
 .sponsor-option {
