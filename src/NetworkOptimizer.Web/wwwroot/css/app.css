@@ -3184,7 +3184,7 @@ select.form-control {
 .sponsor-modal .modal-corgi {
     position: absolute;
     right: 1.5rem;
-    bottom: 1rem;
+    bottom: 1.5rem;
     height: 200px;
     opacity: 0.25;
     pointer-events: none;
@@ -3224,6 +3224,7 @@ select.form-control {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    width: 80%;
 }
 
 .sponsor-option {
@@ -3280,10 +3281,6 @@ select.form-control {
     .sponsor-modal {
         padding: 1.5rem;
         margin: 1rem;
-    }
-
-    .sponsor-modal .modal-corgi {
-        display: none;
     }
 }
 
