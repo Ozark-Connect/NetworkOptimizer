@@ -964,10 +964,21 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             };
 
             // Reverse the LAN hops (Client → ... → Gateway becomes Gateway → ... → Client)
-            // then prepend WAN hop so final order is: WAN → Gateway → ... → Client
+            // then prepend WAN hop so final order is: WAN → Gateway → ... → Client.
+            // Swap ingress/egress on each hop since the traffic direction is reversed.
             path.Hops.Reverse();
             for (int i = 0; i < path.Hops.Count; i++)
-                path.Hops[i].Order = i + 1;
+            {
+                var hop = path.Hops[i];
+                hop.Order = i + 1;
+
+                // Swap ingress <-> egress (ports, speeds, wireless flags, bands)
+                (hop.IngressPort, hop.EgressPort) = (hop.EgressPort, hop.IngressPort);
+                (hop.IngressPortName, hop.EgressPortName) = (hop.EgressPortName, hop.IngressPortName);
+                (hop.IngressSpeedMbps, hop.EgressSpeedMbps) = (hop.EgressSpeedMbps, hop.IngressSpeedMbps);
+                (hop.IsWirelessIngress, hop.IsWirelessEgress) = (hop.IsWirelessEgress, hop.IsWirelessIngress);
+                (hop.WirelessIngressBand, hop.WirelessEgressBand) = (hop.WirelessEgressBand, hop.WirelessIngressBand);
+            }
 
             wanHop.Order = 0;
             path.Hops.Insert(0, wanHop);
