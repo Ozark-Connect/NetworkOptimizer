@@ -63,19 +63,22 @@ public class ClientSpeedTestService
         // Get server's local IP for path analysis
         var serverIp = _configuration["HOST_IP"];
 
-        // Store from SERVER's perspective (consistent with SSH-based tests):
-        // - DownloadBitsPerSecond = data server received FROM client = client's upload
-        // - UploadBitsPerSecond = data server sent TO client = client's download
+        // LAN (BrowserToServer): Store from SERVER's perspective (consistent with SSH-based tests):
+        //   DownloadBitsPerSecond = data server received FROM client = client's upload
+        //   UploadBitsPerSecond = data server sent TO client = client's download
+        // WAN (OpenSpeedTestWan): Store from CLIENT's perspective (consistent with other WAN tests):
+        //   DownloadBitsPerSecond = client's WAN download speed
+        //   UploadBitsPerSecond = client's WAN upload speed
         var result = new Iperf3Result
         {
             Direction = isWan ? SpeedTestDirection.OpenSpeedTestWan : SpeedTestDirection.BrowserToServer,
             ExternalServerName = isWan ? externalServerId : null,
             DeviceHost = clientIp,
             LocalIp = serverIp,
-            DownloadBitsPerSecond = uploadMbps * 1_000_000.0,  // Client upload = server download
-            UploadBitsPerSecond = downloadMbps * 1_000_000.0,  // Client download = server upload
-            DownloadBytes = (long)((uploadDataMb ?? 0) * 1_048_576),  // MB to bytes
-            UploadBytes = (long)((downloadDataMb ?? 0) * 1_048_576),  // MB to bytes
+            DownloadBitsPerSecond = isWan ? downloadMbps * 1_000_000.0 : uploadMbps * 1_000_000.0,
+            UploadBitsPerSecond = isWan ? uploadMbps * 1_000_000.0 : downloadMbps * 1_000_000.0,
+            DownloadBytes = isWan ? (long)((downloadDataMb ?? 0) * 1_048_576) : (long)((uploadDataMb ?? 0) * 1_048_576),
+            UploadBytes = isWan ? (long)((uploadDataMb ?? 0) * 1_048_576) : (long)((downloadDataMb ?? 0) * 1_048_576),
             PingMs = pingMs,
             JitterMs = jitterMs,
             UserAgent = userAgent,
@@ -103,11 +106,8 @@ public class ClientSpeedTestService
         // Publish speed test alert event
         await PublishSpeedTestAlertAsync(result);
 
-        // Enrich and analyze in background (skip LAN path analysis for WAN tests)
-        if (!isWan)
-        {
-            _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
-        }
+        // Enrich and analyze in background (client IP is known, trace internal path)
+        _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
 
         return result;
     }
