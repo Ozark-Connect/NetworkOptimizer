@@ -38,7 +38,7 @@ func newHealthChecker(cfg *Config, onStateChange func(string, bool)) *HealthChec
 // checkAll pings all WAN health targets and updates state.
 func (h *HealthChecker) checkAll() {
 	for name, wan := range h.cfg.WANInterfaces {
-		if wan.HealthTarget == "" {
+		if wan.HealthTarget == "" || wan.FWMark == "" {
 			continue
 		}
 		reachable := ping(wan.HealthTarget, wan.Interface, h.cfg.HealthCheckTimeout)

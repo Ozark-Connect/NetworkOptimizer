@@ -101,6 +101,17 @@ func main() {
 					slog.Error("failed to reload config, keeping current", "error", err)
 					continue
 				}
+				// Flush conntrack for WANs that had traffic classes but no longer do
+				oldTargets := activeTargetWANs(cfg)
+				newTargets := activeTargetWANs(newCfg)
+				for wan := range oldTargets {
+					if !newTargets[wan] {
+						if w, ok := cfg.WANInterfaces[wan]; ok && w.FWMark != "" {
+							slog.Info("flushing conntrack for removed WAN target", "wan", wan)
+							flushConntrackForMark(w.FWMark)
+						}
+					}
+				}
 				cfg = newCfg
 				health = newHealthChecker(cfg, func(wan string, healthy bool) {
 					unhealthy := health.unhealthyWANs()
@@ -121,6 +132,7 @@ func main() {
 			default:
 				slog.Info("shutdown signal received", "signal", sig)
 				removeRules()
+				flushAllSteeredConntrack(cfg)
 				// Write final status
 				status := buildStatus(cfg, startedAt, lastReconcile, reconcileCount, health)
 				status.Running = false

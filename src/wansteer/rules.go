@@ -268,6 +268,28 @@ func normalizePortsForIptables(ports []string) []string {
 	return result
 }
 
+// flushAllSteeredConntrack flushes conntrack entries for all non-default WANs.
+// Called on clean shutdown so stale connmarks don't keep routing traffic to secondary WANs.
+func flushAllSteeredConntrack(cfg *Config) {
+	for name, wan := range cfg.WANInterfaces {
+		if name == cfg.DefaultWAN || wan.FWMark == "" {
+			continue
+		}
+		flushConntrackForMark(wan.FWMark)
+	}
+}
+
+// activeTargetWANs returns the set of WAN names that have enabled traffic classes targeting them.
+func activeTargetWANs(cfg *Config) map[string]bool {
+	targets := make(map[string]bool)
+	for _, tc := range cfg.TrafficClasses {
+		if tc.Enabled {
+			targets[tc.TargetWAN] = true
+		}
+	}
+	return targets
+}
+
 // flushConntrackForMark deletes all conntrack entries with the given WAN fwmark.
 // This forces existing connections to be re-routed through the default WAN
 // when their assigned WAN goes down.
