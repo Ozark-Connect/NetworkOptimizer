@@ -60,6 +60,17 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION}" \
     -o /uwnspeedtest-gateway .
 
+# Stage 2.5: Build wansteer Go binary (gateway-only, always linux/arm64)
+# WAN Steering daemon - manages iptables rules to load-balance traffic across multiple WANs
+FROM golang:1.22-alpine AS wansteer-build
+ARG VERSION=0.0.0
+WORKDIR /src
+COPY src/wansteer/ wansteer/
+WORKDIR /src/wansteer
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /wansteer-gateway .
+
 # Stage 3: Build iperf3 from source for latest version
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS iperf-build
 
@@ -110,6 +121,9 @@ COPY --from=build /app/publish .
 RUN mkdir -p /app/tools
 COPY --from=uwnspeedtest-build /uwnspeedtest-local /app/tools/uwnspeedtest-linux-${TARGETARCH:-amd64}
 COPY --from=uwnspeedtest-build /uwnspeedtest-gateway /app/tools/uwnspeedtest-linux-arm64
+
+# Copy wansteer binary (gateway-only, deployed via SSH to UniFi gateways)
+COPY --from=wansteer-build /wansteer-gateway /app/tools/wansteer-linux-arm64
 
 # Create directories for volumes
 RUN mkdir -p /app/data /app/ssh-keys /app/logs

@@ -342,6 +342,7 @@ builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cr
 builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostics (trunk consistency, AP lock, etc.)
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
+builder.Services.AddScoped<WanSteerDeploymentService>();
 builder.Services.AddScoped<AgentService>();
 
 // Register WiFi Optimizer rules and engine

@@ -1,0 +1,277 @@
+package main
+
+import (
+	"fmt"
+	"log/slog"
+	"os/exec"
+	"strings"
+)
+
+const chainName = "WAN_STEER"
+
+// applyRules creates the WAN_STEER chain and populates it from config.
+// Idempotent: flushes the chain if it already exists.
+func applyRules(cfg *Config) error {
+	// Create chain (ignore error if already exists)
+	run("iptables", "-t", "mangle", "-N", chainName)
+
+	// Flush any existing rules
+	if err := run("iptables", "-t", "mangle", "-F", chainName); err != nil {
+		return fmt.Errorf("flush chain: %w", err)
+	}
+
+	// Add rules for each enabled traffic class
+	for _, tc := range cfg.TrafficClasses {
+		if !tc.Enabled {
+			continue
+		}
+		wan, ok := cfg.WANInterfaces[tc.TargetWAN]
+		if !ok {
+			continue
+		}
+		if err := addTrafficClassRules(&tc, &wan); err != nil {
+			return fmt.Errorf("traffic class %q: %w", tc.Name, err)
+		}
+	}
+
+	// Ensure jump from PREROUTING exists (insert at position 1)
+	if !hasJump() {
+		if err := run("iptables", "-t", "mangle", "-I", "PREROUTING", "1", "-j", chainName); err != nil {
+			return fmt.Errorf("insert PREROUTING jump: %w", err)
+		}
+	}
+
+	slog.Info("rules applied", "traffic_classes", countEnabled(cfg))
+	return nil
+}
+
+// addTrafficClassRules generates iptables rules for a single traffic class.
+// It builds the cross-product of source × destination matchers, each combined
+// with protocol/port filters.
+func addTrafficClassRules(tc *TrafficClass, wan *WANInterface) error {
+	// Build all source matchers
+	srcMatchers := buildSourceMatchers(&tc.Match)
+
+	// Build all destination matchers
+	dstMatchers := buildDestMatchers(&tc.Match)
+
+	// Build shared args: protocol, ports, probability
+	sharedArgs := buildSharedArgs(tc)
+
+	// Cross-product: for each source × destination combination, add MARK + CONNMARK rules
+	for _, src := range srcMatchers {
+		for _, dst := range dstMatchers {
+			var baseArgs []string
+			baseArgs = append(baseArgs, src...)
+			baseArgs = append(baseArgs, dst...)
+			baseArgs = append(baseArgs, sharedArgs...)
+
+			// MARK rule
+			markArgs := []string{"-t", "mangle", "-A", chainName}
+			markArgs = append(markArgs, baseArgs...)
+			markArgs = append(markArgs, "-j", "MARK", "--set-xmark", wan.FWMark+"/0x7e0000")
+			if err := run("iptables", markArgs...); err != nil {
+				return fmt.Errorf("add mark rule: %w", err)
+			}
+
+			// CONNMARK save rule
+			connmarkArgs := []string{"-t", "mangle", "-A", chainName}
+			connmarkArgs = append(connmarkArgs, baseArgs...)
+			// Only save if mark was actually set (probability may have skipped it)
+			connmarkArgs = append(connmarkArgs, "-m", "mark", "--mark", wan.FWMark+"/0x7e0000")
+			connmarkArgs = append(connmarkArgs, "-j", "CONNMARK", "--save-mark",
+				"--nfmask", "0x7e0000", "--ctmask", "0x7e0000")
+			if err := run("iptables", connmarkArgs...); err != nil {
+				return fmt.Errorf("add connmark rule: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// buildSourceMatchers returns a list of iptables arg slices for source matching.
+// Each entry is one OR branch (e.g., one src CIDR or one src MAC).
+// Returns a single empty-args entry if no source filters are specified (match all sources).
+func buildSourceMatchers(m *MatchCriteria) [][]string {
+	var matchers [][]string
+
+	for _, cidr := range m.SrcCIDRs {
+		matchers = append(matchers, []string{"-s", cidr})
+	}
+	for _, mac := range m.SrcMACs {
+		matchers = append(matchers, []string{"-m", "mac", "--mac-source", mac})
+	}
+
+	// If no source filters, match everything
+	if len(matchers) == 0 {
+		matchers = append(matchers, []string{})
+	}
+	return matchers
+}
+
+// buildDestMatchers returns a list of iptables arg slices for destination matching.
+// Returns a single empty-args entry if no destination filters are specified.
+func buildDestMatchers(m *MatchCriteria) [][]string {
+	var matchers [][]string
+
+	for _, cidr := range m.DstCIDRs {
+		matchers = append(matchers, []string{"-d", cidr})
+	}
+
+	if len(matchers) == 0 {
+		matchers = append(matchers, []string{})
+	}
+	return matchers
+}
+
+// buildSharedArgs returns iptables args shared across all rules for a traffic class:
+// protocol, ports, state NEW, and probability.
+func buildSharedArgs(tc *TrafficClass) []string {
+	var args []string
+
+	// Protocol (must come before port matching)
+	if tc.Match.Protocol != "" {
+		args = append(args, "-p", tc.Match.Protocol)
+	}
+
+	// Source ports
+	if len(tc.Match.SrcPorts) > 0 {
+		if len(tc.Match.SrcPorts) == 1 {
+			args = append(args, "--sport", tc.Match.SrcPorts[0])
+		} else {
+			args = append(args, "-m", "multiport", "--sports", strings.Join(tc.Match.SrcPorts, ","))
+		}
+	}
+
+	// Destination ports
+	if len(tc.Match.DstPorts) > 0 {
+		if len(tc.Match.DstPorts) == 1 {
+			args = append(args, "--dport", tc.Match.DstPorts[0])
+		} else {
+			args = append(args, "-m", "multiport", "--dports", strings.Join(tc.Match.DstPorts, ","))
+		}
+	}
+
+	// Only match NEW connections
+	args = append(args, "-m", "state", "--state", "NEW")
+
+	// Load balance probability
+	args = append(args, "-m", "statistic", "--mode", "random",
+		"--probability", fmt.Sprintf("%.10f", tc.Probability))
+
+	return args
+}
+
+// removeRules tears down the WAN_STEER chain and all references to it.
+func removeRules() error {
+	// Remove jump from PREROUTING (may need multiple passes if duplicated)
+	for i := 0; i < 10; i++ {
+		if err := run("iptables", "-t", "mangle", "-D", "PREROUTING", "-j", chainName); err != nil {
+			break
+		}
+	}
+
+	// Flush and delete chain
+	run("iptables", "-t", "mangle", "-F", chainName)
+	run("iptables", "-t", "mangle", "-X", chainName)
+
+	slog.Info("rules removed")
+	return nil
+}
+
+// reapplyRules re-applies rules with unhealthy WANs disabled.
+func reapplyRules(cfg *Config, disabledWANs map[string]bool) error {
+	modified := *cfg
+	modified.TrafficClasses = make([]TrafficClass, len(cfg.TrafficClasses))
+	for i, tc := range cfg.TrafficClasses {
+		modified.TrafficClasses[i] = tc
+		if disabledWANs[tc.TargetWAN] {
+			modified.TrafficClasses[i].Enabled = false
+		}
+	}
+	return applyRules(&modified)
+}
+
+// hasJump checks if PREROUTING already has a jump to WAN_STEER.
+func hasJump() bool {
+	out, err := exec.Command("iptables", "-t", "mangle", "-L", "PREROUTING", "-n", "--line-numbers").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), chainName)
+}
+
+// chainExists checks if the WAN_STEER chain exists in mangle table.
+func chainExists() bool {
+	return run("iptables", "-t", "mangle", "-L", chainName, "-n") == nil
+}
+
+// ruleCount returns the number of rules in WAN_STEER.
+func ruleCount() int {
+	out, err := exec.Command("iptables", "-t", "mangle", "-L", chainName, "-n").Output()
+	if err != nil {
+		return -1
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) <= 2 {
+		return 0
+	}
+	return len(lines) - 2
+}
+
+// expectedRuleCount returns how many iptables rules the current config should produce.
+func expectedRuleCount(cfg *Config) int {
+	count := 0
+	for _, tc := range cfg.TrafficClasses {
+		if !tc.Enabled {
+			continue
+		}
+		srcCount := len(tc.Match.SrcCIDRs) + len(tc.Match.SrcMACs)
+		if srcCount == 0 {
+			srcCount = 1
+		}
+		dstCount := len(tc.Match.DstCIDRs)
+		if dstCount == 0 {
+			dstCount = 1
+		}
+		// 2 rules (MARK + CONNMARK) per source × destination combination
+		count += srcCount * dstCount * 2
+	}
+	return count
+}
+
+func countEnabled(cfg *Config) int {
+	n := 0
+	for _, tc := range cfg.TrafficClasses {
+		if tc.Enabled {
+			n++
+		}
+	}
+	return n
+}
+
+// flushConntrackForMark deletes all conntrack entries with the given WAN fwmark.
+// This forces existing connections to be re-routed through the default WAN
+// when their assigned WAN goes down.
+func flushConntrackForMark(fwmark string) {
+	// conntrack -D -m <mark> deletes entries matching the mark
+	// The mark includes the WAN bits in 0x7e0000, so we match on those
+	err := run("conntrack", "-D", "-m", fwmark)
+	if err != nil {
+		// Not an error if there are no matching entries
+		slog.Debug("conntrack flush", "fwmark", fwmark, "result", err)
+	} else {
+		slog.Info("flushed conntrack entries for dead wan", "fwmark", fwmark)
+	}
+}
+
+// run executes a command and returns any error.
+func run(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %s (%w)", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
