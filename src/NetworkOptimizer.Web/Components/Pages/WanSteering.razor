@@ -5,6 +5,7 @@
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 @inject IGatewaySshService GatewaySshService
 @inject ILogger<WanSteering> Logger
+@inject PullToRefreshState PtrState
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services.Ssh
@@ -484,6 +485,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = () => RefreshStatusAsync();
+        PtrState.NotifyStateChanged = StateHasChanged;
+
         await LoadRulesAsync();
         await RefreshStatusAsync();
         await DiscoverWansAsync();
@@ -639,9 +643,9 @@
     private async Task SaveRule()
     {
         // Map edit fields back to the form
-        _editForm.SrcCidrsJson = ToJsonArray(_editSrcCidrs);
+        _editForm.SrcCidrsJson = ToJsonArrayNormalizeCidrs(_editSrcCidrs);
         _editForm.SrcMacsJson = ToJsonArray(_editSrcMacs);
-        _editForm.DstCidrsJson = ToJsonArray(_editDstCidrs);
+        _editForm.DstCidrsJson = ToJsonArrayNormalizeCidrs(_editDstCidrs);
         _editForm.SrcPortsJson = ToJsonArrayFromCommaSeparated(_editSrcPorts);
         _editForm.DstPortsJson = ToJsonArrayFromCommaSeparated(_editDstPorts);
         _editForm.Protocol = string.IsNullOrWhiteSpace(_editProtocol) ? null : _editProtocol;
@@ -698,14 +702,20 @@
 
     // --- Validation ---
 
+    private static readonly System.Text.RegularExpressions.Regex IpRegex = new(
+        @"^(\d{1,3}\.){3}\d{1,3}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static readonly System.Text.RegularExpressions.Regex CidrRegex = new(
         @"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex IpRangeRegex = new(
+        @"^(\d{1,3}\.){3}\d{1,3}-(\d{1,3}\.){3}\d{1,3}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex MacRegex = new(
         @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex PortRegex = new(
-        @"^\d{1,5}(:\d{1,5})?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+        @"^\d{1,5}(-\d{1,5})?$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private List<string> ValidateRule(WanSteerTrafficClass rule)
     {
@@ -723,28 +733,29 @@
         if (rule.Probability <= 0 || rule.Probability > 1)
             errors.Add("Probability must be between 1 and 100%.");
 
-        // At least one match criterion
-        bool hasSrcCidrs = !string.IsNullOrWhiteSpace(rule.SrcCidrsJson);
-        bool hasSrcMacs = !string.IsNullOrWhiteSpace(rule.SrcMacsJson);
-        bool hasDstCidrs = !string.IsNullOrWhiteSpace(rule.DstCidrsJson);
+        // Require at least one of: source (CIDR/IP/MAC), destination (CIDR/IP), protocol/ports on either side
+        bool hasSrc = !string.IsNullOrWhiteSpace(rule.SrcCidrsJson) || !string.IsNullOrWhiteSpace(rule.SrcMacsJson);
+        bool hasDst = !string.IsNullOrWhiteSpace(rule.DstCidrsJson);
+        bool hasSrcPortOrProto = !string.IsNullOrWhiteSpace(rule.SrcPortsJson) || !string.IsNullOrWhiteSpace(rule.Protocol);
+        bool hasDstPortOrProto = !string.IsNullOrWhiteSpace(rule.DstPortsJson) || !string.IsNullOrWhiteSpace(rule.Protocol);
         bool hasPorts = !string.IsNullOrWhiteSpace(rule.SrcPortsJson) || !string.IsNullOrWhiteSpace(rule.DstPortsJson);
         bool hasProtocol = !string.IsNullOrWhiteSpace(rule.Protocol);
 
-        if (!hasSrcCidrs && !hasSrcMacs && !hasDstCidrs && !hasPorts && !hasProtocol)
-            errors.Add("At least one match criterion is required (source, destination, protocol, or ports).");
+        if (!hasSrc && !hasDst && !hasSrcPortOrProto && !hasDstPortOrProto)
+            errors.Add("At least one match criterion is required: source IP/CIDR/MAC, destination IP/CIDR, or protocol/ports.");
 
         // Protocol required if ports specified
         if (hasPorts && !hasProtocol)
             errors.Add("Protocol (TCP or UDP) is required when ports are specified.");
 
-        // Validate CIDR formats
-        if (hasSrcCidrs)
-            ValidateCidrList(rule.SrcCidrsJson!, "Source CIDR", errors);
-        if (hasDstCidrs)
-            ValidateCidrList(rule.DstCidrsJson!, "Destination CIDR", errors);
+        // Validate CIDR/IP/range formats
+        if (!string.IsNullOrWhiteSpace(rule.SrcCidrsJson))
+            ValidateCidrList(rule.SrcCidrsJson!, "Source", errors);
+        if (!string.IsNullOrWhiteSpace(rule.DstCidrsJson))
+            ValidateCidrList(rule.DstCidrsJson!, "Destination", errors);
 
         // Validate MAC formats
-        if (hasSrcMacs)
+        if (!string.IsNullOrWhiteSpace(rule.SrcMacsJson))
             ValidateMacList(rule.SrcMacsJson!, errors);
 
         // Validate port formats
@@ -760,26 +771,37 @@
     {
         try
         {
-            var cidrs = JsonSerializer.Deserialize<List<string>>(json);
-            if (cidrs == null) return;
-            foreach (var cidr in cidrs)
+            var entries = JsonSerializer.Deserialize<List<string>>(json);
+            if (entries == null) return;
+            foreach (var entry in entries)
             {
-                if (!CidrRegex.IsMatch(cidr.Trim()))
+                var trimmed = entry.Trim();
+                bool isCidr = CidrRegex.IsMatch(trimmed);
+                bool isIp = IpRegex.IsMatch(trimmed);
+                bool isRange = IpRangeRegex.IsMatch(trimmed);
+
+                if (!isCidr && !isIp && !isRange)
                 {
-                    errors.Add($"{label} \"{cidr}\" is not valid. Use format: 192.168.1.0/24");
-                    return; // One error per field is enough
-                }
-                // Validate octets and prefix length
-                var parts = cidr.Trim().Split('/');
-                var octets = parts[0].Split('.');
-                if (octets.Any(o => !int.TryParse(o, out var v) || v < 0 || v > 255))
-                {
-                    errors.Add($"{label} \"{cidr}\" has invalid IP octets (0-255).");
+                    errors.Add($"{label} \"{trimmed}\" is not valid. Use an IP (1.2.3.4), CIDR (1.2.3.0/24), or range (1.2.3.1-1.2.3.50).");
                     return;
                 }
-                if (int.TryParse(parts[1], out var prefix) && (prefix < 0 || prefix > 32))
+
+                // Validate all IP parts have valid octets
+                var ipsToCheck = isRange ? trimmed.Split('-') : new[] { isCidr ? trimmed.Split('/')[0] : trimmed };
+                foreach (var ip in ipsToCheck)
                 {
-                    errors.Add($"{label} \"{cidr}\" has invalid prefix length (0-32).");
+                    var octets = ip.Split('.');
+                    if (octets.Any(o => !int.TryParse(o, out var v) || v < 0 || v > 255))
+                    {
+                        errors.Add($"{label} \"{trimmed}\" has invalid IP octets (0-255).");
+                        return;
+                    }
+                }
+
+                // Validate prefix length if CIDR
+                if (isCidr && int.TryParse(trimmed.Split('/')[1], out var prefix) && (prefix < 0 || prefix > 32))
+                {
+                    errors.Add($"{label} \"{trimmed}\" has invalid prefix length (0-32).");
                     return;
                 }
             }
@@ -815,11 +837,11 @@
             {
                 if (!PortRegex.IsMatch(port.Trim()))
                 {
-                    errors.Add($"{label} \"{port}\" is not valid. Use a number (443) or range (27015:27030).");
+                    errors.Add($"{label} \"{port}\" is not valid. Use a number (443) or range (27015-27030).");
                     return;
                 }
                 // Validate port numbers are 1-65535
-                foreach (var p in port.Trim().Split(':'))
+                foreach (var p in port.Trim().Split('-'))
                 {
                     if (int.TryParse(p, out var v) && (v < 1 || v > 65535))
                     {
@@ -1061,6 +1083,26 @@
         return items.Count > 0 ? JsonSerializer.Serialize(items) : null;
     }
 
+    /// <summary>Convert newline-separated IPs/CIDRs/ranges to JSON array, appending /32 to bare IPs (not ranges).</summary>
+    private static string? ToJsonArrayNormalizeCidrs(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var items = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s =>
+            {
+                s = s.Trim();
+                // IP ranges (1.2.3.4-5.6.7.8) stay as-is
+                if (s.Contains('-')) return s;
+                // CIDRs stay as-is
+                if (s.Contains('/')) return s;
+                // Bare IPs get /32
+                return s + "/32";
+            })
+            .ToList();
+        return items.Count > 0 ? JsonSerializer.Serialize(items) : null;
+    }
+
     /// <summary>Convert comma-separated text to a JSON string array. Null if empty.</summary>
     private static string? ToJsonArrayFromCommaSeparated(string? text)
     {
@@ -1177,11 +1219,11 @@
                 <div class="ws-form-row-2">
                     <div class="form-group">
                         <label class="form-label">Source CIDRs</label>
-                        <textarea class="form-control" rows="3" @bind="_editSrcCidrs" placeholder="One CIDR per line, e.g., 192.168.1.0/24"></textarea>
+                        <textarea class="form-control" rows="3" @bind="_editSrcCidrs" placeholder="One per line: IP, CIDR, or range (e.g., 192.168.1.0/24)"></textarea>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Destination CIDRs</label>
-                        <textarea class="form-control" rows="3" @bind="_editDstCidrs" placeholder="One CIDR per line, e.g., 162.254.192.0/21"></textarea>
+                        <textarea class="form-control" rows="3" @bind="_editDstCidrs" placeholder="One per line: IP, CIDR, or range (e.g., 162.254.192.0/21)"></textarea>
                     </div>
                 </div>
 
@@ -1202,11 +1244,11 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Source Ports</label>
-                        <input type="text" class="form-control" @bind="_editSrcPorts" placeholder="443,8080,27015:27030" />
+                        <input type="text" class="form-control" @bind="_editSrcPorts" placeholder="443, 8080, 27015-27030" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">Destination Ports</label>
-                        <input type="text" class="form-control" @bind="_editDstPorts" placeholder="443,8080,27015:27030" />
+                        <input type="text" class="form-control" @bind="_editDstPorts" placeholder="443, 8080, 27015-27030" />
                     </div>
                 </div>
 

@@ -99,6 +99,9 @@ func buildSourceMatchers(m *MatchCriteria) [][]string {
 	for _, cidr := range m.SrcCIDRs {
 		matchers = append(matchers, []string{"-s", cidr})
 	}
+	for _, r := range m.SrcRanges {
+		matchers = append(matchers, []string{"-m", "iprange", "--src-range", r})
+	}
 	for _, mac := range m.SrcMACs {
 		matchers = append(matchers, []string{"-m", "mac", "--mac-source", mac})
 	}
@@ -118,6 +121,9 @@ func buildDestMatchers(m *MatchCriteria) [][]string {
 	for _, cidr := range m.DstCIDRs {
 		matchers = append(matchers, []string{"-d", cidr})
 	}
+	for _, r := range m.DstRanges {
+		matchers = append(matchers, []string{"-m", "iprange", "--dst-range", r})
+	}
 
 	if len(matchers) == 0 {
 		matchers = append(matchers, []string{})
@@ -135,21 +141,23 @@ func buildSharedArgs(tc *TrafficClass) []string {
 		args = append(args, "-p", tc.Match.Protocol)
 	}
 
-	// Source ports
+	// Source ports (convert dash ranges to colon for iptables: 1024-4096 -> 1024:4096)
 	if len(tc.Match.SrcPorts) > 0 {
-		if len(tc.Match.SrcPorts) == 1 {
-			args = append(args, "--sport", tc.Match.SrcPorts[0])
+		ports := normalizePortsForIptables(tc.Match.SrcPorts)
+		if len(ports) == 1 {
+			args = append(args, "--sport", ports[0])
 		} else {
-			args = append(args, "-m", "multiport", "--sports", strings.Join(tc.Match.SrcPorts, ","))
+			args = append(args, "-m", "multiport", "--sports", strings.Join(ports, ","))
 		}
 	}
 
 	// Destination ports
 	if len(tc.Match.DstPorts) > 0 {
-		if len(tc.Match.DstPorts) == 1 {
-			args = append(args, "--dport", tc.Match.DstPorts[0])
+		ports := normalizePortsForIptables(tc.Match.DstPorts)
+		if len(ports) == 1 {
+			args = append(args, "--dport", ports[0])
 		} else {
-			args = append(args, "-m", "multiport", "--dports", strings.Join(tc.Match.DstPorts, ","))
+			args = append(args, "-m", "multiport", "--dports", strings.Join(ports, ","))
 		}
 	}
 
@@ -227,11 +235,11 @@ func expectedRuleCount(cfg *Config) int {
 		if !tc.Enabled {
 			continue
 		}
-		srcCount := len(tc.Match.SrcCIDRs) + len(tc.Match.SrcMACs)
+		srcCount := len(tc.Match.SrcCIDRs) + len(tc.Match.SrcRanges) + len(tc.Match.SrcMACs)
 		if srcCount == 0 {
 			srcCount = 1
 		}
-		dstCount := len(tc.Match.DstCIDRs)
+		dstCount := len(tc.Match.DstCIDRs) + len(tc.Match.DstRanges)
 		if dstCount == 0 {
 			dstCount = 1
 		}
@@ -249,6 +257,15 @@ func countEnabled(cfg *Config) int {
 		}
 	}
 	return n
+}
+
+// normalizePortsForIptables converts dash-style ranges (1024-4096) to colon-style (1024:4096) for iptables.
+func normalizePortsForIptables(ports []string) []string {
+	result := make([]string, len(ports))
+	for i, p := range ports {
+		result[i] = strings.ReplaceAll(p, "-", ":")
+	}
+	return result
 }
 
 // flushConntrackForMark deletes all conntrack entries with the given WAN fwmark.

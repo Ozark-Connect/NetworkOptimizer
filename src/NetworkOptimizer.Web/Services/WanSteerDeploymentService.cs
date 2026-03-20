@@ -320,9 +320,17 @@ public class WanSteerDeploymentService
 
             var match = new Dictionary<string, object>();
             if (tc.DstCidrsJson != null)
-                match["dst_cidrs"] = JsonSerializer.Deserialize<List<string>>(tc.DstCidrsJson) ?? [];
+            {
+                var (cidrs, ranges) = SplitCidrsAndRanges(tc.DstCidrsJson);
+                if (cidrs.Count > 0) match["dst_cidrs"] = cidrs;
+                if (ranges.Count > 0) match["dst_ranges"] = ranges;
+            }
             if (tc.SrcCidrsJson != null)
-                match["src_cidrs"] = JsonSerializer.Deserialize<List<string>>(tc.SrcCidrsJson) ?? [];
+            {
+                var (cidrs, ranges) = SplitCidrsAndRanges(tc.SrcCidrsJson);
+                if (cidrs.Count > 0) match["src_cidrs"] = cidrs;
+                if (ranges.Count > 0) match["src_ranges"] = ranges;
+            }
             if (tc.SrcMacsJson != null)
                 match["src_macs"] = JsonSerializer.Deserialize<List<string>>(tc.SrcMacsJson) ?? [];
             if (tc.Protocol != null)
@@ -452,6 +460,22 @@ public class WanSteerDeploymentService
                    nohup /data/wan-steer/wansteer -config /data/wan-steer/config.json >> /data/wan-steer/wansteer.log 2>&1 &
                fi
                """;
+    }
+
+    /// <summary>Split a JSON array of address entries into CIDRs/IPs and IP ranges.</summary>
+    private static (List<string> Cidrs, List<string> Ranges) SplitCidrsAndRanges(string json)
+    {
+        var cidrs = new List<string>();
+        var ranges = new List<string>();
+        var entries = JsonSerializer.Deserialize<List<string>>(json) ?? [];
+        foreach (var entry in entries)
+        {
+            if (entry.Contains('-'))
+                ranges.Add(entry);
+            else
+                cidrs.Add(entry);
+        }
+        return (cidrs, ranges);
     }
 
     private static string SanitizeWanKey(string name)

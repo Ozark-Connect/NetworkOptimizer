@@ -42,16 +42,18 @@ type TrafficClass struct {
 // a separate iptables rule.
 type MatchCriteria struct {
 	// Source matching (OR across entries, AND with other fields)
-	SrcCIDRs []string `json:"src_cidrs,omitempty"` // e.g., ["192.168.1.0/24", "192.168.42.0/24"]
-	SrcMACs  []string `json:"src_macs,omitempty"`  // e.g., ["aa:bb:cc:dd:ee:ff"] - from UniFi device list
+	SrcCIDRs  []string `json:"src_cidrs,omitempty"`   // e.g., ["192.168.1.0/24"] - IPs and CIDRs
+	SrcRanges []string `json:"src_ranges,omitempty"` // e.g., ["192.168.1.1-192.168.1.50"] - IP ranges
+	SrcMACs   []string `json:"src_macs,omitempty"`   // e.g., ["aa:bb:cc:dd:ee:ff"]
 
 	// Destination matching (OR across entries, AND with other fields)
-	DstCIDRs []string `json:"dst_cidrs,omitempty"` // e.g., ["162.254.192.0/21"]
+	DstCIDRs  []string `json:"dst_cidrs,omitempty"`   // e.g., ["162.254.192.0/21"]
+	DstRanges []string `json:"dst_ranges,omitempty"` // e.g., ["162.254.192.1-162.254.199.254"]
 
 	// Protocol and port matching (AND with source/dest)
 	Protocol string   `json:"protocol,omitempty"` // "tcp", "udp", or "" for any
-	SrcPorts []string `json:"src_ports,omitempty"` // e.g., ["1234", "5000:5100"]
-	DstPorts []string `json:"dst_ports,omitempty"` // e.g., ["443", "27015:27030"]
+	SrcPorts []string `json:"src_ports,omitempty"` // e.g., ["1234", "5000-5100"]
+	DstPorts []string `json:"dst_ports,omitempty"` // e.g., ["443", "27015-27030"]
 }
 
 func loadConfig(path string) (*Config, error) {
