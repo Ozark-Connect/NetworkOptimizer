@@ -16,7 +16,7 @@
 
 <div class="page-header">
     <h1>WAN Steering</h1>
-    <p class="page-description">Load balance the traffic you choose across multiple WANs - without leaving failover mode. Send your Steam downloads, Xbox updates, and OS patches across every link you're paying for, while gaming and video calls stay on your fastest WAN. Includes health-check failover and automatic rule recovery after gateway reprovisioning.</p>
+    <p class="page-description">Load balance the traffic you choose across multiple WANs - without leaving failover mode. Send your Steam downloads, Xbox downloads, and OS patches across every link you're paying for, while gaming and video calls stay on your fastest WAN. Includes health-check failover and automatic rule recovery after gateway reprovisioning.</p>
 </div>
 
 @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized && !string.IsNullOrEmpty(ConnectionService.LastError))
@@ -166,8 +166,8 @@
                             <tr>
                                 <td>@wan.Name</td>
                                 <td><code>@wan.Interface</code></td>
-                                <td>@(wan.GatewayIp ?? "—")</td>
-                                <td><code>@(string.IsNullOrEmpty(wan.FWMark) ? "—" : wan.FWMark)</code></td>
+                                <td>@(wan.GatewayIp ?? "-")</td>
+                                <td><code>@(string.IsNullOrEmpty(wan.FWMark) ? "-" : wan.FWMark)</code></td>
                                 <td>@wan.HealthTarget</td>
                             </tr>
                         }
@@ -513,7 +513,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load WAN Steeringtraffic rules");
+            Logger.LogError(ex, "Failed to load WAN Steering traffic rules");
         }
     }
 
@@ -540,7 +540,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Failed to refresh WAN Steeringstatus");
+            Logger.LogDebug(ex, "Failed to refresh WAN Steering status");
         }
         finally
         {
@@ -561,7 +561,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Failed to poll WAN Steeringstatus");
+            Logger.LogDebug(ex, "Failed to poll WAN Steering status");
         }
     }
 
@@ -947,7 +947,7 @@
 
             var (success, error) = await DeployService.DeployAsync(progress);
             _deploySuccess = success;
-            _deployMessage = success ? "WAN Steeringdeployed successfully." : error;
+            _deployMessage = success ? "WAN Steering deployed successfully." : error;
 
             await RefreshStatusQuietAsync();
         }
@@ -1025,7 +1025,7 @@
         {
             var (success, error) = await DeployService.RemoveAsync();
             _deploySuccess = success;
-            _deployMessage = success ? "WAN Steeringremoved from gateway." : error;
+            _deployMessage = success ? "WAN Steering removed from gateway." : error;
             await RefreshStatusQuietAsync();
         }
         catch (Exception ex)
@@ -1166,7 +1166,7 @@
 
     private static string FormatUptime(DateTime startedAt)
     {
-        if (startedAt == default) return "—";
+        if (startedAt == default) return "-";
         var span = DateTime.UtcNow - startedAt;
         if (span.TotalDays >= 1)
             return $"{(int)span.TotalDays}d {span.Hours}h";
@@ -1188,7 +1188,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Failed to parse WAN Steeringstatus JSON");
+            Logger.LogDebug(ex, "Failed to parse WAN Steering status JSON");
         }
     }
 
