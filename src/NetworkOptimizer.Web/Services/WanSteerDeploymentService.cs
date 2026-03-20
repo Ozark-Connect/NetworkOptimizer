@@ -78,9 +78,11 @@ public class WanSteerDeploymentService
         try
         {
             // Stop existing daemon before binary upload (can't overwrite a running executable)
+            // SIGTERM first for clean shutdown, then SIGKILL if it doesn't die in 2 seconds
             progress?.Report("Stopping existing daemon...");
             await _gatewaySsh.RunCommandAsync(
-                "pkill -x wansteer 2>/dev/null; sleep 1", TimeSpan.FromSeconds(10), ct);
+                "pkill -x wansteer 2>/dev/null; sleep 2; pkill -0 -x wansteer 2>/dev/null && pkill -9 -x wansteer; sleep 1",
+                TimeSpan.FromSeconds(15), ct);
 
             // Deploy binary
             progress?.Report("Deploying binary...");
@@ -150,7 +152,8 @@ public class WanSteerDeploymentService
         try
         {
             await _gatewaySsh.RunCommandAsync(
-                "pkill -x wansteer 2>/dev/null; sleep 1", TimeSpan.FromSeconds(10));
+                "pkill -x wansteer 2>/dev/null; sleep 2; pkill -0 -x wansteer 2>/dev/null && pkill -9 -x wansteer; sleep 1",
+                TimeSpan.FromSeconds(15));
             _logger.LogInformation("WAN Steering daemon stopped");
         }
         catch (Exception ex)
@@ -198,7 +201,7 @@ public class WanSteerDeploymentService
         try
         {
             await _gatewaySsh.RunCommandAsync(
-                $"pkill -x wansteer 2>/dev/null; sleep 1; rm -rf {RemoteDir} && rm -f {BootScriptPath} && rm -f {RemoteStatusPath}",
+                $"pkill -x wansteer 2>/dev/null; sleep 2; pkill -0 -x wansteer 2>/dev/null && pkill -9 -x wansteer; sleep 1; rm -rf {RemoteDir} && rm -f {BootScriptPath} && rm -f {RemoteStatusPath}",
                 TimeSpan.FromSeconds(15));
 
             _logger.LogInformation("WAN Steering removed from gateway");
