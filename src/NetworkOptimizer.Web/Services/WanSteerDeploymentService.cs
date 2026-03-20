@@ -77,6 +77,11 @@ public class WanSteerDeploymentService
     {
         try
         {
+            // Stop existing daemon before binary upload (can't overwrite a running executable)
+            progress?.Report("Stopping existing daemon...");
+            await _gatewaySsh.RunCommandAsync(
+                "pkill -x wansteer 2>/dev/null; sleep 1", TimeSpan.FromSeconds(10), ct);
+
             // Deploy binary
             progress?.Report("Deploying binary...");
             var (deploySuccess, deployError) = await DeployBinaryAsync(ct);
@@ -111,11 +116,8 @@ public class WanSteerDeploymentService
             if (!bootResult.success)
                 return (false, $"Failed to install boot script: {bootResult.output}");
 
-            // Stop existing daemon if running, then start
+            // Start daemon
             progress?.Report("Starting daemon...");
-            await _gatewaySsh.RunCommandAsync(
-                "pkill -x wansteer 2>/dev/null; sleep 1", TimeSpan.FromSeconds(10), ct);
-
             var startResult = await _gatewaySsh.RunCommandAsync(
                 $"nohup {RemoteBinaryPath} -config {RemoteConfigPath} >> {RemoteLogPath} 2>&1 & sleep 2 && pgrep -x wansteer > /dev/null 2>&1 && echo started || echo failed",
                 TimeSpan.FromSeconds(15), ct);
