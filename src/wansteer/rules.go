@@ -61,23 +61,24 @@ func addTrafficClassRules(tc *TrafficClass, wan *WANInterface) error {
 	// Cross-product: for each source × destination combination, add MARK + CONNMARK rules
 	for _, src := range srcMatchers {
 		for _, dst := range dstMatchers {
-			var baseArgs []string
-			baseArgs = append(baseArgs, src...)
-			baseArgs = append(baseArgs, dst...)
-			baseArgs = append(baseArgs, sharedArgs...)
-
-			// MARK rule
-			markArgs := []string{"-t", "mangle", "-A", chainName}
-			markArgs = append(markArgs, baseArgs...)
+			// MARK rule gets the full shared args (protocol, ports, state NEW, probability)
+			var markArgs []string
+			markArgs = append(markArgs, "-t", "mangle", "-A", chainName)
+			markArgs = append(markArgs, src...)
+			markArgs = append(markArgs, dst...)
+			markArgs = append(markArgs, sharedArgs...)
 			markArgs = append(markArgs, "-j", "MARK", "--set-xmark", wan.FWMark+"/0x7e0000")
 			if err := run("iptables", markArgs...); err != nil {
 				return fmt.Errorf("add mark rule: %w", err)
 			}
 
-			// CONNMARK save rule
-			connmarkArgs := []string{"-t", "mangle", "-A", chainName}
-			connmarkArgs = append(connmarkArgs, baseArgs...)
-			// Only save if mark was actually set (probability may have skipped it)
+			// CONNMARK save rule: NO probability (save for every packet that got marked).
+			// Uses src/dst/protocol/port matchers but checks fwmark instead of rolling dice again.
+			var connmarkArgs []string
+			connmarkArgs = append(connmarkArgs, "-t", "mangle", "-A", chainName)
+			connmarkArgs = append(connmarkArgs, src...)
+			connmarkArgs = append(connmarkArgs, dst...)
+			connmarkArgs = append(connmarkArgs, connmarkSharedArgs(tc)...)
 			connmarkArgs = append(connmarkArgs, "-m", "mark", "--mark", wan.FWMark+"/0x7e0000")
 			connmarkArgs = append(connmarkArgs, "-j", "CONNMARK", "--save-mark",
 				"--nfmask", "0x7e0000", "--ctmask", "0x7e0000")
@@ -167,6 +168,37 @@ func buildSharedArgs(tc *TrafficClass) []string {
 	// Load balance probability
 	args = append(args, "-m", "statistic", "--mode", "random",
 		"--probability", fmt.Sprintf("%.10f", tc.Probability))
+
+	return args
+}
+
+// connmarkSharedArgs returns protocol/port args for the CONNMARK save rule.
+// Unlike buildSharedArgs, this excludes state NEW and probability - CONNMARK
+// should save for every packet that was already marked, not roll the dice again.
+func connmarkSharedArgs(tc *TrafficClass) []string {
+	var args []string
+
+	if tc.Match.Protocol != "" {
+		args = append(args, "-p", tc.Match.Protocol)
+	}
+
+	if len(tc.Match.SrcPorts) > 0 {
+		ports := normalizePortsForIptables(tc.Match.SrcPorts)
+		if len(ports) == 1 {
+			args = append(args, "--sport", ports[0])
+		} else {
+			args = append(args, "-m", "multiport", "--sports", strings.Join(ports, ","))
+		}
+	}
+
+	if len(tc.Match.DstPorts) > 0 {
+		ports := normalizePortsForIptables(tc.Match.DstPorts)
+		if len(ports) == 1 {
+			args = append(args, "--dport", ports[0])
+		} else {
+			args = append(args, "-m", "multiport", "--dports", strings.Join(ports, ","))
+		}
+	}
 
 	return args
 }
