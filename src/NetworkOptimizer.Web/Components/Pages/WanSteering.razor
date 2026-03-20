@@ -1,0 +1,1383 @@
+@page "/wan-steering"
+@implements IDisposable
+@inject WanSteerDeploymentService DeployService
+@inject UniFiConnectionService ConnectionService
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject IGatewaySshService GatewaySshService
+@inject ILogger<WanSteering> Logger
+@inject PullToRefreshState PtrState
+@rendermode InteractiveServer
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Ssh
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@using NetworkOptimizer.Core.Helpers
+@inject IJSRuntime JS
+
+<PageTitle>WAN Steering - Network Optimizer</PageTitle>
+
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="@_hasUndeployedChanges" />
+
+<div class="page-header">
+    <h1>WAN Steering</h1>
+    <p class="page-description">Load balance the traffic you choose across multiple WANs - without leaving failover mode. Send your Steam downloads, Xbox downloads, and OS patches across every link you're paying for, while gaming and video calls stay on your fastest WAN. Includes health-check failover and automatic rule recovery after gateway reprovisioning.</p>
+</div>
+
+@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized && !string.IsNullOrEmpty(ConnectionService.LastError))
+{
+    <div class="connection-banner connection-error">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                <strong>UniFi Connection Error</strong>
+                <span>@ConnectionService.LastError - WAN detection requires a working UniFi connection.</span>
+            </div>
+            <a href="/settings" class="btn btn-primary">Check Settings</a>
+        </div>
+    </div>
+}
+
+@if (!_gatewayConfigured && !_isLoading)
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="alert alert-warning">
+                <strong>Gateway SSH not configured.</strong>
+                Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using WAN Steering.
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Status Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Daemon Status</h2>
+        @if (!_isLoading)
+        {
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatusAsync">Refresh</button>
+        }
+    </div>
+    <div class="card-body">
+        @if (_isLoading)
+        {
+            <div class="loading-container">
+                <span class="spinner"></span>
+                <span>Checking daemon status...</span>
+            </div>
+        }
+        else if (_status == null)
+        {
+            <div class="empty-state">
+                <p>Unable to retrieve status. Check gateway SSH connection.</p>
+            </div>
+        }
+        else
+        {
+            <div class="ws-status-metrics">
+                <div class="metric">
+                    <div class="metric-label">Binary</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(_status.BinaryDeployed ? "status-active" : "status-inactive")"></span>
+                        @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
+                    </div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Daemon</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(_status.IsRunning ? "status-active" : "status-inactive")"></span>
+                        @(_status.IsRunning ? "Running" : "Stopped")
+                    </div>
+                </div>
+                @if (_parsedStatus != null)
+                {
+                    <div class="metric">
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value">@FormatUptime(_parsedStatus.StartedAt)</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Active Rules</div>
+                        <div class="metric-value">@_parsedStatus.RuleCount</div>
+                    </div>
+                    @foreach (var kvp in _parsedStatus.WanHealth)
+                    {
+                        <div class="metric">
+                            <div class="metric-label">@kvp.Key</div>
+                            <div class="metric-value">
+                                <span class="status-indicator @(kvp.Value.Healthy ? "status-active" : "status-inactive")"></span>
+                                @(kvp.Value.Healthy ? "Healthy" : "Down")
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<!-- WAN Interfaces Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">WAN Interfaces</h2>
+        <button class="btn btn-sm btn-secondary" @onclick="DiscoverWansAsync" disabled="@_isDiscovering">
+            @if (_isDiscovering)
+            {
+                <span class="spinner spinner-sm"></span>
+                <span>Discovering...</span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+    <div class="card-body">
+        @if (_isDiscovering && _wanInterfaces.Count == 0)
+        {
+            <div class="loading-container">
+                <span class="spinner"></span>
+                <span>Discovering WAN interfaces...</span>
+            </div>
+        }
+        else if (_wanInterfaces.Count == 0)
+        {
+            <div class="empty-state">
+                <p>No WAN interfaces discovered. Ensure the UniFi Console is connected and the gateway has WAN connections configured.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Interface</th>
+                            <th>Gateway IP</th>
+                            <th>FW Mark</th>
+                            <th>Health Target</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var wan in _wanInterfaces)
+                        {
+                            <tr>
+                                <td>@wan.Name <code>@DisplayFormatters.NormalizeWanDisplay(wan.NetworkGroup)</code></td>
+                                <td><code>@wan.Interface</code></td>
+                                <td>@(wan.GatewayIp ?? "-")</td>
+                                <td><code>@(string.IsNullOrEmpty(wan.FWMark) ? "-" : wan.FWMark)</code></td>
+                                <td>@wan.HealthTarget</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Traffic Rules Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Traffic Rules</h2>
+        @if (_editingRuleId == null)
+        {
+            <button class="btn btn-sm btn-primary" @onclick="AddRule">Add Rule</button>
+        }
+    </div>
+    <div class="card-body">
+        @if (_rules.Count == 0 && _editingRuleId == null)
+        {
+            <div class="empty-state">
+                <p>No traffic rules configured. Add a rule to steer traffic to a specific WAN interface.</p>
+            </div>
+        }
+        else
+        {
+            @foreach (var rule in _rules)
+            {
+                @if (_editingRuleId == rule.Id)
+                {
+                    @RenderEditForm()
+                }
+                else
+                {
+                    <div class="ws-rule-item">
+                        <div class="ws-rule-row">
+                            <div class="ws-rule-left">
+                                <label class="checkbox-label" data-tooltip="@(rule.Enabled ? "Enabled" : "Disabled")" data-tooltip-hover-only>
+                                    <input type="checkbox" checked="@rule.Enabled" @onchange="@(e => ToggleRuleEnabled(rule, (bool)(e.Value ?? false)))" />
+                                </label>
+                                <div class="ws-rule-info">
+                                    <div class="ws-rule-name @(rule.Enabled ? "" : "ws-rule-disabled")">@rule.Name</div>
+                                    <div class="ws-rule-match">@BuildMatchSummary(rule)</div>
+                                </div>
+                            </div>
+                            <div class="ws-rule-actions">
+                                @if (rule.Probability < 1.0)
+                                {
+                                    <span class="ws-rule-probability">@((rule.Probability * 100).ToString("F0")) %</span>
+                                }
+                                <span class="status-badge status-active">@rule.TargetWanKey</span>
+                                <div class="ws-sort-buttons">
+                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleUp(rule))" disabled="@(rule.SortOrder == 0)" data-tooltip="Move up" data-tooltip-hover-only>&#9650;</button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
+                                </div>
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">Edit</button>
+                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        }
+
+        @if (_editingRuleId == 0)
+        {
+            @RenderEditForm()
+        }
+    </div>
+</div>
+
+<!-- Deploy Controls Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Deploy</h2>
+    </div>
+    <div class="card-body">
+        <div class="ws-deploy-buttons">
+            @if (_status?.IsRunning == true)
+            {
+                <button class="btn btn-primary" @onclick="ReloadConfigAsync" disabled="@_isDeploying">
+                    @if (_isDeploying)
+                    {
+                        <span class="spinner spinner-sm"></span>
+                        <span>Deploying...</span>
+                    }
+                    else
+                    {
+                        <span>Deploy Config</span>
+                    }
+                </button>
+                <button class="btn btn-secondary" @onclick="DeployAsync" disabled="@_isDeploying">Redeploy</button>
+                <button class="btn btn-secondary" @onclick="StopAsync" disabled="@_isDeploying">Stop</button>
+                <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@_isDeploying" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+            }
+            else
+            {
+                <button class="btn btn-primary" @onclick="DeployAsync" disabled="@_isDeploying">
+                    @if (_isDeploying)
+                    {
+                        <span class="spinner spinner-sm"></span>
+                        <span>Deploying...</span>
+                    }
+                    else
+                    {
+                        <span>Deploy</span>
+                    }
+                </button>
+                @if (_status?.BinaryDeployed == true)
+                {
+                    <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@_isDeploying" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+                }
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(_deployMessage))
+        {
+            <div class="@(_deploySuccess ? "alert alert-success" : "alert alert-danger") ws-deploy-alert">
+                @_deployMessage
+            </div>
+        }
+
+        @if (_deploySteps.Count > 0)
+        {
+            <div class="ws-deploy-steps">
+                @foreach (var step in _deploySteps)
+                {
+                    <div>@step</div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    /* Status metrics grid - same classes as SQM .sqm-metrics */
+    .ws-status-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+    }
+
+    .ws-status-metrics .metric {
+        text-align: center;
+        padding: 1.25rem;
+        background: var(--bg-primary);
+        border-radius: 0.5rem;
+    }
+
+    .ws-status-metrics .metric-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+
+    .ws-status-metrics .metric-value {
+        font-size: 1rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .ws-status-metrics .status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    .ws-status-metrics .status-active {
+        background: var(--success-color);
+    }
+
+    .ws-status-metrics .status-inactive {
+        background: var(--danger-color);
+    }
+
+    /* Form grid layouts */
+    .ws-form-row-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .ws-form-row-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1rem;
+    }
+
+    @@media (max-width: 768px) {
+        .ws-form-row-2,
+        .ws-form-row-3 {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Rule items */
+    .ws-rule-item {
+        background: var(--bg-primary);
+        border: 1px solid var(--bg-tertiary);
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .ws-rule-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .ws-rule-left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .ws-rule-info {
+        min-width: 0;
+    }
+
+    .ws-rule-name {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .ws-rule-name.ws-rule-disabled {
+        color: var(--text-muted);
+    }
+
+    .ws-rule-match {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ws-rule-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    .ws-rule-probability {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .ws-sort-buttons {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+    /* Edit form card */
+    .ws-edit-card {
+        background: var(--bg-primary);
+        border: 1px solid var(--primary-color);
+        border-radius: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .ws-edit-card .card-body {
+        padding: 1rem;
+    }
+
+    .ws-enabled-checkbox {
+        margin-top: 0.5rem;
+    }
+
+    .ws-edit-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    /* Deploy controls */
+    .ws-deploy-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .ws-deploy-alert {
+        margin-top: 1rem;
+    }
+
+    .ws-deploy-steps {
+        margin-top: 0.75rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    @@media (max-width: 768px) {
+        .ws-rule-row {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .ws-rule-actions {
+            flex-wrap: wrap;
+        }
+    }
+</style>
+
+@code {
+    // State
+    private bool _isLoading = true;
+    private bool _isDeploying;
+    private bool _isDiscovering = true;
+    private bool _gatewayConfigured;
+    private string? _deployMessage;
+    private bool _deploySuccess;
+    private List<string> _deploySteps = new();
+
+    // Data
+    private List<WanSteerTrafficClass> _rules = new();
+    private List<WanSteerWanInfo> _wanInterfaces = new();
+    private WanSteerStatus? _status;
+    private ParsedDaemonStatus? _parsedStatus;
+
+    // Rule editing
+    private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
+    private WanSteerTrafficClass _editForm = new();
+    private string _editSrcCidrs = "";
+    private string _editSrcMacs = "";
+    private string _editDstCidrs = "";
+    private string _editSrcPorts = "";
+    private string _editDstPorts = "";
+    private string _editProtocol = "";
+    private int _editProbabilityPercent = 100;
+
+    // Undeployed changes tracking
+    private bool _hasUndeployedChanges;
+
+    // Validation
+    private List<string> _validationErrors = new();
+
+    // Status polling timer
+    private System.Threading.Timer? _pollTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        PtrState.RefreshCallback = () => RefreshStatusAsync();
+        PtrState.NotifyStateChanged = StateHasChanged;
+
+        await LoadRulesAsync();
+        await RefreshStatusAsync();
+        await DiscoverWansAsync();
+
+        // Poll status every 10 seconds
+        _pollTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshStatusQuietAsync();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    // --- Data Loading ---
+
+    private async Task LoadRulesAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _rules = await db.WanSteerTrafficClasses
+                .OrderBy(r => r.SortOrder)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load WAN Steering traffic rules");
+        }
+    }
+
+    private async Task RefreshStatusAsync()
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var settings = await GatewaySshService.GetSettingsAsync();
+            _gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
+
+            if (_gatewayConfigured)
+            {
+                _status = await DeployService.GetStatusAsync();
+                ParseStatusJson();
+            }
+            else
+            {
+                _status = null;
+                _parsedStatus = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to refresh WAN Steering status");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>Silent status refresh for the polling timer (no loading spinner).</summary>
+    private async Task RefreshStatusQuietAsync()
+    {
+        if (!_gatewayConfigured) return;
+
+        try
+        {
+            _status = await DeployService.GetStatusAsync();
+            ParseStatusJson();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to poll WAN Steering status");
+        }
+    }
+
+    private async Task DiscoverWansAsync()
+    {
+        _isDiscovering = true;
+        StateHasChanged();
+
+        try
+        {
+            _wanInterfaces = await DeployService.DiscoverWanInterfacesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to discover WAN interfaces");
+        }
+        finally
+        {
+            _isDiscovering = false;
+            StateHasChanged();
+        }
+    }
+
+    // --- Rule CRUD ---
+
+    private void AddRule()
+    {
+        _editingRuleId = 0;
+        _editForm = new WanSteerTrafficClass
+        {
+            Name = "",
+            Enabled = true,
+            Probability = 1.0,
+            SortOrder = _rules.Count,
+            TargetWanKey = _wanInterfaces.FirstOrDefault()?.NetworkGroup ?? ""
+        };
+        PopulateEditFields();
+    }
+
+    private void EditRule(WanSteerTrafficClass rule)
+    {
+        _editingRuleId = rule.Id;
+        _editForm = new WanSteerTrafficClass
+        {
+            Id = rule.Id,
+            Name = rule.Name,
+            Enabled = rule.Enabled,
+            Probability = rule.Probability,
+            SortOrder = rule.SortOrder,
+            TargetWanKey = rule.TargetWanKey,
+            SrcCidrsJson = rule.SrcCidrsJson,
+            SrcMacsJson = rule.SrcMacsJson,
+            DstCidrsJson = rule.DstCidrsJson,
+            Protocol = rule.Protocol,
+            SrcPortsJson = rule.SrcPortsJson,
+            DstPortsJson = rule.DstPortsJson
+        };
+        PopulateEditFields();
+    }
+
+    private void PopulateEditFields()
+    {
+        _editSrcCidrs = ParseJsonArray(_editForm.SrcCidrsJson);
+        _editSrcMacs = ParseJsonArray(_editForm.SrcMacsJson);
+        _editDstCidrs = ParseJsonArray(_editForm.DstCidrsJson);
+        _editSrcPorts = ParseJsonArrayToCommaSeparated(_editForm.SrcPortsJson);
+        _editDstPorts = ParseJsonArrayToCommaSeparated(_editForm.DstPortsJson);
+        _editProtocol = _editForm.Protocol ?? "";
+        _editProbabilityPercent = (int)Math.Round(_editForm.Probability * 100);
+    }
+
+    private async Task SaveRule()
+    {
+        // Map edit fields back to the form
+        _editForm.SrcCidrsJson = ToJsonArrayNormalizeCidrs(_editSrcCidrs);
+        _editForm.SrcMacsJson = ToJsonArray(_editSrcMacs);
+        _editForm.DstCidrsJson = ToJsonArrayNormalizeCidrs(_editDstCidrs);
+        _editForm.SrcPortsJson = ToJsonArrayFromCommaSeparated(_editSrcPorts);
+        _editForm.DstPortsJson = ToJsonArrayFromCommaSeparated(_editDstPorts);
+        _editForm.Protocol = string.IsNullOrWhiteSpace(_editProtocol) ? null : _editProtocol;
+        _editForm.Probability = _editProbabilityPercent / 100.0;
+
+        // Validate
+        _validationErrors = ValidateRule(_editForm);
+        if (_validationErrors.Count > 0)
+            return;
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            if (_editingRuleId == 0)
+            {
+                _editForm.SortOrder = _rules.Count;
+                db.WanSteerTrafficClasses.Add(_editForm);
+            }
+            else
+            {
+                var existing = await db.WanSteerTrafficClasses.FindAsync(_editForm.Id);
+                if (existing != null)
+                {
+                    existing.Name = _editForm.Name;
+                    existing.Enabled = _editForm.Enabled;
+                    existing.Probability = _editForm.Probability;
+                    existing.TargetWanKey = _editForm.TargetWanKey;
+                    existing.SrcCidrsJson = _editForm.SrcCidrsJson;
+                    existing.SrcMacsJson = _editForm.SrcMacsJson;
+                    existing.DstCidrsJson = _editForm.DstCidrsJson;
+                    existing.Protocol = _editForm.Protocol;
+                    existing.SrcPortsJson = _editForm.SrcPortsJson;
+                    existing.DstPortsJson = _editForm.DstPortsJson;
+                }
+            }
+
+            await db.SaveChangesAsync();
+            _hasUndeployedChanges = true;
+            await LoadRulesAsync();
+            _editingRuleId = null;
+            _validationErrors.Clear();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save traffic rule");
+        }
+    }
+
+    private void CancelEdit()
+    {
+        _editingRuleId = null;
+        _validationErrors.Clear();
+    }
+
+    // --- Validation ---
+
+    private static readonly System.Text.RegularExpressions.Regex IpRegex = new(
+        @"^(\d{1,3}\.){3}\d{1,3}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex CidrRegex = new(
+        @"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex IpRangeRegex = new(
+        @"^(\d{1,3}\.){3}\d{1,3}-(\d{1,3}\.){3}\d{1,3}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex MacRegex = new(
+        @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex PortRegex = new(
+        @"^\d{1,5}(-\d{1,5})?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private List<string> ValidateRule(WanSteerTrafficClass rule)
+    {
+        var errors = new List<string>();
+
+        // Name required
+        if (string.IsNullOrWhiteSpace(rule.Name))
+            errors.Add("Name is required.");
+
+        // Target WAN required
+        if (string.IsNullOrWhiteSpace(rule.TargetWanKey))
+            errors.Add("Target WAN is required.");
+
+        // Probability 1-100
+        if (rule.Probability <= 0 || rule.Probability > 1)
+            errors.Add("Probability must be between 1 and 100%.");
+
+        // Require at least one of: source (CIDR/IP/MAC), destination (CIDR/IP), protocol/ports on either side
+        bool hasSrc = !string.IsNullOrWhiteSpace(rule.SrcCidrsJson) || !string.IsNullOrWhiteSpace(rule.SrcMacsJson);
+        bool hasDst = !string.IsNullOrWhiteSpace(rule.DstCidrsJson);
+        bool hasSrcPortOrProto = !string.IsNullOrWhiteSpace(rule.SrcPortsJson) || !string.IsNullOrWhiteSpace(rule.Protocol);
+        bool hasDstPortOrProto = !string.IsNullOrWhiteSpace(rule.DstPortsJson) || !string.IsNullOrWhiteSpace(rule.Protocol);
+        bool hasPorts = !string.IsNullOrWhiteSpace(rule.SrcPortsJson) || !string.IsNullOrWhiteSpace(rule.DstPortsJson);
+        bool hasProtocol = !string.IsNullOrWhiteSpace(rule.Protocol);
+
+        if (!hasSrc && !hasDst && !hasSrcPortOrProto && !hasDstPortOrProto)
+            errors.Add("At least one match criterion is required: source IP/CIDR/MAC, destination IP/CIDR, or protocol/ports.");
+
+        // Protocol required if ports specified
+        if (hasPorts && !hasProtocol)
+            errors.Add("Protocol (TCP or UDP) is required when ports are specified.");
+
+        // Validate CIDR/IP/range formats
+        if (!string.IsNullOrWhiteSpace(rule.SrcCidrsJson))
+            ValidateCidrList(rule.SrcCidrsJson!, "Source", errors);
+        if (!string.IsNullOrWhiteSpace(rule.DstCidrsJson))
+            ValidateCidrList(rule.DstCidrsJson!, "Destination", errors);
+
+        // Validate MAC formats
+        if (!string.IsNullOrWhiteSpace(rule.SrcMacsJson))
+            ValidateMacList(rule.SrcMacsJson!, errors);
+
+        // Validate port formats
+        if (!string.IsNullOrWhiteSpace(rule.SrcPortsJson))
+            ValidatePortList(rule.SrcPortsJson!, "Source port", errors);
+        if (!string.IsNullOrWhiteSpace(rule.DstPortsJson))
+            ValidatePortList(rule.DstPortsJson!, "Destination port", errors);
+
+        return errors;
+    }
+
+    private static void ValidateCidrList(string json, string label, List<string> errors)
+    {
+        try
+        {
+            var entries = JsonSerializer.Deserialize<List<string>>(json);
+            if (entries == null) return;
+            foreach (var entry in entries)
+            {
+                var trimmed = entry.Trim();
+                bool isCidr = CidrRegex.IsMatch(trimmed);
+                bool isIp = IpRegex.IsMatch(trimmed);
+                bool isRange = IpRangeRegex.IsMatch(trimmed);
+
+                if (!isCidr && !isIp && !isRange)
+                {
+                    errors.Add($"{label} \"{trimmed}\" is not valid. Use an IP (1.2.3.4), CIDR (1.2.3.0/24), or range (1.2.3.1-1.2.3.50).");
+                    return;
+                }
+
+                // Validate all IP parts have valid octets
+                var ipsToCheck = isRange ? trimmed.Split('-') : new[] { isCidr ? trimmed.Split('/')[0] : trimmed };
+                foreach (var ip in ipsToCheck)
+                {
+                    var octets = ip.Split('.');
+                    if (octets.Any(o => !int.TryParse(o, out var v) || v < 0 || v > 255))
+                    {
+                        errors.Add($"{label} \"{trimmed}\" has invalid IP octets (0-255).");
+                        return;
+                    }
+                }
+
+                // Validate prefix length if CIDR
+                if (isCidr && int.TryParse(trimmed.Split('/')[1], out var prefix) && (prefix < 0 || prefix > 32))
+                {
+                    errors.Add($"{label} \"{trimmed}\" has invalid prefix length (0-32).");
+                    return;
+                }
+            }
+        }
+        catch { errors.Add($"{label} format is invalid."); }
+    }
+
+    private static void ValidateMacList(string json, List<string> errors)
+    {
+        try
+        {
+            var macs = JsonSerializer.Deserialize<List<string>>(json);
+            if (macs == null) return;
+            foreach (var mac in macs)
+            {
+                if (!MacRegex.IsMatch(mac.Trim()))
+                {
+                    errors.Add($"MAC address \"{mac}\" is not valid. Use format: aa:bb:cc:dd:ee:ff");
+                    return;
+                }
+            }
+        }
+        catch { errors.Add("MAC address format is invalid."); }
+    }
+
+    private static void ValidatePortList(string json, string label, List<string> errors)
+    {
+        try
+        {
+            var ports = JsonSerializer.Deserialize<List<string>>(json);
+            if (ports == null) return;
+            foreach (var port in ports)
+            {
+                if (!PortRegex.IsMatch(port.Trim()))
+                {
+                    errors.Add($"{label} \"{port}\" is not valid. Use a number (443) or range (27015-27030).");
+                    return;
+                }
+                // Validate port numbers are 1-65535
+                foreach (var p in port.Trim().Split('-'))
+                {
+                    if (int.TryParse(p, out var v) && (v < 1 || v > 65535))
+                    {
+                        errors.Add($"{label} \"{port}\" is out of range (1-65535).");
+                        return;
+                    }
+                }
+            }
+        }
+        catch { errors.Add($"{label} format is invalid."); }
+    }
+
+    private async Task DeleteRule(WanSteerTrafficClass rule)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
+            if (entity != null)
+            {
+                db.WanSteerTrafficClasses.Remove(entity);
+                await db.SaveChangesAsync();
+
+                // Re-number sort orders
+                var remaining = await db.WanSteerTrafficClasses.OrderBy(r => r.SortOrder).ToListAsync();
+                for (int i = 0; i < remaining.Count; i++)
+                    remaining[i].SortOrder = i;
+                await db.SaveChangesAsync();
+            }
+
+            _hasUndeployedChanges = true;
+            await LoadRulesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete traffic rule");
+        }
+    }
+
+    private async Task ToggleRuleEnabled(WanSteerTrafficClass rule, bool enabled)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
+            if (entity != null)
+            {
+                entity.Enabled = enabled;
+                await db.SaveChangesAsync();
+                _hasUndeployedChanges = true;
+            }
+            rule.Enabled = enabled;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to toggle rule enabled state");
+        }
+    }
+
+    private async Task MoveRuleUp(WanSteerTrafficClass rule)
+    {
+        var idx = _rules.IndexOf(rule);
+        if (idx <= 0) return;
+
+        await SwapRuleSortOrders(_rules[idx], _rules[idx - 1]);
+    }
+
+    private async Task MoveRuleDown(WanSteerTrafficClass rule)
+    {
+        var idx = _rules.IndexOf(rule);
+        if (idx < 0 || idx >= _rules.Count - 1) return;
+
+        await SwapRuleSortOrders(_rules[idx], _rules[idx + 1]);
+    }
+
+    private async Task SwapRuleSortOrders(WanSteerTrafficClass a, WanSteerTrafficClass b)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entityA = await db.WanSteerTrafficClasses.FindAsync(a.Id);
+            var entityB = await db.WanSteerTrafficClasses.FindAsync(b.Id);
+            if (entityA != null && entityB != null)
+            {
+                (entityA.SortOrder, entityB.SortOrder) = (entityB.SortOrder, entityA.SortOrder);
+                await db.SaveChangesAsync();
+                _hasUndeployedChanges = true;
+            }
+            await LoadRulesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reorder rules");
+        }
+    }
+
+    // --- Deploy Actions ---
+
+    private async Task DeployAsync()
+    {
+        _isDeploying = true;
+        _deployMessage = null;
+        _deploySteps.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var progress = new Progress<string>(step =>
+            {
+                _deploySteps.Add(step);
+                InvokeAsync(StateHasChanged);
+            });
+
+            var (success, error) = await DeployService.DeployAsync(progress);
+            _deploySuccess = success;
+            _deployMessage = success ? "WAN Steering deployed successfully." : error;
+            if (success) _hasUndeployedChanges = false;
+
+            await RefreshStatusQuietAsync();
+        }
+        catch (Exception ex)
+        {
+            _deploySuccess = false;
+            _deployMessage = ex.Message;
+        }
+        finally
+        {
+            _isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReloadConfigAsync()
+    {
+        _isDeploying = true;
+        _deployMessage = null;
+        _deploySteps.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var (success, error) = await DeployService.ReloadConfigAsync();
+            _deploySuccess = success;
+            _deployMessage = success ? "Configuration reloaded." : error;
+            if (success) _hasUndeployedChanges = false;
+        }
+        catch (Exception ex)
+        {
+            _deploySuccess = false;
+            _deployMessage = ex.Message;
+        }
+        finally
+        {
+            _isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        _isDeploying = true;
+        _deployMessage = null;
+        _deploySteps.Clear();
+        StateHasChanged();
+
+        try
+        {
+            await DeployService.StopAsync();
+            _deploySuccess = true;
+            _deployMessage = "Daemon stopped.";
+            await RefreshStatusQuietAsync();
+        }
+        catch (Exception ex)
+        {
+            _deploySuccess = false;
+            _deployMessage = ex.Message;
+        }
+        finally
+        {
+            _isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveAsync()
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "This will stop the daemon, remove the binary, config, and boot script from the gateway.\n\nAre you sure?");
+        if (!confirmed) return;
+
+        _isDeploying = true;
+        _deployMessage = null;
+        _deploySteps.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var (success, error) = await DeployService.RemoveAsync();
+            _deploySuccess = success;
+            _deployMessage = success ? "WAN Steering removed from gateway." : error;
+            await RefreshStatusQuietAsync();
+        }
+        catch (Exception ex)
+        {
+            _deploySuccess = false;
+            _deployMessage = ex.Message;
+        }
+        finally
+        {
+            _isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    // --- JSON Helpers ---
+
+    /// <summary>Parse a JSON string array to newline-separated text for textarea display.</summary>
+    private static string ParseJsonArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "";
+        try
+        {
+            var arr = JsonSerializer.Deserialize<List<string>>(json);
+            return arr != null ? string.Join("\n", arr) : "";
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>Parse a JSON string array to comma-separated text for input display.</summary>
+    private static string ParseJsonArrayToCommaSeparated(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "";
+        try
+        {
+            var arr = JsonSerializer.Deserialize<List<string>>(json);
+            return arr != null ? string.Join(",", arr) : "";
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>Convert newline-separated textarea text to a JSON string array. Null if empty.</summary>
+    private static string? ToJsonArray(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var items = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToList();
+        return items.Count > 0 ? JsonSerializer.Serialize(items) : null;
+    }
+
+    /// <summary>Convert newline-separated IPs/CIDRs/ranges to JSON array, appending /32 to bare IPs (not ranges).</summary>
+    private static string? ToJsonArrayNormalizeCidrs(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var items = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s =>
+            {
+                s = s.Trim();
+                // IP ranges (1.2.3.4-5.6.7.8) stay as-is
+                if (s.Contains('-')) return s;
+                // CIDRs stay as-is
+                if (s.Contains('/')) return s;
+                // Bare IPs get /32
+                return s + "/32";
+            })
+            .ToList();
+        return items.Count > 0 ? JsonSerializer.Serialize(items) : null;
+    }
+
+    /// <summary>Convert comma-separated text to a JSON string array. Null if empty.</summary>
+    private static string? ToJsonArrayFromCommaSeparated(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var items = text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToList();
+        return items.Count > 0 ? JsonSerializer.Serialize(items) : null;
+    }
+
+    // --- Display Helpers ---
+
+    private static string BuildMatchSummary(WanSteerTrafficClass rule)
+    {
+        var parts = new List<string>();
+
+        if (rule.DstCidrsJson != null)
+        {
+            try
+            {
+                var cidrs = JsonSerializer.Deserialize<List<string>>(rule.DstCidrsJson);
+                if (cidrs?.Count > 0)
+                    parts.Add("dst: " + string.Join(", ", cidrs.Take(2)) + (cidrs.Count > 2 ? $" +{cidrs.Count - 2}" : ""));
+            }
+            catch { }
+        }
+
+        if (rule.SrcCidrsJson != null)
+        {
+            try
+            {
+                var cidrs = JsonSerializer.Deserialize<List<string>>(rule.SrcCidrsJson);
+                if (cidrs?.Count > 0)
+                    parts.Add("src: " + string.Join(", ", cidrs.Take(2)) + (cidrs.Count > 2 ? $" +{cidrs.Count - 2}" : ""));
+            }
+            catch { }
+        }
+
+        if (rule.Protocol != null)
+        {
+            var proto = rule.Protocol;
+            if (rule.DstPortsJson != null)
+            {
+                try
+                {
+                    var ports = JsonSerializer.Deserialize<List<string>>(rule.DstPortsJson);
+                    if (ports?.Count > 0)
+                        proto += ":" + string.Join(",", ports.Take(3)) + (ports.Count > 3 ? "..." : "");
+                }
+                catch { }
+            }
+            parts.Add(proto);
+        }
+
+        if (rule.SrcMacsJson != null)
+        {
+            try
+            {
+                var macs = JsonSerializer.Deserialize<List<string>>(rule.SrcMacsJson);
+                if (macs?.Count > 0)
+                    parts.Add("mac: " + string.Join(", ", macs.Take(2)) + (macs.Count > 2 ? $" +{macs.Count - 2}" : ""));
+            }
+            catch { }
+        }
+
+        return parts.Count > 0 ? string.Join(" | ", parts) : "Match all traffic";
+    }
+
+    private static string FormatUptime(DateTime startedAt)
+    {
+        if (startedAt == default) return "-";
+        var span = DateTime.UtcNow - startedAt;
+        if (span.TotalDays >= 1)
+            return $"{(int)span.TotalDays}d {span.Hours}h";
+        if (span.TotalHours >= 1)
+            return $"{(int)span.TotalHours}h {span.Minutes}m";
+        return $"{(int)span.TotalMinutes}m";
+    }
+
+    // --- Status JSON Parsing ---
+
+    private void ParseStatusJson()
+    {
+        _parsedStatus = null;
+        if (string.IsNullOrWhiteSpace(_status?.StatusJson)) return;
+
+        try
+        {
+            _parsedStatus = JsonSerializer.Deserialize<ParsedDaemonStatus>(_status.StatusJson, _jsonOptions);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to parse WAN Steering status JSON");
+        }
+    }
+
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+    };
+
+    // --- Edit Form Render Fragment ---
+
+    private RenderFragment RenderEditForm() => __builder =>
+    {
+        <div class="ws-edit-card">
+            <div class="card-body">
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-control" @bind="_editForm.Name" placeholder="e.g., Steam Downloads" />
+                </div>
+
+                <div class="ws-form-row-2">
+                    <div class="form-group">
+                        <label class="form-label">Source CIDRs</label>
+                        <textarea class="form-control" rows="3" @bind="_editSrcCidrs" placeholder="One per line: IP, CIDR, or range (e.g., 192.168.1.0/24)"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Destination CIDRs</label>
+                        <textarea class="form-control" rows="3" @bind="_editDstCidrs" placeholder="One per line: IP, CIDR, or range (e.g., 162.254.192.0/21)"></textarea>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Source MACs</label>
+                    <textarea class="form-control" rows="2" @bind="_editSrcMacs" placeholder="One MAC per line"></textarea>
+                    <span class="form-help">From your UniFi device list</span>
+                </div>
+
+                <div class="ws-form-row-3">
+                    <div class="form-group">
+                        <label class="form-label">Protocol</label>
+                        <select class="form-control" @bind="_editProtocol">
+                            <option value="">Any</option>
+                            <option value="tcp">TCP</option>
+                            <option value="udp">UDP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Source Ports</label>
+                        <input type="text" class="form-control" @bind="_editSrcPorts" placeholder="443, 8080, 27015-27030" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Destination Ports</label>
+                        <input type="text" class="form-control" @bind="_editDstPorts" placeholder="443, 8080, 27015-27030" />
+                    </div>
+                </div>
+
+                <div class="ws-form-row-3">
+                    <div class="form-group">
+                        <label class="form-label">Ratio <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Percentage of matching connections to steer using round-robin. 100% = all traffic. 50% = every other connection. 33% = every 3rd connection.">?</span></label>
+                        <input type="number" class="form-control" @bind="_editProbabilityPercent" min="1" max="100" />
+                        <span class="form-help">100 = all matching traffic</span>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Target WAN</label>
+                        <select class="form-control" @bind="_editForm.TargetWanKey">
+                            @if (_wanInterfaces.Count == 0)
+                            {
+                                <option value="">No WANs discovered</option>
+                            }
+                            @foreach (var wan in _wanInterfaces)
+                            {
+                                <option value="@wan.NetworkGroup">@wan.Name (@wan.Interface)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Enabled</label>
+                        <label class="checkbox-label ws-enabled-checkbox">
+                            <input type="checkbox" @bind="_editForm.Enabled" />
+                            <span>Rule is active</span>
+                        </label>
+                    </div>
+                </div>
+
+                @if (_validationErrors.Count > 0)
+                {
+                    <div class="alert alert-danger ws-deploy-alert">
+                        @foreach (var err in _validationErrors)
+                        {
+                            <div>@err</div>
+                        }
+                    </div>
+                }
+
+                <div class="ws-edit-actions">
+                    <button class="btn btn-primary btn-sm" @onclick="SaveRule">Save</button>
+                    <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Cancel</button>
+                </div>
+            </div>
+        </div>
+    };
+
+    // --- Cleanup ---
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (_hasUndeployedChanges)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "You have undeployed rule changes. If you leave now, the gateway will still be running the old config.\n\nAre you sure you want to leave?");
+            if (!confirmed)
+                context.PreventNavigation();
+        }
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
+    }
+
+    // --- Parsed Status Model ---
+
+    private class ParsedDaemonStatus
+    {
+        public string Version { get; set; } = "";
+        public bool Running { get; set; }
+        public DateTime StartedAt { get; set; }
+        public DateTime LastReconcile { get; set; }
+        public int RuleCount { get; set; }
+        public int ReconcileCount { get; set; }
+        public Dictionary<string, ParsedWanHealth> WanHealth { get; set; } = new();
+    }
+
+    private class ParsedWanHealth
+    {
+        public bool Healthy { get; set; }
+        public int FailCount { get; set; }
+        public int PassCount { get; set; }
+        public DateTime LastCheck { get; set; }
+    }
+}

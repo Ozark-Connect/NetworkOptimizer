@@ -1,0 +1,57 @@
+{
+  "wan_interfaces": {
+    "fiber": {
+      "interface": "eth4",
+      "gateway": "207.66.100.1",
+      "route_table": "201.eth4",
+      "fwmark": "0x1a0000",
+      "health_target": "1.1.1.1"
+    },
+    "cable": {
+      "interface": "eth2",
+      "gateway": "67.209.42.1",
+      "route_table": "182.eth2",
+      "fwmark": "0x720000",
+      "health_target": "8.8.8.8"
+    }
+  },
+  "default_wan": "fiber",
+  "reconcile_interval_seconds": 30,
+  "health_check_interval_seconds": 10,
+  "health_check_timeout_seconds": 3,
+  "health_fail_threshold": 3,
+  "health_pass_threshold": 2,
+  "status_file": "/tmp/wan-steer-status.json",
+  "traffic_classes": [
+    {
+      "name": "steam-downloads",
+      "match": {
+        "dst_cidrs": ["162.254.192.0/21"]
+      },
+      "probability": 0.5,
+      "target_wan": "cable",
+      "enabled": true
+    },
+    {
+      "name": "gaming-vlan-bulk",
+      "match": {
+        "src_cidrs": ["192.168.42.0/24"],
+        "dst_cidrs": ["162.254.192.0/21", "20.33.0.0/16"],
+        "protocol": "tcp",
+        "dst_ports": ["443", "27015:27030"]
+      },
+      "probability": 0.3,
+      "target_wan": "cable",
+      "enabled": false
+    },
+    {
+      "name": "specific-device",
+      "match": {
+        "src_macs": ["aa:bb:cc:dd:ee:ff"]
+      },
+      "probability": 1.0,
+      "target_wan": "cable",
+      "enabled": false
+    }
+  ]
+}
