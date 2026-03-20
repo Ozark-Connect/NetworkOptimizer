@@ -46,6 +46,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ScheduledTask> ScheduledTasks { get; set; }
     public DbSet<WanDataUsageConfig> WanDataUsageConfigs { get; set; }
     public DbSet<WanDataUsageSnapshot> WanDataUsageSnapshots { get; set; }
+    public DbSet<WanSteerTrafficClass> WanSteerTrafficClasses { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -320,6 +321,13 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("WanDataUsageSnapshots");
             entity.HasIndex(e => new { e.WanKey, e.Timestamp });
+        });
+
+        // WanSteerTrafficClass configuration
+        modelBuilder.Entity<WanSteerTrafficClass>(entity =>
+        {
+            entity.ToTable("WanSteerTrafficClasses");
+            entity.HasIndex(e => e.SortOrder);
         });
     }
 }

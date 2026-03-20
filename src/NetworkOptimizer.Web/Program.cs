@@ -340,8 +340,9 @@ builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC v
 builder.Services.AddSingleton<PdfStorageService>(); // Singleton - manages PDF report file storage
 builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cross-request state
 builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostics (trunk consistency, AP lock, etc.)
-builder.Services.AddScoped<SqmService>();
+builder.Services.AddScoped<ISqmService, SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
+builder.Services.AddScoped<WanSteerDeploymentService>();
 builder.Services.AddScoped<AgentService>();
 
 // Register WiFi Optimizer rules and engine
