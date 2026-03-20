@@ -118,15 +118,16 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// traffic, APs report the management frame rate (exactly 6 Mbps) as the link rate.
     /// This is not a real throughput rate and should be treated as "unknown".
     /// </summary>
-    private const long WifiIdleRateKbps = 6000;
+    private const long WifiIdle6MbpsKbps = 6000;
+    private const long WifiIdle8MbpsKbps = 8000;
 
     /// <summary>
-    /// Returns the rate if it's not the idle management frame rate, otherwise 0.
-    /// Wi-Fi radios report exactly 6 Mbps when idle, which isn't useful for
-    /// throughput analysis. Other low rates are legitimate for slow links.
+    /// Returns the rate if it's not an idle management frame rate, otherwise 0.
+    /// Wi-Fi radios report exactly 6 or 8 Mbps when idle (management frame rates),
+    /// which aren't useful for throughput analysis.
     /// </summary>
     private static long FilterIdleRate(long rateKbps) =>
-        rateKbps == WifiIdleRateKbps ? 0 : rateKbps;
+        rateKbps is WifiIdle6MbpsKbps or WifiIdle8MbpsKbps ? 0 : rateKbps;
 
     // Mesh backhaul overhead factor - ~45% overhead due to half-duplex, retransmits, etc.
     private const double MeshBackhaulOverheadFactor = 0.55;
