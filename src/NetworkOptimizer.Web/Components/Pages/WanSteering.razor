@@ -1063,6 +1063,10 @@
 
     private async Task RemoveAsync()
     {
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "This will stop the daemon, remove the binary, config, and boot script from the gateway.\n\nAre you sure?");
+        if (!confirmed) return;
+
         _isDeploying = true;
         _deployMessage = null;
         _deploySteps.Clear();
