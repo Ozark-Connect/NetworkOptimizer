@@ -73,37 +73,37 @@
         }
         else
         {
-            <div class="ws-metrics">
-                <div class="ws-metric">
-                    <div class="ws-metric-label">Binary</div>
-                    <div class="ws-metric-value">
-                        <span class="ws-status-dot @(_status.BinaryDeployed ? "active" : "")"></span>
+            <div class="ws-status-metrics">
+                <div class="metric">
+                    <div class="metric-label">Binary</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(_status.BinaryDeployed ? "status-active" : "status-inactive")"></span>
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
-                <div class="ws-metric">
-                    <div class="ws-metric-label">Daemon</div>
-                    <div class="ws-metric-value">
-                        <span class="ws-status-dot @(_status.IsRunning ? "active" : "")"></span>
+                <div class="metric">
+                    <div class="metric-label">Daemon</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(_status.IsRunning ? "status-active" : "status-inactive")"></span>
                         @(_status.IsRunning ? "Running" : "Stopped")
                     </div>
                 </div>
                 @if (_parsedStatus != null)
                 {
-                    <div class="ws-metric">
-                        <div class="ws-metric-label">Uptime</div>
-                        <div class="ws-metric-value">@FormatUptime(_parsedStatus.StartedAt)</div>
+                    <div class="metric">
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value">@FormatUptime(_parsedStatus.StartedAt)</div>
                     </div>
-                    <div class="ws-metric">
-                        <div class="ws-metric-label">Active Rules</div>
-                        <div class="ws-metric-value">@_parsedStatus.RuleCount</div>
+                    <div class="metric">
+                        <div class="metric-label">Active Rules</div>
+                        <div class="metric-value">@_parsedStatus.RuleCount</div>
                     </div>
                     @foreach (var kvp in _parsedStatus.WanHealth)
                     {
-                        <div class="ws-metric">
-                            <div class="ws-metric-label">@kvp.Key</div>
-                            <div class="ws-metric-value">
-                                <span class="ws-status-dot @(kvp.Value.Healthy ? "active" : "")"></span>
+                        <div class="metric">
+                            <div class="metric-label">@kvp.Key</div>
+                            <div class="metric-value">
+                                <span class="status-indicator @(kvp.Value.Healthy ? "status-active" : "status-inactive")"></span>
                                 @(kvp.Value.Healthy ? "Healthy" : "Down")
                             </div>
                         </div>
@@ -281,27 +281,27 @@
 </div>
 
 <style>
-    /* Status metrics grid (matches SQM .sqm-metrics pattern) */
-    .ws-metrics {
+    /* Status metrics grid - same classes as SQM .sqm-metrics */
+    .ws-status-metrics {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 1rem;
     }
 
-    .ws-metric {
+    .ws-status-metrics .metric {
         text-align: center;
         padding: 1.25rem;
         background: var(--bg-primary);
         border-radius: 0.5rem;
     }
 
-    .ws-metric-label {
+    .ws-status-metrics .metric-label {
         font-size: 0.8rem;
         color: var(--text-secondary);
         margin-bottom: 0.25rem;
     }
 
-    .ws-metric-value {
+    .ws-status-metrics .metric-value {
         font-size: 1rem;
         font-weight: 500;
         display: flex;
@@ -310,16 +310,19 @@
         gap: 0.5rem;
     }
 
-    .ws-status-dot {
+    .ws-status-metrics .status-indicator {
         width: 10px;
         height: 10px;
         border-radius: 50%;
         display: inline-block;
-        background: var(--danger-color);
     }
 
-    .ws-status-dot.active {
+    .ws-status-metrics .status-active {
         background: var(--success-color);
+    }
+
+    .ws-status-metrics .status-inactive {
+        background: var(--danger-color);
     }
 
     /* Form grid layouts */
