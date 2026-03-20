@@ -73,56 +73,60 @@
         }
         else
         {
-            <div class="ws-metrics">
-                <div class="metric">
-                    <div class="metric-label">Binary</div>
-                    <div class="metric-value">
-                        <span class="status-dot @(_status.BinaryDeployed ? "online" : "offline")"></span>
-                        @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
+            <div class="ws-status-grid">
+                <div class="ws-status-subcard">
+                    <div class="ws-status-subcard-header">
+                        <span class="ws-status-indicator @(_status.IsRunning ? "active" : "")"></span>
+                        <span class="ws-status-subcard-title">Daemon</span>
+                        <span class="ws-status-subcard-detail">@(_status.IsRunning ? "Running" : "Stopped")</span>
                     </div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">Daemon</div>
-                    <div class="metric-value">
-                        <span class="status-dot @(_status.IsRunning ? "online" : "offline")"></span>
-                        @(_status.IsRunning ? "Running" : "Stopped")
-                    </div>
-                </div>
-                @if (_parsedStatus != null)
-                {
-                    <div class="metric">
-                        <div class="metric-label">Uptime</div>
-                        <div class="metric-value">@FormatUptime(_parsedStatus.StartedAt)</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Rules</div>
-                        <div class="metric-value">@_parsedStatus.RuleCount</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-label">Reconciles</div>
-                        <div class="metric-value">@_parsedStatus.ReconcileCount</div>
-                    </div>
-                }
-            </div>
-
-            @if (_parsedStatus?.WanHealth != null && _parsedStatus.WanHealth.Count > 0)
-            {
-                <div class="ws-health-section">
-                    <strong class="ws-section-label">WAN Health</strong>
-                    <div class="ws-metrics">
-                        @foreach (var kvp in _parsedStatus.WanHealth)
+                    <div class="ws-status-subcard-body">
+                        <div class="ws-status-row">
+                            <span class="ws-status-label">Binary</span>
+                            <span>@(_status.BinaryDeployed ? "Deployed" : "Not Deployed")</span>
+                        </div>
+                        @if (_parsedStatus != null)
                         {
-                            <div class="metric">
-                                <div class="metric-label">@kvp.Key</div>
-                                <div class="metric-value">
-                                    <span class="status-dot @(kvp.Value.Healthy ? "online" : "offline")"></span>
-                                    @(kvp.Value.Healthy ? "Healthy" : "Unhealthy")
-                                </div>
+                            <div class="ws-status-row">
+                                <span class="ws-status-label">Uptime</span>
+                                <span>@FormatUptime(_parsedStatus.StartedAt)</span>
+                            </div>
+                            <div class="ws-status-row">
+                                <span class="ws-status-label">Active Rules</span>
+                                <span>@_parsedStatus.RuleCount</span>
+                            </div>
+                            <div class="ws-status-row">
+                                <span class="ws-status-label">Reconciles</span>
+                                <span>@_parsedStatus.ReconcileCount</span>
                             </div>
                         }
                     </div>
                 </div>
-            }
+
+                @if (_parsedStatus?.WanHealth != null)
+                {
+                    @foreach (var kvp in _parsedStatus.WanHealth)
+                    {
+                        <div class="ws-status-subcard">
+                            <div class="ws-status-subcard-header">
+                                <span class="ws-status-indicator @(kvp.Value.Healthy ? "active" : "")"></span>
+                                <span class="ws-status-subcard-title">@kvp.Key</span>
+                                <span class="ws-status-subcard-detail">@(kvp.Value.Healthy ? "Healthy" : "Unhealthy")</span>
+                            </div>
+                            <div class="ws-status-subcard-body">
+                                <div class="ws-status-row">
+                                    <span class="ws-status-label">Consecutive Passes</span>
+                                    <span>@kvp.Value.PassCount</span>
+                                </div>
+                                <div class="ws-status-row">
+                                    <span class="ws-status-label">Consecutive Failures</span>
+                                    <span>@kvp.Value.FailCount</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
         }
     </div>
 </div>
@@ -144,7 +148,14 @@
         </button>
     </div>
     <div class="card-body">
-        @if (_wanInterfaces.Count == 0)
+        @if (_isDiscovering && _wanInterfaces.Count == 0)
+        {
+            <div class="loading-container">
+                <span class="spinner"></span>
+                <span>Discovering WAN interfaces...</span>
+            </div>
+        }
+        else if (_wanInterfaces.Count == 0)
         {
             <div class="empty-state">
                 <p>No WAN interfaces discovered. Ensure the UniFi Console is connected and the gateway has WAN connections configured.</p>
@@ -287,29 +298,65 @@
 </div>
 
 <style>
-    /* Compact metrics grid for status display */
-    .ws-metrics {
+    /* Status sub-cards (matches SQM wan-status-card pattern) */
+    .ws-status-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: 1rem;
     }
 
-    .ws-metrics .metric-value {
-        font-size: 0.9rem;
-        font-weight: 500;
+    .ws-status-subcard {
+        background: var(--bg-primary);
+        border: 1px solid var(--bg-tertiary);
+        border-radius: 0.75rem;
+        padding: 1rem;
     }
 
-    .ws-health-section {
-        margin-top: 1rem;
+    .ws-status-subcard-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
     }
 
-    .ws-section-label {
-        font-size: 0.875rem;
+    .ws-status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--text-muted);
+        flex-shrink: 0;
+    }
+
+    .ws-status-indicator.active {
+        background: var(--success-color);
+    }
+
+    .ws-status-subcard-title {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .ws-status-subcard-detail {
+        margin-left: auto;
+        font-size: 0.8rem;
         color: var(--text-secondary);
     }
 
-    .ws-health-section .ws-metrics {
-        margin-top: 0.5rem;
+    .ws-status-subcard-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .ws-status-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .ws-status-label {
+        color: var(--text-muted);
     }
 
     /* Form grid layouts */
@@ -450,7 +497,7 @@
     // State
     private bool _isLoading = true;
     private bool _isDeploying;
-    private bool _isDiscovering;
+    private bool _isDiscovering = true;
     private bool _gatewayConfigured;
     private string? _deployMessage;
     private bool _deploySuccess;
