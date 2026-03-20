@@ -431,6 +431,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        PtrState.RefreshCallback = () => LoadResults();
+        PtrState.NotifyStateChanged = StateHasChanged;
+
         var settings = await SettingsService.GetExternalSpeedTestSettingsAsync();
         _serverConfigured = settings.IsConfigured;
         _serverUrl = settings.Url;
