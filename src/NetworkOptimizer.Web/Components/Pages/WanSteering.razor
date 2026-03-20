@@ -290,11 +290,16 @@
 </div>
 
 <style>
-    /* Metrics grid - same pattern as Sqm.razor .sqm-metrics */
+    /* Compact metrics grid for status display */
     .ws-metrics {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
         gap: 1rem;
+    }
+
+    .ws-metrics .metric-value {
+        font-size: 0.9rem;
+        font-weight: 500;
     }
 
     .ws-health-section {
