@@ -476,6 +476,9 @@
     private string _editProtocol = "";
     private int _editProbabilityPercent = 100;
 
+    // Validation
+    private List<string> _validationErrors = new();
+
     // Status polling timer
     private System.Threading.Timer? _pollTimer;
 
@@ -644,19 +647,22 @@
         _editForm.Protocol = string.IsNullOrWhiteSpace(_editProtocol) ? null : _editProtocol;
         _editForm.Probability = _editProbabilityPercent / 100.0;
 
+        // Validate
+        _validationErrors = ValidateRule(_editForm);
+        if (_validationErrors.Count > 0)
+            return;
+
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
 
             if (_editingRuleId == 0)
             {
-                // New rule
                 _editForm.SortOrder = _rules.Count;
                 db.WanSteerTrafficClasses.Add(_editForm);
             }
             else
             {
-                // Update existing
                 var existing = await db.WanSteerTrafficClasses.FindAsync(_editForm.Id);
                 if (existing != null)
                 {
@@ -676,6 +682,7 @@
             await db.SaveChangesAsync();
             await LoadRulesAsync();
             _editingRuleId = null;
+            _validationErrors.Clear();
         }
         catch (Exception ex)
         {
@@ -686,6 +693,143 @@
     private void CancelEdit()
     {
         _editingRuleId = null;
+        _validationErrors.Clear();
+    }
+
+    // --- Validation ---
+
+    private static readonly System.Text.RegularExpressions.Regex CidrRegex = new(
+        @"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex MacRegex = new(
+        @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex PortRegex = new(
+        @"^\d{1,5}(:\d{1,5})?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private List<string> ValidateRule(WanSteerTrafficClass rule)
+    {
+        var errors = new List<string>();
+
+        // Name required
+        if (string.IsNullOrWhiteSpace(rule.Name))
+            errors.Add("Name is required.");
+
+        // Target WAN required
+        if (string.IsNullOrWhiteSpace(rule.TargetWanKey))
+            errors.Add("Target WAN is required.");
+
+        // Probability 1-100
+        if (rule.Probability <= 0 || rule.Probability > 1)
+            errors.Add("Probability must be between 1 and 100%.");
+
+        // At least one match criterion
+        bool hasSrcCidrs = !string.IsNullOrWhiteSpace(rule.SrcCidrsJson);
+        bool hasSrcMacs = !string.IsNullOrWhiteSpace(rule.SrcMacsJson);
+        bool hasDstCidrs = !string.IsNullOrWhiteSpace(rule.DstCidrsJson);
+        bool hasPorts = !string.IsNullOrWhiteSpace(rule.SrcPortsJson) || !string.IsNullOrWhiteSpace(rule.DstPortsJson);
+        bool hasProtocol = !string.IsNullOrWhiteSpace(rule.Protocol);
+
+        if (!hasSrcCidrs && !hasSrcMacs && !hasDstCidrs && !hasPorts && !hasProtocol)
+            errors.Add("At least one match criterion is required (source, destination, protocol, or ports).");
+
+        // Protocol required if ports specified
+        if (hasPorts && !hasProtocol)
+            errors.Add("Protocol (TCP or UDP) is required when ports are specified.");
+
+        // Validate CIDR formats
+        if (hasSrcCidrs)
+            ValidateCidrList(rule.SrcCidrsJson!, "Source CIDR", errors);
+        if (hasDstCidrs)
+            ValidateCidrList(rule.DstCidrsJson!, "Destination CIDR", errors);
+
+        // Validate MAC formats
+        if (hasSrcMacs)
+            ValidateMacList(rule.SrcMacsJson!, errors);
+
+        // Validate port formats
+        if (!string.IsNullOrWhiteSpace(rule.SrcPortsJson))
+            ValidatePortList(rule.SrcPortsJson!, "Source port", errors);
+        if (!string.IsNullOrWhiteSpace(rule.DstPortsJson))
+            ValidatePortList(rule.DstPortsJson!, "Destination port", errors);
+
+        return errors;
+    }
+
+    private static void ValidateCidrList(string json, string label, List<string> errors)
+    {
+        try
+        {
+            var cidrs = JsonSerializer.Deserialize<List<string>>(json);
+            if (cidrs == null) return;
+            foreach (var cidr in cidrs)
+            {
+                if (!CidrRegex.IsMatch(cidr.Trim()))
+                {
+                    errors.Add($"{label} \"{cidr}\" is not valid. Use format: 192.168.1.0/24");
+                    return; // One error per field is enough
+                }
+                // Validate octets and prefix length
+                var parts = cidr.Trim().Split('/');
+                var octets = parts[0].Split('.');
+                if (octets.Any(o => !int.TryParse(o, out var v) || v < 0 || v > 255))
+                {
+                    errors.Add($"{label} \"{cidr}\" has invalid IP octets (0-255).");
+                    return;
+                }
+                if (int.TryParse(parts[1], out var prefix) && (prefix < 0 || prefix > 32))
+                {
+                    errors.Add($"{label} \"{cidr}\" has invalid prefix length (0-32).");
+                    return;
+                }
+            }
+        }
+        catch { errors.Add($"{label} format is invalid."); }
+    }
+
+    private static void ValidateMacList(string json, List<string> errors)
+    {
+        try
+        {
+            var macs = JsonSerializer.Deserialize<List<string>>(json);
+            if (macs == null) return;
+            foreach (var mac in macs)
+            {
+                if (!MacRegex.IsMatch(mac.Trim()))
+                {
+                    errors.Add($"MAC address \"{mac}\" is not valid. Use format: aa:bb:cc:dd:ee:ff");
+                    return;
+                }
+            }
+        }
+        catch { errors.Add("MAC address format is invalid."); }
+    }
+
+    private static void ValidatePortList(string json, string label, List<string> errors)
+    {
+        try
+        {
+            var ports = JsonSerializer.Deserialize<List<string>>(json);
+            if (ports == null) return;
+            foreach (var port in ports)
+            {
+                if (!PortRegex.IsMatch(port.Trim()))
+                {
+                    errors.Add($"{label} \"{port}\" is not valid. Use a number (443) or range (27015:27030).");
+                    return;
+                }
+                // Validate port numbers are 1-65535
+                foreach (var p in port.Trim().Split(':'))
+                {
+                    if (int.TryParse(p, out var v) && (v < 1 || v > 65535))
+                    {
+                        errors.Add($"{label} \"{port}\" is out of range (1-65535).");
+                        return;
+                    }
+                }
+            }
+        }
+        catch { errors.Add($"{label} format is invalid."); }
     }
 
     private async Task DeleteRule(WanSteerTrafficClass rule)
@@ -1093,6 +1237,16 @@
                         </label>
                     </div>
                 </div>
+
+                @if (_validationErrors.Count > 0)
+                {
+                    <div class="alert alert-danger ws-deploy-alert">
+                        @foreach (var err in _validationErrors)
+                        {
+                            <div>@err</div>
+                        }
+                    </div>
+                }
 
                 <div class="ws-edit-actions">
                     <button class="btn btn-primary btn-sm" @onclick="SaveRule">Save</button>
