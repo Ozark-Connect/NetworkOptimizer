@@ -214,7 +214,7 @@
                     <div class="ws-rule-item">
                         <div class="ws-rule-row">
                             <div class="ws-rule-left">
-                                <label class="checkbox-label" data-tooltip="@(rule.Enabled ? "Enabled" : "Disabled")">
+                                <label class="checkbox-label" data-tooltip="@(rule.Enabled ? "Enabled" : "Disabled")" data-tooltip-hover-only>
                                     <input type="checkbox" checked="@rule.Enabled" @onchange="@(e => ToggleRuleEnabled(rule, (bool)(e.Value ?? false)))" />
                                 </label>
                                 <div class="ws-rule-info">
@@ -229,8 +229,8 @@
                                 }
                                 <span class="status-badge status-active">@rule.TargetWanKey</span>
                                 <div class="ws-sort-buttons">
-                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleUp(rule))" disabled="@(rule.SortOrder == 0)" data-tooltip="Move up">&#9650;</button>
-                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down">&#9660;</button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleUp(rule))" disabled="@(rule.SortOrder == 0)" data-tooltip="Move up" data-tooltip-hover-only>&#9650;</button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="@(() => MoveRuleDown(rule))" disabled="@(rule.SortOrder >= _rules.Count - 1)" data-tooltip="Move down" data-tooltip-hover-only>&#9660;</button>
                                 </div>
                                 <button class="btn btn-sm btn-secondary" @onclick="@(() => EditRule(rule))">Edit</button>
                                 <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteRule(rule))">Delete</button>
@@ -266,9 +266,9 @@
                     <span>Deploy</span>
                 }
             </button>
-            <button class="btn btn-secondary" @onclick="ReloadConfigAsync" disabled="@_isDeploying" data-tooltip="Upload latest config and signal daemon to reload">Reload Config</button>
+            <button class="btn btn-secondary" @onclick="ReloadConfigAsync" disabled="@_isDeploying" data-tooltip="Upload latest config and signal daemon to reload" data-tooltip-hover-only>Reload Config</button>
             <button class="btn btn-secondary" @onclick="StopAsync" disabled="@_isDeploying">Stop</button>
-            <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@_isDeploying" data-tooltip="Stop daemon and remove all files from gateway">Remove</button>
+            <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@_isDeploying" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
         </div>
 
         @if (!string.IsNullOrEmpty(_deployMessage))
