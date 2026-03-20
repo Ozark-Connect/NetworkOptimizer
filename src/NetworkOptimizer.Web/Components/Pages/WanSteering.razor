@@ -85,13 +85,6 @@
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
-                @if (_status.Version != null)
-                {
-                    <div class="metric">
-                        <div class="metric-label">Version</div>
-                        <div class="metric-value">@_status.Version</div>
-                    </div>
-                }
                 @if (_parsedStatus != null)
                 {
                     <div class="metric">
