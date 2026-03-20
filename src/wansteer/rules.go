@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"os/exec"
 	"strings"
 )
@@ -165,9 +166,14 @@ func buildSharedArgs(tc *TrafficClass) []string {
 	// Only match NEW connections
 	args = append(args, "-m", "state", "--state", "NEW")
 
-	// Load balance probability
-	args = append(args, "-m", "statistic", "--mode", "random",
-		"--probability", fmt.Sprintf("%.10f", tc.Probability))
+	// Load balance using round-robin (deterministic, not random)
+	// --every N matches every Nth packet: probability 0.5 = every 2, 0.33 = every 3, etc.
+	every := int(math.Round(1.0 / tc.Probability))
+	if every < 1 {
+		every = 1
+	}
+	args = append(args, "-m", "statistic", "--mode", "nth",
+		"--every", fmt.Sprintf("%d", every), "--packet", "0")
 
 	return args
 }

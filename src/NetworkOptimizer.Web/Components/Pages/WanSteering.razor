@@ -1298,7 +1298,7 @@
 
                 <div class="ws-form-row-3">
                     <div class="form-group">
-                        <label class="form-label">Probability <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Percentage of matching connections to steer. 100% = all matching traffic. 50% = load balance half to this WAN.">?</span></label>
+                        <label class="form-label">Ratio <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Percentage of matching connections to steer using round-robin. 100% = all traffic. 50% = every other connection. 33% = every 3rd connection.">?</span></label>
                         <input type="number" class="form-control" @bind="_editProbabilityPercent" min="1" max="100" />
                         <span class="form-help">100 = all matching traffic</span>
                     </div>
