@@ -774,6 +774,13 @@
                 return meshHop.WirelessRxRateMbps.Value;
         }
 
+        // For WAN client tests, the link to the wireless client should show TX rate (download to client)
+        // not RX rate (upload from client), since traffic flows WAN → client
+        if (nextHop.Type == HopType.WirelessClient && Result?.Direction == SpeedTestDirection.OpenSpeedTestWan)
+        {
+            return nextHop.IngressSpeedMbps; // TX rate (AP sends to client)
+        }
+
         var isWanType = hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport || hop.Type == HopType.Wan;
         return (hop.IsWirelessIngress || isWanType)
             ? hop.IngressSpeedMbps
@@ -921,14 +928,29 @@
             if (!string.IsNullOrEmpty(Result.WifiRadioProto))
                 lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}</div>");
 
-            // RX/TX speeds (RX first = "from device", TX = "to device")
+            // RX/TX speeds - order depends on test direction:
+            // LAN (BrowserToServer): RX first (↓ from device) then TX (↑ to device)
+            // WAN (OpenSpeedTestWan): TX first (↓ download to client) then RX (↑ upload from client)
             if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
             {
+                var isWanClient = Result.Direction == SpeedTestDirection.OpenSpeedTestWan;
                 var speedParts = new List<string>();
-                if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
-                    speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
-                if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
-                    speedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
+                if (isWanClient)
+                {
+                    // WAN: TX = download (blue), RX = upload (green)
+                    if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-rx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-tx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
+                }
+                else
+                {
+                    // LAN: RX = from device (blue), TX = to device (green)
+                    if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
+                }
                 if (speedParts.Count > 0)
                     lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
             }
@@ -986,13 +1008,27 @@
 
         // RX/TX speeds from parent AP's perspective (RX = FromDevice, TX = ToDevice)
         // Mesh hop stores child's perspective, so flip: child TX → parent RX, child RX → parent TX
+        // For WAN tests, swap order and colors (same as WiFi client tooltip)
         if (meshHop.WirelessTxRateMbps.HasValue || meshHop.WirelessRxRateMbps.HasValue)
         {
+            var isWanClient = Result?.Direction == SpeedTestDirection.OpenSpeedTestWan;
             var speedParts = new List<string>();
-            if (meshHop.WirelessTxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
-            if (meshHop.WirelessRxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
+            if (isWanClient)
+            {
+                // WAN: parent TX (child RX) = download (blue), parent RX (child TX) = upload (green)
+                if (meshHop.WirelessRxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-rx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
+                if (meshHop.WirelessTxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-tx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+            }
+            else
+            {
+                // LAN: parent RX (child TX) = from device (blue), parent TX (child RX) = to device (green)
+                if (meshHop.WirelessTxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+                if (meshHop.WirelessRxRateMbps.HasValue)
+                    speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
+            }
             lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
         }
 
@@ -1362,6 +1398,12 @@
         // First check if rates are stored on the result (Wi-Fi clients)
         if (Result?.WifiRxRateKbps > 0 && Result?.WifiTxRateKbps > 0)
         {
+            // For WAN client tests, swap RX/TX for efficiency calculation.
+            // LAN: FromDevice = client upload = limited by RX, ToDevice = client download = limited by TX
+            // WAN: FromDevice = client download = limited by TX, ToDevice = client upload = limited by RX
+            if (Result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+                return (Result.WifiTxRateKbps, Result.WifiRxRateKbps);
+
             return (Result.WifiRxRateKbps, Result.WifiTxRateKbps);
         }
 
@@ -1516,8 +1558,16 @@
             return "";
 
         // Only override with Wi-Fi rates when the bottleneck IS a wireless link
-        // If bottleneck is wired (e.g., 1 GbE backhaul), use the stored description
+        // If bottleneck is wired, WAN, or VPN, use the stored description
         if (!IsBottleneckAsymmetric())
+        {
+            return PathAnalysis.Path.BottleneckDescription;
+        }
+
+        // For WAN client tests where WAN is the bottleneck, use stored description
+        // (don't substitute WiFi rates for a WAN bottleneck)
+        var bottleneckHopForDesc = PathAnalysis.Path.Hops.FirstOrDefault(h => h.IsBottleneck);
+        if (bottleneckHopForDesc?.Type is HopType.Wan or HopType.Vpn or HopType.Tailscale or HopType.Teleport)
         {
             return PathAnalysis.Path.BottleneckDescription;
         }

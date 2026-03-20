@@ -34,10 +34,18 @@ if [ -f "$CONFIG_FILE" ]; then
         echo "Results will be sent to: $SAVE_DATA_URL"
     fi
 
+    # External server ID (set for WAN speed test servers, empty for LAN)
+    EXTERNAL_ID="${EXTERNAL_SERVER_ID:-}"
+
     # Replace placeholders with actual values
     sed -i "s|__SAVE_DATA__|$SAVE_DATA_VALUE|g" "$CONFIG_FILE"
     sed -i "s|__SAVE_DATA_URL__|$SAVE_DATA_URL|g" "$CONFIG_FILE"
     sed -i "s|__API_PATH__|$API_PATH|g" "$CONFIG_FILE"
+    sed -i "s|__EXTERNAL_SERVER_ID__|$EXTERNAL_ID|g" "$CONFIG_FILE"
+
+    if [ -n "$EXTERNAL_ID" ]; then
+        echo "External server ID: $EXTERNAL_ID (WAN speed test mode)"
+    fi
 
     echo "Configuration complete"
 else

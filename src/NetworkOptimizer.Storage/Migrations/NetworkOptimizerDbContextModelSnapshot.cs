@@ -776,6 +776,10 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ExternalServerName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("WanName")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");

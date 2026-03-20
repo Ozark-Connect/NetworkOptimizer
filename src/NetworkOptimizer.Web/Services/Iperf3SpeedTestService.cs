@@ -505,7 +505,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         results = results.Where(r => r.Direction != SpeedTestDirection.CloudflareWan
                                   && r.Direction != SpeedTestDirection.CloudflareWanGateway
                                   && r.Direction != SpeedTestDirection.UwnWan
-                                  && r.Direction != SpeedTestDirection.UwnWanGateway).ToList();
+                                  && r.Direction != SpeedTestDirection.UwnWanGateway
+                                  && r.Direction != SpeedTestDirection.OpenSpeedTestWan).ToList();
 
         // Retry path analysis for recent results (last 30 min) without a valid path
         var retryWindow = DateTime.UtcNow.AddMinutes(-30);

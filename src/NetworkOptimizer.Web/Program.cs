@@ -538,6 +538,17 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Load external speed test server origin into CORS cache (from SystemSettings)
+{
+    var sysSettings = app.Services.GetRequiredService<SystemSettingsService>();
+    var extSettings = await sysSettings.GetExternalSpeedTestSettingsAsync();
+    sysSettings.UpdateCachedExternalOrigin(extSettings);
+    if (extSettings.IsConfigured)
+    {
+        app.Logger.LogInformation("External speed test server configured: {Url}", extSettings.Url);
+    }
+}
+
 // Pre-generate the credential encryption key (resolves singleton, triggering key creation)
 app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialProtectionService>().EnsureKeyExists();
 
@@ -705,6 +716,34 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseAntiforgery();
 app.UseCors(); // Required for OpenSpeedTest to POST results
 
+// Dynamic CORS for external speed test servers (configured via Settings UI, not env vars)
+// Adds Access-Control-Allow-Origin for the external server origin on public speed test endpoints
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "";
+    if (path.StartsWith("/api/public/speedtest/", StringComparison.OrdinalIgnoreCase))
+    {
+        var origin = context.Request.Headers.Origin.FirstOrDefault();
+        if (!string.IsNullOrEmpty(origin))
+        {
+            var sysSettings = context.RequestServices.GetRequiredService<SystemSettingsService>();
+            if (sysSettings.IsExternalSpeedTestOrigin(origin))
+            {
+                context.Response.Headers["Access-Control-Allow-Origin"] = origin;
+                context.Response.Headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+                context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type";
+
+                if (context.Request.Method == "OPTIONS")
+                {
+                    context.Response.StatusCode = 204;
+                    return;
+                }
+            }
+        }
+    }
+    await next();
+});
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
@@ -823,11 +862,14 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
     // Test duration per direction (seconds)
     int? duration = int.TryParse(GetValue("dur"), out var dur) ? dur : null;
 
+    // External server identifier (WAN speed tests from remote OpenSpeedTest servers)
+    var externalServerId = GetValue("srv");
+
     var clientIp = GetClientIp(context);
 
     var result = await service.RecordOpenSpeedTestResultAsync(
         clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
-        latitude, longitude, locationAccuracy, duration);
+        latitude, longitude, locationAccuracy, duration, externalServerId);
 
     return Results.Ok(new
     {
@@ -868,6 +910,15 @@ app.MapGet("/api/speedtest/client-results", async (ClientSpeedTestService servic
 
     // Return all results
     return Results.Ok(await service.GetResultsAsync(count));
+});
+
+// Authenticated endpoint for viewing WAN client speed test results (external OpenSpeedTest servers)
+app.MapGet("/api/speedtest/wan-client-results", async (ClientSpeedTestService service, int count = 50, int hours = 0) =>
+{
+    if (count < 1) count = 1;
+    if (count > 1000) count = 1000;
+
+    return Results.Ok(await service.GetWanResultsAsync(count, hours));
 });
 
 // Authenticated endpoint for deleting a client speed test result
