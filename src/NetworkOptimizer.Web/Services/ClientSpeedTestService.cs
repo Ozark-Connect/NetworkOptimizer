@@ -54,23 +54,31 @@ public class ClientSpeedTestService
         double? latitude = null,
         double? longitude = null,
         int? locationAccuracy = null,
-        int? durationSeconds = null)
+        int? durationSeconds = null,
+        string? externalServerId = null)
     {
+        // Determine direction based on whether this came from an external server
+        var isWan = !string.IsNullOrWhiteSpace(externalServerId);
+
         // Get server's local IP for path analysis
         var serverIp = _configuration["HOST_IP"];
 
-        // Store from SERVER's perspective (consistent with SSH-based tests):
-        // - DownloadBitsPerSecond = data server received FROM client = client's upload
-        // - UploadBitsPerSecond = data server sent TO client = client's download
+        // LAN (BrowserToServer): Store from SERVER's perspective (consistent with SSH-based tests):
+        //   DownloadBitsPerSecond = data server received FROM client = client's upload
+        //   UploadBitsPerSecond = data server sent TO client = client's download
+        // WAN (OpenSpeedTestWan): Store from CLIENT's perspective (consistent with other WAN tests):
+        //   DownloadBitsPerSecond = client's WAN download speed
+        //   UploadBitsPerSecond = client's WAN upload speed
         var result = new Iperf3Result
         {
-            Direction = SpeedTestDirection.BrowserToServer,
+            Direction = isWan ? SpeedTestDirection.OpenSpeedTestWan : SpeedTestDirection.BrowserToServer,
+            ExternalServerName = isWan ? externalServerId : null,
             DeviceHost = clientIp,
             LocalIp = serverIp,
-            DownloadBitsPerSecond = uploadMbps * 1_000_000.0,  // Client upload = server download
-            UploadBitsPerSecond = downloadMbps * 1_000_000.0,  // Client download = server upload
-            DownloadBytes = (long)((uploadDataMb ?? 0) * 1_048_576),  // MB to bytes
-            UploadBytes = (long)((downloadDataMb ?? 0) * 1_048_576),  // MB to bytes
+            DownloadBitsPerSecond = isWan ? downloadMbps * 1_000_000.0 : uploadMbps * 1_000_000.0,
+            UploadBitsPerSecond = isWan ? uploadMbps * 1_000_000.0 : downloadMbps * 1_000_000.0,
+            DownloadBytes = isWan ? (long)((downloadDataMb ?? 0) * 1_048_576) : (long)((uploadDataMb ?? 0) * 1_048_576),
+            UploadBytes = isWan ? (long)((uploadDataMb ?? 0) * 1_048_576) : (long)((downloadDataMb ?? 0) * 1_048_576),
             PingMs = pingMs,
             JitterMs = jitterMs,
             UserAgent = userAgent,
@@ -91,13 +99,14 @@ public class ClientSpeedTestService
         var resultId = result.Id;
 
         _logger.LogInformation(
-            "Recorded OpenSpeedTest result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps",
-            result.DeviceHost, result.DownloadMbps, result.UploadMbps);
+            "Recorded OpenSpeedTest{Wan} result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps{Server}",
+            isWan ? " WAN" : "", result.DeviceHost, result.DownloadMbps, result.UploadMbps,
+            isWan ? $" (server: {externalServerId})" : "");
 
         // Publish speed test alert event
         await PublishSpeedTestAlertAsync(result);
 
-        // Enrich and analyze in background (after WiFi rates stabilize)
+        // Enrich and analyze in background (client IP is known, trace internal path)
         _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(resultId));
 
         return result;
@@ -280,6 +289,52 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// Get recent WAN speed test results from external OpenSpeedTest servers.
+    /// </summary>
+    public async Task<List<Iperf3Result>> GetWanResultsAsync(int count = 50, int hours = 0)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var query = db.Iperf3Results
+            .Where(r => r.Direction == SpeedTestDirection.OpenSpeedTestWan);
+
+        if (hours > 0)
+        {
+            var cutoff = DateTime.UtcNow.AddHours(-hours);
+            query = query.Where(r => r.TestTime >= cutoff);
+        }
+
+        query = query.OrderByDescending(r => r.TestTime);
+
+        if (count > 0)
+            query = query.Take(count);
+
+        var results = await query.ToListAsync();
+
+        // Retry path analysis for results without valid paths
+        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
+        var needsRetry = results.Where(r =>
+            r.TestTime > retryWindow &&
+            (r.PathAnalysis == null ||
+             r.PathAnalysis.Path == null ||
+             !r.PathAnalysis.Path.IsValid))
+            .ToList();
+
+        if (needsRetry.Count > 0)
+        {
+            _logger.LogInformation("Retrying path analysis for {Count} WAN results without valid paths", needsRetry.Count);
+            foreach (var result in needsRetry)
+            {
+                await AnalyzePathAsync(result);
+                BackfillFromPathAnalysis(result);
+                UpdateWifiRatesFromPathAnalysis(result);
+            }
+            await db.SaveChangesAsync();
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// Get client speed test results for a specific IP.
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsByIpAsync(string clientIp, int count = 20)
@@ -367,14 +422,24 @@ public class ClientSpeedTestService
                 _pathAnalyzer.InvalidateTopologyCache();
             }
 
-            // Calculate path from server to client, using snapshot to pick max wireless rates
-            var path = await _pathAnalyzer.CalculatePathAsync(
-                result.DeviceHost,
-                result.LocalIp,
-                retryOnFailure: true,
-                priorSnapshot);
+            NetworkPath path;
+            if (result.Direction == SpeedTestDirection.OpenSpeedTestWan)
+            {
+                // WAN speed test: path is WAN → Gateway → ... → Client
+                // Pass snapshot for stable WiFi rates (same as LAN tests)
+                path = await _pathAnalyzer.CalculateWanClientPathAsync(
+                    result.DeviceHost, result.LocalIp, priorSnapshot);
+            }
+            else
+            {
+                // LAN speed test: path from server to client
+                path = await _pathAnalyzer.CalculatePathAsync(
+                    result.DeviceHost,
+                    result.LocalIp,
+                    retryOnFailure: true,
+                    priorSnapshot);
+            }
 
-            // Analyze speed test against the path
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,
@@ -415,6 +480,7 @@ public class ClientSpeedTestService
             if (wirelessHop != null)
             {
                 // IngressSpeedMbps = Tx (ToDevice), EgressSpeedMbps = Rx (FromDevice)
+                // Wireless hops are NOT swapped during WAN path reversal (physical link properties)
                 var maxTxKbps = (long)(wirelessHop.IngressSpeedMbps * 1000);
                 var maxRxKbps = (long)(wirelessHop.EgressSpeedMbps * 1000);
 

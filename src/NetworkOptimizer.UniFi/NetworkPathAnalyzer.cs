@@ -54,6 +54,13 @@ public interface INetworkPathAnalyzer
     Task<NetworkPath> CalculatePathToGatewayAsync(string clientIp, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Calculates the network path for a WAN client speed test (OpenSpeedTestWan).
+    /// The path is WAN → Gateway → switches → (AP →) Client, showing the full route
+    /// from the external speed test server through WAN to the client device.
+    /// </summary>
+    Task<NetworkPath> CalculateWanClientPathAsync(string clientIp, string? sourceIp = null, WirelessRateSnapshot? priorSnapshot = null, string? resolvedWanGroup = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Identifies which WAN connection was used based on the Cloudflare-reported external IP.
     /// Returns the WAN network group (e.g. "WAN", "WAN2") and friendly name (e.g. "Starlink").
     /// When measured speeds are provided and no direct IP match is found (e.g. CGNAT),
@@ -111,15 +118,16 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// traffic, APs report the management frame rate (exactly 6 Mbps) as the link rate.
     /// This is not a real throughput rate and should be treated as "unknown".
     /// </summary>
-    private const long WifiIdleRateKbps = 6000;
+    private const long WifiIdle6MbpsKbps = 6000;
+    private const long WifiIdle8MbpsKbps = 8000;
 
     /// <summary>
-    /// Returns the rate if it's not the idle management frame rate, otherwise 0.
-    /// Wi-Fi radios report exactly 6 Mbps when idle, which isn't useful for
-    /// throughput analysis. Other low rates are legitimate for slow links.
+    /// Returns the rate if it's not an idle management frame rate, otherwise 0.
+    /// Wi-Fi radios report exactly 6 or 8 Mbps when idle (management frame rates),
+    /// which aren't useful for throughput analysis.
     /// </summary>
     private static long FilterIdleRate(long rateKbps) =>
-        rateKbps == WifiIdleRateKbps ? 0 : rateKbps;
+        rateKbps is WifiIdle6MbpsKbps or WifiIdle8MbpsKbps ? 0 : rateKbps;
 
     // Mesh backhaul overhead factor - ~45% overhead due to half-duplex, retransmits, etc.
     private const double MeshBackhaulOverheadFactor = 0.55;
@@ -906,6 +914,140 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             _logger.LogError(ex, "Error calculating path to gateway for {Client}", clientIp);
             path.IsValid = false;
             path.ErrorMessage = $"Error calculating path: {ex.Message}";
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// Calculates the network path for a WAN client speed test (OpenSpeedTestWan).
+    /// Builds: WAN → Gateway → switches → (AP →) Client by combining a WAN hop
+    /// with the CalculatePathToGatewayAsync result.
+    /// </summary>
+    public async Task<NetworkPath> CalculateWanClientPathAsync(
+        string clientIp,
+        string? sourceIp = null,
+        WirelessRateSnapshot? priorSnapshot = null,
+        string? resolvedWanGroup = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Get the LAN path (client → gateway) and apply snapshot for stable WiFi rates
+        var path = await CalculatePathToGatewayAsync(clientIp, cancellationToken);
+
+        // Apply snapshot rates to wireless hops (CalculatePathToGatewayAsync doesn't support snapshots natively)
+        // Covers both WiFi client hops and wireless mesh backhaul hops
+        if (priorSnapshot != null && path.IsValid)
+        {
+            foreach (var hop in path.Hops)
+            {
+                if (hop.Type == HopType.WirelessClient && !string.IsNullOrEmpty(hop.DeviceMac))
+                {
+                    if (priorSnapshot.ClientRates.TryGetValue(hop.DeviceMac, out var clientRates))
+                    {
+                        var snapshotTxMbps = (int)(clientRates.TxKbps / 1000);
+                        var snapshotRxMbps = (int)(clientRates.RxKbps / 1000);
+                        if (snapshotTxMbps > hop.IngressSpeedMbps)
+                            hop.IngressSpeedMbps = snapshotTxMbps;
+                        if (snapshotRxMbps > hop.EgressSpeedMbps)
+                            hop.EgressSpeedMbps = snapshotRxMbps;
+                    }
+                }
+
+                // Mesh backhaul hops (wireless AP uplinks) - rates are in WirelessTxRateMbps/WirelessRxRateMbps
+                // Matches BuildHopList pattern: FilterIdleRate, then max(current, snapshot)
+                if (hop.IsWirelessEgress && hop.Type != HopType.WirelessClient && !string.IsNullOrEmpty(hop.DeviceMac))
+                {
+                    if (priorSnapshot.MeshUplinkRates.TryGetValue(hop.DeviceMac, out var meshRates))
+                    {
+                        var snapshotTxKbps = FilterIdleRate(meshRates.TxKbps);
+                        var snapshotRxKbps = FilterIdleRate(meshRates.RxKbps);
+                        var snapshotTxMbps = snapshotTxKbps > 0 ? (int)(snapshotTxKbps / 1000) : 0;
+                        var snapshotRxMbps = snapshotRxKbps > 0 ? (int)(snapshotRxKbps / 1000) : 0;
+                        if (snapshotTxMbps > (hop.WirelessTxRateMbps ?? 0))
+                            hop.WirelessTxRateMbps = snapshotTxMbps;
+                        if (snapshotRxMbps > (hop.WirelessRxRateMbps ?? 0))
+                            hop.WirelessRxRateMbps = snapshotRxMbps;
+                    }
+                }
+            }
+        }
+        if (!path.IsValid || path.Hops.Count == 0)
+            return path;
+
+        // Build WAN hop from topology
+        try
+        {
+            var topology = await GetTopologyAsync(cancellationToken);
+            if (topology == null)
+                return path;
+
+            var rawDevices = await GetRawDevicesAsync(cancellationToken);
+            var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices, resolvedWanGroup: resolvedWanGroup);
+
+            var wanNetwork = topology.Networks.FirstOrDefault(n =>
+                n.IsWan && n.WanNetworkgroup != null &&
+                n.WanNetworkgroup.Equals(resolvedWanGroup ?? "WAN", StringComparison.OrdinalIgnoreCase))
+                ?? topology.Networks.FirstOrDefault(n => n.IsPrimaryWan);
+
+            var wanHop = new NetworkHop
+            {
+                Order = -1,
+                Type = HopType.Wan,
+                DeviceName = !string.IsNullOrEmpty(wanNetwork?.Name) ? wanNetwork.Name : "WAN",
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                IngressPortName = "WAN",
+                EgressPortName = "WAN",
+                SmartQueueEnabled = wanNetwork?.WanSmartqEnabled,
+                Notes = wanUploadMbps > 0
+                    ? $"External speed test (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : "External speed test server"
+            };
+
+            // Reverse the LAN hops (Client → ... → Gateway becomes Gateway → ... → Client)
+            // then prepend WAN hop so final order is: WAN → Gateway → ... → Client.
+            // Swap ingress/egress on WIRED hops since traffic direction is reversed.
+            // Wireless hops keep TX/RX as-is - they are physical properties of the radio link.
+            path.Hops.Reverse();
+            for (int i = 0; i < path.Hops.Count; i++)
+            {
+                var hop = path.Hops[i];
+                hop.Order = i + 1;
+
+                if (hop.Type == HopType.WirelessClient)
+                {
+                    // WiFi client: TX/RX rates are physical link properties, don't swap
+                    // Just swap the port numbers/names for display order consistency
+                    (hop.IngressPort, hop.EgressPort) = (hop.EgressPort, hop.IngressPort);
+                    (hop.IngressPortName, hop.EgressPortName) = (hop.EgressPortName, hop.IngressPortName);
+                }
+                else
+                {
+                    // Wired hops: swap ingress <-> egress (ports, speeds, wireless flags, bands)
+                    (hop.IngressPort, hop.EgressPort) = (hop.EgressPort, hop.IngressPort);
+                    (hop.IngressPortName, hop.EgressPortName) = (hop.EgressPortName, hop.IngressPortName);
+                    (hop.IngressSpeedMbps, hop.EgressSpeedMbps) = (hop.EgressSpeedMbps, hop.IngressSpeedMbps);
+                    (hop.IsWirelessIngress, hop.IsWirelessEgress) = (hop.IsWirelessEgress, hop.IsWirelessIngress);
+                    (hop.WirelessIngressBand, hop.WirelessEgressBand) = (hop.WirelessEgressBand, hop.WirelessIngressBand);
+                }
+            }
+
+            wanHop.Order = 0;
+            path.Hops.Insert(0, wanHop);
+            path.IsExternalPath = true;
+
+            // Reset bottleneck flags from CalculatePathToGatewayAsync's initial calculation,
+            // then recalculate with the WAN hop included
+            foreach (var hop in path.Hops)
+                hop.IsBottleneck = false;
+            CalculateBottleneck(path);
+
+            _logger.LogInformation("WAN client path calculated: WAN -> {Client}, {HopCount} hops, WAN {Down}/{Up} Mbps",
+                clientIp, path.Hops.Count, wanDownloadMbps, wanUploadMbps);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to add WAN hop to client path, returning LAN-only path");
         }
 
         return path;
@@ -2568,7 +2710,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 {
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
-                    bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress);
+                    // If this hop's egress feeds into a WirelessClient, it's a Wi-Fi link
+                    var hopIdx = path.Hops.IndexOf(hop);
+                    var nextIsWireless = hopIdx >= 0 && hopIdx + 1 < path.Hops.Count
+                        && path.Hops[hopIdx + 1].Type == HopType.WirelessClient;
+                    bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress || nextIsWireless);
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessEgress &&
                         hop.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;

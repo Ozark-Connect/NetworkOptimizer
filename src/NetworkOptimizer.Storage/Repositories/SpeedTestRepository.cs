@@ -318,7 +318,8 @@ public class SpeedTestRepository : ISpeedTestRepository
                 .Where(r => r.Direction != SpeedTestDirection.CloudflareWan
                           && r.Direction != SpeedTestDirection.CloudflareWanGateway
                           && r.Direction != SpeedTestDirection.UwnWan
-                          && r.Direction != SpeedTestDirection.UwnWanGateway)
+                          && r.Direction != SpeedTestDirection.UwnWanGateway
+                          && r.Direction != SpeedTestDirection.OpenSpeedTestWan)
                 .ToListAsync(cancellationToken);
             if (lanResults.Count > 0)
             {

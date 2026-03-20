@@ -260,6 +260,21 @@ public class PathAnalysisResult
             var fromDeviceMaxMbps = wifiRxRateKbps.Value / 1000.0;
             var toDeviceMaxMbps = wifiTxRateKbps.Value / 1000.0;
 
+            // For external paths (WAN speed tests), cap max at WAN bottleneck speed.
+            // WiFi link may be faster but WAN is the limiting factor.
+            if (Path.IsExternalPath)
+            {
+                var wanHop = Path.Hops.FirstOrDefault(h => h.Type == HopType.Wan);
+                if (wanHop != null)
+                {
+                    // WAN hop: IngressSpeedMbps = download, EgressSpeedMbps = upload
+                    if (wanHop.IngressSpeedMbps > 0)
+                        fromDeviceMaxMbps = Math.Min(fromDeviceMaxMbps, wanHop.IngressSpeedMbps);
+                    if (wanHop.EgressSpeedMbps > 0)
+                        toDeviceMaxMbps = Math.Min(toDeviceMaxMbps, wanHop.EgressSpeedMbps);
+                }
+            }
+
             // When mesh is the bottleneck, cap max to mesh directional rates (client wifi is
             // faster but data must traverse the slower mesh link). Mesh hop stores child AP's
             // perspective: TX = child sends toward server (FromDevice), RX = child receives (ToDevice).
