@@ -246,20 +246,41 @@
     </div>
     <div class="card-body">
         <div class="ws-deploy-buttons">
-            <button class="btn btn-primary" @onclick="DeployAsync" disabled="@_isDeploying">
-                @if (_isDeploying)
+            @if (_status?.IsRunning == true)
+            {
+                <button class="btn btn-primary" @onclick="ReloadConfigAsync" disabled="@_isDeploying">
+                    @if (_isDeploying)
+                    {
+                        <span class="spinner spinner-sm"></span>
+                        <span>Deploying...</span>
+                    }
+                    else
+                    {
+                        <span>Deploy Config</span>
+                    }
+                </button>
+                <button class="btn btn-secondary" @onclick="DeployAsync" disabled="@_isDeploying">Redeploy</button>
+                <button class="btn btn-secondary" @onclick="StopAsync" disabled="@_isDeploying">Stop</button>
+                <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@_isDeploying" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+            }
+            else
+            {
+                <button class="btn btn-primary" @onclick="DeployAsync" disabled="@_isDeploying">
+                    @if (_isDeploying)
+                    {
+                        <span class="spinner spinner-sm"></span>
+                        <span>Deploying...</span>
+                    }
+                    else
+                    {
+                        <span>Deploy</span>
+                    }
+                </button>
+                @if (_status?.BinaryDeployed == true)
                 {
-                    <span class="spinner spinner-sm"></span>
-                    <span>Deploying...</span>
+                    <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@_isDeploying" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
                 }
-                else
-                {
-                    <span>Deploy</span>
-                }
-            </button>
-            <button class="btn btn-secondary" @onclick="ReloadConfigAsync" disabled="@_isDeploying" data-tooltip="Upload latest config and signal daemon to reload" data-tooltip-hover-only>Reload Config</button>
-            <button class="btn btn-secondary" @onclick="StopAsync" disabled="@_isDeploying">Stop</button>
-            <button class="btn btn-danger btn-sm" @onclick="RemoveAsync" disabled="@_isDeploying" data-tooltip="Stop daemon and remove all files from gateway" data-tooltip-hover-only>Remove</button>
+            }
         </div>
 
         @if (!string.IsNullOrEmpty(_deployMessage))
