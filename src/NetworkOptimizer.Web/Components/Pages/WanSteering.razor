@@ -73,55 +73,38 @@
         }
         else
         {
-            <div class="ws-status-grid">
-                <div class="ws-status-subcard">
-                    <div class="ws-status-subcard-header">
-                        <span class="ws-status-indicator @(_status.IsRunning ? "active" : "")"></span>
-                        <span class="ws-status-subcard-title">Daemon</span>
-                        <span class="ws-status-subcard-detail">@(_status.IsRunning ? "Running" : "Stopped")</span>
-                    </div>
-                    <div class="ws-status-subcard-body">
-                        <div class="ws-status-row">
-                            <span class="ws-status-label">Binary</span>
-                            <span>@(_status.BinaryDeployed ? "Deployed" : "Not Deployed")</span>
-                        </div>
-                        @if (_parsedStatus != null)
-                        {
-                            <div class="ws-status-row">
-                                <span class="ws-status-label">Uptime</span>
-                                <span>@FormatUptime(_parsedStatus.StartedAt)</span>
-                            </div>
-                            <div class="ws-status-row">
-                                <span class="ws-status-label">Active Rules</span>
-                                <span>@_parsedStatus.RuleCount</span>
-                            </div>
-                            <div class="ws-status-row">
-                                <span class="ws-status-label">Reconciles</span>
-                                <span>@_parsedStatus.ReconcileCount</span>
-                            </div>
-                        }
+            <div class="ws-metrics">
+                <div class="ws-metric">
+                    <div class="ws-metric-label">Binary</div>
+                    <div class="ws-metric-value">
+                        <span class="ws-status-dot @(_status.BinaryDeployed ? "active" : "")"></span>
+                        @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
-
-                @if (_parsedStatus?.WanHealth != null)
+                <div class="ws-metric">
+                    <div class="ws-metric-label">Daemon</div>
+                    <div class="ws-metric-value">
+                        <span class="ws-status-dot @(_status.IsRunning ? "active" : "")"></span>
+                        @(_status.IsRunning ? "Running" : "Stopped")
+                    </div>
+                </div>
+                @if (_parsedStatus != null)
                 {
+                    <div class="ws-metric">
+                        <div class="ws-metric-label">Uptime</div>
+                        <div class="ws-metric-value">@FormatUptime(_parsedStatus.StartedAt)</div>
+                    </div>
+                    <div class="ws-metric">
+                        <div class="ws-metric-label">Active Rules</div>
+                        <div class="ws-metric-value">@_parsedStatus.RuleCount</div>
+                    </div>
                     @foreach (var kvp in _parsedStatus.WanHealth)
                     {
-                        <div class="ws-status-subcard">
-                            <div class="ws-status-subcard-header">
-                                <span class="ws-status-indicator @(kvp.Value.Healthy ? "active" : "")"></span>
-                                <span class="ws-status-subcard-title">@kvp.Key</span>
-                                <span class="ws-status-subcard-detail">@(kvp.Value.Healthy ? "Healthy" : "Unhealthy")</span>
-                            </div>
-                            <div class="ws-status-subcard-body">
-                                <div class="ws-status-row">
-                                    <span class="ws-status-label">Consecutive Passes</span>
-                                    <span>@kvp.Value.PassCount</span>
-                                </div>
-                                <div class="ws-status-row">
-                                    <span class="ws-status-label">Consecutive Failures</span>
-                                    <span>@kvp.Value.FailCount</span>
-                                </div>
+                        <div class="ws-metric">
+                            <div class="ws-metric-label">@kvp.Key</div>
+                            <div class="ws-metric-value">
+                                <span class="ws-status-dot @(kvp.Value.Healthy ? "active" : "")"></span>
+                                @(kvp.Value.Healthy ? "Healthy" : "Down")
                             </div>
                         </div>
                     }
@@ -298,65 +281,45 @@
 </div>
 
 <style>
-    /* Status sub-cards (matches SQM wan-status-card pattern) */
-    .ws-status-grid {
+    /* Status metrics grid (matches SQM .sqm-metrics pattern) */
+    .ws-metrics {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 1rem;
     }
 
-    .ws-status-subcard {
+    .ws-metric {
+        text-align: center;
+        padding: 1.25rem;
         background: var(--bg-primary);
-        border: 1px solid var(--bg-tertiary);
-        border-radius: 0.75rem;
-        padding: 1rem;
+        border-radius: 0.5rem;
     }
 
-    .ws-status-subcard-header {
+    .ws-metric-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+
+    .ws-metric-value {
+        font-size: 1rem;
+        font-weight: 500;
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: 0.5rem;
-        margin-bottom: 0.75rem;
     }
 
-    .ws-status-indicator {
+    .ws-status-dot {
         width: 10px;
         height: 10px;
         border-radius: 50%;
-        background: var(--text-muted);
-        flex-shrink: 0;
+        display: inline-block;
+        background: var(--danger-color);
     }
 
-    .ws-status-indicator.active {
+    .ws-status-dot.active {
         background: var(--success-color);
-    }
-
-    .ws-status-subcard-title {
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .ws-status-subcard-detail {
-        margin-left: auto;
-        font-size: 0.8rem;
-        color: var(--text-secondary);
-    }
-
-    .ws-status-subcard-body {
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-    }
-
-    .ws-status-row {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-    }
-
-    .ws-status-label {
-        color: var(--text-muted);
     }
 
     /* Form grid layouts */
