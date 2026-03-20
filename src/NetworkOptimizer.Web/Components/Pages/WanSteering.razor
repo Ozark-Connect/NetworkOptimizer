@@ -516,7 +516,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load WAN Steer traffic rules");
+            Logger.LogError(ex, "Failed to load WAN Steeringtraffic rules");
         }
     }
 
@@ -543,7 +543,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Failed to refresh WAN Steer status");
+            Logger.LogDebug(ex, "Failed to refresh WAN Steeringstatus");
         }
         finally
         {
@@ -564,7 +564,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Failed to poll WAN Steer status");
+            Logger.LogDebug(ex, "Failed to poll WAN Steeringstatus");
         }
     }
 
@@ -932,7 +932,7 @@
 
             var (success, error) = await DeployService.DeployAsync(progress);
             _deploySuccess = success;
-            _deployMessage = success ? "WAN Steer deployed successfully." : error;
+            _deployMessage = success ? "WAN Steeringdeployed successfully." : error;
 
             await RefreshStatusQuietAsync();
         }
@@ -1010,7 +1010,7 @@
         {
             var (success, error) = await DeployService.RemoveAsync();
             _deploySuccess = success;
-            _deployMessage = success ? "WAN Steer removed from gateway." : error;
+            _deployMessage = success ? "WAN Steeringremoved from gateway." : error;
             await RefreshStatusQuietAsync();
         }
         catch (Exception ex)
@@ -1153,7 +1153,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Failed to parse WAN Steer status JSON");
+            Logger.LogDebug(ex, "Failed to parse WAN Steeringstatus JSON");
         }
     }
 

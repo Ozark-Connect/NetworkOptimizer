@@ -66,7 +66,7 @@ public class WanSteerDeploymentService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to get WAN Steer status");
+            _logger.LogDebug(ex, "Failed to get WAN Steering status");
         }
 
         return status;
@@ -132,13 +132,13 @@ public class WanSteerDeploymentService
                 return (false, errorMsg);
             }
 
-            _logger.LogInformation("WAN Steer deployed and started successfully");
-            progress?.Report("WAN Steer deployed successfully");
+            _logger.LogInformation("WAN Steering deployed and started successfully");
+            progress?.Report("WAN Steering deployed successfully");
             return (true, null);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deploy WAN Steer");
+            _logger.LogError(ex, "Failed to deploy WAN Steering");
             return (false, ex.Message);
         }
     }
@@ -149,11 +149,11 @@ public class WanSteerDeploymentService
         {
             await _gatewaySsh.RunCommandAsync(
                 "pkill -x wansteer 2>/dev/null; sleep 1", TimeSpan.FromSeconds(10));
-            _logger.LogInformation("WAN Steer daemon stopped");
+            _logger.LogInformation("WAN Steering daemon stopped");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to stop WAN Steer daemon");
+            _logger.LogError(ex, "Failed to stop WAN Steering daemon");
         }
     }
 
@@ -181,12 +181,12 @@ public class WanSteerDeploymentService
             if (reloadResult.output.Contains("not_running"))
                 return (false, "Daemon is not running. Deploy first.");
 
-            _logger.LogInformation("WAN Steer config reloaded");
+            _logger.LogInformation("WAN Steering config reloaded");
             return (true, null);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to reload WAN Steer config");
+            _logger.LogError(ex, "Failed to reload WAN Steering config");
             return (false, ex.Message);
         }
     }
@@ -199,12 +199,12 @@ public class WanSteerDeploymentService
                 $"pkill -x wansteer 2>/dev/null; sleep 1; rm -rf {RemoteDir} && rm -f {BootScriptPath} && rm -f {RemoteStatusPath}",
                 TimeSpan.FromSeconds(15));
 
-            _logger.LogInformation("WAN Steer removed from gateway");
+            _logger.LogInformation("WAN Steering removed from gateway");
             return (true, null);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to remove WAN Steer");
+            _logger.LogError(ex, "Failed to remove WAN Steering");
             return (false, ex.Message);
         }
     }
@@ -272,7 +272,7 @@ public class WanSteerDeploymentService
                 result.Add(wanInfo);
             }
 
-            _logger.LogDebug("Discovered {Count} WAN interfaces for WAN Steer: {WANs}",
+            _logger.LogDebug("Discovered {Count} WAN interfaces for WAN Steering: {WANs}",
                 result.Count, string.Join(", ", result.Select(w => $"{w.Name} ({w.Interface}, fwmark={w.FWMark})")));
         }
         catch (Exception ex)
@@ -366,7 +366,7 @@ public class WanSteerDeploymentService
             if (!File.Exists(localPath))
             {
                 _logger.LogWarning("wansteer binary not found at {Path}", localPath);
-                return (false, "WAN Steer binary not found. It may not be included in this build.");
+                return (false, "WAN Steering binary not found. It may not be included in this build.");
             }
 
             var settings = await _gatewaySsh.GetSettingsAsync();
@@ -447,7 +447,7 @@ public class WanSteerDeploymentService
     {
         return """
                #!/bin/sh
-               # WAN Steer - start daemon on boot
+               # WAN Steering - start daemon on boot
                if [ -x /data/wan-steer/wansteer ] && [ -f /data/wan-steer/config.json ]; then
                    nohup /data/wan-steer/wansteer -config /data/wan-steer/config.json >> /data/wan-steer/wansteer.log 2>&1 &
                fi
