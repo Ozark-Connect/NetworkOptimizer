@@ -162,7 +162,7 @@
                         @foreach (var wan in _wanInterfaces)
                         {
                             <tr>
-                                <td>@wan.Name (@DisplayFormatters.NormalizeWanDisplay(wan.NetworkGroup))</td>
+                                <td>@wan.Name <code>@DisplayFormatters.NormalizeWanDisplay(wan.NetworkGroup)</code></td>
                                 <td><code>@wan.Interface</code></td>
                                 <td>@(wan.GatewayIp ?? "-")</td>
                                 <td><code>@(string.IsNullOrEmpty(wan.FWMark) ? "-" : wan.FWMark)</code></td>

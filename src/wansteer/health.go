@@ -47,10 +47,12 @@ func (h *HealthChecker) checkAll() {
 }
 
 // update processes a single health check result with hysteresis.
+// Calls onStateChange outside the lock to avoid deadlock (callback may call unhealthyWANs).
 func (h *HealthChecker) update(wan string, reachable bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	var stateChanged bool
+	var newHealthy bool
 
+	h.mu.Lock()
 	h.lastCheck[wan] = time.Now()
 	wasHealthy := h.healthy[wan]
 
@@ -59,21 +61,25 @@ func (h *HealthChecker) update(wan string, reachable bool) {
 		h.passCounts[wan]++
 		if !wasHealthy && h.passCounts[wan] >= h.cfg.HealthPassThreshold {
 			h.healthy[wan] = true
+			stateChanged = true
+			newHealthy = true
 			slog.Info("wan recovered", "wan", wan, "consecutive_passes", h.passCounts[wan])
-			if h.onStateChange != nil {
-				h.onStateChange(wan, true)
-			}
 		}
 	} else {
 		h.passCounts[wan] = 0
 		h.failCounts[wan]++
 		if wasHealthy && h.failCounts[wan] >= h.cfg.HealthFailThreshold {
 			h.healthy[wan] = false
+			stateChanged = true
+			newHealthy = false
 			slog.Warn("wan down", "wan", wan, "consecutive_failures", h.failCounts[wan])
-			if h.onStateChange != nil {
-				h.onStateChange(wan, false)
-			}
 		}
+	}
+	h.mu.Unlock()
+
+	// Callback outside lock to prevent deadlock
+	if stateChanged && h.onStateChange != nil {
+		h.onStateChange(wan, newHealthy)
 	}
 }
 

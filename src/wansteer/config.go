@@ -126,7 +126,8 @@ func validateConfig(cfg *Config) error {
 
 func validateMatch(m *MatchCriteria, idx int, name string) error {
 	// Must have at least one match criterion
-	if len(m.SrcCIDRs) == 0 && len(m.SrcMACs) == 0 && len(m.DstCIDRs) == 0 &&
+	if len(m.SrcCIDRs) == 0 && len(m.SrcRanges) == 0 && len(m.SrcMACs) == 0 &&
+		len(m.DstCIDRs) == 0 && len(m.DstRanges) == 0 &&
 		m.Protocol == "" && len(m.SrcPorts) == 0 && len(m.DstPorts) == 0 {
 		return fmt.Errorf("traffic_classes[%d] %q: match must have at least one criterion", idx, name)
 	}

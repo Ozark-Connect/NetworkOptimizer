@@ -200,9 +200,12 @@ public class WanSteerDeploymentService
     {
         try
         {
+            // Clean up iptables rules first (in case SIGKILL is needed and daemon can't clean up itself)
             await _gatewaySsh.RunCommandAsync(
-                $"pkill -x wansteer 2>/dev/null; sleep 2; pkill -0 -x wansteer 2>/dev/null && pkill -9 -x wansteer; sleep 1; rm -rf {RemoteDir} && rm -f {BootScriptPath} && rm -f {RemoteStatusPath}",
-                TimeSpan.FromSeconds(15));
+                $"{RemoteBinaryPath} -cleanup -config {RemoteConfigPath} 2>/dev/null; " +
+                "pkill -x wansteer 2>/dev/null; sleep 2; pkill -0 -x wansteer 2>/dev/null && pkill -9 -x wansteer; sleep 1; " +
+                $"rm -rf {RemoteDir} && rm -f {BootScriptPath} && rm -f {RemoteStatusPath}",
+                TimeSpan.FromSeconds(20));
 
             _logger.LogInformation("WAN Steering removed from gateway");
             return (true, null);

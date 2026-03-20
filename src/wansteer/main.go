@@ -107,6 +107,11 @@ func main() {
 					if err := reapplyRules(cfg, unhealthy); err != nil {
 						slog.Error("failed to reapply rules after health change", "error", err)
 					}
+					if !healthy {
+						if w, ok := cfg.WANInterfaces[wan]; ok {
+							flushConntrackForMark(w.FWMark)
+						}
+					}
 				})
 				if err := applyRules(cfg); err != nil {
 					slog.Error("failed to apply rules after reload", "error", err)
