@@ -72,17 +72,17 @@
         {
             <div class="ws-metrics">
                 <div class="metric">
-                    <div class="metric-label">Daemon</div>
-                    <div class="metric-value">
-                        <span class="status-dot @(_status.IsRunning ? "online" : "offline")"></span>
-                        @(_status.IsRunning ? "Running" : "Stopped")
-                    </div>
-                </div>
-                <div class="metric">
                     <div class="metric-label">Binary</div>
                     <div class="metric-value">
                         <span class="status-dot @(_status.BinaryDeployed ? "online" : "offline")"></span>
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
+                    </div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Daemon</div>
+                    <div class="metric-value">
+                        <span class="status-dot @(_status.IsRunning ? "online" : "offline")"></span>
+                        @(_status.IsRunning ? "Running" : "Stopped")
                     </div>
                 </div>
                 @if (_parsedStatus != null)
