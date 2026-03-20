@@ -11,8 +11,11 @@
 @using NetworkOptimizer.Web.Services.Ssh
 @using Microsoft.EntityFrameworkCore
 @using System.Text.Json
+@inject IJSRuntime JS
 
 <PageTitle>WAN Steering - Network Optimizer</PageTitle>
+
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="@_hasUndeployedChanges" />
 
 <div class="page-header">
     <h1>WAN Steering</h1>
@@ -470,6 +473,9 @@
     private string _editProtocol = "";
     private int _editProbabilityPercent = 100;
 
+    // Undeployed changes tracking
+    private bool _hasUndeployedChanges;
+
     // Validation
     private List<string> _validationErrors = new();
 
@@ -677,6 +683,7 @@
             }
 
             await db.SaveChangesAsync();
+            _hasUndeployedChanges = true;
             await LoadRulesAsync();
             _editingRuleId = null;
             _validationErrors.Clear();
@@ -865,6 +872,7 @@
                 await db.SaveChangesAsync();
             }
 
+            _hasUndeployedChanges = true;
             await LoadRulesAsync();
         }
         catch (Exception ex)
@@ -883,6 +891,7 @@
             {
                 entity.Enabled = enabled;
                 await db.SaveChangesAsync();
+                _hasUndeployedChanges = true;
             }
             rule.Enabled = enabled;
         }
@@ -919,6 +928,7 @@
             {
                 (entityA.SortOrder, entityB.SortOrder) = (entityB.SortOrder, entityA.SortOrder);
                 await db.SaveChangesAsync();
+                _hasUndeployedChanges = true;
             }
             await LoadRulesAsync();
         }
@@ -948,6 +958,7 @@
             var (success, error) = await DeployService.DeployAsync(progress);
             _deploySuccess = success;
             _deployMessage = success ? "WAN Steering deployed successfully." : error;
+            if (success) _hasUndeployedChanges = false;
 
             await RefreshStatusQuietAsync();
         }
@@ -975,6 +986,7 @@
             var (success, error) = await DeployService.ReloadConfigAsync();
             _deploySuccess = success;
             _deployMessage = success ? "Configuration reloaded." : error;
+            if (success) _hasUndeployedChanges = false;
         }
         catch (Exception ex)
         {
@@ -1292,6 +1304,17 @@
     };
 
     // --- Cleanup ---
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (_hasUndeployedChanges)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "You have undeployed rule changes. If you leave now, the gateway will still be running the old config.\n\nAre you sure you want to leave?");
+            if (!confirmed)
+                context.PreventNavigation();
+        }
+    }
 
     public void Dispose()
     {
