@@ -11,6 +11,7 @@
 @using NetworkOptimizer.Web.Services.Ssh
 @using Microsoft.EntityFrameworkCore
 @using System.Text.Json
+@using NetworkOptimizer.Core.Helpers
 @inject IJSRuntime JS
 
 <PageTitle>WAN Steering - Network Optimizer</PageTitle>
@@ -161,7 +162,7 @@
                         @foreach (var wan in _wanInterfaces)
                         {
                             <tr>
-                                <td>@wan.Name</td>
+                                <td>@wan.Name (@DisplayFormatters.NormalizeWanDisplay(wan.NetworkGroup))</td>
                                 <td><code>@wan.Interface</code></td>
                                 <td>@(wan.GatewayIp ?? "-")</td>
                                 <td><code>@(string.IsNullOrEmpty(wan.FWMark) ? "-" : wan.FWMark)</code></td>
