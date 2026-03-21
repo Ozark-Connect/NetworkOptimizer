@@ -2756,6 +2756,80 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void DetectPermissiveRules_SourceMacAnyDest_NotFlaggedAsBroad()
+    {
+        // Regression test: Ooma VoIP rule with source MAC + any destination
+        // was incorrectly flagged as broad before the fix
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "ooma-voip",
+                Name = "[VoIP] Ooma Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty("source MAC narrows the rule enough");
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnySourceSpecificDestIps_NotFlaggedAsBroad()
+    {
+        // Regression test: rule with any source but specific destination IPs
+        // should not be flagged as broad
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "dest-ip-rule",
+                Name = "Allow to Specific Servers",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "203.0.113.1", "203.0.113.2" }
+            }
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty("specific destination IPs narrow the rule enough");
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnySourceAnyDest_NoMacsOrIps_StillFlaggedAsBroad()
+    {
+        // Ensure we didn't break the base case - truly broad rules should still be flagged
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "truly-broad",
+                Name = "Allow Everything From LAN",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        // This should be flagged as PERMISSIVE (any->any), not just broad
+        issues.Should().ContainSingle();
+    }
+
+    [Fact]
     public void DetectPermissiveRules_V2ApiFormat_SpecificProtocol_NotFlaggedAsAnyAny()
     {
         var rules = new List<FirewallRule>
