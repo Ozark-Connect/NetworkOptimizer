@@ -273,12 +273,13 @@ public class FirewallRuleAnalyzer
                 var hasSpecificSourceIps = rule.SourceIps?.Any() == true;
                 var hasWebDomains = rule.WebDomains?.Any() == true;
 
-                // If ANY destination but has specific ports or source IPs, it's not truly "broad"
-                if (isAnyDest && (hasSpecificPorts || hasSpecificSourceIps || hasWebDomains))
+                // If ANY destination but has specific ports, source IPs, source MACs, or web domains, it's not truly "broad"
+                if (isAnyDest && (hasSpecificPorts || hasSpecificSourceIps || IsSourceMacBased(rule) || hasWebDomains))
                     continue;
 
-                // If ANY source but has specific destination ports or web domains, it's not truly "broad"
-                if (isAnySource && (hasSpecificPorts || hasWebDomains))
+                // If ANY source but has specific destination ports, dest IPs, or web domains, it's not truly "broad"
+                var hasSpecificDestIps = rule.DestinationIps?.Any() == true;
+                if (isAnySource && (hasSpecificPorts || hasSpecificDestIps || hasWebDomains))
                     continue;
 
                 // If ANY source is scoped to a custom zone or a zone with fewer than 5 networks,
