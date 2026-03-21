@@ -464,13 +464,14 @@ public class WanSteerDeploymentService
         return """
                #!/bin/sh
                # WAN Steering - start daemon on boot
-               # Delay to let UniFi finish iptables setup (daemon also uses -w for lock wait)
-               sleep 30 &
-               SLEEP_PID=$!
-               wait $SLEEP_PID
-               if [ -x /data/wan-steer/wansteer ] && [ -f /data/wan-steer/config.json ]; then
-                   nohup /data/wan-steer/wansteer -config /data/wan-steer/config.json >> /data/wan-steer/wansteer.log 2>&1 &
-               fi
+               # Entire block runs in background so we don't block udm-boot or other scripts.
+               # 30s delay lets UniFi finish iptables setup; daemon also uses -w for lock wait.
+               (
+                   sleep 30
+                   if [ -x /data/wan-steer/wansteer ] && [ -f /data/wan-steer/config.json ]; then
+                       nohup /data/wan-steer/wansteer -config /data/wan-steer/config.json >> /data/wan-steer/wansteer.log 2>&1 &
+                   fi
+               ) &
                """;
     }
 
