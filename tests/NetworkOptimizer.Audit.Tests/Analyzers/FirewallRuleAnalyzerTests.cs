@@ -2702,9 +2702,8 @@ public class FirewallRuleAnalyzerTests
 
         var issues = _analyzer.DetectPermissiveRules(rules);
 
-        // Should be BROAD_RULE (any source) not PERMISSIVE_RULE (any->any)
-        issues.Should().ContainSingle();
-        issues.First().Type.Should().Be("BROAD_RULE");
+        // Specific destination IPs narrow the rule enough - should not be flagged
+        issues.Should().BeEmpty();
     }
 
     [Fact]
@@ -2752,9 +2751,8 @@ public class FirewallRuleAnalyzerTests
 
         var issues = _analyzer.DetectPermissiveRules(rules);
 
-        // Source is specific client MACs, not "any"
-        issues.Should().ContainSingle();
-        issues.First().Type.Should().Be("BROAD_RULE"); // any destination
+        // Source is specific client MACs - narrow enough, should not be flagged
+        issues.Should().BeEmpty();
     }
 
     [Fact]
