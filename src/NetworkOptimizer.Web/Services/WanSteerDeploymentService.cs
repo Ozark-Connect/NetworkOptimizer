@@ -459,7 +459,7 @@ public class WanSteerDeploymentService
         return Convert.ToHexStringLower(hash);
     }
 
-    private static string GenerateBootScript()
+    internal static string GenerateBootScript()
     {
         return """
                #!/bin/sh
@@ -475,7 +475,7 @@ public class WanSteerDeploymentService
     }
 
     /// <summary>Split a JSON array of address entries into CIDRs/IPs and IP ranges.</summary>
-    private static (List<string> Cidrs, List<string> Ranges) SplitCidrsAndRanges(string json)
+    internal static (List<string> Cidrs, List<string> Ranges) SplitCidrsAndRanges(string json)
     {
         var cidrs = new List<string>();
         var ranges = new List<string>();
@@ -490,12 +490,12 @@ public class WanSteerDeploymentService
         return (cidrs, ranges);
     }
 
-    private static string SanitizeWanKey(string name)
+    internal static string SanitizeWanKey(string name)
     {
         return Regex.Replace(name.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
     }
 
-    private static Dictionary<string, (string FWMark, string RouteTable)> ParseIpRules(string output)
+    internal static Dictionary<string, (string FWMark, string RouteTable)> ParseIpRules(string output)
     {
         var map = new Dictionary<string, (string FWMark, string RouteTable)>();
         var regex = new Regex(@"fwmark\s+(0x[0-9a-f]+)/0x7e0000\s+lookup\s+(\d+\.(eth\d+|ppp\d+))");
@@ -515,7 +515,7 @@ public class WanSteerDeploymentService
         return map;
     }
 
-    private static Dictionary<string, string> ParseDelimitedOutput(string output)
+    internal static Dictionary<string, string> ParseDelimitedOutput(string output)
     {
         var sections = new Dictionary<string, string>();
         var lines = output.Split('\n');
@@ -545,7 +545,7 @@ public class WanSteerDeploymentService
         return sections;
     }
 
-    private static string GetSection(Dictionary<string, string> sections, string key)
+    internal static string GetSection(Dictionary<string, string> sections, string key)
         => sections.TryGetValue(key, out var value) ? value : "";
 
     private static readonly JsonSerializerOptions ConfigJsonOptions = new()
