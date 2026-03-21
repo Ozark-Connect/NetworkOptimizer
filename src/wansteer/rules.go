@@ -344,7 +344,12 @@ func flushConntrackForMark(fwmark string) {
 }
 
 // run executes a command and returns any error.
+// For iptables commands, adds -w 5 to wait up to 5 seconds for the xtables lock
+// (avoids boot-time contention when UniFi is also configuring iptables).
 func run(name string, args ...string) error {
+	if name == "iptables" {
+		args = append([]string{"-w", "5"}, args...)
+	}
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
