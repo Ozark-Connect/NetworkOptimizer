@@ -509,6 +509,14 @@ public class ChannelRecommendationService
             }
         } while (reverted);
 
+        // Re-score ALL APs against the final assignment for accurate display.
+        // Unchanged APs may still be affected by other APs' moves (e.g., a neighbor
+        // moved onto or off their channel), so their displayed score must reflect reality.
+        for (int i = 0; i < n; i++)
+        {
+            plan.Recommendations[i].RecommendedScore = ScoreAp(graph, finalAssignment, i, band);
+        }
+
         // Display scores without DFS penalty for consistency across modes.
         // DFS penalty only influences the optimizer's channel selection.
         plan.RecommendedNetworkScore = ScoreAssignment(graph, finalAssignment, band);
