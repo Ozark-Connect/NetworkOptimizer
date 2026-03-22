@@ -448,14 +448,67 @@ public class ChannelRecommendationService
             });
         }
 
-        // Rebuild the final recommended assignment after per-AP filtering
-        // and re-score with ScoreAssignment (counts each pair once, no double-counting)
+        // Re-validate changed APs against the actual final assignment.
+        // Per-AP filtering may have vetoed some moves, which invalidates the scores
+        // used to approve other moves. For example, if the optimizer planned to swap
+        // APs A and B between channels but B was vetoed (score too low to move),
+        // A's move may now put it on the same channel as B - worse than before.
+        // Iterate until stable: rebuild final assignment, re-score changed APs,
+        // revert any that no longer meet thresholds.
         var finalAssignment = new (int Channel, int Width)[n];
-        for (int i = 0; i < n; i++)
+        bool reverted;
+        do
         {
-            var rec = plan.Recommendations[i];
-            finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
-        }
+            reverted = false;
+            for (int i = 0; i < n; i++)
+            {
+                var rec = plan.Recommendations[i];
+                finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                var rec = plan.Recommendations[i];
+                var node = graph.Nodes[i];
+                var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
+                                rec.RecommendedWidth != node.CurrentWidth;
+                if (!isChanged) continue;
+
+                // Never revert APs on invalid channels (e.g., 2.4 GHz ch3 must move to 1/6/11)
+                var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
+                if (!isOnValidChannel) continue;
+
+                // Re-score this AP against the actual final assignment (not the optimizer's ideal)
+                var actualScore = ScoreAp(graph, finalAssignment, i, band);
+                var currentApScore = ScoreAp(graph, currentAssignment, i, band);
+                var absoluteImprovement = currentApScore - actualScore;
+                var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
+
+                if (absoluteImprovement <= 0 ||
+                    absoluteImprovement < MinApAbsoluteImprovement ||
+                    percentImprovement < MinApImprovementPercent)
+                {
+                    _logger.LogDebug(
+                        "[ChannelRec] {ApName} re-scored against final assignment: {ActualScore:F3} " +
+                        "(was {OriginalScore:F3} in optimizer plan), improvement {Abs:F3}/{Pct:P0} " +
+                        "no longer meets thresholds, reverting to ch{Channel}/{Width} MHz",
+                        node.Name, actualScore, rec.RecommendedScore,
+                        absoluteImprovement, percentImprovement,
+                        node.CurrentChannel, node.CurrentWidth);
+                    rec.RecommendedChannel = node.CurrentChannel;
+                    rec.RecommendedWidth = node.CurrentWidth;
+                    rec.RecommendedScore = currentApScore;
+                    finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                    reverted = true;
+                }
+                else
+                {
+                    // Update displayed score to reflect actual final assignment
+                    rec.RecommendedScore = actualScore;
+                }
+            }
+        } while (reverted);
+
         // Display scores without DFS penalty for consistency across modes.
         // DFS penalty only influences the optimizer's channel selection.
         plan.RecommendedNetworkScore = ScoreAssignment(graph, finalAssignment, band);
