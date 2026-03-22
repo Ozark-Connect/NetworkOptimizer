@@ -2214,22 +2214,47 @@ public class DnsSecurityAnalyzer
                 .Distinct()
                 .ToList();
 
+            // Check if all mismatched networks are isolation-sensitive (IoT, Guest, Security, DMZ).
+            // Using separate DNS for these VLANs is a common security practice to prevent
+            // internal DNS leakage - e.g., separate AdGuard/Pi-hole instances per trust zone.
+            var isolationPurposes = new HashSet<NetworkPurpose>
+            {
+                NetworkPurpose.IoT, NetworkPurpose.Guest,
+                NetworkPurpose.Security, NetworkPurpose.Dmz
+            };
+            var mismatchedNetworkNames = mismatchedNetworks.Select(n => n.Network).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var mismatchedNetworkInfos = networks
+                .Where(n => !string.IsNullOrEmpty(n.Name) && mismatchedNetworkNames.Contains(n.Name))
+                .ToList();
+            var allIsolationNetworks = mismatchedNetworkInfos.Count > 0
+                && mismatchedNetworkInfos.All(n => isolationPurposes.Contains(n.Purpose));
+
+            var severity = allIsolationNetworks ? AuditSeverity.Informational : AuditSeverity.Recommended;
+            var message = allIsolationNetworks
+                ? $"{providerName} uses different IPs for {string.Join(", ", networkDetails)} vs. most networks ({expectedSetDisplay}). This is common when using separate DNS instances for network isolation."
+                : $"{providerName} IP mismatch: most networks use {expectedSetDisplay} but {string.Join(", ", networkDetails)} use different IPs. This may indicate misconfiguration.";
+            var recommendation = allIsolationNetworks
+                ? "Verify this is intentional. Using separate DNS instances for isolated VLANs is a security best practice."
+                : $"Update the DHCP DNS settings for the affected network(s) to use {expectedSetDisplay}.";
+            var scoreImpact = allIsolationNetworks ? 0 : 5;
+
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsInconsistentConfig,
-                Severity = AuditSeverity.Recommended,
+                Severity = severity,
                 DeviceName = result.GatewayName,
-                Message = $"{providerName} IP mismatch: most networks use {expectedSetDisplay} but {string.Join(", ", networkDetails)} use different IPs. This may indicate misconfiguration.",
-                RecommendedAction = $"Update the DHCP DNS settings for the affected network(s) to use {expectedSetDisplay}.",
+                Message = message,
+                RecommendedAction = recommendation,
                 RuleId = "DNS-IP-MISMATCH-001",
-                ScoreImpact = 5,
+                ScoreImpact = scoreImpact,
                 Metadata = new Dictionary<string, object>
                 {
                     { "expected_ip", expectedSet.First() },
                     { "expected_ips", expectedSet },
                     { "mismatched_networks", mismatchedNetworks.Select(n => n.Network).ToList() },
                     { "mismatched_ips", allMismatchedIps },
-                    { "provider_name", providerName }
+                    { "provider_name", providerName },
+                    { "intentional_isolation", allIsolationNetworks }
                 }
             });
         }
