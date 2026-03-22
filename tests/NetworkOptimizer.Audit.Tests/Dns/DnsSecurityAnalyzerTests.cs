@@ -7134,6 +7134,28 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_ServerNetworkDifferentDns_InformationalNotRecommended()
+    {
+        // Server VLAN using its own DNS (e.g., internal service discovery) is isolation-motivated
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "Office", VlanId = 10, DhcpEnabled = true, Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net3", Name = "Servers", VlanId = 30, DhcpEnabled = true, Gateway = "192.168.30.1",
+                DnsServers = new List<string> { "192.168.30.53" }, Purpose = NetworkPurpose.Server }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull();
+        mismatchIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        mismatchIssue.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Analyze_MixOfIsolationAndTrustedDifferentDns_RemainsRecommended()
     {
         // If mismatched set includes both IoT and a Home network, keep Recommended
