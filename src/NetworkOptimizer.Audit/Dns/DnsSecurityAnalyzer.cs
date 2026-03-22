@@ -2214,13 +2214,14 @@ public class DnsSecurityAnalyzer
                 .Distinct()
                 .ToList();
 
-            // Check if all mismatched networks are isolation-sensitive (IoT, Guest, Security, DMZ).
+            // Check if all mismatched networks are isolation-sensitive (IoT, Guest, Security, DMZ, Server).
             // Using separate DNS for these VLANs is a common security practice to prevent
             // internal DNS leakage - e.g., separate AdGuard/Pi-hole instances per trust zone.
             var isolationPurposes = new HashSet<NetworkPurpose>
             {
                 NetworkPurpose.IoT, NetworkPurpose.Guest,
-                NetworkPurpose.Security, NetworkPurpose.Dmz
+                NetworkPurpose.Security, NetworkPurpose.Dmz,
+                NetworkPurpose.Server
             };
             var mismatchedNetworkNames = mismatchedNetworks.Select(n => n.Network).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var mismatchedNetworkInfos = networks
