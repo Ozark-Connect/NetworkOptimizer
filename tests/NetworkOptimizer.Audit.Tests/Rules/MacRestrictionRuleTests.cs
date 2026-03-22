@@ -305,8 +305,10 @@ public class MacRestrictionRuleTests
     #region 802.1X / RADIUS Authentication
 
     [Theory]
-    [InlineData("auto")]      // 802.1X authentication
-    [InlineData("mac_based")] // RADIUS MAC authentication
+    [InlineData("auto")]       // 802.1X authentication
+    [InlineData("mac_based")]  // RADIUS MAC authentication
+    [InlineData("multi_host")] // First MAC authenticates, rest allowed
+    [InlineData("multi_mac")]  // Each MAC must individually authenticate
     public void Evaluate_Dot1xSecuredPort_ReturnsNull(string dot1xCtrl)
     {
         var port = CreatePort(isUp: true, forwardMode: "native", dot1xCtrl: dot1xCtrl);

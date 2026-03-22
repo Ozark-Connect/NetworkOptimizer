@@ -473,6 +473,8 @@ public class DisplayFormattersTests
     [Theory]
     [InlineData("auto", "802.1X")]
     [InlineData("mac_based", "802.1X")]
+    [InlineData("multi_host", "802.1X")]
+    [InlineData("multi_mac", "802.1X")]
     public void GetPortSecurityStatus_Dot1xSecured_Returns8021X(string dot1xCtrl, string expected)
     {
         var result = DisplayFormatters.GetPortSecurityStatus(0, false, dot1xCtrl);

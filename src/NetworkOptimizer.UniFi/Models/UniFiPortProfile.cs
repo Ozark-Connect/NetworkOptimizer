@@ -81,9 +81,10 @@ public class UniFiPortProfile
     public bool StormCtrlUcastEnabled { get; set; }
 
     /// <summary>
-    /// 802.1X control mode: "auto", "force_authorized", "force_unauthorized"
-    /// When set to "auto", ports will require 802.1X authentication if enabled on the network.
-    /// "force_authorized" bypasses 802.1X even if enabled - recommended for trunk/fabric ports.
+    /// 802.1X control mode: "auto", "mac_based", "multi_host", "multi_mac",
+    /// "force_authorized", "force_unauthorized".
+    /// Active modes (auto, mac_based, multi_host, multi_mac) provide RADIUS-based port security.
+    /// "force_authorized" bypasses 802.1X - recommended for trunk/fabric ports.
     /// </summary>
     [JsonPropertyName("dot1x_ctrl")]
     public string? Dot1xCtrl { get; set; }

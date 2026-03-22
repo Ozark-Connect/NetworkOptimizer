@@ -136,17 +136,19 @@ public class PortInfo
 
     /// <summary>
     /// 802.1X control mode from the assigned port profile.
-    /// Values: "auto" (802.1X), "mac_based" (RADIUS MAC auth),
-    /// "force_authorized" (bypass), "force_unauthorized" (block), or null.
+    /// Values: "auto" (802.1X), "mac_based" (RADIUS MAC auth), "multi_host" (first MAC authenticates,
+    /// rest allowed), "multi_mac" (each MAC authenticates), "force_authorized" (bypass),
+    /// "force_unauthorized" (block), or null.
     /// </summary>
     public string? Dot1xCtrl { get; init; }
 
     /// <summary>
     /// Whether this port is secured via 802.1X/RADIUS authentication.
     /// True when Dot1xCtrl is "auto" (802.1X), "mac_based" (RADIUS MAC auth),
-    /// or "multi_host" (802.1X authenticates first MAC, then allows subsequent MACs).
+    /// "multi_host" (802.1X authenticates first MAC, then allows subsequent MACs),
+    /// or "multi_mac" (each MAC must individually authenticate via RADIUS).
     /// </summary>
-    public bool IsDot1xSecured => Dot1xCtrl is "auto" or "mac_based" or "multi_host";
+    public bool IsDot1xSecured => Dot1xCtrl is "auto" or "mac_based" or "multi_host" or "multi_mac";
 
     /// <summary>
     /// The port profile (portconf) assigned to this port, if any.
