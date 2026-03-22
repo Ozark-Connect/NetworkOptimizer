@@ -7059,6 +7059,103 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
     }
 
+    [Fact]
+    public async Task Analyze_IsolationNetworksDifferentDns_InformationalNotRecommended()
+    {
+        // IoT and Guest VLANs use a separate DNS instance for isolation - this is intentional
+        // and should be Informational, not Recommended
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "Office", VlanId = 10, DhcpEnabled = true, Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net3", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "192.168.42.1",
+                DnsServers = new List<string> { "192.168.100.11" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net4", Name = "Guest", VlanId = 50, DhcpEnabled = true, Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.100.11" }, Purpose = NetworkPurpose.Guest }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull("issue should still be raised for visibility");
+        mismatchIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        mismatchIssue.ScoreImpact.Should().Be(0);
+        mismatchIssue.Message.Should().Contain("network isolation");
+        mismatchIssue.Metadata!["intentional_isolation"].Should().Be(true);
+    }
+
+    [Fact]
+    public async Task Analyze_MixedPurposeDifferentDns_RemainsRecommended()
+    {
+        // A Home network using different DNS is not isolation-motivated - keep Recommended
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "Office", VlanId = 10, DhcpEnabled = true, Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net3", Name = "Kids", VlanId = 20, DhcpEnabled = true, Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.100.99" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull();
+        mismatchIssue!.Severity.Should().Be(AuditSeverity.Recommended);
+        mismatchIssue.ScoreImpact.Should().Be(5);
+        mismatchIssue.Message.Should().Contain("misconfiguration");
+    }
+
+    [Fact]
+    public async Task Analyze_SecurityAndDmzDifferentDns_InformationalNotRecommended()
+    {
+        // Security cameras and DMZ using different DNS is also isolation-motivated
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "Office", VlanId = 10, DhcpEnabled = true, Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net3", Name = "Cameras", VlanId = 30, DhcpEnabled = true, Gateway = "192.168.30.1",
+                DnsServers = new List<string> { "192.168.100.11" }, Purpose = NetworkPurpose.Security },
+            new NetworkInfo { Id = "net4", Name = "DMZ", VlanId = 40, DhcpEnabled = true, Gateway = "192.168.40.1",
+                DnsServers = new List<string> { "192.168.100.11" }, Purpose = NetworkPurpose.Dmz }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull();
+        mismatchIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        mismatchIssue.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Analyze_MixOfIsolationAndTrustedDifferentDns_RemainsRecommended()
+    {
+        // If mismatched set includes both IoT and a Home network, keep Recommended
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "Office", VlanId = 10, DhcpEnabled = true, Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.100.10" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net3", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "192.168.42.1",
+                DnsServers = new List<string> { "192.168.100.11" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net4", Name = "Misc", VlanId = 60, DhcpEnabled = true, Gateway = "192.168.60.1",
+                DnsServers = new List<string> { "192.168.100.11" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull();
+        mismatchIssue!.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
     #endregion
 
     #region Raw Device Data DNS Analysis Tests
