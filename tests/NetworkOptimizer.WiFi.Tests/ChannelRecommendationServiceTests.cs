@@ -662,4 +662,51 @@ public class ChannelRecommendationServiceTests
         // beats the weaker sighting (-75 dBm → weight 0.375) × proximity 0.625 = 0.234
         graph.ExternalLoad[2][100].Should().BeApproximately(0.547, 0.05);
     }
+
+    // --- Re-validation after per-AP filtering ---
+
+    [Fact]
+    public void Optimize_VetoedMoveInvalidatesOtherMoves_RevertsToAvoidWorsening()
+    {
+        // Regression: optimizer plans a coordinated swap (A,B move to ch6; C moves off ch6).
+        // Per-AP filter vetoes C's move (score too low), so A and B land on ch6
+        // alongside C - worse than before. Re-validation should catch this.
+        //
+        // Setup: 4 APs on 2.4 GHz with 3 channels (1, 6, 11).
+        // Two APs on ch11 (high co-channel = high scores, will want to move),
+        // one AP on ch6 (low score, will be vetoed), one AP on ch1 (low score, vetoed).
+        // Without re-validation, the two ch11 APs would both move to ch6,
+        // creating 3 APs on ch6.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 11, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 11, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band2_4GHz, 6, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:04", "AP-4", RadioBand.Band2_4GHz, 1, width: 20)
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, null);
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, null);
+
+        // Count how many APs end up recommended on each channel
+        var channelCounts = plan.Recommendations
+            .GroupBy(r => r.RecommendedChannel)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // No channel should have 3+ APs when only 3 non-overlapping channels exist for 4 APs
+        foreach (var (channel, count) in channelCounts)
+        {
+            count.Should().BeLessThan(3,
+                $"channel {channel} has {count} APs - re-validation should prevent " +
+                "piling APs onto a channel when the coordinated swap was partially vetoed");
+        }
+
+        // Every changed AP should genuinely improve vs current
+        foreach (var rec in plan.Recommendations.Where(r => r.IsChanged))
+        {
+            rec.RecommendedScore.Should().BeLessThan(rec.CurrentScore,
+                $"{rec.ApName} recommended score {rec.RecommendedScore:F3} should be better " +
+                $"(lower) than current {rec.CurrentScore:F3}");
+        }
+    }
 }
