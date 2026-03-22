@@ -240,30 +240,31 @@ func reapplyRules(cfg *Config, disabledWANs map[string]bool) error {
 }
 
 // hasJump checks if PREROUTING already has a jump to WAN_STEER.
+// Uses iptables-save which reads kernel state without acquiring the xtables lock,
+// avoiding lock contention that can cause management plane ICMP drops.
 func hasJump() bool {
-	out, err := exec.Command("iptables", "-t", "mangle", "-L", "PREROUTING", "-n", "--line-numbers").Output()
+	out, err := exec.Command("iptables-save", "-t", "mangle").Output()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), chainName)
-}
-
-// chainExists checks if the WAN_STEER chain exists in mangle table.
-func chainExists() bool {
-	return run("iptables", "-t", "mangle", "-L", chainName, "-n") == nil
+	return strings.Contains(string(out), "-j "+chainName)
 }
 
 // ruleCount returns the number of rules in WAN_STEER.
+// Uses iptables-save (no lock) instead of iptables -L.
 func ruleCount() int {
-	out, err := exec.Command("iptables", "-t", "mangle", "-L", chainName, "-n").Output()
+	out, err := exec.Command("iptables-save", "-t", "mangle").Output()
 	if err != nil {
 		return -1
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) <= 2 {
-		return 0
+	count := 0
+	chainPrefix := "-A " + chainName + " "
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, chainPrefix) {
+			count++
+		}
 	}
-	return len(lines) - 2
+	return count
 }
 
 // expectedRuleCount returns how many iptables rules the current config should produce.
