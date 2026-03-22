@@ -797,8 +797,9 @@ public class ChannelRecommendationService
     /// Compute how much of the stress penalty to apply when an AP stays on its current channel.
     /// If internal co-channel APs are moving away in the proposed assignment, their contribution
     /// to the stress is being resolved, so we scale down proportionally.
-    /// Returns 1.0 (full penalty) when no co-channel APs are being resolved,
-    /// 0.0 when all co-channel APs are moving away (stress fully resolved).
+    /// The scale never drops below the external interference fraction - external neighbors
+    /// aren't moving, so their contribution to stress persists regardless of internal changes.
+    /// Returns 1.0 (full penalty) when no co-channel APs are being resolved.
     /// If stress is purely external (no internal co-channel APs), returns 1.0.
     /// </summary>
     private double ComputeStressScale(
@@ -808,8 +809,8 @@ public class ChannelRecommendationService
         (int Low, int High) currentSpan,
         (int Channel, int Width)[] assignment)
     {
-        int currentCoChannel = 0;
-        int proposedCoChannel = 0;
+        double currentInternalLoad = 0;
+        double proposedInternalLoad = 0;
         var n = graph.Nodes.Count;
 
         for (int j = 0; j < n; j++)
@@ -817,31 +818,49 @@ public class ChannelRecommendationService
             if (j == apIndex) continue;
             if (AreMeshPair(graph, apIndex, j)) continue;
 
-            // Is this other AP currently co-channel with the stressed AP?
-            var otherCurrentSpan = ChannelSpanHelper.GetChannelSpan(band,
+            var weight = graph.InternalWeights[apIndex, j];
+            if (weight <= 0) continue;
+
+            // Current internal co-channel load (weighted, not just count)
+            var currentOverlap = ChannelSpanHelper.ComputeOverlapFactor(
+                band, graph.Nodes[apIndex].CurrentChannel, graph.Nodes[apIndex].CurrentWidth,
                 graph.Nodes[j].CurrentChannel, graph.Nodes[j].CurrentWidth);
+            if (currentOverlap > 0)
+                currentInternalLoad += weight * currentOverlap * InternalCoChannelMultiplier;
 
-            if (ChannelSpanHelper.SpansOverlap(currentSpan, otherCurrentSpan))
-                currentCoChannel++;
-
-            // Is this other AP co-channel in the proposed assignment?
-            var otherAssignedSpan = ChannelSpanHelper.GetChannelSpan(band,
+            // Proposed internal co-channel load
+            var proposedOverlap = ChannelSpanHelper.ComputeOverlapFactor(
+                band, graph.Nodes[apIndex].CurrentChannel, graph.Nodes[apIndex].CurrentWidth,
                 assignment[j].Channel, assignment[j].Width);
-
-            if (ChannelSpanHelper.SpansOverlap(currentSpan, otherAssignedSpan))
-                proposedCoChannel++;
+            if (proposedOverlap > 0)
+                proposedInternalLoad += weight * proposedOverlap * InternalCoChannelMultiplier;
         }
 
         // No internal co-channel APs in either current or proposed - stress is purely external
-        if (currentCoChannel == 0)
+        if (currentInternalLoad <= 0)
             return 1.0;
 
-        // If proposed has at least as many co-channel APs as current, stress is not resolved
-        if (proposedCoChannel >= currentCoChannel)
+        // If proposed has at least as much internal load, stress is not resolved
+        if (proposedInternalLoad >= currentInternalLoad)
             return 1.0;
 
-        // Scale by fraction of co-channel APs remaining (including new arrivals)
-        return (double)proposedCoChannel / currentCoChannel;
+        // Compute external load on this channel span to set a floor
+        double externalLoad = 0;
+        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        {
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, (extChannel, extChannel)))
+                externalLoad += extWeight;
+        }
+
+        // Internal resolution scale: fraction of internal load remaining
+        double internalScale = proposedInternalLoad / currentInternalLoad;
+
+        // Floor: external neighbors don't move, so their share of stress persists.
+        // If external is 70% of total interference, stress can't drop below 70%.
+        double totalLoad = currentInternalLoad + externalLoad;
+        double externalFloor = totalLoad > 0 ? externalLoad / totalLoad : 0;
+
+        return Math.Max(internalScale, externalFloor);
     }
 
     private double ComputeInternalWeight(
