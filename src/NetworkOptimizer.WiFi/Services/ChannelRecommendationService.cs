@@ -466,6 +466,7 @@ public class ChannelRecommendationService
                 finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
             }
 
+            // Check changed APs still meet improvement thresholds
             for (int i = 0; i < n; i++)
             {
                 var rec = plan.Recommendations[i];
@@ -505,6 +506,77 @@ public class ChannelRecommendationService
                 {
                     // Update displayed score to reflect actual final assignment
                     rec.RecommendedScore = actualScore;
+                }
+            }
+
+            // Check unchanged APs for excessive degradation caused by other APs' moves.
+            // If moving AP-X onto an unchanged AP's channel makes it significantly worse,
+            // revert the move that caused the most degradation.
+            if (!reverted)
+            {
+                int worstDegradedBy = -1;
+                double worstDegradation = 0;
+
+                for (int i = 0; i < n; i++)
+                {
+                    var node = graph.Nodes[i];
+                    var isChanged = plan.Recommendations[i].RecommendedChannel != node.CurrentChannel ||
+                                    plan.Recommendations[i].RecommendedWidth != node.CurrentWidth;
+                    if (isChanged) continue;
+
+                    var currentApScore = currentApScores[i];
+                    var actualScore = ScoreAp(graph, finalAssignment, i, band);
+                    var degradation = actualScore - currentApScore;
+
+                    // Degradation exceeds MaxApScoreDegradation (50% increase)
+                    if (currentApScore > 0 && actualScore / currentApScore > MaxApScoreDegradation)
+                    {
+                        if (degradation > worstDegradation)
+                        {
+                            worstDegradation = degradation;
+
+                            // Find which changed AP contributes most to this degradation
+                            // by checking co-channel overlap with the degraded AP
+                            double maxContribution = 0;
+                            for (int j = 0; j < n; j++)
+                            {
+                                if (j == i) continue;
+                                var jNode = graph.Nodes[j];
+                                var jChanged = plan.Recommendations[j].RecommendedChannel != jNode.CurrentChannel ||
+                                               plan.Recommendations[j].RecommendedWidth != jNode.CurrentWidth;
+                                if (!jChanged) continue;
+                                if (!jNode.ValidChannels.Contains(jNode.CurrentChannel)) continue;
+
+                                var contribution = graph.InternalWeights[i, j] *
+                                    ChannelSpanHelper.ComputeOverlapFactor(band,
+                                        finalAssignment[i].Channel, finalAssignment[i].Width,
+                                        finalAssignment[j].Channel, finalAssignment[j].Width) *
+                                    InternalCoChannelMultiplier;
+
+                                if (contribution > maxContribution)
+                                {
+                                    maxContribution = contribution;
+                                    worstDegradedBy = j;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (worstDegradedBy >= 0)
+                {
+                    var rec = plan.Recommendations[worstDegradedBy];
+                    var node = graph.Nodes[worstDegradedBy];
+                    _logger.LogDebug(
+                        "[ChannelRec] {ApName} move to ch{RecChannel} degrades unchanged AP beyond " +
+                        "{MaxDeg:P0} threshold, reverting to ch{CurrentChannel}/{Width} MHz",
+                        node.Name, rec.RecommendedChannel, MaxApScoreDegradation,
+                        node.CurrentChannel, node.CurrentWidth);
+                    rec.RecommendedChannel = node.CurrentChannel;
+                    rec.RecommendedWidth = node.CurrentWidth;
+                    rec.RecommendedScore = currentApScores[worstDegradedBy];
+                    finalAssignment[worstDegradedBy] = (node.CurrentChannel, node.CurrentWidth);
+                    reverted = true;
                 }
             }
         } while (reverted);
