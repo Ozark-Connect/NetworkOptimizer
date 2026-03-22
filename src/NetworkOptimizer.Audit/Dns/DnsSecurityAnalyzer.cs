@@ -2159,50 +2159,76 @@ public class DnsSecurityAnalyzer
         if (nonGatewayResults.Count < 2)
             return;
 
-        // Group by DNS IP to find the most common one
-        var ipGroups = nonGatewayResults
-            .GroupBy(r => r.DnsServerIp)
+        // Group by network to get each network's set of third-party DNS IPs.
+        // A network with dual DNS (primary + secondary, e.g. two Pi-holes) will have
+        // multiple IPs - we compare the full set, not individual IPs.
+        var networkDnsSets = nonGatewayResults
+            .GroupBy(r => r.NetworkName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(r => r.DnsServerIp).OrderBy(ip => ip).ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
+        if (networkDnsSets.Count < 2)
+            return;
+
+        // Create a canonical string key for each network's DNS IP set for comparison
+        var networkSetKeys = networkDnsSets
+            .Select(kvp => new { Network = kvp.Key, SetKey = string.Join(",", kvp.Value), Ips = kvp.Value })
+            .ToList();
+
+        // Group networks by their DNS IP set to find the most common configuration
+        var setGroups = networkSetKeys
+            .GroupBy(n => n.SetKey)
             .OrderByDescending(g => g.Count())
             .ToList();
 
-        // If all networks use the same IP, no inconsistency
-        if (ipGroups.Count <= 1)
+        // If all networks use the same set of IPs, no inconsistency
+        if (setGroups.Count <= 1)
             return;
 
-        // The most common IP is considered the "expected" one
-        var expectedIp = ipGroups[0].Key;
+        // The most common set is considered the "expected" one
+        var expectedSet = setGroups[0].First().Ips;
+        var expectedSetDisplay = string.Join(", ", expectedSet);
         var providerName = result.ThirdPartyDnsProviderName ?? "Third-Party DNS";
 
-        // Flag networks using a different IP
-        var mismatchedNetworks = ipGroups
+        // Flag networks using a different set of IPs
+        var mismatchedNetworks = setGroups
             .Skip(1)
-            .SelectMany(g => g.Select(r => new { r.NetworkName, r.DnsServerIp }))
+            .SelectMany(g => g.Select(n => new { n.Network, DnsIps = string.Join(", ", n.Ips) }))
             .ToList();
 
         if (mismatchedNetworks.Any())
         {
             var networkDetails = mismatchedNetworks
-                .Select(n => $"{n.NetworkName} ({n.DnsServerIp})")
+                .Select(n => $"{n.Network} ({n.DnsIps})")
                 .ToList();
 
             _logger.LogWarning(
-                "DNS IP inconsistency: Most networks use {ExpectedIp} but {Count} network(s) use a different IP: {Details}",
-                expectedIp, mismatchedNetworks.Count, string.Join(", ", networkDetails));
+                "DNS IP inconsistency: Most networks use [{ExpectedIps}] but {Count} network(s) use different IPs: {Details}",
+                expectedSetDisplay, mismatchedNetworks.Count, string.Join(", ", networkDetails));
+
+            var allMismatchedIps = setGroups
+                .Skip(1)
+                .SelectMany(g => g.SelectMany(n => n.Ips))
+                .Distinct()
+                .ToList();
 
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsInconsistentConfig,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
-                Message = $"{providerName} IP mismatch: most networks use {expectedIp} but {string.Join(", ", networkDetails)} use a different IP. This may indicate misconfiguration.",
-                RecommendedAction = $"Update the DHCP DNS settings for the affected network(s) to use {expectedIp}.",
+                Message = $"{providerName} IP mismatch: most networks use {expectedSetDisplay} but {string.Join(", ", networkDetails)} use different IPs. This may indicate misconfiguration.",
+                RecommendedAction = $"Update the DHCP DNS settings for the affected network(s) to use {expectedSetDisplay}.",
                 RuleId = "DNS-IP-MISMATCH-001",
                 ScoreImpact = 5,
                 Metadata = new Dictionary<string, object>
                 {
-                    { "expected_ip", expectedIp },
-                    { "mismatched_networks", mismatchedNetworks.Select(n => n.NetworkName).ToList() },
-                    { "mismatched_ips", mismatchedNetworks.Select(n => n.DnsServerIp).Distinct().ToList() },
+                    { "expected_ip", expectedSet.First() },
+                    { "expected_ips", expectedSet },
+                    { "mismatched_networks", mismatchedNetworks.Select(n => n.Network).ToList() },
+                    { "mismatched_ips", allMismatchedIps },
                     { "provider_name", providerName }
                 }
             });

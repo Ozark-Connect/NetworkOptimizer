@@ -6945,6 +6945,120 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
     }
 
+    [Fact]
+    public async Task Analyze_DualPiholeInstances_NoIpMismatch()
+    {
+        // All networks use the same pair of Pi-hole IPs (primary + secondary)
+        // This is a common HA setup - should NOT trigger IP mismatch
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "10.0.42.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Guest", VlanId = 50, DhcpEnabled = true, Gateway = "10.0.50.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net4", Name = "Media", VlanId = 60, DhcpEnabled = true, Gateway = "10.0.60.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.SiteWideDnsServerIps.Should().Contain("10.0.0.5");
+        result.SiteWideDnsServerIps.Should().Contain("10.0.0.6");
+        result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        result.Issues.Should().NotContain(i =>
+            i.Type == IssueTypes.DnsInconsistentConfig &&
+            i.RuleId == "DNS-CONSISTENCY-001");
+    }
+
+    [Fact]
+    public async Task Analyze_DualPiholeWithOneNetworkMissing_FlagsMismatch()
+    {
+        // Most networks use both Pi-holes, but one only has the primary - flag the outlier
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "10.0.42.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Partial", VlanId = 30, DhcpEnabled = true, Gateway = "10.0.30.1",
+                DnsServers = new List<string> { "10.0.0.5" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull();
+        mismatchIssue!.Message.Should().Contain("Partial");
+    }
+
+    [Fact]
+    public async Task Analyze_DualPiholeWithOneNetworkDifferentSecondary_FlagsMismatch()
+    {
+        // Most networks use Pi-hole pair (10.0.0.5, 10.0.0.6), but one uses a different secondary
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "10.0.42.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Stale", VlanId = 30, DhcpEnabled = true, Gateway = "10.0.30.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.99" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        var mismatchIssue = result.Issues.FirstOrDefault(i => i.RuleId == "DNS-IP-MISMATCH-001");
+        mismatchIssue.Should().NotBeNull();
+        mismatchIssue!.Message.Should().Contain("Stale");
+    }
+
+    [Fact]
+    public async Task Analyze_DualPiholeWithManagementExcluded_NoIpMismatch()
+    {
+        // All non-management networks use the same pair of Pi-holes
+        // Management network uses gateway DNS only - should not cause mismatch
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "10.0.42.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.6" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Management", VlanId = 99, DhcpEnabled = true, Gateway = "10.0.99.1",
+                DnsServers = new List<string> { "10.0.99.1" }, Purpose = NetworkPurpose.Management }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
+    }
+
+    [Fact]
+    public async Task Analyze_PiholeWithGatewayFallback_NoIpMismatch()
+    {
+        // Networks with Pi-hole primary + gateway fallback (common setup)
+        // Gateway IPs are excluded, so all networks should have same non-gateway set
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "Default", VlanId = 1, DhcpEnabled = true, Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.0.1" }, Purpose = NetworkPurpose.Home },
+            new NetworkInfo { Id = "net2", Name = "IoT", VlanId = 42, DhcpEnabled = true, Gateway = "10.0.42.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.42.1" }, Purpose = NetworkPurpose.IoT },
+            new NetworkInfo { Id = "net3", Name = "Media", VlanId = 30, DhcpEnabled = true, Gateway = "10.0.30.1",
+                DnsServers = new List<string> { "10.0.0.5", "10.0.30.1" }, Purpose = NetworkPurpose.Home }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.RuleId == "DNS-IP-MISMATCH-001");
+    }
+
     #endregion
 
     #region Raw Device Data DNS Analysis Tests
