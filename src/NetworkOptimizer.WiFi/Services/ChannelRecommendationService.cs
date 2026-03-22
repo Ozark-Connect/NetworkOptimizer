@@ -581,6 +581,83 @@ public class ChannelRecommendationService
             }
         } while (reverted);
 
+        // Per-AP fallback: the optimizer's global plan may have fully collapsed during
+        // re-validation (e.g., it wanted both APs to swap but only one could move).
+        // For any AP still scoring above MinApScoreToMove with no recommended change,
+        // try moving it to its best channel individually - checking that it doesn't
+        // degrade any other AP beyond MaxApScoreDegradation.
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            var rec = plan.Recommendations[i];
+            var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
+                            rec.RecommendedWidth != node.CurrentWidth;
+            if (isChanged) continue;
+
+            // Use the AP's score in the final assignment, not the original current state.
+            // Other APs may have already moved away, reducing this AP's interference.
+            var scoreInFinal = ScoreAp(graph, finalAssignment, i, band);
+            if (scoreInFinal < MinApScoreToMove) continue;
+            if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+
+            // Try each valid channel and find the best that meets all constraints
+            int fallbackChannel = -1;
+            int fallbackWidth = node.CurrentWidth;
+            double fallbackScore = scoreInFinal;
+
+            foreach (var candidateCh in node.ValidChannels)
+            {
+                if (candidateCh == node.CurrentChannel) continue;
+
+                // Build trial assignment
+                var trial = new (int Channel, int Width)[n];
+                Array.Copy(finalAssignment, trial, n);
+                trial[i] = (candidateCh, node.CurrentWidth);
+
+                var candidateScore = ScoreAp(graph, trial, i, band);
+                var absImprovement = scoreInFinal - candidateScore;
+                var pctImprovement = scoreInFinal > 0 ? absImprovement / scoreInFinal : 0;
+
+                if (absImprovement < MinApAbsoluteImprovement ||
+                    pctImprovement < MinApImprovementPercent)
+                    continue;
+
+                // Check no other AP gets degraded beyond threshold
+                bool degradesOther = false;
+                for (int j = 0; j < n; j++)
+                {
+                    if (j == i) continue;
+                    var otherCurrent = currentApScores[j];
+                    if (otherCurrent <= 0) continue;
+                    var otherScore = ScoreAp(graph, trial, j, band);
+                    if (otherScore / otherCurrent > MaxApScoreDegradation)
+                    {
+                        degradesOther = true;
+                        break;
+                    }
+                }
+                if (degradesOther) continue;
+
+                if (candidateScore < fallbackScore)
+                {
+                    fallbackScore = candidateScore;
+                    fallbackChannel = candidateCh;
+                }
+            }
+
+            if (fallbackChannel >= 0)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] Per-AP fallback: {ApName} ch{Current} (score {CurrentScore:F3}) → " +
+                    "ch{Best} (score {BestScore:F3}), no degradation to others",
+                    node.Name, node.CurrentChannel, scoreInFinal, fallbackChannel, fallbackScore);
+                rec.RecommendedChannel = fallbackChannel;
+                rec.RecommendedWidth = fallbackWidth;
+                rec.RecommendedScore = fallbackScore;
+                finalAssignment[i] = (fallbackChannel, fallbackWidth);
+            }
+        }
+
         // Re-score ALL APs against the final assignment for accurate display.
         // Unchanged APs may still be affected by other APs' moves (e.g., a neighbor
         // moved onto or off their channel), so their displayed score must reflect reality.
