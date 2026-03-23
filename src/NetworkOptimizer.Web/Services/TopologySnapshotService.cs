@@ -204,18 +204,19 @@ public class TopologySnapshotService : ITopologySnapshotService
                 return;
 
             // Store WiFiman band/channel data
+            // WiFiman reports from client perspective; our snapshot uses AP perspective
+            // Client upload = AP RX (FromDevice), Client download = AP TX (ToDevice)
+            var wifimanTx = wifiman.LinkUploadRateKbps ?? 0;
+            var wifimanRx = wifiman.LinkDownloadRateKbps ?? 0;
+
             snapshot.WiFiManData[clientIp] = new WiFiManClientInfo
             {
-                TxKbps = wifiman.LinkDownloadRateKbps ?? 0,
-                RxKbps = wifiman.LinkUploadRateKbps ?? 0,
+                TxKbps = wifimanTx,
+                RxKbps = wifimanRx,
                 Band = wifiman.RadioCode,
                 Channel = wifiman.Channel,
                 ChannelWidth = wifiman.ChannelWidth
             };
-
-            // Use higher of WiFiman vs stat/sta rates (AP perspective: Tx=download, Rx=upload)
-            var wifimanTx = wifiman.LinkDownloadRateKbps ?? 0;
-            var wifimanRx = wifiman.LinkUploadRateKbps ?? 0;
 
             if (!string.IsNullOrEmpty(targetClient.Mac) &&
                 snapshot.ClientRates.TryGetValue(targetClient.Mac, out var existing))

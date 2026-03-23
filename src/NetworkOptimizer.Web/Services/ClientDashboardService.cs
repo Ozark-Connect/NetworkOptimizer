@@ -819,11 +819,12 @@ public class ClientDashboardService
             if (wifiman.WiFiExperience.HasValue)
                 identity.Satisfaction = wifiman.WiFiExperience;
 
-            // WiFiman link rates: download = AP→client (TX), upload = client→AP (RX)
-            if (wifiman.LinkDownloadRateKbps.HasValue)
-                identity.TxRateKbps = wifiman.LinkDownloadRateKbps;
+            // WiFiman reports from client perspective: download = client RX, upload = client TX
+            // Our TxRateKbps/RxRateKbps are from AP perspective: Tx = AP→client, Rx = client→AP
             if (wifiman.LinkUploadRateKbps.HasValue)
-                identity.RxRateKbps = wifiman.LinkUploadRateKbps;
+                identity.TxRateKbps = wifiman.LinkUploadRateKbps;
+            if (wifiman.LinkDownloadRateKbps.HasValue)
+                identity.RxRateKbps = wifiman.LinkDownloadRateKbps;
 
             identity.HasWiFiManData = true;
         }
