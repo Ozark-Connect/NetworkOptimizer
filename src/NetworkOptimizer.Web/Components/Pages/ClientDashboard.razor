@@ -1222,31 +1222,40 @@
                 catch { _isTooltipActive = false; }
 
                 // Refresh the active tab data.
-                // Signal tab: skip the full DB reload on every poll (causes chart flash via RenderAsync).
-                // Instead, append live points below and do a full reload every 12 full polls (~60s).
-                if (_activeTab == "signal")
-                {
-                    _fullPollCount++;
-                    if (_fullPollCount % 12 == 0)
-                    {
-                        await LoadTabDataAsync();
-                        if (!_isTooltipActive)
-                            await UpdateActiveChartsAsync();
-                    }
-                }
-                else
+                // Signal tab: never reload from DB during live polling.
+                // Live points are appended below with smoothing. The signal history
+                // table refreshes from _signalHistory which is only loaded on tab
+                // switch or time range change.
+                if (_activeTab != "signal")
                 {
                     await LoadTabDataAsync();
                     if (!_isTooltipActive)
                         await UpdateActiveChartsAsync();
                 }
 
-                // Add to live signal chart data (10-point moving average)
+                // Add to live signal chart data (smoothed) and history table (raw)
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
                 {
                     var smoothed = SmoothedSignal(_client.SignalDbm.Value);
                     _signalChartData.Add(new SignalChartPoint(
                         _latestPoll.Timestamp, (decimal)smoothed));
+
+                    // Append to signal history so the table updates live
+                    _signalHistory.Add(new SignalHistoryEntry
+                    {
+                        Timestamp = _latestPoll.Timestamp,
+                        SignalDbm = _client.SignalDbm,
+                        NoiseDbm = _client.NoiseDbm,
+                        Channel = _client.Channel,
+                        ChannelWidth = _client.ChannelWidth,
+                        Band = _client.Band,
+                        Protocol = _client.Protocol,
+                        TxRateKbps = _client.TxRateKbps,
+                        RxRateKbps = _client.RxRateKbps,
+                        ApMac = _client.ApMac,
+                        ApName = _client.ApName,
+                        DataSource = SignalDataSource.Local
+                    });
 
                     // Add live metadata for tooltip
                     if (_client.Channel.HasValue)
