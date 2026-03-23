@@ -878,8 +878,6 @@
     private int _tickCount;
     private bool _isTooltipActive;
 
-    // 10-point moving average buffer for signal chart smoothing
-    private readonly Queue<int> _signalSmoothBuffer = new();
     private int _fullPollCount;
 
     // GPS
@@ -1125,39 +1123,9 @@
             _client.HasWiFiManData = true;
             _pollCount++;
 
-            // Add to live signal chart (10-point moving average for smoothing)
-            if (_activeTab == "signal" && _client.SignalDbm.HasValue)
-            {
-                var ts = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
-                var smoothed = SmoothedSignal(_client.SignalDbm.Value);
-                _signalChartData.Add(new SignalChartPoint(ts, (decimal)smoothed));
-
-                if (_client.Channel.HasValue)
-                    _signalChannelData.Add(new SignalChartPoint(ts, _client.Channel.Value));
-                if (_client.ApName != null)
-                {
-                    var apIdx = _apNameLookup.IndexOf(_client.ApName);
-                    if (apIdx < 0) { _apNameLookup.Add(_client.ApName); apIdx = _apNameLookup.Count - 1; }
-                    _signalApData.Add(new SignalChartPoint(ts, apIdx));
-                }
-                if (_client.Band != null)
-                {
-                    decimal bandNum = _client.Band switch { "ng" => 2.4m, "na" => 5m, "6e" => 6m, _ => 0m };
-                    if (bandNum > 0) _signalBandData.Add(new SignalChartPoint(ts, bandNum));
-                }
-
-                if (_signalChartData.Count > 1800) _signalChartData.RemoveAt(0);
-                if (_signalChannelData.Count > 1800) _signalChannelData.RemoveAt(0);
-                if (_signalApData.Count > 1800) _signalApData.RemoveAt(0);
-                if (_signalBandData.Count > 1800) _signalBandData.RemoveAt(0);
-
-                try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
-                catch { _isTooltipActive = false; }
-                if (!_isTooltipActive)
-                {
-                    try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
-                }
-            }
+            // WiFiman-only polls update the UI gauges but don't add chart points.
+            // Chart points are added by full polls only (every 5s) — this keeps
+            // data density low enough for Curve.Smooth to visually smooth the line.
         }
         catch (Exception ex)
         {
@@ -1222,23 +1190,31 @@
                 catch { _isTooltipActive = false; }
 
                 // Refresh the active tab data.
-                // Signal tab: never reload from DB during live polling.
-                // Live points are appended below with smoothing. The signal history
-                // table refreshes from _signalHistory which is only loaded on tab
-                // switch or time range change.
-                if (_activeTab != "signal")
+                // Signal tab: reload periodically (every 6 full polls = ~30s) to
+                // pick up new data. LTTB downsampling in LoadSignalDataAsync keeps
+                // the chart smooth. Other tabs reload every poll.
+                if (_activeTab == "signal")
+                {
+                    _fullPollCount++;
+                    if (_fullPollCount % 6 == 0)
+                    {
+                        await LoadTabDataAsync();
+                        if (!_isTooltipActive)
+                            await UpdateActiveChartsAsync();
+                    }
+                }
+                else
                 {
                     await LoadTabDataAsync();
                     if (!_isTooltipActive)
                         await UpdateActiveChartsAsync();
                 }
 
-                // Add to live signal chart data (smoothed) and history table (raw)
+                // Add to live signal chart data and history table
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
                 {
-                    var smoothed = SmoothedSignal(_client.SignalDbm.Value);
                     _signalChartData.Add(new SignalChartPoint(
-                        _latestPoll.Timestamp, (decimal)smoothed));
+                        _latestPoll.Timestamp, (decimal)_client.SignalDbm.Value));
 
                     // Append to signal history so the table updates live
                     _signalHistory.Add(new SignalHistoryEntry
@@ -1376,10 +1352,44 @@
             .OrderBy(n => n)
             .ToList();
 
-        // Chart is live-only (built from poll data with smoothing applied).
-        // History load only updates the table and AP name lookup — don't touch chart data.
         _signalHistory = history;
         _apNameLookup = apLookup;
+
+        // Build chart data from history, then LTTB downsample for visual smoothing
+        var rawSignal = new List<SignalChartPoint>();
+        var rawChannel = new List<SignalChartPoint>();
+        var rawAp = new List<SignalChartPoint>();
+        var rawBand = new List<SignalChartPoint>();
+
+        foreach (var h in history.Where(h => h.SignalDbm.HasValue))
+        {
+            rawSignal.Add(new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value));
+            if (h.Channel.HasValue)
+                rawChannel.Add(new SignalChartPoint(h.Timestamp, h.Channel.Value));
+            if (h.ApName != null)
+            {
+                var apIdx = apLookup.IndexOf(h.ApName);
+                if (apIdx >= 0) rawAp.Add(new SignalChartPoint(h.Timestamp, apIdx));
+            }
+            if (h.Band != null)
+            {
+                decimal bandNum = h.Band switch { "ng" => 2.4m, "na" => 5m, "6e" => 6m, _ => 0m };
+                if (bandNum > 0) rawBand.Add(new SignalChartPoint(h.Timestamp, bandNum));
+            }
+        }
+
+        // LTTB downsample signal, sync others to same timestamps
+        var downsampled = DownsampleSignalLttb(rawSignal, MaxSignalChartPoints);
+        var keptTimestamps = new HashSet<long>(downsampled.Select(p => p.X));
+
+        _signalChartData.Clear();
+        _signalChartData.AddRange(downsampled);
+        _signalChannelData.Clear();
+        _signalChannelData.AddRange(rawChannel.Where(p => keptTimestamps.Contains(p.X)));
+        _signalApData.Clear();
+        _signalApData.AddRange(rawAp.Where(p => keptTimestamps.Contains(p.X)));
+        _signalBandData.Clear();
+        _signalBandData.AddRange(rawBand.Where(p => keptTimestamps.Contains(p.X)));
 
         // Update tooltip formatter with current AP name lookup
         UpdateSignalTooltipFormatter();
@@ -1639,15 +1649,77 @@
         return _signalSortAsc ? "\u25B2" : "\u25BC";
     }
 
+    private const int MaxSignalChartPoints = 200;
+
     /// <summary>
-    /// 10-point moving average for live signal chart smoothing.
+    /// Largest-Triangle-Three-Buckets downsampling for signal chart.
+    /// Selects real data points that best preserve visual shape.
     /// </summary>
-    private int SmoothedSignal(int raw)
+    private static List<SignalChartPoint> DownsampleSignalLttb(List<SignalChartPoint> data, int targetCount)
     {
-        _signalSmoothBuffer.Enqueue(raw);
-        while (_signalSmoothBuffer.Count > 400)
-            _signalSmoothBuffer.Dequeue();
-        return (int)Math.Round(_signalSmoothBuffer.Average());
+        if (data.Count <= targetCount || targetCount < 3)
+            return data;
+
+        var result = new List<SignalChartPoint>(targetCount);
+        result.Add(data[0]);
+
+        double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
+        int prevSelectedIndex = 0;
+
+        for (int bucket = 0; bucket < targetCount - 2; bucket++)
+        {
+            int currStart = (int)Math.Floor(bucket * bucketSize) + 1;
+            int currEnd = (int)Math.Floor((bucket + 1) * bucketSize) + 1;
+            currEnd = Math.Min(currEnd, data.Count - 1);
+
+            double avgX, avgY;
+            if (bucket == targetCount - 3)
+            {
+                avgX = data[^1].X;
+                avgY = (double)data[^1].Value;
+            }
+            else
+            {
+                int nextStart = currEnd;
+                int nextEnd = (int)Math.Floor((bucket + 2) * bucketSize) + 1;
+                nextEnd = Math.Min(nextEnd, data.Count - 1);
+
+                avgX = 0; avgY = 0;
+                int count = 0;
+                for (int j = nextStart; j < nextEnd; j++)
+                {
+                    avgX += data[j].X;
+                    avgY += (double)data[j].Value;
+                    count++;
+                }
+                if (count > 0) { avgX /= count; avgY /= count; }
+                else { avgX = data[nextStart].X; avgY = (double)data[nextStart].Value; }
+            }
+
+            double maxArea = -1;
+            int bestIndex = currStart;
+            double prevX = data[prevSelectedIndex].X;
+            double prevY = (double)data[prevSelectedIndex].Value;
+
+            for (int j = currStart; j < currEnd; j++)
+            {
+                double area = Math.Abs(
+                    (prevX - avgX) * ((double)data[j].Value - prevY) -
+                    (prevX - data[j].X) * (avgY - prevY)
+                );
+                if (area > maxArea)
+                {
+                    maxArea = area;
+                    bestIndex = j;
+                }
+            }
+
+            result.Add(data[bestIndex]);
+            prevSelectedIndex = bestIndex;
+        }
+
+        result.Add(data[^1]);
+        return result;
     }
 
     private List<CollapsedSignalRow> _cachedCollapsed = new();
