@@ -443,7 +443,7 @@ public class UniFiApiClient : IDisposable
             // For standalone controllers
             url = $"{_controllerUrl}/v2/api/{endpoint}";
         }
-        _logger.LogDebug("BuildV2ApiPath: _isUniFiOs={IsUniFiOs}, endpoint={Endpoint}, url={Url}", _isUniFiOs, endpoint, url);
+        _logger.LogTrace("BuildV2ApiPath: _isUniFiOs={IsUniFiOs}, endpoint={Endpoint}, url={Url}", _isUniFiOs, endpoint, url);
         return url;
     }
 
@@ -767,7 +767,7 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public async Task<WiFiManClientResponse?> GetWiFiManClientAsync(string clientIp, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Fetching WiFiman data for client {Ip} from site {Site}", clientIp, _site);
+        _logger.LogTrace("Fetching WiFiman data for client {Ip} from site {Site}", clientIp, _site);
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
             return null;
@@ -786,7 +786,7 @@ public class UniFiApiClient : IDisposable
             var result = await response.Content.ReadFromJsonAsync<WiFiManClientResponse>(cancellationToken: cancellationToken);
             if (result != null)
             {
-                _logger.LogDebug("WiFiman data for {Ip}: signal={Signal}, channel={Channel}, band={Band}",
+                _logger.LogTrace("WiFiman data for {Ip}: signal={Signal}, channel={Channel}, band={Band}",
                     clientIp, result.Signal, result.Channel, result.WlanBand);
             }
             return result;
