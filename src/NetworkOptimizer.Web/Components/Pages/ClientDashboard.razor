@@ -877,6 +877,7 @@
     private bool _hasWiFiManData;
     private int _tickCount;
     private bool _isTooltipActive;
+    private bool _isMobile;
 
     private int _fullPollCount;
 
@@ -1028,6 +1029,7 @@
         // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
+        _isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth <= 768");
         _showGpsWarning = _isInsecureContext && _isOwnDevice;
 
         if (_showGpsWarning)
@@ -1649,7 +1651,7 @@
         return _signalSortAsc ? "\u25B2" : "\u25BC";
     }
 
-    private const int MaxSignalChartPoints = 200;
+    private int MaxSignalChartPoints => _isMobile ? 30 : 60;
 
     /// <summary>
     /// Largest-Triangle-Three-Buckets downsampling for signal chart.
