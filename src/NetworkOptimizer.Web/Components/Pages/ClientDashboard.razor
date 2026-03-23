@@ -1551,7 +1551,12 @@
         var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: true);
 
-        // Load data for the new tab
+        // Load data for the new tab and reset poll timer so next tick is immediate
+        _fullPollCount = 0;
+        _tickCount = 0;
+        var interval = _hasWiFiManData ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+        _pollTimer?.Change(TimeSpan.Zero, interval);
+
         _ = InvokeAsync(async () =>
         {
             _tabLoading = true;
@@ -1563,8 +1568,6 @@
             finally
             {
                 _tabLoading = false;
-                // No _pendingChartUpdate here - Blazor's render creates the chart with data+annotations.
-                // RenderAsync on a newly created chart destroys and recreates it, causing a delay.
                 StateHasChanged();
             }
         });
