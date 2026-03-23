@@ -1376,45 +1376,10 @@
             .OrderBy(n => n)
             .ToList();
 
-        // Build chart data into temp lists, then swap atomically to avoid blanking the UI
-        var tmpSignal = new List<SignalChartPoint>();
-        var tmpChannel = new List<SignalChartPoint>();
-        var tmpAp = new List<SignalChartPoint>();
-        var tmpBand = new List<SignalChartPoint>();
-
-        foreach (var h in history.Where(h => h.SignalDbm.HasValue))
-        {
-            tmpSignal.Add(new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value));
-
-            if (h.Channel.HasValue)
-                tmpChannel.Add(new SignalChartPoint(h.Timestamp, h.Channel.Value));
-
-            if (h.ApName != null)
-            {
-                var apIdx = apLookup.IndexOf(h.ApName);
-                if (apIdx >= 0)
-                    tmpAp.Add(new SignalChartPoint(h.Timestamp, apIdx));
-            }
-
-            if (h.Band != null)
-            {
-                decimal bandNum = h.Band switch { "ng" => 2.4m, "na" => 5m, "6e" => 6m, _ => 0m };
-                if (bandNum > 0)
-                    tmpBand.Add(new SignalChartPoint(h.Timestamp, bandNum));
-            }
-        }
-
-        // Atomic swap — clear and repopulate (chart Items binding holds the reference)
+        // Chart is live-only (built from poll data with smoothing applied).
+        // History load only updates the table and AP name lookup — don't touch chart data.
         _signalHistory = history;
         _apNameLookup = apLookup;
-        _signalChartData.Clear();
-        _signalChartData.AddRange(tmpSignal);
-        _signalChannelData.Clear();
-        _signalChannelData.AddRange(tmpChannel);
-        _signalApData.Clear();
-        _signalApData.AddRange(tmpAp);
-        _signalBandData.Clear();
-        _signalBandData.AddRange(tmpBand);
 
         // Update tooltip formatter with current AP name lookup
         UpdateSignalTooltipFormatter();
