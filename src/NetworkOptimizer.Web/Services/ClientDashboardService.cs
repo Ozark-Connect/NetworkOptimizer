@@ -40,9 +40,10 @@ public class ClientDashboardService
     // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
     private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
 
-    // Buffer 1s polls and flush averaged signal every 5 seconds to reduce DB writes
+    // Buffer signal polls and flush averaged values to DB.
+    // With full polls at 5s intervals, flush every poll (buffer accumulates WiFiman-only readings between full polls).
     private readonly ConcurrentDictionary<string, SignalBuffer> _signalBuffers = new();
-    private const int SignalBufferFlushInterval = 5;
+    private const int SignalBufferFlushInterval = 1;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
