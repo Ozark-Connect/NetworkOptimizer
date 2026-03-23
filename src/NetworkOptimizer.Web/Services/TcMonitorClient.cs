@@ -20,6 +20,10 @@ public class TcMonitorClient : ITcMonitorClient
     private static DateTime _cacheTime = DateTime.MinValue;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
 
+    // Expire stale cache after consecutive failures (prevents showing data from a dead monitor)
+    private static int _consecutiveFailures;
+    private const int MaxConsecutiveFailures = 3;
+
     // Serialize requests - the netcat-based server can only handle one connection at a time
     private static readonly SemaphoreSlim _requestLock = new(1, 1);
 
@@ -81,6 +85,7 @@ public class TcMonitorClient : ITcMonitorClient
                         _cachedResponse = response;
                         _cachedUrl = url;
                         _cacheTime = DateTime.UtcNow;
+                        _consecutiveFailures = 0;
                         return response;
                     }
                 }
@@ -106,7 +111,16 @@ public class TcMonitorClient : ITcMonitorClient
                 }
             }
 
-            return _cachedUrl == url ? _cachedResponse : null; // Return stale cache only if same endpoint
+            _consecutiveFailures++;
+            if (_consecutiveFailures >= MaxConsecutiveFailures)
+            {
+                _logger.LogDebug("TC monitor unreachable after {Failures} attempts, expiring stale cache", _consecutiveFailures);
+                _cachedResponse = null;
+                _cachedUrl = null;
+                return null;
+            }
+
+            return _cachedUrl == url ? _cachedResponse : null;
         }
         finally
         {
