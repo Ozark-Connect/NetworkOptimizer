@@ -532,7 +532,7 @@
                     @* Signal History Chart (wireless only) *@
                     @if (_signalChartData.Count > 0 && !(_client?.IsWired == true))
                     {
-                        <div class="card chart-card">
+                        <div class="card chart-card" style="margin-top: -1.5rem">
                             <h3>Signal History</h3>
                             <div class="chart-container">
                                 <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
