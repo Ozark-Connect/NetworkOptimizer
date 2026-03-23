@@ -1568,6 +1568,8 @@
             finally
             {
                 _tabLoading = false;
+                // No _pendingChartUpdate here - Blazor's render creates the chart with data+annotations.
+                // RenderAsync on a newly created chart destroys and recreates it, causing a delay.
                 StateHasChanged();
             }
         });

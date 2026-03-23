@@ -21,10 +21,10 @@ public class WirelessRateSnapshot
 /// </summary>
 public class WiFiManClientInfo
 {
-    /// <summary>TX rate in Kbps (AP→client, from client's download perspective)</summary>
+    /// <summary>TX rate in Kbps (client upload → AP RX perspective, mapped from WiFiman LinkUploadRateKbps)</summary>
     public long TxKbps { get; set; }
 
-    /// <summary>RX rate in Kbps (client→AP, from client's upload perspective)</summary>
+    /// <summary>RX rate in Kbps (client download → AP TX perspective, mapped from WiFiman LinkDownloadRateKbps)</summary>
     public long RxKbps { get; set; }
 
     /// <summary>Radio band as UniFi code (ng/na/6e)</summary>
