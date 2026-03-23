@@ -40,6 +40,10 @@ public class ClientDashboardService
     // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
     private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
 
+    // Buffer 1s polls and flush averaged signal every 5 seconds to reduce DB writes
+    private readonly ConcurrentDictionary<string, SignalBuffer> _signalBuffers = new();
+    private const int SignalBufferFlushInterval = 5;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },
@@ -224,24 +228,31 @@ public class ClientDashboardService
                     result.TraceChanged = true; // First poll for this client
                 _lastTraceHashes[identity.Mac] = result.TraceHash;
 
-                // Always store when trace changes (trace snapshots are deduped by hash).
-                // Also store on every poll when persist=true (own device with logging on).
-                if (persist || result.TraceChanged)
+                // Trace changes always store immediately (with full trace data).
+                // Regular polls buffer signal values and flush the mean every 5 seconds.
+                if (result.TraceChanged)
+                {
+                    await FlushSignalBufferAsync(clientIp, identity, result, gpsLat, gpsLng, gpsAccuracy);
                     await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                }
+                else if (persist)
+                {
+                    await BufferOrStoreSignalAsync(clientIp, identity, result, gpsLat, gpsLng, gpsAccuracy);
+                }
             }
             else
             {
                 // Store without trace
                 result.TraceChanged = false;
                 if (persist)
-                    await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                    await BufferOrStoreSignalAsync(clientIp, identity, result, gpsLat, gpsLng, gpsAccuracy);
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Trace failed for {Ip}, storing signal-only log", clientIp);
             if (persist)
-                await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                await BufferOrStoreSignalAsync(clientIp, identity, result, gpsLat, gpsLng, gpsAccuracy);
         }
 
         _logger.LogTrace("Poll for {Ip}: identify={IdentifyMs}ms, total={TotalMs}ms",
@@ -700,6 +711,42 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>
+    /// Buffer signal data and flush the mean every 5 polls to reduce DB writes.
+    /// </summary>
+    private async Task BufferOrStoreSignalAsync(
+        string clientIp, ClientIdentity identity, SignalPollResult poll,
+        double? gpsLat, double? gpsLng, int? gpsAccuracy)
+    {
+        var buffer = _signalBuffers.GetOrAdd(clientIp, _ => new SignalBuffer());
+        buffer.Add(identity);
+
+        if (buffer.Count >= SignalBufferFlushInterval)
+        {
+            await FlushSignalBufferAsync(clientIp, identity, poll, gpsLat, gpsLng, gpsAccuracy);
+        }
+    }
+
+    /// <summary>
+    /// Flush the signal buffer, averaging signal values, and store one entry.
+    /// </summary>
+    private async Task FlushSignalBufferAsync(
+        string clientIp, ClientIdentity identity, SignalPollResult poll,
+        double? gpsLat, double? gpsLng, int? gpsAccuracy)
+    {
+        if (_signalBuffers.TryRemove(clientIp, out var buffer) && buffer.Count > 0)
+        {
+            // Apply averaged signal to the identity before storing
+            var averaged = buffer.GetAveraged();
+            if (averaged.SignalDbm.HasValue)
+                identity.SignalDbm = averaged.SignalDbm;
+            if (averaged.NoiseDbm.HasValue)
+                identity.NoiseDbm = averaged.NoiseDbm;
+        }
+
+        await StoreSignalLogAsync(identity, poll, gpsLat, gpsLng, gpsAccuracy);
+    }
+
     private async Task StoreSignalLogAsync(
         ClientIdentity identity,
         SignalPollResult poll,
@@ -962,5 +1009,31 @@ public class ClientDashboardService
         }
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexStringLower(bytes);
+    }
+}
+
+/// <summary>
+/// Accumulates signal readings from 1s polls and provides the mean for DB storage.
+/// </summary>
+internal class SignalBuffer
+{
+    private readonly List<int> _signals = new();
+    private readonly List<int> _noises = new();
+
+    public int Count => _signals.Count;
+
+    public void Add(ClientIdentity identity)
+    {
+        if (identity.SignalDbm.HasValue)
+            _signals.Add(identity.SignalDbm.Value);
+        if (identity.NoiseDbm.HasValue)
+            _noises.Add(identity.NoiseDbm.Value);
+    }
+
+    public (int? SignalDbm, int? NoiseDbm) GetAveraged()
+    {
+        var avgSignal = _signals.Count > 0 ? (int?)Math.Round(_signals.Average()) : null;
+        var avgNoise = _noises.Count > 0 ? (int?)Math.Round(_noises.Average()) : null;
+        return (avgSignal, avgNoise);
     }
 }
