@@ -875,6 +875,7 @@
     // Polling
     private System.Threading.Timer? _pollTimer;
     private bool _hasWiFiManData;
+    private int _tickCount;
     private bool _isTooltipActive;
 
     // GPS
@@ -966,14 +967,26 @@
 
         // Note: initial GPS request happens in OnAfterRenderAsync (needs JS interop)
 
-        // Start polling - adapts to 1s when WiFiman endpoint is available, otherwise 5s
+        // Start polling - 1s ticks when WiFiman is available.
+        // Full poll (stat/sta + trace + storage) every 5th tick.
+        // Lightweight WiFiman-only poll on other ticks for live signal updates.
         _pollTimer = new System.Threading.Timer(async _ =>
         {
             try
             {
+                _tickCount++;
+                var isFullPoll = !_hasWiFiManData || _tickCount % 5 == 0;
+
                 await InvokeAsync(async () =>
                 {
-                    await PollAsync();
+                    if (isFullPoll)
+                    {
+                        await PollAsync();
+                    }
+                    else
+                    {
+                        await PollWiFiManOnlyAsync();
+                    }
                     StateHasChanged();
                 });
                 _consecutiveFailures = 0;
@@ -987,8 +1000,9 @@
                     _pollTimer?.Change(interval, interval);
                 }
 
-                // Run daily cleanup check (non-blocking)
-                _ = DashboardService.TryCleanupAsync();
+                // Run daily cleanup check (non-blocking, on full polls only)
+                if (isFullPoll)
+                    _ = DashboardService.TryCleanupAsync();
             }
             catch
             {
@@ -1077,6 +1091,73 @@
             return null;
 
         return await DashboardService.IdentifyClientAsync(_clientIp);
+    }
+
+    /// <summary>
+    /// Lightweight 1s poll: only hits WiFiman for live signal/channel/band/rates.
+    /// Merges into existing _client. No stat/sta, no trace, no DB write.
+    /// </summary>
+    private async Task PollWiFiManOnlyAsync()
+    {
+        if (string.IsNullOrEmpty(_clientIp) || _client == null)
+            return;
+
+        try
+        {
+            var update = await DashboardService.PollWiFiManOnlyAsync(_clientIp);
+            if (update == null)
+                return;
+
+            // Merge WiFiman signal fields into existing client identity
+            if (update.SignalDbm.HasValue) _client.SignalDbm = update.SignalDbm;
+            if (update.NoiseDbm.HasValue) _client.NoiseDbm = update.NoiseDbm;
+            if (update.Channel.HasValue) _client.Channel = update.Channel;
+            if (update.ChannelWidth.HasValue) _client.ChannelWidth = update.ChannelWidth;
+            if (!string.IsNullOrEmpty(update.Band)) _client.Band = update.Band;
+            if (!string.IsNullOrEmpty(update.Protocol)) _client.Protocol = update.Protocol;
+            if (update.TxRateKbps.HasValue) _client.TxRateKbps = update.TxRateKbps;
+            if (update.RxRateKbps.HasValue) _client.RxRateKbps = update.RxRateKbps;
+            if (update.Satisfaction.HasValue) _client.Satisfaction = update.Satisfaction;
+            _client.HasWiFiManData = true;
+            _pollCount++;
+
+            // Add to live signal chart
+            if (_activeTab == "signal" && _client.SignalDbm.HasValue)
+            {
+                var ts = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
+                _signalChartData.Add(new SignalChartPoint(ts, (decimal)_client.SignalDbm.Value));
+
+                if (_client.Channel.HasValue)
+                    _signalChannelData.Add(new SignalChartPoint(ts, _client.Channel.Value));
+                if (_client.ApName != null)
+                {
+                    var apIdx = _apNameLookup.IndexOf(_client.ApName);
+                    if (apIdx < 0) { _apNameLookup.Add(_client.ApName); apIdx = _apNameLookup.Count - 1; }
+                    _signalApData.Add(new SignalChartPoint(ts, apIdx));
+                }
+                if (_client.Band != null)
+                {
+                    decimal bandNum = _client.Band switch { "ng" => 2.4m, "na" => 5m, "6e" => 6m, _ => 0m };
+                    if (bandNum > 0) _signalBandData.Add(new SignalChartPoint(ts, bandNum));
+                }
+
+                if (_signalChartData.Count > 1800) _signalChartData.RemoveAt(0);
+                if (_signalChannelData.Count > 1800) _signalChannelData.RemoveAt(0);
+                if (_signalApData.Count > 1800) _signalApData.RemoveAt(0);
+                if (_signalBandData.Count > 1800) _signalBandData.RemoveAt(0);
+
+                try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
+                catch { _isTooltipActive = false; }
+                if (!_isTooltipActive)
+                {
+                    try { if (_signalChart != null) await _signalChart.UpdateSeriesAsync(true); } catch { }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WiFiman-only poll failed: {ex.Message}");
+        }
     }
 
     private async Task PollAsync()

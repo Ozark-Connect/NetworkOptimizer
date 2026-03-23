@@ -805,6 +805,53 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>
+    /// Lightweight 1s poll: only hits the WiFiman endpoint to refresh signal/channel/band/rates
+    /// on an existing identity. No stat/sta, no trace, no storage. Returns null if WiFiman
+    /// is unavailable or identity is unknown.
+    /// </summary>
+    public async Task<ClientIdentity?> PollWiFiManOnlyAsync(string clientIp)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return null;
+
+        // Need a known MAC to have an existing identity
+        if (!_ipToMacCache.TryGetValue(clientIp, out _))
+            return null;
+
+        // Fetch WiFiman data only
+        try
+        {
+            var wifiman = await _connectionService.Client.GetWiFiManClientAsync(clientIp);
+            if (wifiman?.Signal == null)
+                return null;
+
+            // Get the last known identity from the offline cache or return a minimal one
+            // We don't call stat/sta here — just overlay WiFiman onto whatever we last knew
+            if (_offlineIdentityCache.TryGetValue(clientIp, out var cached) && cached.IsOffline)
+                return null;
+
+            // Build a lightweight update (caller merges into their existing _client)
+            return new ClientIdentity
+            {
+                SignalDbm = wifiman.Signal,
+                NoiseDbm = wifiman.Noise,
+                Channel = wifiman.Channel,
+                ChannelWidth = wifiman.ChannelWidth,
+                Band = wifiman.RadioCode,
+                Protocol = wifiman.RadioProtocol,
+                TxRateKbps = wifiman.LinkUploadRateKbps,
+                RxRateKbps = wifiman.LinkDownloadRateKbps,
+                Satisfaction = wifiman.WiFiExperience,
+                HasWiFiManData = true
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private ClientIdentity MapClientToIdentity(UniFiClientResponse client)
     {
         return new ClientIdentity
