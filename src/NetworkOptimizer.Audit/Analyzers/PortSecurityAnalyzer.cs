@@ -486,7 +486,7 @@ public class PortSecurityAnalyzer
     /// </summary>
     private SwitchCapabilities ParseSwitchCapabilities(JsonElement device)
     {
-        var caps = new SwitchCapabilities();
+        var dot1xEnabled = device.GetBoolOrDefault("dot1x_portctrl_enabled");
 
         if (device.TryGetProperty("switch_caps", out var switchCaps))
         {
@@ -494,12 +494,13 @@ public class PortSecurityAnalyzer
             {
                 return new SwitchCapabilities
                 {
-                    MaxCustomMacAcls = maxAclsProp.GetInt32()
+                    MaxCustomMacAcls = maxAclsProp.GetInt32(),
+                    Dot1xPortCtrlEnabled = dot1xEnabled
                 };
             }
         }
 
-        return caps;
+        return new SwitchCapabilities { Dot1xPortCtrlEnabled = dot1xEnabled };
     }
 
     /// <summary>

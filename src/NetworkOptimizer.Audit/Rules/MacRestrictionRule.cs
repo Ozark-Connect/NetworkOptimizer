@@ -44,11 +44,31 @@ public class MacRestrictionRule : AuditRuleBase
         if (port.Switch.Capabilities.MaxCustomMacAcls == 0)
             return null; // Switch doesn't support this feature
 
-        // Skip ports on Server networks - servers/hypervisors inherently have multiple MACs
-        // from VMs and containers, making MAC restriction impractical
         var network = GetNetwork(port.NativeNetworkId, networks);
+
+        // Server networks: servers/hypervisors have multiple MACs from VMs and containers,
+        // so MAC restriction is impractical. Recommend 802.1X multi-host if the switch supports it,
+        // otherwise skip entirely.
         if (network?.Purpose == NetworkPurpose.Server)
-            return null;
+        {
+            if (port.IsDot1xSecured)
+                return null; // Already secured via RADIUS
+
+            if (port.Switch.Capabilities.Dot1xPortCtrlEnabled)
+            {
+                return CreateIssue(
+                    "Server port should use 802.1X authentication for port security",
+                    port,
+                    new Dictionary<string, object>
+                    {
+                        { "network", network.Name }
+                    },
+                    "This port is on a Server network where MAC restriction is impractical due to multiple VM/container MACs. " +
+                    "Use 802.1X Multi-Host mode to authenticate the server, then allow subsequent MACs on the port.");
+            }
+
+            return null; // Switch doesn't support 802.1X, nothing actionable
+        }
 
         // Check if port already has MAC restrictions
         if (port.PortSecurityEnabled || (port.AllowedMacAddresses?.Any() ?? false))

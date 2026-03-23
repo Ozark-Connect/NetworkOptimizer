@@ -91,6 +91,12 @@ public class SwitchCapabilities
     public int MaxCustomMacAcls { get; init; }
 
     /// <summary>
+    /// Whether 802.1X port control is enabled on this switch.
+    /// From the device-level dot1x_portctrl_enabled field.
+    /// </summary>
+    public bool Dot1xPortCtrlEnabled { get; init; }
+
+    /// <summary>
     /// Whether the switch supports port isolation
     /// </summary>
     public bool SupportsIsolation { get; init; }
