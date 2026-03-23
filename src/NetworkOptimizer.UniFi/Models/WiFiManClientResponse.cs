@@ -67,6 +67,7 @@ public class WiFiManClientResponse
         "6g" => "6e",
         "5g" => "na",
         "2.4g" => "ng",
+        "2g" => "ng",
         _ => WlanBand // pass through unknown values
     };
 }
