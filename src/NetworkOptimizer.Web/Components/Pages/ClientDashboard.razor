@@ -2845,22 +2845,22 @@
     }
 
     /* Chart left margin - pull charts left to reclaim axis label space */
-    .signal-chart-container {
-        margin-left: -1.5rem;
-    }
-
     .chart-container {
         margin-left: -0.75rem;
     }
 
+    .chart-container.signal-chart-container {
+        margin-left: -1.5rem;
+    }
+
     /* Mobile responsive */
     @@media (max-width: 768px) {
-        .signal-chart-container {
-            margin-left: -2rem;
-        }
-
         .chart-container {
             margin-left: -0.75rem;
+        }
+
+        .chart-container.signal-chart-container {
+            margin-left: -2rem;
         }
         .client-dashboard-page {
             padding: 0 0 80px;
