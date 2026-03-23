@@ -532,9 +532,9 @@
                     @* Signal History Chart (wireless only) *@
                     @if (_signalChartData.Count > 0 && !(_client?.IsWired == true))
                     {
-                        <div class="card chart-card" style="margin-left: -1.5rem">
+                        <div class="card chart-card">
                             <h3>Signal History</h3>
-                            <div class="chart-container">
+                            <div class="chart-container signal-chart-container">
                                 <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
                                            Options="_signalChartOptions"
                                            Height="@("250px")">
@@ -2844,8 +2844,24 @@
         font-style: italic;
     }
 
+    /* Chart left margin - pull charts left to reclaim axis label space */
+    .signal-chart-container {
+        margin-left: -1.5rem;
+    }
+
+    .chart-container {
+        margin-left: -1rem;
+    }
+
     /* Mobile responsive */
     @@media (max-width: 768px) {
+        .signal-chart-container {
+            margin-left: -2rem;
+        }
+
+        .chart-container {
+            margin-left: -1.5rem;
+        }
         .client-dashboard-page {
             padding: 0 0 80px;
         }
