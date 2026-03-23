@@ -878,6 +878,9 @@
     private int _tickCount;
     private bool _isTooltipActive;
 
+    // 10-point moving average buffer for signal chart smoothing
+    private readonly Queue<int> _signalSmoothBuffer = new();
+
     // GPS
     private double? _gpsLat;
     private double? _gpsLng;
@@ -1121,11 +1124,12 @@
             _client.HasWiFiManData = true;
             _pollCount++;
 
-            // Add to live signal chart
+            // Add to live signal chart (10-point moving average for smoothing)
             if (_activeTab == "signal" && _client.SignalDbm.HasValue)
             {
                 var ts = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
-                _signalChartData.Add(new SignalChartPoint(ts, (decimal)_client.SignalDbm.Value));
+                var smoothed = SmoothedSignal(_client.SignalDbm.Value);
+                _signalChartData.Add(new SignalChartPoint(ts, (decimal)smoothed));
 
                 if (_client.Channel.HasValue)
                     _signalChannelData.Add(new SignalChartPoint(ts, _client.Channel.Value));
@@ -1235,11 +1239,12 @@
                         await UpdateActiveChartsAsync();
                 }
 
-                // Add to live signal chart data
+                // Add to live signal chart data (10-point moving average)
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
                 {
+                    var smoothed = SmoothedSignal(_client.SignalDbm.Value);
                     _signalChartData.Add(new SignalChartPoint(
-                        _latestPoll.Timestamp, (decimal)_client.SignalDbm.Value));
+                        _latestPoll.Timestamp, (decimal)smoothed));
 
                     // Add live metadata for tooltip
                     if (_client.Channel.HasValue)
@@ -1644,6 +1649,17 @@
     {
         if (_signalSortCol != col) return "";
         return _signalSortAsc ? "\u25B2" : "\u25BC";
+    }
+
+    /// <summary>
+    /// 10-point moving average for live signal chart smoothing.
+    /// </summary>
+    private int SmoothedSignal(int raw)
+    {
+        _signalSmoothBuffer.Enqueue(raw);
+        while (_signalSmoothBuffer.Count > 10)
+            _signalSmoothBuffer.Dequeue();
+        return (int)Math.Round(_signalSmoothBuffer.Average());
     }
 
     private List<CollapsedSignalRow> _cachedCollapsed = new();
