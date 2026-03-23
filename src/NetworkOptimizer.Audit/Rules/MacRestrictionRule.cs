@@ -44,6 +44,12 @@ public class MacRestrictionRule : AuditRuleBase
         if (port.Switch.Capabilities.MaxCustomMacAcls == 0)
             return null; // Switch doesn't support this feature
 
+        // Skip ports on Server networks - servers/hypervisors inherently have multiple MACs
+        // from VMs and containers, making MAC restriction impractical
+        var network = GetNetwork(port.NativeNetworkId, networks);
+        if (network?.Purpose == NetworkPurpose.Server)
+            return null;
+
         // Check if port already has MAC restrictions
         if (port.PortSecurityEnabled || (port.AllowedMacAddresses?.Any() ?? false))
             return null; // Already has restrictions
@@ -56,8 +62,6 @@ public class MacRestrictionRule : AuditRuleBase
         // (user has created an access port profile with MAC restriction explicitly disabled)
         if (HasIntentionalUnrestrictedProfile(port))
             return null;
-
-        var network = GetNetwork(port.NativeNetworkId, networks);
 
         return CreateIssue(
             "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network",

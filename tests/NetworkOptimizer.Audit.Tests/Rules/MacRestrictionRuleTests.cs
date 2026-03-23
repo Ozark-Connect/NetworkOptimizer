@@ -104,6 +104,20 @@ public class MacRestrictionRuleTests
         result.Should().BeNull();
     }
 
+    [Fact]
+    public void Evaluate_ServerNetworkPurpose_ReturnsNull()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-server", Name = "Service", VlanId = 1000, Purpose = NetworkPurpose.Server }
+        };
+        var port = CreatePort(isUp: true, forwardMode: "native", nativeNetworkId: "net-server");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("servers/hypervisors have multiple MACs from VMs, making MAC restriction impractical");
+    }
+
     #endregion
 
     #region Evaluate Tests - Ports That Are Already Protected
