@@ -1324,21 +1324,38 @@
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
         // Build chart data (UTC timestamps - JS formatter converts to browser local time)
-        // Clear and repopulate existing lists (don't reassign - chart Items bindings hold the reference)
-        _speedDownloadData.Clear();
-        _speedUploadData.Clear();
-        _latencyPingData.Clear();
-        _latencyJitterData.Clear();
+        var rawDownload = new List<SpeedChartPoint>();
+        var rawUpload = new List<SpeedChartPoint>();
+        var rawPing = new List<SpeedChartPoint>();
+        var rawJitter = new List<SpeedChartPoint>();
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
-            _speedDownloadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
-            _speedUploadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+            rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
+            rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
 
             if (r.PingMs.HasValue)
-                _latencyPingData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+                rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
             if (r.JitterMs.HasValue)
-                _latencyJitterData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+                rawJitter.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
         }
+
+        // LTTB downsample speed charts, sync upload to same timestamps as download
+        var dlDown = DownsampleLttb(rawDownload, MaxSpeedChartPoints, p => p.X, p => (double)p.Value);
+        var keptSpeedTs = new HashSet<long>(dlDown.Select(p => p.X));
+
+        _speedDownloadData.Clear();
+        _speedDownloadData.AddRange(dlDown);
+        _speedUploadData.Clear();
+        _speedUploadData.AddRange(rawUpload.Where(p => keptSpeedTs.Contains(p.X)));
+
+        // LTTB downsample latency charts, sync jitter to same timestamps as ping
+        var pingDown = DownsampleLttb(rawPing, MaxSpeedChartPoints, p => p.X, p => (double)p.Value);
+        var keptLatencyTs = new HashSet<long>(pingDown.Select(p => p.X));
+
+        _latencyPingData.Clear();
+        _latencyPingData.AddRange(pingDown);
+        _latencyJitterData.Clear();
+        _latencyJitterData.AddRange(rawJitter.Where(p => keptLatencyTs.Contains(p.X)));
     }
 
     private async Task LoadSignalDataAsync(DateTime from, DateTime to)
@@ -1381,7 +1398,7 @@
         }
 
         // LTTB downsample signal, sync others to same timestamps
-        var downsampled = DownsampleSignalLttb(rawSignal, MaxSignalChartPoints);
+        var downsampled = DownsampleLttb(rawSignal, MaxSignalChartPoints, p => p.X, p => (double)p.Value);
         var keptTimestamps = new HashSet<long>(downsampled.Select(p => p.X));
 
         _signalChartData.Clear();
@@ -1652,17 +1669,19 @@
     }
 
     private int MaxSignalChartPoints => _isMobile ? 30 : 60;
+    private int MaxSpeedChartPoints => _isMobile ? 30 : 60;
 
     /// <summary>
-    /// Largest-Triangle-Three-Buckets downsampling for signal chart.
-    /// Selects real data points that best preserve visual shape.
+    /// Largest-Triangle-Three-Buckets downsampling. Selects real data points
+    /// that best preserve the visual shape of the time series.
+    /// Works with any list that has X (epoch ms) and Value (decimal) properties.
     /// </summary>
-    private static List<SignalChartPoint> DownsampleSignalLttb(List<SignalChartPoint> data, int targetCount)
+    private static List<T> DownsampleLttb<T>(List<T> data, int targetCount, Func<T, long> getX, Func<T, double> getY)
     {
         if (data.Count <= targetCount || targetCount < 3)
             return data;
 
-        var result = new List<SignalChartPoint>(targetCount);
+        var result = new List<T>(targetCount);
         result.Add(data[0]);
 
         double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
@@ -1677,8 +1696,8 @@
             double avgX, avgY;
             if (bucket == targetCount - 3)
             {
-                avgX = data[^1].X;
-                avgY = (double)data[^1].Value;
+                avgX = getX(data[^1]);
+                avgY = getY(data[^1]);
             }
             else
             {
@@ -1690,24 +1709,24 @@
                 int count = 0;
                 for (int j = nextStart; j < nextEnd; j++)
                 {
-                    avgX += data[j].X;
-                    avgY += (double)data[j].Value;
+                    avgX += getX(data[j]);
+                    avgY += getY(data[j]);
                     count++;
                 }
                 if (count > 0) { avgX /= count; avgY /= count; }
-                else { avgX = data[nextStart].X; avgY = (double)data[nextStart].Value; }
+                else { avgX = getX(data[nextStart]); avgY = getY(data[nextStart]); }
             }
 
             double maxArea = -1;
             int bestIndex = currStart;
-            double prevX = data[prevSelectedIndex].X;
-            double prevY = (double)data[prevSelectedIndex].Value;
+            double prevX = getX(data[prevSelectedIndex]);
+            double prevY = getY(data[prevSelectedIndex]);
 
             for (int j = currStart; j < currEnd; j++)
             {
                 double area = Math.Abs(
-                    (prevX - avgX) * ((double)data[j].Value - prevY) -
-                    (prevX - data[j].X) * (avgY - prevY)
+                    (prevX - avgX) * (getY(data[j]) - prevY) -
+                    (prevX - getX(data[j])) * (avgY - prevY)
                 );
                 if (area > maxArea)
                 {
