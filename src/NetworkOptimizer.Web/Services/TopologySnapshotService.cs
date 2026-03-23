@@ -105,17 +105,20 @@ public class TopologySnapshotService : ITopologySnapshotService
                 snapshot.MeshUplinkRates[device.Mac] = (device.UplinkTxRateKbps, device.UplinkRxRateKbps);
             }
 
+            // Also poll WiFiman for the target client's realtime rates
+            var targetClient = topology.Clients.FirstOrDefault(c => c.IpAddress == clientIp);
+            await EnrichWithWiFiManAsync(snapshot, clientIp, targetClient);
+
             // Store snapshot (overwrite any existing for this IP)
             _snapshots[clientIp] = new SnapshotEntry(snapshot, DateTime.UtcNow);
 
-            // Find the target client to log their specific rates
-            var targetClient = topology.Clients.FirstOrDefault(c => c.IpAddress == clientIp);
             if (targetClient != null && !targetClient.IsWired && snapshot.ClientRates.TryGetValue(targetClient.Mac, out var targetRates))
             {
+                var wifimanNote = snapshot.WiFiManData.ContainsKey(clientIp) ? " (WiFiman enriched)" : "";
                 _logger.LogDebug(
-                    "Captured snapshot for {ClientIp} ({Name}): Tx={Tx}Kbps, Rx={Rx}Kbps ({Total} clients, {Mesh} mesh)",
+                    "Captured snapshot for {ClientIp} ({Name}): Tx={Tx}Kbps, Rx={Rx}Kbps ({Total} clients, {Mesh} mesh){WiFiMan}",
                     clientIp, targetClient.Name ?? "Unknown", targetRates.TxKbps, targetRates.RxKbps,
-                    snapshot.ClientRates.Count, snapshot.MeshUplinkRates.Count);
+                    snapshot.ClientRates.Count, snapshot.MeshUplinkRates.Count, wifimanNote);
             }
             else
             {
@@ -178,6 +181,66 @@ public class TopologySnapshotService : ITopologySnapshotService
         if (expiredKeys.Count > 0)
         {
             _logger.LogDebug("Cleaned up {Count} expired snapshots", expiredKeys.Count);
+        }
+    }
+
+    /// <summary>
+    /// Poll the WiFiman endpoint for the target client and enrich the snapshot.
+    /// Uses the higher of WiFiman vs stat/sta rates for the target client.
+    /// Also stores band/channel info from WiFiman.
+    /// </summary>
+    private async Task EnrichWithWiFiManAsync(
+        WirelessRateSnapshot snapshot,
+        string clientIp,
+        DiscoveredClient? targetClient)
+    {
+        if (_clientProvider.Client == null || targetClient == null || targetClient.IsWired)
+            return;
+
+        try
+        {
+            var wifiman = await _clientProvider.Client.GetWiFiManClientAsync(clientIp);
+            if (wifiman == null)
+                return;
+
+            // Store WiFiman band/channel data
+            snapshot.WiFiManData[clientIp] = new WiFiManClientInfo
+            {
+                TxKbps = wifiman.LinkDownloadRateKbps ?? 0,
+                RxKbps = wifiman.LinkUploadRateKbps ?? 0,
+                Band = wifiman.RadioCode,
+                Channel = wifiman.Channel,
+                ChannelWidth = wifiman.ChannelWidth
+            };
+
+            // Use higher of WiFiman vs stat/sta rates (AP perspective: Tx=download, Rx=upload)
+            var wifimanTx = wifiman.LinkDownloadRateKbps ?? 0;
+            var wifimanRx = wifiman.LinkUploadRateKbps ?? 0;
+
+            if (!string.IsNullOrEmpty(targetClient.Mac) &&
+                snapshot.ClientRates.TryGetValue(targetClient.Mac, out var existing))
+            {
+                var bestTx = Math.Max(existing.TxKbps, wifimanTx);
+                var bestRx = Math.Max(existing.RxKbps, wifimanRx);
+                snapshot.ClientRates[targetClient.Mac] = (bestTx, bestRx, existing.ApMac);
+
+                _logger.LogDebug(
+                    "WiFiman enriched snapshot for {ClientIp}: stat/sta Tx={StaTx}Kbps Rx={StaRx}Kbps, WiFiman Tx={WmTx}Kbps Rx={WmRx}Kbps, best Tx={BestTx}Kbps Rx={BestRx}Kbps",
+                    clientIp, existing.TxKbps, existing.RxKbps, wifimanTx, wifimanRx, bestTx, bestRx);
+            }
+            else if (!string.IsNullOrEmpty(targetClient.Mac) && (wifimanTx > 0 || wifimanRx > 0))
+            {
+                // stat/sta didn't have rates but WiFiman does
+                snapshot.ClientRates[targetClient.Mac] = (wifimanTx, wifimanRx, targetClient.ConnectedToDeviceMac);
+
+                _logger.LogDebug(
+                    "WiFiman provided snapshot rates for {ClientIp} (no stat/sta rates): Tx={Tx}Kbps Rx={Rx}Kbps",
+                    clientIp, wifimanTx, wifimanRx);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WiFiman enrichment failed for snapshot {ClientIp}", clientIp);
         }
     }
 

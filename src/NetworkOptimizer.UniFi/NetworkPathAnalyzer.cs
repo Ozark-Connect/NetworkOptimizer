@@ -951,6 +951,18 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         if (snapshotRxMbps > hop.EgressSpeedMbps)
                             hop.EgressSpeedMbps = snapshotRxMbps;
                     }
+
+                    // Apply WiFiman band/channel if available (more realtime than stat/sta)
+                    if (priorSnapshot.WiFiManData.TryGetValue(clientIp, out var wifimanInfo))
+                    {
+                        if (!string.IsNullOrEmpty(wifimanInfo.Band))
+                        {
+                            hop.WirelessIngressBand = wifimanInfo.Band;
+                            hop.WirelessEgressBand = wifimanInfo.Band;
+                        }
+                        if (wifimanInfo.Channel.HasValue)
+                            hop.WirelessChannel = wifimanInfo.Channel;
+                    }
                 }
 
                 // Mesh backhaul hops (wireless AP uplinks) - rates are in WirelessTxRateMbps/WirelessRxRateMbps
@@ -1717,10 +1729,25 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 hop.EgressSpeedMbps = rxMbps;
                 hop.IsWirelessEgress = true;
                 hop.IsWirelessIngress = true;
-                hop.WirelessEgressBand = targetClient.Radio;
-                hop.WirelessIngressBand = targetClient.Radio;
+
+                // Use WiFiman band/channel if available (more realtime), otherwise fall back to stat/sta
+                var clientIpForWiFiMan = targetClient.IpAddress;
+                if (!string.IsNullOrEmpty(clientIpForWiFiMan) &&
+                    priorSnapshot?.WiFiManData.TryGetValue(clientIpForWiFiMan, out var wifimanInfo) == true &&
+                    !string.IsNullOrEmpty(wifimanInfo.Band))
+                {
+                    hop.WirelessEgressBand = wifimanInfo.Band;
+                    hop.WirelessIngressBand = wifimanInfo.Band;
+                    if (wifimanInfo.Channel.HasValue)
+                        hop.WirelessChannel = wifimanInfo.Channel;
+                }
+                else
+                {
+                    hop.WirelessEgressBand = targetClient.Radio;
+                    hop.WirelessIngressBand = targetClient.Radio;
+                }
                 _logger.LogDebug("Wireless client {Name}: TxRate={Tx}Mbps (ToDevice), RxRate={Rx}Mbps (FromDevice), Radio={Radio}, MLO={IsMlo}",
-                    targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, targetClient.Radio ?? "null", targetClient.IsMlo);
+                    targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, hop.WirelessIngressBand ?? "null", targetClient.IsMlo);
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
