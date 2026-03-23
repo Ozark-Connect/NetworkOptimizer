@@ -880,6 +880,7 @@
 
     // 10-point moving average buffer for signal chart smoothing
     private readonly Queue<int> _signalSmoothBuffer = new();
+    private int _fullPollCount;
 
     // GPS
     private double? _gpsLat;
@@ -1222,10 +1223,11 @@
 
                 // Refresh the active tab data.
                 // Signal tab: skip the full DB reload on every poll (causes chart flash via RenderAsync).
-                // Instead, append live points below and do a full reload every 30s for history sync.
+                // Instead, append live points below and do a full reload every 12 full polls (~60s).
                 if (_activeTab == "signal")
                 {
-                    if (_pollCount % 30 == 0)
+                    _fullPollCount++;
+                    if (_fullPollCount % 12 == 0)
                     {
                         await LoadTabDataAsync();
                         if (!_isTooltipActive)
@@ -1355,43 +1357,55 @@
     private async Task LoadSignalDataAsync(DateTime from, DateTime to)
     {
         // Use merged history (local high-res + UniFi controller data)
-        _signalHistory = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
-
-        // Clear and repopulate existing lists (don't reassign - chart Items binding holds the reference)
-        _signalChartData.Clear();
-        _signalChannelData.Clear();
-        _signalApData.Clear();
-        _signalBandData.Clear();
+        var history = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
 
         // Build AP name lookup for tooltip
-        _apNameLookup = _signalHistory
+        var apLookup = history
             .Where(h => h.ApName != null)
             .Select(h => h.ApName!)
             .Distinct()
             .OrderBy(n => n)
             .ToList();
 
-        foreach (var h in _signalHistory.Where(h => h.SignalDbm.HasValue))
+        // Build chart data into temp lists, then swap atomically to avoid blanking the UI
+        var tmpSignal = new List<SignalChartPoint>();
+        var tmpChannel = new List<SignalChartPoint>();
+        var tmpAp = new List<SignalChartPoint>();
+        var tmpBand = new List<SignalChartPoint>();
+
+        foreach (var h in history.Where(h => h.SignalDbm.HasValue))
         {
-            _signalChartData.Add(new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value));
+            tmpSignal.Add(new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value));
 
             if (h.Channel.HasValue)
-                _signalChannelData.Add(new SignalChartPoint(h.Timestamp, h.Channel.Value));
+                tmpChannel.Add(new SignalChartPoint(h.Timestamp, h.Channel.Value));
 
             if (h.ApName != null)
             {
-                var apIdx = _apNameLookup.IndexOf(h.ApName);
+                var apIdx = apLookup.IndexOf(h.ApName);
                 if (apIdx >= 0)
-                    _signalApData.Add(new SignalChartPoint(h.Timestamp, apIdx));
+                    tmpAp.Add(new SignalChartPoint(h.Timestamp, apIdx));
             }
 
             if (h.Band != null)
             {
                 decimal bandNum = h.Band switch { "ng" => 2.4m, "na" => 5m, "6e" => 6m, _ => 0m };
                 if (bandNum > 0)
-                    _signalBandData.Add(new SignalChartPoint(h.Timestamp, bandNum));
+                    tmpBand.Add(new SignalChartPoint(h.Timestamp, bandNum));
             }
         }
+
+        // Atomic swap — clear and repopulate (chart Items binding holds the reference)
+        _signalHistory = history;
+        _apNameLookup = apLookup;
+        _signalChartData.Clear();
+        _signalChartData.AddRange(tmpSignal);
+        _signalChannelData.Clear();
+        _signalChannelData.AddRange(tmpChannel);
+        _signalApData.Clear();
+        _signalApData.AddRange(tmpAp);
+        _signalBandData.Clear();
+        _signalBandData.AddRange(tmpBand);
 
         // Update tooltip formatter with current AP name lookup
         UpdateSignalTooltipFormatter();
@@ -1657,7 +1671,7 @@
     private int SmoothedSignal(int raw)
     {
         _signalSmoothBuffer.Enqueue(raw);
-        while (_signalSmoothBuffer.Count > 20)
+        while (_signalSmoothBuffer.Count > 50)
             _signalSmoothBuffer.Dequeue();
         return (int)Math.Round(_signalSmoothBuffer.Average());
     }
