@@ -424,11 +424,11 @@ public class ClientDashboardService
     public async Task<List<SignalHistoryEntry>> GetMergedSignalHistoryAsync(
         string mac, DateTime from, DateTime to)
     {
-        // Scale the fetch limit to the time range. At 5s poll intervals:
-        // 1h=720, 6h=4320, 24h=17280. Cap at 20k to keep memory reasonable;
+        // Scale the fetch limit to the time range. At 1s poll intervals:
+        // 1h=3600, 6h=21600, 24h=86400. Cap at 90k to cover 24h of 1s polling;
         // the UI downsamples for display anyway.
         var spanHours = (to - from).TotalHours;
-        var take = Math.Min((int)(spanHours * 720) + 100, 20_000);
+        var take = Math.Min((int)(spanHours * 3600) + 100, 90_000);
 
         // Get local data first (high resolution, 5s intervals)
         var localEntries = await GetSignalHistoryAsync(mac, from, to, take: take);
