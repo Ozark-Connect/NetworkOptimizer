@@ -824,6 +824,8 @@ public class ClientDashboardService
                 identity.TxRateKbps = wifiman.LinkDownloadRateKbps;
             if (wifiman.LinkUploadRateKbps.HasValue)
                 identity.RxRateKbps = wifiman.LinkUploadRateKbps;
+
+            identity.HasWiFiManData = true;
         }
         catch (Exception ex)
         {

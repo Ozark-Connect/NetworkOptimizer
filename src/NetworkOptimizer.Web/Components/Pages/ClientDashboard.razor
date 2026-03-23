@@ -874,6 +874,7 @@
 
     // Polling
     private System.Threading.Timer? _pollTimer;
+    private bool _hasWiFiManData;
     private bool _isTooltipActive;
 
     // GPS
@@ -965,7 +966,7 @@
 
         // Note: initial GPS request happens in OnAfterRenderAsync (needs JS interop)
 
-        // Start polling every 5 seconds
+        // Start polling - adapts to 1s when WiFiman endpoint is available, otherwise 5s
         _pollTimer = new System.Threading.Timer(async _ =>
         {
             try
@@ -976,6 +977,15 @@
                     StateHasChanged();
                 });
                 _consecutiveFailures = 0;
+
+                // Adapt polling interval based on WiFiman availability
+                var wifiManNow = _client?.HasWiFiManData == true;
+                if (wifiManNow != _hasWiFiManData)
+                {
+                    _hasWiFiManData = wifiManNow;
+                    var interval = _hasWiFiManData ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+                    _pollTimer?.Change(interval, interval);
+                }
 
                 // Run daily cleanup check (non-blocking)
                 _ = DashboardService.TryCleanupAsync();
