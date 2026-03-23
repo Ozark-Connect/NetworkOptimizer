@@ -762,6 +762,43 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET v2/api/site/{site}/wifiman/{clientIp}/ - Get WiFiman realtime client data.
+    /// Returns signal, noise, channel, band, link rates, experience, and nearest neighbors.
+    /// </summary>
+    public async Task<WiFiManClientResponse?> GetWiFiManClientAsync(string clientIp, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching WiFiman data for client {Ip} from site {Site}", clientIp, _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+            return null;
+
+        try
+        {
+            var url = BuildV2ApiPath($"site/{_site}/wifiman/{clientIp}/");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("WiFiman endpoint returned {StatusCode} for {Ip}", response.StatusCode, clientIp);
+                return null;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<WiFiManClientResponse>(cancellationToken: cancellationToken);
+            if (result != null)
+            {
+                _logger.LogDebug("WiFiman data for {Ip}: signal={Signal}, channel={Channel}, band={Band}",
+                    clientIp, result.Signal, result.Channel, result.WlanBand);
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WiFiman endpoint failed for {Ip}", clientIp);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// GET rest/user - Get all known users (includes historical clients)
     /// </summary>
     public async Task<List<UniFiClientResponse>> GetAllKnownClientsAsync(CancellationToken cancellationToken = default)

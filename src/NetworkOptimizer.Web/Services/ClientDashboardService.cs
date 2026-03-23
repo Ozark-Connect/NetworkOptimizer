@@ -114,6 +114,10 @@ public class ClientDashboardService
                 _ipToMacCache[clientIp] = client.Mac;
 
                 var identity = MapClientToIdentity(client);
+
+                // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
+                await OverlayWiFiManDataAsync(identity, clientIp);
+
                 await EnrichWithApInfoAsync(identity, client.ApMac);
                 return identity;
             }
@@ -781,6 +785,50 @@ public class ClientDashboardService
             Essid = client.Essid,
             Satisfaction = client.Satisfaction
         };
+    }
+
+    /// <summary>
+    /// Overlay WiFiman realtime data onto an existing ClientIdentity.
+    /// WiFiman provides more-realtime signal/channel/band/rate data than stat/sta.
+    /// Falls back silently if the endpoint is unavailable (wired clients, older firmware, etc.).
+    /// </summary>
+    private async Task OverlayWiFiManDataAsync(ClientIdentity identity, string clientIp)
+    {
+        if (identity.IsWired || _connectionService.Client == null)
+            return;
+
+        try
+        {
+            var wifiman = await _connectionService.Client.GetWiFiManClientAsync(clientIp);
+            if (wifiman == null)
+                return;
+
+            // Overlay signal fields - WiFiman values take priority over stat/sta
+            if (wifiman.Signal.HasValue)
+                identity.SignalDbm = wifiman.Signal;
+            if (wifiman.Noise.HasValue)
+                identity.NoiseDbm = wifiman.Noise;
+            if (wifiman.Channel.HasValue)
+                identity.Channel = wifiman.Channel;
+            if (wifiman.ChannelWidth.HasValue)
+                identity.ChannelWidth = wifiman.ChannelWidth;
+            if (!string.IsNullOrEmpty(wifiman.RadioCode))
+                identity.Band = wifiman.RadioCode;
+            if (!string.IsNullOrEmpty(wifiman.RadioProtocol))
+                identity.Protocol = wifiman.RadioProtocol;
+            if (wifiman.WiFiExperience.HasValue)
+                identity.Satisfaction = wifiman.WiFiExperience;
+
+            // WiFiman link rates: download = AP→client (TX), upload = client→AP (RX)
+            if (wifiman.LinkDownloadRateKbps.HasValue)
+                identity.TxRateKbps = wifiman.LinkDownloadRateKbps;
+            if (wifiman.LinkUploadRateKbps.HasValue)
+                identity.RxRateKbps = wifiman.LinkUploadRateKbps;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WiFiman overlay failed for {Ip}, using stat/sta data", clientIp);
+        }
     }
 
     private async Task EnrichWithApInfoAsync(ClientIdentity identity, string? apMac)
