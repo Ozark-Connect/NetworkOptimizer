@@ -1657,7 +1657,7 @@
     private int SmoothedSignal(int raw)
     {
         _signalSmoothBuffer.Enqueue(raw);
-        while (_signalSmoothBuffer.Count > 10)
+        while (_signalSmoothBuffer.Count > 20)
             _signalSmoothBuffer.Dequeue();
         return (int)Math.Round(_signalSmoothBuffer.Average());
     }
