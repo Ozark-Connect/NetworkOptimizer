@@ -1510,13 +1510,8 @@
         _ => ""
     };
 
-    private string GetSignalClass(int signal) => signal switch
-    {
-        >= -50 => "signal-excellent",
-        >= -60 => "signal-good",
-        >= -70 => "signal-fair",
-        _ => "signal-weak"
-    };
+    private string GetSignalClass(int signal) =>
+        SignalClassification.GetSignalClass(signal, selectedBand);
 
     private string FormatLastSeen(DateTimeOffset? lastSeen)
     {

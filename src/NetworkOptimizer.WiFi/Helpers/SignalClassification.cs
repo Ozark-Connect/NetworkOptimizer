@@ -5,7 +5,7 @@ namespace NetworkOptimizer.WiFi.Helpers;
 /// <summary>
 /// Band-aware signal strength classification. Different bands have different noise floors,
 /// so the same dBm value represents different signal quality:
-/// - 2.4 GHz: high noise floor (~-85 dBm), needs stronger signal for usable SNR
+/// - 2.4 GHz: high noise floor (~-85 dBm), but better wall penetration and range
 /// - 5 GHz: moderate noise floor (~-92 dBm)
 /// - 6 GHz: very low noise floor (~-95 to -100 dBm), good rates even at weaker signal
 /// </summary>
@@ -19,10 +19,10 @@ public static class SignalClassification
     {
         RadioBand.Band2_4GHz => dbm switch
         {
-            >= -50 => "signal-excellent",
-            >= -60 => "signal-good",
-            >= -67 => "signal-fair",
-            >= -75 => "signal-weak",
+            >= -55 => "signal-excellent",
+            >= -65 => "signal-good",
+            >= -73 => "signal-fair",
+            >= -80 => "signal-weak",
             _ => "signal-poor"
         },
         RadioBand.Band6GHz => dbm switch
@@ -68,7 +68,7 @@ public static class SignalClassification
     /// </summary>
     public static bool IsWeakSignal(int dbm, RadioBand band) => band switch
     {
-        RadioBand.Band2_4GHz => dbm < -67,
+        RadioBand.Band2_4GHz => dbm < -73,
         RadioBand.Band6GHz => dbm < -87,
         _ => dbm < -78 // 5 GHz default
     };
@@ -78,7 +78,7 @@ public static class SignalClassification
     /// </summary>
     public static bool IsCriticalSignal(int dbm, RadioBand band) => band switch
     {
-        RadioBand.Band2_4GHz => dbm < -75,
+        RadioBand.Band2_4GHz => dbm < -80,
         RadioBand.Band6GHz => dbm < -92,
         _ => dbm < -85 // 5 GHz default
     };
@@ -88,7 +88,7 @@ public static class SignalClassification
     /// </summary>
     public static int GetWeakThreshold(RadioBand band) => band switch
     {
-        RadioBand.Band2_4GHz => -67,
+        RadioBand.Band2_4GHz => -73,
         RadioBand.Band6GHz => -87,
         _ => -78
     };
