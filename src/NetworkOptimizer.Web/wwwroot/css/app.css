@@ -13438,25 +13438,13 @@ a.affected-client:hover {
 .loaded-latency-legend-item {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
     font-size: 0.8rem;
     color: var(--text-secondary);
 }
 
-.legend-line {
-    display: inline-block;
-    width: 24px;
-    height: 0;
-    border-top: 2px solid var(--text-secondary);
-}
-
-.legend-line-dashed {
-    border-top-style: dashed;
-}
-
-.legend-line-dotted {
-    border-top-style: dotted;
-    border-top-width: 2.5px;
+.loaded-latency-legend-item svg {
+    flex-shrink: 0;
 }
 
 .wan-chart-container {
