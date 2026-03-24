@@ -5,7 +5,8 @@
         <strong>SSH connections failing?</strong><br /><br />
         <strong>1. Check Credentials</strong> — Verify your SSH credentials are correct. @if (!HideSettingsLink) {<a href="/settings#@SettingsAnchor">Test Connection in Settings</a>}<br /><br />
         <strong>2. Check Firewall Rules</strong> in UniFi Network to ensure SSH traffic is allowed between this server and your @Context.<br /><br />
-        <strong>3. Check CyberSecure IPS</strong> — SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Look for blocked connections in <em>Insights → Flows</em>, then create a <em>Suppression</em> for this signature in the Logs section.
+        <strong>3. Check CyberSecure IDS/IPS</strong> — If Detection Mode is set to <em>Notify and Block</em>, SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Create a <em>Suppression</em> for this signature, add the server IP to <em>Detection Exclusions</em>, or uncheck <em>Scanning Activity</em>.<br /><br />
+        <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#troubleshooting-ssh-connections" target="_blank">Full troubleshooting guide</a>
     </span>
 </span>
 
