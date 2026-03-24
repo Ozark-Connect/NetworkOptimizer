@@ -16,7 +16,7 @@ import (
 const (
 	uploadSize    = 2_000_000   // 2 MB per upload request
 	downloadSize  = 104_857_600 // 100 MB per download request (matches ui-speed)
-	warmupSkip    = 0.10        // Skip first 10% of samples
+	warmupPct     = 0.20        // Skip first 20% of test duration as ramp-up
 )
 
 // MeasureThroughput runs concurrent download or upload workers distributed
@@ -251,7 +251,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 	}
 
 	// Skip warmup samples, compute mean of steady-state
-	skipCount := int(float64(len(mbpsSamples)) * warmupSkip)
+	skipCount := int(float64(len(mbpsSamples)) * warmupPct)
 	steadySamples := mbpsSamples[skipCount:]
 	if len(steadySamples) == 0 {
 		steadySamples = mbpsSamples
