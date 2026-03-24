@@ -265,8 +265,6 @@ public class GatewayWanSpeedTestService
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
-        report("Testing latency", 12, "Measuring latency...");
-
         var ifaceArg = "";
         if (!string.IsNullOrEmpty(interfaceName))
         {
