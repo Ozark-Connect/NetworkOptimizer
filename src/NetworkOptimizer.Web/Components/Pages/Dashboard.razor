@@ -77,13 +77,22 @@
     @if (_layout != null)
     {
         @* Visible cards first, then hidden cards at the bottom in edit mode *@
-        var orderedCards = _editMode
-            ? _layout.Cards.Where(c => c.Visible).Concat(_layout.Cards.Where(c => !c.Visible))
-            : _layout.Cards.Where(c => c.Visible);
+        var visibleCards = _layout.Cards.Where(c => c.Visible).ToList();
+        var hiddenCards = _editMode ? _layout.Cards.Where(c => !c.Visible).ToList() : new();
+        var orderedCards = visibleCards.Concat(hiddenCards);
+        var hiddenSeparatorShown = false;
 
         @foreach (var card in orderedCards)
         {
             if (IsStackedChild(card.Id)) continue;
+
+            @if (_editMode && !card.Visible && !hiddenSeparatorShown)
+            {
+                hiddenSeparatorShown = true;
+                <div class="hidden-cards-divider card-span-2">
+                    <span>Hidden Cards</span>
+                </div>
+            }
 
             var hasStack = card.StackedCards.Count > 0;
 
