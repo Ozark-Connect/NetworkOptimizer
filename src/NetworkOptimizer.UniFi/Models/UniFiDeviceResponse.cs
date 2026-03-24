@@ -53,6 +53,19 @@ public class UniFiDeviceResponse
     [JsonPropertyName("model_in_eol")]
     public bool? ModelInEol { get; set; }
 
+    /// <summary>
+    /// Whether AFC (Automated Frequency Coordination) is enabled on this device.
+    /// Required for 6 GHz standard-power operation.
+    /// </summary>
+    [JsonPropertyName("afc_enabled")]
+    public bool? AfcEnabled { get; set; }
+
+    /// <summary>
+    /// AFC state: "disabled", "location_acquired", etc.
+    /// </summary>
+    [JsonPropertyName("afc_state")]
+    public string? AfcState { get; set; }
+
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 

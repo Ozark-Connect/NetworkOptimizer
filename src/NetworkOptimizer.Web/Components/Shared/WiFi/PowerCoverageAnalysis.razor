@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Data
+@using NetworkOptimizer.WiFi.Helpers
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
@@ -49,7 +50,7 @@
             </div>
             <div class="power-stat-card @(_weakSignalClients > 0 ? "stat-warning" : "stat-good")">
                 <div class="power-stat-value">@_weakSignalClients</div>
-                <div class="power-stat-label">Weak Signal (&lt;-70 dBm)</div>
+                <div class="power-stat-label">Weak Signal</div>
             </div>
             <div class="power-stat-card">
                 <div class="power-stat-value">@_coverageScore%</div>
@@ -83,11 +84,11 @@
                     }
                 </div>
                 <div class="signal-legend">
-                    <span class="legend-item"><span class="legend-color signal-poor"></span>Poor (&lt;-80)</span>
-                    <span class="legend-item"><span class="legend-color signal-weak"></span>Weak (-80 to -71)</span>
-                    <span class="legend-item"><span class="legend-color signal-fair"></span>Fair (-70 to -61)</span>
-                    <span class="legend-item"><span class="legend-color signal-good"></span>Good (-60 to -51)</span>
-                    <span class="legend-item"><span class="legend-color signal-excellent"></span>Excellent (-50+)</span>
+                    <span class="legend-item"><span class="legend-color signal-poor"></span>Poor</span>
+                    <span class="legend-item"><span class="legend-color signal-weak"></span>Weak</span>
+                    <span class="legend-item"><span class="legend-color signal-fair"></span>Fair</span>
+                    <span class="legend-item"><span class="legend-color signal-good"></span>Good</span>
+                    <span class="legend-item"><span class="legend-color signal-excellent"></span>Excellent</span>
                 </div>
             </div>
         </div>
@@ -373,16 +374,16 @@
             _avgSignal = null;
         }
 
-        _weakSignalClients = onlineClients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
+        _weakSignalClients = onlineClients.Count(c => c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band));
 
-        // Calculate coverage score (0-100) based on signal distribution
+        // Calculate coverage score (0-100) based on band-aware signal classification
         if (clientsWithSignal.Any())
         {
-            var excellentPct = clientsWithSignal.Count(c => c.Signal >= -50) * 100.0 / clientsWithSignal.Count;
-            var goodPct = clientsWithSignal.Count(c => c.Signal >= -60 && c.Signal < -50) * 100.0 / clientsWithSignal.Count;
-            var fairPct = clientsWithSignal.Count(c => c.Signal >= -70 && c.Signal < -60) * 100.0 / clientsWithSignal.Count;
-            var weakPct = clientsWithSignal.Count(c => c.Signal >= -80 && c.Signal < -70) * 100.0 / clientsWithSignal.Count;
-            var poorPct = clientsWithSignal.Count(c => c.Signal < -80) * 100.0 / clientsWithSignal.Count;
+            var excellentPct = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-excellent") * 100.0 / clientsWithSignal.Count;
+            var goodPct = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-good") * 100.0 / clientsWithSignal.Count;
+            var fairPct = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-fair") * 100.0 / clientsWithSignal.Count;
+            var weakPct = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-weak") * 100.0 / clientsWithSignal.Count;
+            var poorPct = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-poor") * 100.0 / clientsWithSignal.Count;
 
             // Weighted score: excellent=100, good=80, fair=60, weak=30, poor=0
             _coverageScore = (int)(excellentPct * 1.0 + goodPct * 0.8 + fairPct * 0.6 + weakPct * 0.3 + poorPct * 0);
@@ -439,12 +440,12 @@
                 AvgSignal = clientsWithSignal.Any() ? (int?)clientsWithSignal.Average(c => c.Signal!.Value) : null,
                 MinSignal = clientsWithSignal.Any() ? clientsWithSignal.Min(c => c.Signal!.Value) : null,
                 MaxSignal = clientsWithSignal.Any() ? clientsWithSignal.Max(c => c.Signal!.Value) : null,
-                WeakClientCount = clientsWithSignal.Count(c => c.Signal < -70),
-                ExcellentCount = clientsWithSignal.Count(c => c.Signal >= -50),
-                GoodCount = clientsWithSignal.Count(c => c.Signal >= -60 && c.Signal < -50),
-                FairCount = clientsWithSignal.Count(c => c.Signal >= -70 && c.Signal < -60),
-                WeakCount = clientsWithSignal.Count(c => c.Signal >= -80 && c.Signal < -70),
-                PoorCount = clientsWithSignal.Count(c => c.Signal < -80)
+                WeakClientCount = clientsWithSignal.Count(c => SignalClassification.IsWeakSignal(c.Signal!.Value, c.Band)),
+                ExcellentCount = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-excellent"),
+                GoodCount = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-good"),
+                FairCount = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-fair"),
+                WeakCount = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-weak"),
+                PoorCount = clientsWithSignal.Count(c => SignalClassification.GetSignalClass(c.Signal!.Value, c.Band) == "signal-poor")
             };
 
             _apCoverageStats.Add(stats);
@@ -536,30 +537,11 @@
         _ => ""
     };
 
-    private string GetSignalClass(int? signal)
-    {
-        if (!signal.HasValue) return "";
-        return signal.Value switch
-        {
-            >= -50 => "signal-excellent",
-            >= -60 => "signal-good",
-            >= -70 => "signal-fair",
-            >= -80 => "signal-weak",
-            _ => "signal-poor"
-        };
-    }
+    private string GetSignalClass(int? signal) =>
+        signal.HasValue ? SignalClassification.GetSignalClass(signal.Value, RadioBand.Band5GHz) : "";
 
-    private string GetSignalBucketClass(int minSignal)
-    {
-        return minSignal switch
-        {
-            >= -50 => "signal-excellent",
-            >= -60 => "signal-good",
-            >= -70 => "signal-fair",
-            >= -80 => "signal-weak",
-            _ => "signal-poor"
-        };
-    }
+    private string GetSignalBucketClass(int minSignal) =>
+        SignalClassification.GetSignalClass(minSignal, RadioBand.Band5GHz);
 
     private string GetCoverageQualityClass(ApCoverageStats stats)
     {
