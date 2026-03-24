@@ -940,8 +940,42 @@ a.stat-card-link:active {
 .stats-row-editing {
     border: 1px dashed var(--border-color);
     border-radius: var(--border-radius-lg);
-    padding: 24px 8px 8px;
+    padding: 30px 8px 8px;
     background: rgba(255, 255, 255, 0.02);
+}
+
+/* Stacked child toolbar (shown between cards in a stack during edit mode) */
+.stacked-child-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 10px;
+    background: var(--bg-tertiary);
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.stacked-child-toolbar .card-edit-label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+/* Stack-add bar below cards in edit mode */
+.stack-add-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px;
+    border: 1px dashed var(--border-color);
+    border-top: none;
+    border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.stack-add-bar .stat-add-btn {
+    font-size: 0.75rem;
+    padding: 4px 8px;
 }
 
 /* Wi-Fi Optimizer card */

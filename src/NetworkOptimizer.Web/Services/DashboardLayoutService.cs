@@ -98,6 +98,9 @@ public class DashboardCardConfig
     public string Id { get; set; } = string.Empty;
     public bool Visible { get; set; } = true;
     public bool FullWidth { get; set; }
+
+    /// <summary>Card IDs stacked below this card in the same grid cell</summary>
+    public List<string> StackedCards { get; set; } = new();
 }
 
 /// <summary>
@@ -169,16 +172,26 @@ public class DashboardLayoutService
     /// <summary>
     /// Returns the default dashboard layout matching the original hardcoded order.
     /// </summary>
-    public static DashboardLayout GetDefaultLayout() => new()
+    public static DashboardLayout GetDefaultLayout()
     {
-        Cards = DashboardCards.All.Select(id => new DashboardCardConfig
+        var cards = DashboardCards.All.Select(id => new DashboardCardConfig
         {
             Id = id,
             Visible = true,
             FullWidth = DashboardCards.DefaultFullWidth.Contains(id)
-        }).ToList(),
-        StatItems = DashboardStatItems.All.ToList()
-    };
+        }).ToList();
+
+        // Default stack: SQM hosts Threat Trends
+        var sqmCard = cards.Find(c => c.Id == DashboardCards.SqmStatus);
+        if (sqmCard != null)
+            sqmCard.StackedCards.Add(DashboardCards.ThreatTrends);
+
+        return new DashboardLayout
+        {
+            Cards = cards,
+            StatItems = DashboardStatItems.All.ToList()
+        };
+    }
 
     /// <summary>
     /// Ensure any newly added cards/stats appear in existing saved layouts.

@@ -78,46 +78,57 @@
         @foreach (var card in _layout.Cards)
         {
             if (!card.Visible && !_editMode) continue;
+            if (IsStackedChild(card.Id)) continue;
+
+            var hasStack = card.StackedCards.Count > 0;
 
             <div class="dashboard-card-wrapper @(card.Visible ? "" : "dashboard-card-hidden") @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
                 @if (_editMode)
                 {
-                    <div class="card-edit-toolbar">
-                        <span class="card-edit-label">@DashboardCards.GetDisplayName(card.Id)</span>
-                        <div class="card-edit-actions">
-                            <button class="card-edit-btn" @onclick="() => MoveCard(card.Id, -1)" disabled="@IsFirstVisible(card.Id)" data-tooltip="Move up">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg>
-                            </button>
-                            <button class="card-edit-btn" @onclick="() => MoveCard(card.Id, 1)" disabled="@IsLastVisible(card.Id)" data-tooltip="Move down">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-                            </button>
-                            <button class="card-edit-btn" @onclick="() => ToggleWidth(card.Id)" data-tooltip="@(card.FullWidth ? "Half width" : "Full width")">
-                                @if (card.FullWidth)
-                                {
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
-                                }
-                                else
-                                {
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="8" height="14" rx="1"/><rect x="13" y="5" width="8" height="14" rx="1" opacity="0.3"/></svg>
-                                }
-                            </button>
-                            <button class="card-edit-btn card-edit-btn-toggle" @onclick="() => ToggleCard(card.Id)" data-tooltip="@(card.Visible ? "Hide" : "Show")">
-                                @if (card.Visible)
-                                {
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                }
-                                else
-                                {
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                                }
-                            </button>
-                        </div>
-                    </div>
+                    @RenderCardEditToolbar(card)
                 }
 
                 @if (card.Visible || _editMode)
                 {
-                    @RenderCard(card.Id)
+                    @if (hasStack)
+                    {
+                        <div class="card-stack">
+                            @RenderCard(card.Id)
+                            @foreach (var childId in card.StackedCards)
+                            {
+                                @if (_editMode)
+                                {
+                                    <div class="stacked-child-toolbar">
+                                        <span class="card-edit-label">@DashboardCards.GetDisplayName(childId)</span>
+                                        <button class="card-edit-btn" @onclick="() => UnstackCard(card.Id, childId)" data-tooltip="Unstack">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+                                }
+                                @RenderCard(childId)
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        @RenderCard(card.Id)
+                    }
+                }
+
+                @if (_editMode)
+                {
+                    var stackable = GetStackableCards(card.Id);
+                    @if (stackable.Count > 0)
+                    {
+                        <div class="stack-add-bar">
+                            @foreach (var opt in stackable)
+                            {
+                                <button class="stat-add-btn" @onclick="() => StackCard(card.Id, opt)">
+                                    + Stack @DashboardCards.GetDisplayName(opt)
+                                </button>
+                            }
+                        </div>
+                    }
                 }
             </div>
         }
@@ -646,6 +657,45 @@
     };
 
     // ──────────────────────────────────────────────────────────
+    // Edit mode toolbar
+    // ──────────────────────────────────────────────────────────
+
+    private RenderFragment RenderCardEditToolbar(DashboardCardConfig card) => __builder =>
+    {
+        <div class="card-edit-toolbar">
+            <span class="card-edit-label">@DashboardCards.GetDisplayName(card.Id)</span>
+            <div class="card-edit-actions">
+                <button class="card-edit-btn" @onclick="() => MoveCard(card.Id, -1)" disabled="@IsFirstVisible(card.Id)" data-tooltip="Move up">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg>
+                </button>
+                <button class="card-edit-btn" @onclick="() => MoveCard(card.Id, 1)" disabled="@IsLastVisible(card.Id)" data-tooltip="Move down">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <button class="card-edit-btn" @onclick="() => ToggleWidth(card.Id)" data-tooltip="@(card.FullWidth ? "Switch to half width" : "Switch to full width")">
+                    @if (card.FullWidth)
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="8" height="14" rx="1"/><rect x="13" y="5" width="8" height="14" rx="1" opacity="0.3"/></svg>
+                    }
+                </button>
+                <button class="card-edit-btn card-edit-btn-toggle" @onclick="() => ToggleCard(card.Id)" data-tooltip="@(card.Visible ? "Hide" : "Show")">
+                    @if (card.Visible)
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    }
+                </button>
+            </div>
+        </div>
+    };
+
+    // ──────────────────────────────────────────────────────────
     // Edit mode logic
     // ──────────────────────────────────────────────────────────
 
@@ -691,6 +741,44 @@
 
     private bool IsLastVisible(string cardId) =>
         _layout?.Cards.FindIndex(c => c.Id == cardId) == (_layout?.Cards.Count ?? 0) - 1;
+
+    /// <summary>Check if a card is stacked inside another card</summary>
+    private bool IsStackedChild(string cardId)
+    {
+        if (_layout == null) return false;
+        return _layout.Cards.Any(c => c.StackedCards.Contains(cardId));
+    }
+
+    /// <summary>Get cards available to stack under a given host card</summary>
+    private List<string> GetStackableCards(string hostCardId)
+    {
+        if (_layout == null) return new();
+        var allStacked = new HashSet<string>(_layout.Cards.SelectMany(c => c.StackedCards));
+        // Can't stack: stats-row, cards already stacked, the host itself, full-width cards
+        return _layout.Cards
+            .Where(c => c.Id != hostCardId
+                && c.Id != DashboardCards.StatsRow
+                && c.Visible
+                && !c.FullWidth
+                && !allStacked.Contains(c.Id)
+                && c.StackedCards.Count == 0) // can't stack a host card
+            .Select(c => c.Id)
+            .ToList();
+    }
+
+    private void StackCard(string hostId, string childId)
+    {
+        if (_layout == null) return;
+        var host = _layout.Cards.Find(c => c.Id == hostId);
+        host?.StackedCards.Add(childId);
+    }
+
+    private void UnstackCard(string hostId, string childId)
+    {
+        if (_layout == null) return;
+        var host = _layout.Cards.Find(c => c.Id == hostId);
+        host?.StackedCards.Remove(childId);
+    }
 
     private void MoveStatItem(string statId, int direction)
     {
