@@ -750,10 +750,13 @@
         }
     }
 
-    private void EnterEditMode()
+    private async Task EnterEditMode()
     {
         _layoutSnapshot = System.Text.Json.JsonSerializer.Serialize(_layout);
         _editMode = true;
+        // Bump key after layout settles so chart recreates with correct dimensions
+        await Task.Yield();
+        _threatChartKey++;
     }
 
     private async Task ExitEditMode()
