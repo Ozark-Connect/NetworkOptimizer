@@ -10,7 +10,8 @@ public static class DashboardCards
 {
     public const string StatsRow = "stats-row";
     public const string SecurityPosture = "security-posture";
-    public const string SqmThreats = "sqm-threats";
+    public const string SqmStatus = "sqm-status";
+    public const string ThreatTrends = "threat-trends";
     public const string CellularStats = "cellular-stats";
     public const string SpeedTests = "speed-tests";
     public const string WiFiOptimizer = "wifi-optimizer";
@@ -20,7 +21,7 @@ public static class DashboardCards
     /// <summary>All valid card IDs</summary>
     public static readonly string[] All =
     [
-        StatsRow, SecurityPosture, SqmThreats, CellularStats,
+        StatsRow, SecurityPosture, SqmStatus, ThreatTrends, CellularStats,
         SpeedTests, WiFiOptimizer, RecentAlerts, DeviceStatus
     ];
 
@@ -35,7 +36,8 @@ public static class DashboardCards
     {
         StatsRow => "Quick Stats",
         SecurityPosture => "Security Posture",
-        SqmThreats => "SQM + Threat Trends",
+        SqmStatus => "Adaptive SQM",
+        ThreatTrends => "Threat Trends",
         CellularStats => "Cellular Stats",
         SpeedTests => "Speed Tests",
         WiFiOptimizer => "Wi-Fi Optimizer",

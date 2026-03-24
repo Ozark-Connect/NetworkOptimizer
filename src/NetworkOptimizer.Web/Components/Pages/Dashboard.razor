@@ -169,7 +169,8 @@
     {
         DashboardCards.StatsRow => RenderStatsRow,
         DashboardCards.SecurityPosture => RenderSecurityPosture,
-        DashboardCards.SqmThreats => RenderSqmThreats,
+        DashboardCards.SqmStatus => RenderSqmStatus,
+        DashboardCards.ThreatTrends => RenderThreatTrends,
         DashboardCards.CellularStats => RenderCellularStats,
         DashboardCards.SpeedTests => RenderSpeedTests,
         DashboardCards.WiFiOptimizer => RenderWiFiOptimizer,
@@ -399,51 +400,53 @@
         </div>
     };
 
-    private RenderFragment RenderSqmThreats => __builder =>
+    private RenderFragment RenderSqmStatus => __builder =>
     {
-        <div class="card-stack">
-            <div class="card">
-                <div class="card-header">
-                    <a href="/sqm" class="card-title-link"><h2 class="card-title">Adaptive SQM</h2></a>
-                </div>
-                <div class="card-body">
-                    <SqmStatusPanel @key="_sqmPanelKey" />
-                </div>
+        <div class="card">
+            <div class="card-header">
+                <a href="/sqm" class="card-title-link"><h2 class="card-title">Adaptive SQM</h2></a>
             </div>
-            <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/threats"))">
-                <div class="card-header">
-                    <a href="/threats" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Threat Trends</h2></a>
-                    <a href="/threats" class="card-action" @onclick:stopPropagation>View All →</a>
-                </div>
-                <div class="card-body">
-                    @if (_threatLoading)
-                    {
-                        <div class="loading-state">
-                            <span class="spinner-sm"></span>
-                            <span>Loading...</span>
-                        </div>
-                    }
-                    else if (_threatTrend.Count == 0)
-                    {
-                        <div class="empty-state">
-                            <p>No threat data yet</p>
-                        </div>
-                    }
-                    else
-                    {
-                        <ApexChart TItem="ThreatTrendPoint"
-                                   Options="_threatSparklineOptions"
-                                   Height="@("120px")">
-                            <ApexPointSeries TItem="ThreatTrendPoint"
-                                             Items="_threatTrend"
-                                             Name="Events"
-                                             SeriesType="SeriesType.Area"
-                                             XValue="e => e.Hour"
-                                             YValue="e => (decimal)e.Count"
-                                             OrderBy="e => e.X" />
-                        </ApexChart>
-                    }
-                </div>
+            <div class="card-body">
+                <SqmStatusPanel @key="_sqmPanelKey" />
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderThreatTrends => __builder =>
+    {
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/threats"))">
+            <div class="card-header">
+                <a href="/threats" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Threat Trends</h2></a>
+                <a href="/threats" class="card-action" @onclick:stopPropagation>View All →</a>
+            </div>
+            <div class="card-body">
+                @if (_threatLoading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Loading...</span>
+                    </div>
+                }
+                else if (_threatTrend.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No threat data yet</p>
+                    </div>
+                }
+                else
+                {
+                    <ApexChart TItem="ThreatTrendPoint"
+                               Options="_threatSparklineOptions"
+                               Height="@("120px")">
+                        <ApexPointSeries TItem="ThreatTrendPoint"
+                                         Items="_threatTrend"
+                                         Name="Events"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => e.Hour"
+                                         YValue="e => (decimal)e.Count"
+                                         OrderBy="e => e.X" />
+                    </ApexChart>
+                }
             </div>
         </div>
     };
