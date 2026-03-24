@@ -623,7 +623,7 @@ a:hover {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
-    margin-bottom: 1rem;
+    margin-bottom: 24px;
 }
 
 .stat-card {
@@ -760,6 +760,11 @@ a.stat-card-link:active {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 16px;
+}
+
+.dashboard-grid .card,
+.dashboard-grid .stats-row {
+    margin-bottom: 0;
 }
 
 /* Dashboard card wrapper - stretch inner cards to match row height */
