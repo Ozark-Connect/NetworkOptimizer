@@ -623,7 +623,7 @@ a:hover {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
-    margin-bottom: 8px;
+    margin-bottom: 1rem;
 }
 
 .stat-card {
