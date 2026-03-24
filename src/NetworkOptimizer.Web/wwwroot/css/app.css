@@ -759,7 +759,7 @@ a.stat-card-link:active {
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
+    gap: 24px 16px;
 }
 
 .dashboard-grid .card,
