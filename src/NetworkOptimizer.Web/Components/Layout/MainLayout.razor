@@ -98,14 +98,20 @@
 
         var autoHideTimer = null;
 
+        function isContentScrollable() {
+            return currentEl && currentEl.scrollHeight > currentEl.clientHeight + 10;
+        }
+
         function startAutoHideTimer(topBar) {
             clearAutoHideTimer();
+            if (!isContentScrollable()) return;
             var page = document.querySelector('[data-autohide-nav]');
             if (!page) return;
             var delay = parseInt(page.getAttribute('data-autohide-nav')) || 3000;
             autoHideTimer = setTimeout(function() {
                 var sidebarOpen = document.querySelector('.sidebar.open');
                 if (sidebarOpen) return;
+                if (!isContentScrollable()) return;
                 if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.add('top-bar-hidden');
                     if (currentEl) currentEl.style.scrollPaddingTop = '0px';
@@ -148,7 +154,7 @@
                         scrollUpAccum = 0; // reset on any downward scroll
                     }
 
-                    if (st > lastScrollTop && st > 60) {
+                    if (st > lastScrollTop && st > 60 && isContentScrollable()) {
                         topBar.classList.add('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();

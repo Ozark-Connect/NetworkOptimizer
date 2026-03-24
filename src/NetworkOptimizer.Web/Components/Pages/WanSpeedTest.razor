@@ -200,11 +200,11 @@
         </div>
     }
 
-    @* Speed History (chart + filters + table) *@
+    @* WAN History (tabbed charts + filters + table) *@
     <div class="card" id="speed-history-card">
         <div class="card-header history-card-header">
             <div class="header-title-row">
-                <h2 class="card-title">Speed History</h2>
+                <h2 class="card-title">WAN History</h2>
                 <div class="header-actions">
                     <button class="btn btn-sm btn-secondary" @onclick="() => LoadHistory(true)" disabled="@_loadingHistory">
                         @if (_loadingHistory)
@@ -218,36 +218,132 @@
                     </button>
                 </div>
             </div>
+            <div class="wan-history-tabs">
+                <button class="wan-history-tab @(_activeHistoryTab == "speed" ? "active" : "")" @onclick='() => SwitchHistoryTab("speed")'>Speed</button>
+                <button class="wan-history-tab @(_activeHistoryTab == "latency" ? "active" : "")" @onclick='() => SwitchHistoryTab("latency")'>Latency</button>
+                <button class="wan-history-tab @(_activeHistoryTab == "loaded-latency" ? "active" : "")" @onclick='() => SwitchHistoryTab("loaded-latency")'>Loaded Latency</button>
+                <button class="wan-history-tab @(_activeHistoryTab == "jitter" ? "active" : "")" @onclick='() => SwitchHistoryTab("jitter")'>Jitter</button>
+            </div>
         </div>
         <div class="card-body">
             @if (_testHistory.Count > 0)
             {
-                @* Chart *@
-                <div class="wan-chart-container">
-                    <ApexChart @ref="_chart" TItem="WanChartDataPoint"
-                               Options="_chartOptions"
-                               Height="@("250px")"
-                               OnClick="OnChartClicked">
+                @* Speed Chart *@
+                @if (_activeHistoryTab == "speed")
+                {
+                    <div class="wan-chart-container">
+                        <ApexChart @ref="_chart" TItem="WanChartDataPoint"
+                                   Options="_chartOptions"
+                                   Height="@("250px")"
+                                   OnClick="OnChartClicked">
+                            @foreach (var wan in _wanSeries)
+                            {
+                                <ApexPointSeries TItem="WanChartDataPoint"
+                                                 Items="@(IsWanVisible(wan) ? wan.DownloadData : _emptyChartData)"
+                                                 Name="@($"{wan.DisplayName} ↓")"
+                                                 SeriesType="SeriesType.Area"
+                                                 XValue="e => e.Timestamp"
+                                                 YValue="e => e.Value"
+                                                 OrderBy="e => e.X" />
+                                <ApexPointSeries TItem="WanChartDataPoint"
+                                                 Items="@(IsWanVisible(wan) ? wan.UploadData : _emptyChartData)"
+                                                 Name="@($"{wan.DisplayName} ↑")"
+                                                 SeriesType="SeriesType.Area"
+                                                 XValue="e => e.Timestamp"
+                                                 YValue="e => e.Value"
+                                                 OrderBy="e => e.X" />
+                            }
+                        </ApexChart>
+                    </div>
+                }
 
-                        @foreach (var wan in _wanSeries)
-                        {
-                            <ApexPointSeries TItem="WanChartDataPoint"
-                                             Items="@(IsWanVisible(wan) ? wan.DownloadData : _emptyChartData)"
-                                             Name="@($"{wan.DisplayName} ↓")"
-                                             SeriesType="SeriesType.Area"
-                                             XValue="e => e.Timestamp"
-                                             YValue="e => e.Value"
-                                             OrderBy="e => e.X" />
-                            <ApexPointSeries TItem="WanChartDataPoint"
-                                             Items="@(IsWanVisible(wan) ? wan.UploadData : _emptyChartData)"
-                                             Name="@($"{wan.DisplayName} ↑")"
-                                             SeriesType="SeriesType.Area"
-                                             XValue="e => e.Timestamp"
-                                             YValue="e => e.Value"
-                                             OrderBy="e => e.X" />
-                        }
-                    </ApexChart>
-                </div>
+                @* Latency Chart *@
+                @if (_activeHistoryTab == "latency")
+                {
+                    <div class="wan-chart-container">
+                        <ApexChart @ref="_latencyChart" TItem="WanChartDataPoint"
+                                   Options="_latencyChartOptions"
+                                   Height="@("250px")">
+                            @foreach (var wan in _wanSeries)
+                            {
+                                <ApexPointSeries TItem="WanChartDataPoint"
+                                                 Items="@(IsWanVisible(wan) ? wan.LatencyData : _emptyChartData)"
+                                                 Name="@($"{wan.DisplayName}")"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="e => e.Timestamp"
+                                                 YValue="e => e.Value"
+                                                 OrderBy="e => e.X" />
+                            }
+                        </ApexChart>
+                    </div>
+                }
+
+                @* Loaded Latency Chart *@
+                @if (_activeHistoryTab == "loaded-latency")
+                {
+                    <div class="wan-chart-container loaded-latency-chart-wrapper">
+                        <div class="loaded-latency-legend">
+                            <span class="loaded-latency-legend-item">
+                                <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="var(--text-secondary)" stroke-width="2" /></svg> Base
+                            </span>
+                            <span class="loaded-latency-legend-item">
+                                <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="var(--text-secondary)" stroke-width="2" stroke-dasharray="5,3" /></svg> Loaded ↓
+                            </span>
+                            <span class="loaded-latency-legend-item">
+                                <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="var(--text-secondary)" stroke-width="2" stroke-dasharray="2,2" /></svg> Loaded ↑
+                            </span>
+                        </div>
+                        <ApexChart @ref="_loadedLatencyChart" TItem="WanChartDataPoint"
+                                   Options="_loadedLatencyChartOptions"
+                                   Height="@("250px")">
+                            @foreach (var wan in _wanSeries)
+                            {
+                                <ApexPointSeries TItem="WanChartDataPoint"
+                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyBaseData : _emptyChartData)"
+                                                 Name="@($"{wan.DisplayName} Base")"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="e => e.Timestamp"
+                                                 YValue="e => e.Value"
+                                                 OrderBy="e => e.X" />
+                                <ApexPointSeries TItem="WanChartDataPoint"
+                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyDownData : _emptyChartData)"
+                                                 Name="@($"{wan.DisplayName} Loaded ↓")"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="e => e.Timestamp"
+                                                 YValue="e => e.Value"
+                                                 OrderBy="e => e.X" />
+                                <ApexPointSeries TItem="WanChartDataPoint"
+                                                 Items="@(IsWanVisible(wan) ? wan.LoadedLatencyUpData : _emptyChartData)"
+                                                 Name="@($"{wan.DisplayName} Loaded ↑")"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="e => e.Timestamp"
+                                                 YValue="e => e.Value"
+                                                 OrderBy="e => e.X" />
+                            }
+                        </ApexChart>
+                    </div>
+                }
+
+                @* Jitter Chart *@
+                @if (_activeHistoryTab == "jitter")
+                {
+                    <div class="wan-chart-container">
+                        <ApexChart @ref="_jitterChart" TItem="WanChartDataPoint"
+                                   Options="_jitterChartOptions"
+                                   Height="@("250px")">
+                            @foreach (var wan in _wanSeries)
+                            {
+                                <ApexPointSeries TItem="WanChartDataPoint"
+                                                 Items="@(IsWanVisible(wan) ? wan.JitterData : _emptyChartData)"
+                                                 Name="@($"{wan.DisplayName}")"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="e => e.Timestamp"
+                                                 YValue="e => e.Value"
+                                                 OrderBy="e => e.X" />
+                            }
+                        </ApexChart>
+                    </div>
+                }
 
                 @* Time Slider *@
                 <div class="wan-time-slider">
@@ -505,8 +601,17 @@
     // Chart state
     private ApexChart<WanChartDataPoint>? _chart;
     private ApexChartOptions<WanChartDataPoint> _chartOptions = new();
+    private ApexChart<WanChartDataPoint>? _latencyChart;
+    private ApexChartOptions<WanChartDataPoint> _latencyChartOptions = new();
+    private ApexChart<WanChartDataPoint>? _loadedLatencyChart;
+    private ApexChartOptions<WanChartDataPoint> _loadedLatencyChartOptions = new();
+    private ApexChart<WanChartDataPoint>? _jitterChart;
+    private ApexChartOptions<WanChartDataPoint> _jitterChartOptions = new();
     private List<WanSeriesInfo> _wanSeries = new();
     private List<WanChartDataPoint> _emptyChartData = new();
+
+    // History tab state
+    private string _activeHistoryTab = "speed";
 
     // Time slider
     private int _sliderValue = 6; // Default to 30 days
@@ -561,6 +666,11 @@
         public string Color { get; set; } = "";
         public List<WanChartDataPoint> DownloadData { get; set; } = new();
         public List<WanChartDataPoint> UploadData { get; set; } = new();
+        public List<WanChartDataPoint> LatencyData { get; set; } = new();
+        public List<WanChartDataPoint> LoadedLatencyBaseData { get; set; } = new();
+        public List<WanChartDataPoint> LoadedLatencyDownData { get; set; } = new();
+        public List<WanChartDataPoint> LoadedLatencyUpData { get; set; } = new();
+        public List<WanChartDataPoint> JitterData { get; set; } = new();
         public bool IsSelected { get; set; }
     }
 
@@ -585,6 +695,9 @@
 
         _wanScheduleBannerDismissed = await SettingsService.GetAsync("banner.wan_schedule_dismissed") != null;
         InitializeChartOptions();
+        InitializeLatencyChartOptions();
+        InitializeLoadedLatencyChartOptions();
+        InitializeJitterChartOptions();
 
         // Load WAN list, gateway status, and history in parallel
         var historyTask = LoadHistory(resetPage: true);
@@ -809,6 +922,89 @@
         };
     }
 
+    private ApexChartOptions<WanChartDataPoint> CreateMsChartOptions(string unit)
+    {
+        return new ApexChartOptions<WanChartDataPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false },
+                RedrawOnParentResize = true,
+                RedrawOnWindowResize = true,
+                Animations = new Animations
+                {
+                    Enabled = true,
+                    Speed = 300,
+                    AnimateGradually = new AnimateGradually { Enabled = false }
+                }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                },
+                AxisBorder = new AxisBorder { Show = false },
+                AxisTicks = new AxisTicks { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = 0,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                        Formatter = @"function(val) { return val != null ? val.toFixed(1) + ' " + unit + @"' : ''; }"
+                    }
+                }
+            },
+            Grid = new Grid
+            {
+                BorderColor = "#374151",
+                StrokeDashArray = 3
+            },
+            Stroke = new Stroke
+            {
+                Curve = Curve.Smooth,
+                Width = 2
+            },
+            Legend = new Legend { Show = false },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Intersect = false,
+                Shared = true,
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
+            },
+            Markers = new Markers
+            {
+                Size = 0,
+                Hover = new MarkersHover { SizeOffset = 5 }
+            }
+        };
+    }
+
+    private void InitializeLatencyChartOptions()
+    {
+        _latencyChartOptions = CreateMsChartOptions("ms");
+    }
+
+    private void InitializeLoadedLatencyChartOptions()
+    {
+        _loadedLatencyChartOptions = CreateMsChartOptions("ms");
+    }
+
+    private void InitializeJitterChartOptions()
+    {
+        _jitterChartOptions = CreateMsChartOptions("ms");
+    }
+
     private void UpdateChartOptions()
     {
         // Rebuild Colors, DashArray, and Fill to match current series order (2 series per WAN: download + upload)
@@ -837,6 +1033,41 @@
                 OpacityTo = 0.05
             }
         };
+    }
+
+    private void UpdateLatencyChartOptions()
+    {
+        var colors = _wanSeries.Select(w => w.Color).ToList();
+        _latencyChartOptions.Colors = colors;
+        if (_latencyChartOptions.Stroke != null)
+            _latencyChartOptions.Stroke.DashArray = colors.Select(_ => 0).ToList();
+    }
+
+    private void UpdateLoadedLatencyChartOptions()
+    {
+        // 3 series per WAN: base (solid), loaded down (dashed), loaded up (dotted)
+        var colors = new List<string>();
+        var dashArray = new List<int>();
+        foreach (var wan in _wanSeries)
+        {
+            colors.Add(wan.Color); // base
+            colors.Add(wan.Color); // loaded down
+            colors.Add(wan.Color); // loaded up
+            dashArray.Add(0);  // solid
+            dashArray.Add(5);  // dashed
+            dashArray.Add(2);  // dotted (short dash)
+        }
+        _loadedLatencyChartOptions.Colors = colors;
+        if (_loadedLatencyChartOptions.Stroke != null)
+            _loadedLatencyChartOptions.Stroke.DashArray = dashArray;
+    }
+
+    private void UpdateJitterChartOptions()
+    {
+        var colors = _wanSeries.Select(w => w.Color).ToList();
+        _jitterChartOptions.Colors = colors;
+        if (_jitterChartOptions.Stroke != null)
+            _jitterChartOptions.Stroke.DashArray = colors.Select(_ => 0).ToList();
     }
 
     private void TransformChartData()
@@ -876,6 +1107,9 @@
         }
 
         UpdateChartOptions();
+        UpdateLatencyChartOptions();
+        UpdateLoadedLatencyChartOptions();
+        UpdateJitterChartOptions();
     }
 
     private List<Iperf3Result> GetTimeFilteredResults()
@@ -1025,15 +1259,17 @@
 
         foreach (var wan in _wanSeries)
         {
-            var downloadRaw = timeFiltered
+            var wanResults = timeFiltered
                 .Where(r => r.Success && GetWanKey(r) == wan.Key)
-                .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
-                .OrderBy(p => p.Timestamp)
+                .OrderBy(r => r.TestTime)
                 .ToList();
-            var uploadRaw = timeFiltered
-                .Where(r => r.Success && GetWanKey(r) == wan.Key)
+
+            // Speed chart data
+            var downloadRaw = wanResults
+                .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadMbps, r.Id))
+                .ToList();
+            var uploadRaw = wanResults
                 .Select(r => new WanChartDataPoint(r.TestTime, r.UploadMbps, r.Id))
-                .OrderBy(p => p.Timestamp)
                 .ToList();
 
             if (shouldDownsample)
@@ -1049,6 +1285,55 @@
                 wan.DownloadData = downloadRaw;
                 wan.UploadData = uploadRaw;
             }
+
+            // Latency chart data (unloaded ping)
+            var latencyRaw = wanResults
+                .Where(r => r.PingMs.HasValue)
+                .Select(r => new WanChartDataPoint(r.TestTime, r.PingMs!.Value, r.Id))
+                .ToList();
+            wan.LatencyData = shouldDownsample
+                ? DownsampleLttb(CollapseClusters(latencyRaw), MaxChartPoints)
+                : latencyRaw;
+
+            // Loaded latency chart data (base + loaded down + loaded up)
+            // Only include results that have all three values for consistent tooltip alignment
+            var loadedResults = wanResults
+                .Where(r => r.PingMs.HasValue && r.DownloadLatencyMs.HasValue && r.UploadLatencyMs.HasValue)
+                .ToList();
+            var loadedBaseRaw = loadedResults
+                .Select(r => new WanChartDataPoint(r.TestTime, r.PingMs!.Value, r.Id))
+                .ToList();
+            var loadedDownRaw = loadedResults
+                .Select(r => new WanChartDataPoint(r.TestTime, r.DownloadLatencyMs!.Value, r.Id))
+                .ToList();
+            var loadedUpRaw = loadedResults
+                .Select(r => new WanChartDataPoint(r.TestTime, r.UploadLatencyMs!.Value, r.Id))
+                .ToList();
+
+            if (shouldDownsample)
+            {
+                // Downsample base as anchor, sync loaded down & up to same result IDs
+                var baseDownsampled = DownsampleLttb(CollapseClusters(loadedBaseRaw), MaxChartPoints);
+                var keptIds = baseDownsampled.Select(d => d.ResultId).ToHashSet();
+                wan.LoadedLatencyBaseData = baseDownsampled;
+                wan.LoadedLatencyDownData = loadedDownRaw.Where(p => keptIds.Contains(p.ResultId)).ToList();
+                wan.LoadedLatencyUpData = loadedUpRaw.Where(p => keptIds.Contains(p.ResultId)).ToList();
+            }
+            else
+            {
+                wan.LoadedLatencyBaseData = loadedBaseRaw;
+                wan.LoadedLatencyDownData = loadedDownRaw;
+                wan.LoadedLatencyUpData = loadedUpRaw;
+            }
+
+            // Jitter chart data (unloaded jitter)
+            var jitterRaw = wanResults
+                .Where(r => r.JitterMs.HasValue)
+                .Select(r => new WanChartDataPoint(r.TestTime, r.JitterMs!.Value, r.Id))
+                .ToList();
+            wan.JitterData = shouldDownsample
+                ? DownsampleLttb(CollapseClusters(jitterRaw), MaxChartPoints)
+                : jitterRaw;
         }
     }
 
@@ -1164,11 +1449,27 @@
         StateHasChanged();
         try
         {
-            if (_chart != null)
-                await _chart.RenderAsync();
+            var activeChart = _activeHistoryTab switch
+            {
+                "latency" => _latencyChart,
+                "loaded-latency" => _loadedLatencyChart,
+                "jitter" => _jitterChart,
+                _ => _chart
+            };
+            if (activeChart != null)
+                await activeChart.RenderAsync();
         }
         catch { /* Chart may not be mounted yet */ }
+    }
 
+    private async Task SwitchHistoryTab(string tab)
+    {
+        if (_activeHistoryTab == tab) return;
+        _activeHistoryTab = tab;
+        StateHasChanged();
+        // Allow the new chart to mount before rendering
+        await Task.Delay(50);
+        await RenderChartAsync();
     }
 
     private async Task OnChartClicked(SelectedData<WanChartDataPoint> data)

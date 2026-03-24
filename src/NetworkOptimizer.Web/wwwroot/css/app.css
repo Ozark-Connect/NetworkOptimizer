@@ -1295,7 +1295,11 @@ a.stat-card-link:active {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.cellular-stats-panel .sqm-header {
+    margin-bottom: 0;
 }
 
 .sqm-status {
@@ -13373,9 +13377,79 @@ a.affected-client:hover {
     }
 }
 
-/* WAN Speed Chart */
+/* WAN History Tabs */
+.wan-history-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.wan-history-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.wan-history-tab {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease-out;
+    white-space: nowrap;
+    font-size: 0.9rem;
+    margin-bottom: -1px;
+}
+
+.wan-history-tab:hover {
+    color: var(--text-primary);
+}
+
+.wan-history-tab.active {
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+}
+
+@@media (max-width: 768px) {
+    .wan-history-tab {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+    }
+}
+
+/* Loaded Latency Legend */
+.loaded-latency-chart-wrapper {
+    position: relative;
+}
+
+.loaded-latency-legend {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.5rem;
+    display: flex;
+    gap: 1rem;
+    z-index: 1;
+}
+
+.loaded-latency-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.loaded-latency-legend-item svg {
+    flex-shrink: 0;
+}
+
 .wan-chart-container {
     margin-bottom: 0;
+    min-height: 250px;
+    margin-left: -0.75rem;
 }
 
 .wan-chart-container .apexcharts-tooltip,
@@ -13487,6 +13561,10 @@ a.affected-client:hover {
 }
 
 @media (max-width: 768px) {
+    .wan-chart-container {
+        margin-left: -1.25rem;
+    }
+
     .wan-time-slider input[type="range"] {
         width: 200px;
         height: 8px;
