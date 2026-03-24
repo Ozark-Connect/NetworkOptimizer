@@ -13454,6 +13454,7 @@ a.affected-client:hover {
 .wan-chart-container {
     margin-bottom: 0;
     min-height: 250px;
+    margin-left: -0.75rem;
 }
 
 .wan-chart-container .apexcharts-tooltip,
@@ -13565,6 +13566,10 @@ a.affected-client:hover {
 }
 
 @media (max-width: 768px) {
+    .wan-chart-container {
+        margin-left: -1.25rem;
+    }
+
     .wan-time-slider input[type="range"] {
         width: 200px;
         height: 8px;
