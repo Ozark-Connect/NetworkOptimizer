@@ -942,8 +942,9 @@ If SSH connections are failing:
 
 1. **Check credentials** - Use the **Test SSH Connection** button in Settings to verify your credentials are correct
 2. **Check UniFi firewall rules** - Ensure SSH traffic is allowed between the Network Optimizer server and your gateway/devices
-3. **Check CyberSecure IDS/IPS** - If your CyberSecure Detection Mode is set to **Notify and Block**, SSH connections may be blocked by the rule **"ET SCAN Potential SSH Scan OUTBOUND"**. You can fix this two ways:
+3. **Check CyberSecure IDS/IPS** - If your CyberSecure Detection Mode is set to **Notify and Block**, SSH connections may be blocked by the rule **"ET SCAN Potential SSH Scan OUTBOUND"**. You can fix this three ways:
    - **Recommended:** Look for blocked connections in **Insights → Flows**, then create a **Suppression** for this specific signature in the Logs section
+   - **Alternative:** Add the Network Optimizer server's IP as a source in **Detection Exclusions**
    - **Alternative:** In CyberSecure settings, uncheck **Scanning Activity** under the Attacks and Reconnaissance category (this disables the entire category, so the suppression approach is preferred)
 
 ## Client Speed Testing (Optional)
