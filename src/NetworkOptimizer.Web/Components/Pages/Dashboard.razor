@@ -76,9 +76,13 @@
 <div class="dashboard-grid">
     @if (_layout != null)
     {
-        @foreach (var card in _layout.Cards)
+        @* Visible cards first, then hidden cards at the bottom in edit mode *@
+        var orderedCards = _editMode
+            ? _layout.Cards.Where(c => c.Visible).Concat(_layout.Cards.Where(c => !c.Visible))
+            : _layout.Cards.Where(c => c.Visible);
+
+        @foreach (var card in orderedCards)
         {
-            if (!card.Visible && !_editMode) continue;
             if (IsStackedChild(card.Id)) continue;
 
             var hasStack = card.StackedCards.Count > 0;
