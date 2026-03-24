@@ -275,7 +275,7 @@ public class GatewayWanSpeedTestService
         }
 
         var (servers, streams) = maxMode ? (6, 24) : (4, 16);
-        var command = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} 2>/dev/null";
+        var command = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} -duration 8 2>/dev/null";
         var sshTask = _gatewaySsh.RunCommandAsync(
             command, TimeSpan.FromSeconds(120), cancellationToken);
 
@@ -337,7 +337,7 @@ public class GatewayWanSpeedTestService
 
         var sshTasks = interfaces.Select(wan =>
         {
-            var cmd = $"{RemoteBinaryPath} --interface {wan.Interface} -servers {perWanServers} -streams {perWanStreams} -start-at {startAt} 2>/dev/null";
+            var cmd = $"{RemoteBinaryPath} --interface {wan.Interface} -servers {perWanServers} -streams {perWanStreams} -duration 8 -start-at {startAt} 2>/dev/null";
             _logger.LogDebug("WAN {Interface}: {Command}", wan.Interface, cmd);
             return _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(120), cancellationToken);
         }).ToList();
