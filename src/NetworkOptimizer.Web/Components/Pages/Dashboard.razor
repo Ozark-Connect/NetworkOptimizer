@@ -22,6 +22,7 @@
     <div class="page-header-actions">
         @if (_editMode)
         {
+            <button class="btn btn-sm btn-secondary" @onclick="CancelEditMode">Cancel</button>
             <button class="btn btn-sm btn-primary" @onclick="ExitEditMode">Done</button>
         }
         else
@@ -699,17 +700,31 @@
     // Edit mode logic
     // ──────────────────────────────────────────────────────────
 
+    private string? _layoutSnapshot;
+
     private void EnterEditMode()
     {
+        _layoutSnapshot = System.Text.Json.JsonSerializer.Serialize(_layout);
         _editMode = true;
     }
 
     private async Task ExitEditMode()
     {
         _editMode = false;
+        _layoutSnapshot = null;
         if (_layout != null)
         {
             await LayoutService.SaveLayoutAsync(_layout);
+        }
+    }
+
+    private void CancelEditMode()
+    {
+        _editMode = false;
+        if (_layoutSnapshot != null)
+        {
+            _layout = System.Text.Json.JsonSerializer.Deserialize<DashboardLayout>(_layoutSnapshot);
+            _layoutSnapshot = null;
         }
     }
 
