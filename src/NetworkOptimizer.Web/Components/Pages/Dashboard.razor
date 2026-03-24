@@ -204,7 +204,6 @@
     private int _alertsListKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
     private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
-    private int _threatChartKey = 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -488,9 +487,13 @@
                         <p>No threat data yet</p>
                     </div>
                 }
+                else if (_editMode)
+                {
+                    <div style="height:120px"></div>
+                }
                 else
                 {
-                    <ApexChart @key="_threatChartKey" TItem="ThreatTrendPoint"
+                    <ApexChart TItem="ThreatTrendPoint"
                                Options="_threatSparklineOptions"
                                Height="@("120px")">
                         <ApexPointSeries TItem="ThreatTrendPoint"
@@ -758,20 +761,15 @@
         }
     }
 
-    private async Task EnterEditMode()
+    private void EnterEditMode()
     {
         _layoutSnapshot = System.Text.Json.JsonSerializer.Serialize(_layout);
         _editMode = true;
-        // DOM restructure destroys the chart; let it settle then bump key to recreate
-        StateHasChanged();
-        await Task.Delay(300);
-        _threatChartKey++;
     }
 
     private async Task ExitEditMode()
     {
         _editMode = false;
-        _threatChartKey++;
         _layoutSnapshot = null;
         if (_layout != null)
         {
@@ -782,7 +780,6 @@
     private void CancelEditMode()
     {
         _editMode = false;
-        _threatChartKey++;
         if (_layoutSnapshot != null)
         {
             _layout = System.Text.Json.JsonSerializer.Deserialize<DashboardLayout>(_layoutSnapshot);
