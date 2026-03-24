@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	uploadSize    = 2_000_000 // 2 MB per upload request
-	warmupSkip    = 0.10       // Skip first 10% of samples
+	uploadSize    = 2_000_000   // 2 MB per upload request
+	downloadSize  = 104_857_600 // 100 MB per download request (matches ui-speed)
+	warmupSkip    = 0.10        // Skip first 10% of samples
 )
 
 // MeasureThroughput runs concurrent download or upload workers distributed
@@ -101,7 +102,7 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 						time.Sleep(50 * time.Millisecond)
 					}
 				} else {
-					url := srv.URL + "/download"
+					url := fmt.Sprintf("%s/download?size=%d", srv.URL, downloadSize)
 					req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 					if err != nil {
 						continue
