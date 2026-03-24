@@ -106,7 +106,7 @@
 
 <div class="speedtest-container @(localIperf3Status != null && !localIperf3Status.IsAvailable ? "locked-out" : "")">
     <!-- Gateway Speed Test Section -->
-    <div class="card">
+    <div class="card" id="gateway-test">
         <div class="card-header">
             <h2 class="card-title">Gateway Speed Test</h2>
             @if (gatewayLastResult != null)
@@ -274,7 +274,7 @@
     }
 
     <!-- Discovered Devices from UniFi Console -->
-    <div class="card">
+    <div class="card" id="unifi-test">
         <div class="card-header">
             <h2 class="card-title">UniFi Device Speed Test</h2>
             <div class="header-actions">
@@ -420,7 +420,7 @@
     </div>
 
     <!-- Saved Devices (for repeated testing) -->
-    <div class="card">
+    <div class="card" id="saved-devices-test">
         <div class="card-header">
             <h2 class="card-title">Other Device Speed Test</h2>
             <div class="header-actions">
@@ -2005,6 +2005,7 @@
             d.Host.Equals(result.DeviceHost, StringComparison.OrdinalIgnoreCase));
         if (savedDevice != null)
         {
+            await ScrollTo("saved-devices-test");
             await RunSpeedTest(savedDevice);
             return;
         }
@@ -2014,11 +2015,13 @@
             d.IpAddress?.Equals(result.DeviceHost, StringComparison.OrdinalIgnoreCase) == true);
         if (discovered != null)
         {
+            await ScrollTo("unifi-test");
             await RunSpeedTestOnDiscovered(discovered);
             return;
         }
 
         // Fallback: create temporary device config from result
+        await ScrollTo("saved-devices-test");
         var tempDevice = new DeviceSshConfiguration
         {
             Name = result.DeviceName ?? result.DeviceHost,
@@ -2027,6 +2030,11 @@
             StartIperf3Server = true
         };
         await RunSpeedTest(tempDevice);
+    }
+
+    private async Task ScrollTo(string elementId)
+    {
+        await JS.InvokeVoidAsync("eval", $"document.getElementById('{elementId}')?.scrollIntoView({{ behavior: 'smooth', block: 'start' }})");
     }
 
     // Progress indicator helpers
