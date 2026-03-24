@@ -1295,7 +1295,11 @@ a.stat-card-link:active {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.cellular-stats-panel .sqm-header {
+    margin-bottom: 0;
 }
 
 .sqm-status {
