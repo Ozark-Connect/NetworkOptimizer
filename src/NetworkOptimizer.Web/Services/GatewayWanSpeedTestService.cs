@@ -274,7 +274,7 @@ public class GatewayWanSpeedTestService
             ifaceArg = $" --interface {interfaceName}";
         }
 
-        var (servers, streams) = maxMode ? (6, 24) : (4, 16);
+        var (servers, streams) = maxMode ? (6, 24) : (4, 20);
         var command = $"{RemoteBinaryPath}{ifaceArg} -streams {streams} -servers {servers} -duration 8 2>/dev/null";
         var sshTask = _gatewaySsh.RunCommandAsync(
             command, TimeSpan.FromSeconds(120), cancellationToken);
@@ -325,7 +325,7 @@ public class GatewayWanSpeedTestService
             (1, true) => (6, 24),
             (2, true) => (5, 20),
             (3, true) => (4, 16),
-            (<= 3, false) => (4, 16),
+            (<= 3, false) => (4, 20),
             (4, _) => (3, 12),
             (5, true) => (3, 12),
             (5, false) => (2, 8),

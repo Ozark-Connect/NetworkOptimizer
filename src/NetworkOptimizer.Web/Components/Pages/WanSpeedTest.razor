@@ -78,7 +78,7 @@
                                 </select>
                             </div>
                         }
-                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 streams, 8 s. Max Load: 6 servers, 24 streams, 8 s for saturating high-bandwidth or congested links." data-tooltip-hover-only>
+                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 20 streams, 8 s. Max Load: 6 servers, 24 streams, 8 s for saturating high-bandwidth or congested links." data-tooltip-hover-only>
                             <input type="checkbox" @bind="_gatewayMaxMode" disabled="@_isRunning" />
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Max Load</span>
@@ -114,7 +114,7 @@
                         <span class="wan-test-option-label">Server</span>
                     </div>
                     <div class="wan-test-option-controls">
-                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 16 connections, 8 s. Max Load: up to 12 servers, 48 connections, 8 s for saturating high-bandwidth or congested links." data-tooltip-hover-only>
+                        <label class="toggle-switch" data-tooltip="Normal: 4 servers, 20 connections, 8 s. Max Load: up to 12 servers, 48 connections, 8 s for saturating high-bandwidth or congested links." data-tooltip-hover-only>
                             <input type="checkbox" @bind="_maxMode" disabled="@_isRunning" />
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Max Load</span>
