@@ -270,7 +270,7 @@ if command -v go &> /dev/null; then
     CFSPEEDTEST_SRC="$REPO_ROOT/src/cfspeedtest"
     if [ -d "$CFSPEEDTEST_SRC" ]; then
         cd "$CFSPEEDTEST_SRC"
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
             -ldflags "-s -w" \
             -o "$INSTALL_DIR/tools/cfspeedtest-linux-arm64" .
         echo "Built cfspeedtest for linux/arm64"
@@ -282,12 +282,12 @@ if command -v go &> /dev/null; then
     if [ -d "$UWNSPEEDTEST_SRC" ]; then
         cd "$UWNSPEEDTEST_SRC"
         # Build local binary for server-side WAN speed tests
-        CGO_ENABLED=0 GOOS=darwin GOARCH=$GO_ARCH go build -trimpath \
+        CGO_ENABLED=0 GOOS=darwin GOARCH=$GO_ARCH go build -a -trimpath \
             -ldflags "-s -w" \
             -o "$INSTALL_DIR/tools/uwnspeedtest-darwin-$GO_ARCH" .
         echo "Built uwnspeedtest for darwin/$GO_ARCH (local)"
         # Build gateway binary for deployment via SSH to UniFi gateways
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
             -ldflags "-s -w" \
             -o "$INSTALL_DIR/tools/uwnspeedtest-linux-arm64" .
         echo "Built uwnspeedtest for linux/arm64 (gateway)"
