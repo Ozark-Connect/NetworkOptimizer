@@ -91,7 +91,7 @@
 
             var hasStack = card.StackedCards.Count > 0;
 
-            <div @key="card.Id" class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
+            <div class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
                 @if (_editMode)
                 {
                     @RenderCardEditToolbar(card)
@@ -235,7 +235,7 @@
             {
                 @foreach (var statId in _layout.StatItems)
                 {
-                    <div @key="statId" class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
+                    <div class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
                         @if (_editMode)
                         {
                             <div class="stat-edit-actions">
@@ -777,33 +777,17 @@
     private void MoveCard(string cardId, int direction)
     {
         if (_layout == null) return;
-        // Work with top-level card order only (skip stacked children)
-        var topLevel = _layout.Cards.Where(c => !IsStackedChild(c.Id)).ToList();
-        var tlIndex = topLevel.FindIndex(c => c.Id == cardId);
-        var tlNewIndex = tlIndex + direction;
-        if (tlNewIndex < 0 || tlNewIndex >= topLevel.Count) return;
+        var index = _layout.Cards.FindIndex(c => c.Id == cardId);
+        if (index < 0) return;
 
-        // Swap in the top-level list, then rebuild the full list preserving stacked children positions
-        (topLevel[tlIndex], topLevel[tlNewIndex]) = (topLevel[tlNewIndex], topLevel[tlIndex]);
-
-        // Rebuild: for each top-level card, also include any stacked children that follow it in the original list
-        var stacked = new HashSet<string>(_layout.Cards.SelectMany(c => c.StackedCards));
-        var rebuilt = new List<DashboardCardConfig>();
-        foreach (var card in topLevel)
+        // Find next swap target, skipping stacked children
+        var newIndex = index + direction;
+        while (newIndex >= 0 && newIndex < _layout.Cards.Count && IsStackedChild(_layout.Cards[newIndex].Id))
         {
-            rebuilt.Add(card);
-            // Add any stacked children entries that belong after this card
-            foreach (var child in _layout.Cards.Where(c => stacked.Contains(c.Id) && card.StackedCards.Contains(c.Id)))
-            {
-                rebuilt.Add(child);
-            }
+            newIndex += direction;
         }
-        // Add any remaining stacked children not yet included
-        foreach (var card in _layout.Cards.Where(c => stacked.Contains(c.Id) && !rebuilt.Contains(c)))
-        {
-            rebuilt.Add(card);
-        }
-        _layout.Cards = rebuilt;
+        if (newIndex < 0 || newIndex >= _layout.Cards.Count) return;
+        (_layout.Cards[index], _layout.Cards[newIndex]) = (_layout.Cards[newIndex], _layout.Cards[index]);
     }
 
     private string? _editToast;
