@@ -88,6 +88,9 @@ public class DashboardLayout
 
     /// <summary>Ordered list of visible stat item IDs within the stats row</summary>
     public List<string> StatItems { get; set; } = new();
+
+    /// <summary>Stat items the user explicitly removed (so merge doesn't re-add them)</summary>
+    public List<string> RemovedStatItems { get; set; } = new();
 }
 
 /// <summary>
@@ -208,9 +211,10 @@ public class DashboardLayoutService
         }
 
         var existingStatIds = new HashSet<string>(layout.StatItems);
+        var removedStatIds = new HashSet<string>(layout.RemovedStatItems);
         foreach (var statId in DashboardStatItems.All)
         {
-            if (!existingStatIds.Contains(statId))
+            if (!existingStatIds.Contains(statId) && !removedStatIds.Contains(statId))
             {
                 layout.StatItems.Add(statId);
             }

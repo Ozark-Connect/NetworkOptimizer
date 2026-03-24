@@ -791,12 +791,17 @@
 
     private void RemoveStatItem(string statId)
     {
-        _layout?.StatItems.Remove(statId);
+        if (_layout == null) return;
+        _layout.StatItems.Remove(statId);
+        if (!_layout.RemovedStatItems.Contains(statId))
+            _layout.RemovedStatItems.Add(statId);
     }
 
     private void AddStatItem(string statId)
     {
-        _layout?.StatItems.Add(statId);
+        if (_layout == null) return;
+        _layout.StatItems.Add(statId);
+        _layout.RemovedStatItems.Remove(statId);
     }
 
     // ──────────────────────────────────────────────────────────
