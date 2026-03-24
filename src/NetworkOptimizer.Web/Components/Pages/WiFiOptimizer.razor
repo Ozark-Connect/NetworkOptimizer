@@ -614,7 +614,14 @@
                                         {
                                             <div class="ap-radio radio-disabled">
                                                 <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
-                                                <span class="radio-channel">Disabled</span>
+                                                @if (radio.Band == RadioBand.Band6GHz && ap.IsAfcEnabled)
+                                                {
+                                                    <span class="radio-channel">AFC</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="radio-channel">Disabled</span>
+                                                }
                                             </div>
                                         }
                                     }

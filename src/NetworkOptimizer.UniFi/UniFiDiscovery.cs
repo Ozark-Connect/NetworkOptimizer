@@ -106,7 +106,9 @@ public class UniFiDiscovery
                 VapTable = d.VapTable,
                 Satisfaction = d.Satisfaction,
                 ScanRadioTable = d.ScanRadioTable,
-                DownlinkTable = d.DownlinkTable
+                DownlinkTable = d.DownlinkTable,
+                AfcEnabled = d.AfcEnabled,
+                AfcState = d.AfcState
             };
         }).ToList();
 
@@ -684,6 +686,16 @@ public class DiscoveredDevice
     /// Only present on mesh parent APs. Contains signal/rates as seen by the parent.
     /// </summary>
     public List<DownlinkTableEntry>? DownlinkTable { get; set; }
+
+    /// <summary>
+    /// Whether AFC (Automated Frequency Coordination) is enabled on this device.
+    /// </summary>
+    public bool? AfcEnabled { get; set; }
+
+    /// <summary>
+    /// AFC state: "disabled", "location_acquired", etc.
+    /// </summary>
+    public string? AfcState { get; set; }
 }
 
 public class DiscoveredClient

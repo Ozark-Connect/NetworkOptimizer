@@ -923,7 +923,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             MeshUplinkChannel = meshUplinkChannel,
             MeshUplinkSignalDbm = isMeshChild ? ap.UplinkSignalDbm : null,
             MeshUplinkTxRateMbps = isMeshChild && ap.UplinkTxRateKbps > 0 ? (int)(ap.UplinkTxRateKbps / 1000) : null,
-            MeshUplinkRxRateMbps = isMeshChild && ap.UplinkRxRateKbps > 0 ? (int)(ap.UplinkRxRateKbps / 1000) : null
+            MeshUplinkRxRateMbps = isMeshChild && ap.UplinkRxRateKbps > 0 ? (int)(ap.UplinkRxRateKbps / 1000) : null,
+            IsAfcEnabled = ap.AfcEnabled ?? false,
+            AfcState = ap.AfcState
         };
 
         // Map radio_table_stats (runtime stats)
