@@ -13374,6 +13374,53 @@ a.affected-client:hover {
 }
 
 /* WAN Speed Chart */
+/* WAN History Tabs */
+.wan-history-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.wan-history-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.wan-history-tab {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease-out;
+    white-space: nowrap;
+    font-size: 0.9rem;
+    margin-bottom: -1px;
+}
+
+.wan-history-tab:hover {
+    color: var(--text-primary);
+}
+
+.wan-history-tab.active {
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+}
+
+@@media (max-width: 768px) {
+    .wan-history-tabs {
+        gap: 0;
+    }
+
+    .wan-history-tab {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+    }
+}
+
 .wan-chart-container {
     margin-bottom: 0;
 }
