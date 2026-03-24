@@ -1129,9 +1129,9 @@
             // Chart points are added by full polls only (every 5s) — this keeps
             // data density low enough for Curve.Smooth to visually smooth the line.
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"WiFiman-only poll failed: {ex.Message}");
+            // Service layer already logs WiFiman failures at Debug level
         }
     }
 
