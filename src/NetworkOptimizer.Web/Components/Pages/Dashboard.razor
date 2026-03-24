@@ -103,15 +103,12 @@
                         @RenderCard(card.Id)
                         @foreach (var childId in card.StackedCards)
                         {
-                            @if (_editMode)
-                            {
-                                <div class="stacked-child-toolbar">
-                                    <span class="card-edit-label">@DashboardCards.GetDisplayName(childId)</span>
-                                    <button class="card-edit-btn" @onclick="() => UnstackCard(card.Id, childId)" data-tooltip="Unstack">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                    </button>
-                                </div>
-                            }
+                            <div class="stacked-child-toolbar" style="@(_editMode ? "" : "display:none")">
+                                <span class="card-edit-label">@DashboardCards.GetDisplayName(childId)</span>
+                                <button class="card-edit-btn" @onclick="() => UnstackCard(card.Id, childId)" data-tooltip="Unstack">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                </button>
+                            </div>
                             @RenderCard(childId)
                         }
                     </div>
@@ -758,13 +755,10 @@
         }
     }
 
-    private async Task EnterEditMode()
+    private void EnterEditMode()
     {
         _layoutSnapshot = System.Text.Json.JsonSerializer.Serialize(_layout);
         _editMode = true;
-        StateHasChanged();
-        await Task.Delay(100);
-        _threatChartKey++;
     }
 
     private async Task ExitEditMode()
