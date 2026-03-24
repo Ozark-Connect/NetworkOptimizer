@@ -15,7 +15,7 @@ import (
 	"github.com/Ozark-Connect/NetworkOptimizer/src/uwnspeedtest/uwn"
 )
 
-var version = "dev"
+var version = "1.14.1-dev"
 
 func main() {
 	streams := flag.Int("streams", 8, "Concurrent connections")

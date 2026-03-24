@@ -88,6 +88,13 @@ public class ScheduleRepository : IScheduleRepository
     {
         try
         {
+            // Detach any already-tracked instance to avoid "already being tracked" errors
+            // when toggle + background run status updates hit the same scoped DbContext
+            var tracked = _context.ChangeTracker.Entries<ScheduledTask>()
+                .FirstOrDefault(e => e.Entity.Id == task.Id);
+            if (tracked != null)
+                tracked.State = EntityState.Detached;
+
             _context.ScheduledTasks.Update(task);
             await _context.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Updated scheduled task {TaskId}: {Name}", task.Id, task.Name);
