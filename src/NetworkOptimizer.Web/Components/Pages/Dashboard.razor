@@ -91,7 +91,7 @@
 
             var hasStack = card.StackedCards.Count > 0;
 
-            <div class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
+            <div @key="card.Id" class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
                 @if (_editMode)
                 {
                     @RenderCardEditToolbar(card)
@@ -235,7 +235,7 @@
             {
                 @foreach (var statId in _layout.StatItems)
                 {
-                    <div class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
+                    <div @key="statId" class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
                         @if (_editMode)
                         {
                             <div class="stat-edit-actions">
