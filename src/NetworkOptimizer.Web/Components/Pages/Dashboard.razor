@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.WiFi
+@using Microsoft.AspNetCore.Components.Routing
 @inject DashboardService DashboardService
 @inject DashboardLayoutService LayoutService
 @inject UniFiConnectionService ConnectionService
@@ -12,10 +13,12 @@
 @inject ThreatDashboardService ThreatService
 @inject NavigationManager NavigationManager
 @inject PullToRefreshState PtrState
+@inject IJSRuntime JS
 @implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Dashboard - Network Optimizer</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="_editMode" />
 
 <div class="page-header">
     <h1>Dashboard</h1>
@@ -726,6 +729,19 @@
     // ──────────────────────────────────────────────────────────
 
     private string? _layoutSnapshot;
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (_editMode)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "You have unsaved dashboard changes. If you leave now, your changes will be lost.\n\nAre you sure you want to leave?");
+            if (!confirmed)
+            {
+                context.PreventNavigation();
+            }
+        }
+    }
 
     private void EnterEditMode()
     {
