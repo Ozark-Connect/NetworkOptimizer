@@ -1467,9 +1467,12 @@
         if (_activeHistoryTab == tab) return;
         _activeHistoryTab = tab;
         StateHasChanged();
-        // Allow the new chart to mount before rendering
-        await Task.Delay(50);
+        // Allow the new chart to mount before rendering, then trigger resize
+        // so ApexCharts recalculates dimensions (fixes 0-height on mobile)
+        await Task.Delay(100);
         await RenderChartAsync();
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("eval", "window.dispatchEvent(new Event('resize'))");
     }
 
     private async Task OnChartClicked(SelectedData<WanChartDataPoint> data)
