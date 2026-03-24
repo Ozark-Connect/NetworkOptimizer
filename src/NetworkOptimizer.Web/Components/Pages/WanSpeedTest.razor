@@ -281,7 +281,18 @@
                 @* Loaded Latency Chart *@
                 @if (_activeHistoryTab == "loaded-latency")
                 {
-                    <div class="wan-chart-container">
+                    <div class="wan-chart-container loaded-latency-chart-wrapper">
+                        <div class="loaded-latency-legend">
+                            <span class="loaded-latency-legend-item">
+                                <span class="legend-line legend-line-solid"></span> Base
+                            </span>
+                            <span class="loaded-latency-legend-item">
+                                <span class="legend-line legend-line-dashed"></span> Loaded ↓
+                            </span>
+                            <span class="loaded-latency-legend-item">
+                                <span class="legend-line legend-line-dotted"></span> Loaded ↑
+                            </span>
+                        </div>
                         <ApexChart @ref="_loadedLatencyChart" TItem="WanChartDataPoint"
                                    Options="_loadedLatencyChartOptions"
                                    Height="@("250px")">

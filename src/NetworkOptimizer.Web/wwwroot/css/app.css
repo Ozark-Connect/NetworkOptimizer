@@ -13421,6 +13421,44 @@ a.affected-client:hover {
     }
 }
 
+/* Loaded Latency Legend */
+.loaded-latency-chart-wrapper {
+    position: relative;
+}
+
+.loaded-latency-legend {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.5rem;
+    display: flex;
+    gap: 1rem;
+    z-index: 1;
+}
+
+.loaded-latency-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.legend-line {
+    display: inline-block;
+    width: 24px;
+    height: 0;
+    border-top: 2px solid var(--text-secondary);
+}
+
+.legend-line-dashed {
+    border-top-style: dashed;
+}
+
+.legend-line-dotted {
+    border-top-style: dotted;
+    border-top-width: 2.5px;
+}
+
 .wan-chart-container {
     margin-bottom: 0;
 }
