@@ -533,8 +533,8 @@ public class GatewayWanSpeedTestService
         // Timeline: discovery/latency ~5s, download ~10s (2s warmup + 8s), upload ~10s (2s warmup + 8s)
         var progressSteps = new (string Phase, int Percent, string Status, int DelayMs)[]
         {
-            ("Discovering servers", 8, "Discovering servers...", 2500),
-            ("Testing latency", 15, "Measuring latency...", 2500),
+            ("Discovering servers", 8, "Discovering servers...", 2000),
+            ("Testing latency", 15, "Measuring latency...", 1500),
             ("Testing download", 22, "Testing download...", 2000),
             ("Testing download", 30, "Testing download...", 2000),
             ("Testing download", 38, "Testing download...", 2000),
