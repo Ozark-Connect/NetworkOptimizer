@@ -260,7 +260,6 @@ echo ""
 echo "[3b/9] Building Go binaries..."
 if command -v go &> /dev/null; then
     mkdir -p "$INSTALL_DIR/tools"
-    go clean -cache
 
     # Detect Go architecture for local binary
     GO_ARCH="amd64"
