@@ -758,10 +758,12 @@
         }
     }
 
-    private void EnterEditMode()
+    private async Task EnterEditMode()
     {
         _layoutSnapshot = System.Text.Json.JsonSerializer.Serialize(_layout);
         _editMode = true;
+        StateHasChanged();
+        await Task.Delay(100);
         _threatChartKey++;
     }
 
