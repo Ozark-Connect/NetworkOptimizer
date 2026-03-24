@@ -779,6 +779,10 @@ a.stat-card-link:active {
     flex: 1;
 }
 
+.dashboard-grid .card-stack {
+    gap: 16px;
+}
+
 .dashboard-card-wrapper.card-span-2 {
     grid-column: span 2;
 }
