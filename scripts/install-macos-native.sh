@@ -294,6 +294,18 @@ if command -v go &> /dev/null; then
     else
         echo "Warning: uwnspeedtest source not found at $UWNSPEEDTEST_SRC"
     fi
+
+    WANSTEER_SRC="$REPO_ROOT/src/wansteer"
+    if [ -d "$WANSTEER_SRC" ]; then
+        cd "$WANSTEER_SRC"
+        # Build gateway binary for WAN steering (deployed via SSH to UniFi gateways)
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
+            -ldflags "-s -w" \
+            -o "$INSTALL_DIR/tools/wansteer-linux-arm64" .
+        echo "Built wansteer for linux/arm64 (gateway)"
+    else
+        echo "Warning: wansteer source not found at $WANSTEER_SRC"
+    fi
 else
     echo "Warning: Go not installed - speed test binaries not available"
     echo "  Install with: brew install go"
