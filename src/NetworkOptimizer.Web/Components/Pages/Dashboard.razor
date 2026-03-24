@@ -204,6 +204,7 @@
     private int _alertsListKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
     private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
+    private ApexChart<ThreatTrendPoint>? _threatChart;
 
     protected override async Task OnInitializedAsync()
     {
@@ -489,7 +490,7 @@
                 }
                 else
                 {
-                    <ApexChart TItem="ThreatTrendPoint"
+                    <ApexChart @ref="_threatChart" TItem="ThreatTrendPoint"
                                Options="_threatSparklineOptions"
                                Height="@("120px")">
                         <ApexPointSeries TItem="ThreatTrendPoint"
@@ -771,9 +772,10 @@
         {
             await LayoutService.SaveLayoutAsync(_layout);
         }
+        await ReRenderChartsAfterEditMode();
     }
 
-    private void CancelEditMode()
+    private async Task CancelEditMode()
     {
         _editMode = false;
         if (_layoutSnapshot != null)
@@ -781,6 +783,14 @@
             _layout = System.Text.Json.JsonSerializer.Deserialize<DashboardLayout>(_layoutSnapshot);
             _layoutSnapshot = null;
         }
+        await ReRenderChartsAfterEditMode();
+    }
+
+    private async Task ReRenderChartsAfterEditMode()
+    {
+        StateHasChanged();
+        await Task.Delay(100);
+        try { if (_threatChart != null) await _threatChart.RenderAsync(); } catch { }
     }
 
     private void MoveCard(string cardId, int direction)

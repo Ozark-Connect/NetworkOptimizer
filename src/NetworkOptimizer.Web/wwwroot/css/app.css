@@ -13449,6 +13449,7 @@ a.affected-client:hover {
 
 .wan-chart-container {
     margin-bottom: 0;
+    min-height: 250px;
 }
 
 .wan-chart-container .apexcharts-tooltip,
