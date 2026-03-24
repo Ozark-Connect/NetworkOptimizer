@@ -5538,6 +5538,9 @@ a.path-hop.hop-clickable:hover {
     height: 22px;
     font-size: 14px;
     margin-left: 0;
+}
+
+.alert-danger.alert-with-tooltip .tooltip-icon {
     background: var(--bg-secondary);
 }
 
