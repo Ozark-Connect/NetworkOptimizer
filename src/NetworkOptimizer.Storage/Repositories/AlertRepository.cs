@@ -91,6 +91,14 @@ public class AlertRepository : IAlertRepository
         try
         {
             rule.UpdatedAt = DateTime.UtcNow;
+
+            // Detach any already-tracked instance to avoid "already being tracked" errors
+            // when toggle + edit happen on the same scoped DbContext lifetime
+            var tracked = _context.ChangeTracker.Entries<AlertRule>()
+                .FirstOrDefault(e => e.Entity.Id == rule.Id);
+            if (tracked != null)
+                tracked.State = EntityState.Detached;
+
             _context.AlertRules.Update(rule);
             await _context.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Updated alert rule {RuleId}: {Name}", rule.Id, rule.Name);
