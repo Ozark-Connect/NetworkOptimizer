@@ -92,10 +92,9 @@
             var hasStack = card.StackedCards.Count > 0;
 
             <div class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
-                @if (_editMode)
-                {
+                <div style="@(_editMode ? "" : "display:none")">
                     @RenderCardEditToolbar(card)
-                }
+                </div>
 
                 @if (hasStack)
                 {
@@ -118,21 +117,17 @@
                     @RenderCard(card.Id)
                 }
 
-                @if (_editMode)
-                {
-                    var stackable = GetStackableCards(card.Id);
-                    @if (stackable.Count > 0)
-                    {
-                        <div class="stack-add-bar">
-                            @foreach (var opt in stackable)
-                            {
-                                <button class="stat-add-btn" @onclick="() => StackCard(card.Id, opt)">
-                                    + Stack @DashboardCards.GetDisplayName(opt)
-                                </button>
-                            }
-                        </div>
-                    }
+                @{
+                    var stackable = _editMode ? GetStackableCards(card.Id) : new List<string>();
                 }
+                <div class="stack-add-bar" style="@(stackable.Count > 0 ? "" : "display:none")">
+                    @foreach (var opt in stackable)
+                    {
+                        <button class="stat-add-btn" @onclick="() => StackCard(card.Id, opt)">
+                            + Stack @DashboardCards.GetDisplayName(opt)
+                        </button>
+                    }
+                </div>
             </div>
         }
 
