@@ -24,8 +24,8 @@ public static class DashboardCards
         SpeedTests, WiFiOptimizer, RecentAlerts, DeviceStatus
     ];
 
-    /// <summary>Cards that span the full width (2 columns)</summary>
-    public static readonly HashSet<string> FullWidth = new()
+    /// <summary>Default full-width cards</summary>
+    public static readonly HashSet<string> DefaultFullWidth = new()
     {
         StatsRow, DeviceStatus
     };
@@ -95,6 +95,7 @@ public class DashboardCardConfig
 {
     public string Id { get; set; } = string.Empty;
     public bool Visible { get; set; } = true;
+    public bool FullWidth { get; set; }
 }
 
 /// <summary>
@@ -168,7 +169,12 @@ public class DashboardLayoutService
     /// </summary>
     public static DashboardLayout GetDefaultLayout() => new()
     {
-        Cards = DashboardCards.All.Select(id => new DashboardCardConfig { Id = id, Visible = true }).ToList(),
+        Cards = DashboardCards.All.Select(id => new DashboardCardConfig
+        {
+            Id = id,
+            Visible = true,
+            FullWidth = DashboardCards.DefaultFullWidth.Contains(id)
+        }).ToList(),
         StatItems = DashboardStatItems.All.ToList()
     };
 

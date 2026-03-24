@@ -79,7 +79,7 @@
         {
             if (!card.Visible && !_editMode) continue;
 
-            <div class="dashboard-card-wrapper @(card.Visible ? "" : "dashboard-card-hidden") @(_editMode ? "dashboard-card-editing" : "") @(DashboardCards.FullWidth.Contains(card.Id) ? "card-span-2" : "")">
+            <div class="dashboard-card-wrapper @(card.Visible ? "" : "dashboard-card-hidden") @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
                 @if (_editMode)
                 {
                     <div class="card-edit-toolbar">
@@ -90,6 +90,16 @@
                             </button>
                             <button class="card-edit-btn" @onclick="() => MoveCard(card.Id, 1)" disabled="@IsLastVisible(card.Id)" data-tooltip="Move down">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <button class="card-edit-btn" @onclick="() => ToggleWidth(card.Id)" data-tooltip="@(card.FullWidth ? "Half width" : "Full width")">
+                                @if (card.FullWidth)
+                                {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+                                }
+                                else
+                                {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="8" height="14" rx="1"/><rect x="13" y="5" width="8" height="14" rx="1" opacity="0.3"/></svg>
+                                }
                             </button>
                             <button class="card-edit-btn card-edit-btn-toggle" @onclick="() => ToggleCard(card.Id)" data-tooltip="@(card.Visible ? "Hide" : "Show")">
                                 @if (card.Visible)
@@ -664,6 +674,13 @@
         if (_layout == null) return;
         var card = _layout.Cards.Find(c => c.Id == cardId);
         if (card != null) card.Visible = !card.Visible;
+    }
+
+    private void ToggleWidth(string cardId)
+    {
+        if (_layout == null) return;
+        var card = _layout.Cards.Find(c => c.Id == cardId);
+        if (card != null) card.FullWidth = !card.FullWidth;
     }
 
     private bool IsFirstVisible(string cardId) =>
