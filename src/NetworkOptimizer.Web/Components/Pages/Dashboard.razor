@@ -322,7 +322,7 @@
 
     private RenderFragment RenderStatWiFiHealth => __builder =>
     {
-        <a href="/wifi" class="stat-card stat-card-link">
+        <a href="/wifi-optimizer" class="stat-card stat-card-link">
             <img src="/icons/wifi-optimizer.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -532,10 +532,10 @@
 
     private RenderFragment RenderWiFiOptimizer => __builder =>
     {
-        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/wifi"))">
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/wifi-optimizer"))">
             <div class="card-header">
-                <a href="/wifi" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Wi-Fi Optimizer</h2></a>
-                <a href="/wifi" class="card-action" @onclick:stopPropagation>View All →</a>
+                <a href="/wifi-optimizer" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Wi-Fi Optimizer</h2></a>
+                <a href="/wifi-optimizer" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
                 @if (_loading)
@@ -555,11 +555,7 @@
                 {
                     @if (_wifiHealthScore.HasValue)
                     {
-                        <div class="wifi-health-header">
-                            <span class="wifi-health-score @GetHealthScoreClass(_wifiHealthScore.Value)">@_wifiHealthScore</span>
-                            <span class="wifi-health-grade @GetHealthScoreClass(_wifiHealthScore.Value)">@_wifiHealthGrade</span>
-                            <span class="wifi-health-label">Site Health</span>
-                        </div>
+                        <NetworkOptimizer.Web.Components.Shared.WiFi.HealthScoreGauge Score="@_wifiHealthScore.Value" />
                     }
                     @if (_wifiHealthIssues.Count > 0)
                     {
@@ -828,15 +824,6 @@
         >= 10_000 => $"{value / 1_000.0:F1}K",
         >= 1_000 => $"{value:N0}",
         _ => value.ToString()
-    };
-
-    private static string GetHealthScoreClass(int score) => score switch
-    {
-        >= 90 => "health-excellent",
-        >= 80 => "health-good",
-        >= 70 => "health-fair",
-        >= 60 => "health-weak",
-        _ => "health-poor"
     };
 
     private static ApexChartOptions<ThreatTrendPoint> CreateThreatSparklineOptions()

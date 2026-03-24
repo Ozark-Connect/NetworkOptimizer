@@ -1,0 +1,93 @@
+<div class="security-score-gauge">
+    <div class="gauge-container">
+        <svg viewBox="0 0 200 120" class="gauge-svg">
+            <!-- Background arc -->
+            <path d="M 20 100 A 80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="#232326"
+                  stroke-width="20"
+                  stroke-linecap="round"/>
+
+            <!-- Score arc -->
+            <path d="M 20 100 A 80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="@GetScoreColor()"
+                  stroke-width="20"
+                  stroke-linecap="round"
+                  stroke-dasharray="@GetDashArray()"
+                  stroke-dashoffset="0"/>
+
+            <!-- Score text -->
+            <text x="100" y="90" text-anchor="middle" class="gauge-score">@Score</text>
+            <text x="100" y="110" text-anchor="middle" class="gauge-label">Wi-Fi Health</text>
+        </svg>
+    </div>
+
+    <div class="gauge-rating">
+        <span class="rating-badge rating-@GetRatingClass()">@GetRatingLabel()</span>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int Score { get; set; } = 0;
+
+    private string GetScoreColor()
+    {
+        return Score switch
+        {
+            0 => "#6b7280",     // Gray - No Data
+            >= 90 => "#24bc70", // Green - Excellent
+            >= 80 => "#3b82f6", // Blue - Good
+            >= 70 => "#f59e0b", // Orange - Fair
+            >= 60 => "#f97316", // Orange - Weak
+            _ => "#ef4444"      // Red - Poor
+        };
+    }
+
+    private string GetDashArray()
+    {
+        double totalLength = Math.PI * 80;
+        double scoreLength = (Score / 100.0) * totalLength;
+        double remainingLength = totalLength - scoreLength;
+        return $"{scoreLength} {remainingLength}";
+    }
+
+    private string GetRatingClass()
+    {
+        return Score switch
+        {
+            0 => "none",
+            >= 90 => "excellent",
+            >= 80 => "good",
+            >= 70 => "fair",
+            _ => "poor"
+        };
+    }
+
+    private string GetRatingLabel()
+    {
+        return Score switch
+        {
+            0 => "NO DATA",
+            >= 90 => "EXCELLENT",
+            >= 80 => "GOOD",
+            >= 70 => "FAIR",
+            >= 60 => "NEEDS WORK",
+            _ => "POOR"
+        };
+    }
+}
+
+<style>
+    .gauge-score {
+        font-size: 32px;
+        font-weight: bold;
+        fill: currentColor;
+    }
+
+    .gauge-label {
+        font-size: 12px;
+        fill: var(--text-muted);
+    }
+</style>

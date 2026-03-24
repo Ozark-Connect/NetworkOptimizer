@@ -942,38 +942,6 @@ a.stat-card-link:active {
 }
 
 /* Wi-Fi Optimizer card */
-.wifi-health-header {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin-bottom: 12px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.wifi-health-score {
-    font-size: 2rem;
-    font-weight: 700;
-    line-height: 1;
-}
-
-.wifi-health-grade {
-    font-size: 1.25rem;
-    font-weight: 600;
-}
-
-.wifi-health-label {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin-left: auto;
-}
-
-.health-excellent { color: #10b981; }
-.health-good { color: #22c55e; }
-.health-fair { color: #eab308; }
-.health-weak { color: #f97316; }
-.health-poor { color: #ef4444; }
-
 .wifi-issues-list {
     display: flex;
     flex-direction: column;
