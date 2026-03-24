@@ -36,7 +36,7 @@ Write-Host "Configuration: $Configuration"
 Write-Host ""
 
 # Step 1: Publish self-contained single-file application
-Write-Host "[1/4] Publishing self-contained single-file application for win-x64..." -ForegroundColor Yellow
+Write-Host "[1/5] Publishing self-contained single-file application for win-x64..." -ForegroundColor Yellow
 dotnet publish $WebProject `
     -c $Configuration `
     -r win-x64 `
@@ -60,7 +60,7 @@ Write-Host "Published to: $PublishDir" -ForegroundColor Green
 Write-Host ""
 
 # Step 2: Build uwnspeedtest binaries
-Write-Host "[2/4] Building uwnspeedtest binaries..." -ForegroundColor Yellow
+Write-Host "[2/5] Building uwnspeedtest binaries..." -ForegroundColor Yellow
 $UwnSpeedTestSrc = Join-Path $RepoRoot "src\uwnspeedtest"
 $ToolsDir = Join-Path $PublishDir "tools"
 
@@ -100,8 +100,37 @@ if ($GoCmd) {
 }
 Write-Host ""
 
-# Step 3: Build WiX installer
-Write-Host "[3/4] Building MSI installer with WiX..." -ForegroundColor Yellow
+# Step 3: Build wansteer binary (gateway-only, deployed via SSH to UniFi gateways)
+Write-Host "[3/5] Building wansteer binary..." -ForegroundColor Yellow
+$WanSteerSrc = Join-Path $RepoRoot "src\wansteer"
+
+if (-not (Test-Path $ToolsDir)) { New-Item -ItemType Directory -Path $ToolsDir | Out-Null }
+
+if ($GoCmd) {
+    Push-Location $WanSteerSrc
+
+    $env:CGO_ENABLED = "0"
+    $env:GOOS = "linux"
+    $env:GOARCH = "arm64"
+    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "$ToolsDir\wansteer-linux-arm64" .
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "wansteer build failed for linux/arm64"
+    } else {
+        Write-Host "Built wansteer for linux/arm64 (gateway)" -ForegroundColor Green
+    }
+
+    $env:CGO_ENABLED = $null
+    $env:GOOS = $null
+    $env:GOARCH = $null
+    Pop-Location
+} else {
+    Write-Warning "Go not installed - wansteer binary will not be available in this installer"
+}
+Write-Host ""
+
+# Step 4: Build WiX installer
+Write-Host "[4/5] Building MSI installer with WiX..." -ForegroundColor Yellow
 dotnet build $InstallerProject -c $Configuration
 
 if ($LASTEXITCODE -ne 0) {
@@ -111,8 +140,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 
-# Step 4: Copy to output
-Write-Host "[4/4] Copying installer to publish folder..." -ForegroundColor Yellow
+# Step 5: Copy to output
+Write-Host "[5/5] Copying installer to publish folder..." -ForegroundColor Yellow
 
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir | Out-Null
