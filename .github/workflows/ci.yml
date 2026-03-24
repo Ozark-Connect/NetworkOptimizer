@@ -32,6 +32,26 @@ jobs:
         working-directory: src/cfspeedtest
         run: GOOS=linux GOARCH=arm64 go build -trimpath ./...
 
+      - name: Build uwnspeedtest
+        working-directory: src/uwnspeedtest
+        run: go build -trimpath ./...
+
+      - name: Build uwnspeedtest (arm64 cross-compile)
+        working-directory: src/uwnspeedtest
+        run: GOOS=linux GOARCH=arm64 go build -trimpath ./...
+
+      - name: Build wansteer
+        working-directory: src/wansteer
+        run: go build -trimpath ./...
+
+      - name: Build wansteer (arm64 cross-compile)
+        working-directory: src/wansteer
+        run: GOOS=linux GOARCH=arm64 go build -trimpath ./...
+
+      - name: Test wansteer
+        working-directory: src/wansteer
+        run: go test ./...
+
       - name: Restore dependencies
         run: dotnet restore
 
