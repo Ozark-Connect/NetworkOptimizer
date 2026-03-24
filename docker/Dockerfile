@@ -44,7 +44,7 @@ RUN dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
 # - Container's native arch: for server-side WAN speed tests (local execution)
 # - linux/arm64: for gateway-direct WAN speed tests (deployed via SSH to UniFi gateways)
 FROM golang:1.22-alpine AS uwnspeedtest-build
-ARG VERSION=0.0.0
+ARG VERSION=""
 ARG TARGETARCH=amd64
 WORKDIR /src
 # Copy both modules (uwnspeedtest imports cfspeedtest/speedtest)
@@ -52,23 +52,24 @@ COPY src/cfspeedtest/ cfspeedtest/
 COPY src/uwnspeedtest/ uwnspeedtest/
 WORKDIR /src/uwnspeedtest
 # Build for container's target architecture (local server-side tests)
+# VERSION override only applies when explicitly passed (GHA releases); otherwise uses main.go static version
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
-    -ldflags "-s -w -X main.version=${VERSION}" \
+    -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
     -o /uwnspeedtest-local .
 # Build for gateway (always linux/arm64, deployed to UniFi gateways via SSH)
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
-    -ldflags "-s -w -X main.version=${VERSION}" \
+    -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
     -o /uwnspeedtest-gateway .
 
 # Stage 2.5: Build wansteer Go binary (gateway-only, always linux/arm64)
 # WAN Steering daemon - manages iptables rules to load-balance traffic across multiple WANs
 FROM golang:1.22-alpine AS wansteer-build
-ARG VERSION=0.0.0
+ARG VERSION=""
 WORKDIR /src
 COPY src/wansteer/ wansteer/
 WORKDIR /src/wansteer
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath \
-    -ldflags "-s -w -X main.version=${VERSION}" \
+    -ldflags "-s -w ${VERSION:+-X main.version=${VERSION}}" \
     -o /wansteer-gateway .
 
 # Stage 3: Build iperf3 from source for latest version
