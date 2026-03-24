@@ -777,17 +777,52 @@
     private void MoveCard(string cardId, int direction)
     {
         if (_layout == null) return;
-        var index = _layout.Cards.FindIndex(c => c.Id == cardId);
-        if (index < 0) return;
 
-        // Find next swap target, skipping stacked children
-        var newIndex = index + direction;
-        while (newIndex >= 0 && newIndex < _layout.Cards.Count && IsStackedChild(_layout.Cards[newIndex].Id))
+        // Build top-level visible card list (what the user sees in the grid)
+        var topLevel = _layout.Cards
+            .Where(c => c.Visible && !IsStackedChild(c.Id))
+            .ToList();
+        var tlIndex = topLevel.FindIndex(c => c.Id == cardId);
+        if (tlIndex < 0) return;
+
+        // Figure out how many top-level positions to jump to clear one visual row.
+        // A full-width card = 1 row. Two consecutive half-width cards = 1 row.
+        int positions = 1;
+        if (direction < 0 && tlIndex > 0)
         {
-            newIndex += direction;
+            // Moving up: if the card above is half-width and the one above that is also
+            // half-width, they share a row - need to jump past both
+            var above = tlIndex - 1;
+            if (!topLevel[above].FullWidth && above > 0 && !topLevel[above - 1].FullWidth)
+            {
+                // Check if those two half-width cards are actually on the same row
+                // (the one at above-1 starts a row, above fills it)
+                positions = 2;
+            }
         }
-        if (newIndex < 0 || newIndex >= _layout.Cards.Count) return;
-        (_layout.Cards[index], _layout.Cards[newIndex]) = (_layout.Cards[newIndex], _layout.Cards[index]);
+        else if (direction > 0 && tlIndex < topLevel.Count - 1)
+        {
+            var below = tlIndex + 1;
+            if (!topLevel[below].FullWidth && below < topLevel.Count - 1 && !topLevel[below + 1].FullWidth)
+            {
+                positions = 2;
+            }
+        }
+
+        // Remove from current position and reinsert
+        var fullIndex = _layout.Cards.FindIndex(c => c.Id == cardId);
+        var card = _layout.Cards[fullIndex];
+        _layout.Cards.RemoveAt(fullIndex);
+
+        // Find the target position in the full list
+        var targetTlIndex = tlIndex + (direction * positions);
+        targetTlIndex = Math.Max(0, Math.Min(targetTlIndex, topLevel.Count - 1));
+        if (targetTlIndex == tlIndex) { _layout.Cards.Insert(fullIndex, card); return; }
+
+        var targetCardId = topLevel[targetTlIndex].Id;
+        var insertIndex = _layout.Cards.FindIndex(c => c.Id == targetCardId);
+        if (direction > 0) insertIndex++; // insert after target when moving down
+        _layout.Cards.Insert(Math.Min(insertIndex, _layout.Cards.Count), card);
     }
 
     private string? _editToast;
