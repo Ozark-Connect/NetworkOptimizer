@@ -227,7 +227,7 @@ public class GatewayWanSpeedTestService
                     return SaveFailedResult(deployError, wanNetworkGroup, wanName);
                 }
             }
-            Report("Preparing", 10, "Binary ready");
+            Report("Preparing", 8, "Binary ready");
 
             // Phase 2: Run test(s) via SSH (10-95%)
             if (isParallel)
@@ -530,21 +530,22 @@ public class GatewayWanSpeedTestService
 
     private static async Task AnimateProgress(Task sshTask, Action<string, int, string?> report, CancellationToken ct)
     {
-        // Timeline: discovery/latency ~5s, download ~10s (2s warmup + 8s), upload ~10s (2s warmup + 8s)
+        // Timeline: discovery/latency ~3.5s, download ~9s (2s warmup + 8s), upload ~9s (2s warmup + 8s)
+        // Total animation: ~21.5s to match actual test duration of ~25s minus overhead
         var progressSteps = new (string Phase, int Percent, string Status, int DelayMs)[]
         {
-            ("Discovering servers", 8, "Discovering servers...", 2000),
-            ("Testing latency", 15, "Measuring latency...", 1500),
-            ("Testing download", 22, "Testing download...", 2000),
-            ("Testing download", 30, "Testing download...", 2000),
-            ("Testing download", 38, "Testing download...", 2000),
-            ("Testing download", 44, "Testing download...", 2000),
-            ("Testing download", 50, "Testing download...", 2000),
-            ("Testing upload", 58, "Testing upload...", 2000),
-            ("Testing upload", 66, "Testing upload...", 2000),
-            ("Testing upload", 74, "Testing upload...", 2000),
-            ("Testing upload", 82, "Testing upload...", 2000),
-            ("Testing upload", 90, "Testing upload...", 2000),
+            ("Discovering servers", 10, "Discovering servers...", 1500),
+            ("Testing latency", 15, "Measuring latency...", 1000),
+            ("Testing download", 22, "Testing download...", 1800),
+            ("Testing download", 30, "Testing download...", 1800),
+            ("Testing download", 38, "Testing download...", 1800),
+            ("Testing download", 44, "Testing download...", 1800),
+            ("Testing download", 50, "Testing download...", 1800),
+            ("Testing upload", 58, "Testing upload...", 1800),
+            ("Testing upload", 66, "Testing upload...", 1800),
+            ("Testing upload", 74, "Testing upload...", 1800),
+            ("Testing upload", 82, "Testing upload...", 1800),
+            ("Testing upload", 90, "Testing upload...", 1800),
         };
 
         foreach (var step in progressSteps)
