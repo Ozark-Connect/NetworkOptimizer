@@ -13377,7 +13377,6 @@ a.affected-client:hover {
     }
 }
 
-/* WAN Speed Chart */
 /* WAN History Tabs */
 .wan-history-tabs {
     display: flex;
@@ -13415,10 +13414,6 @@ a.affected-client:hover {
 }
 
 @@media (max-width: 768px) {
-    .wan-history-tabs {
-        gap: 0;
-    }
-
     .wan-history-tab {
         padding: 0.5rem 0.75rem;
         font-size: 0.8rem;
