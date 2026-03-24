@@ -30,7 +30,7 @@
         }
         else
         {
-            <button class="btn btn-sm btn-outline-primary" @onclick="EnterEditMode">Edit</button>
+            <button class="btn btn-sm btn-outline-primary" @onclick="EnterEditMode">Edit Layout</button>
         }
     </div>
     <p class="page-description">Network overview and health status</p>
@@ -91,7 +91,7 @@
 
             var hasStack = card.StackedCards.Count > 0;
 
-            <div @key="card.Id" class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
+            <div class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
                 @if (_editMode)
                 {
                     @RenderCardEditToolbar(card)
@@ -103,6 +103,15 @@
                         @RenderCard(card.Id)
                         @foreach (var childId in card.StackedCards)
                         {
+                            @if (_editMode)
+                            {
+                                <div class="stacked-child-toolbar">
+                                    <span class="card-edit-label">@DashboardCards.GetDisplayName(childId)</span>
+                                    <button class="card-edit-btn" @onclick="() => UnstackCard(card.Id, childId)" data-tooltip="Unstack">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+                            }
                             @RenderCard(childId)
                         }
                     </div>
@@ -235,7 +244,7 @@
             {
                 @foreach (var statId in _layout.StatItems)
                 {
-                    <div @key="statId" class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
+                    <div class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
                         @if (_editMode)
                         {
                             <div class="stat-edit-actions">
@@ -777,33 +786,52 @@
     private void MoveCard(string cardId, int direction)
     {
         if (_layout == null) return;
-        // Work with top-level card order only (skip stacked children)
-        var topLevel = _layout.Cards.Where(c => !IsStackedChild(c.Id)).ToList();
+
+        // Build top-level visible card list (what the user sees in the grid)
+        var topLevel = _layout.Cards
+            .Where(c => c.Visible && !IsStackedChild(c.Id))
+            .ToList();
         var tlIndex = topLevel.FindIndex(c => c.Id == cardId);
-        var tlNewIndex = tlIndex + direction;
-        if (tlNewIndex < 0 || tlNewIndex >= topLevel.Count) return;
+        if (tlIndex < 0) return;
 
-        // Swap in the top-level list, then rebuild the full list preserving stacked children positions
-        (topLevel[tlIndex], topLevel[tlNewIndex]) = (topLevel[tlNewIndex], topLevel[tlIndex]);
-
-        // Rebuild: for each top-level card, also include any stacked children that follow it in the original list
-        var stacked = new HashSet<string>(_layout.Cards.SelectMany(c => c.StackedCards));
-        var rebuilt = new List<DashboardCardConfig>();
-        foreach (var card in topLevel)
+        // Figure out how many top-level positions to jump to clear one visual row.
+        // A full-width card = 1 row. Two consecutive half-width cards = 1 row.
+        int positions = 1;
+        if (direction < 0 && tlIndex > 0)
         {
-            rebuilt.Add(card);
-            // Add any stacked children entries that belong after this card
-            foreach (var child in _layout.Cards.Where(c => stacked.Contains(c.Id) && card.StackedCards.Contains(c.Id)))
+            // Moving up: if the card above is half-width and the one above that is also
+            // half-width, they share a row - need to jump past both
+            var above = tlIndex - 1;
+            if (!topLevel[above].FullWidth && above > 0 && !topLevel[above - 1].FullWidth)
             {
-                rebuilt.Add(child);
+                // Check if those two half-width cards are actually on the same row
+                // (the one at above-1 starts a row, above fills it)
+                positions = 2;
             }
         }
-        // Add any remaining stacked children not yet included
-        foreach (var card in _layout.Cards.Where(c => stacked.Contains(c.Id) && !rebuilt.Contains(c)))
+        else if (direction > 0 && tlIndex < topLevel.Count - 1)
         {
-            rebuilt.Add(card);
+            var below = tlIndex + 1;
+            if (!topLevel[below].FullWidth && below < topLevel.Count - 1 && !topLevel[below + 1].FullWidth)
+            {
+                positions = 2;
+            }
         }
-        _layout.Cards = rebuilt;
+
+        // Remove from current position and reinsert
+        var fullIndex = _layout.Cards.FindIndex(c => c.Id == cardId);
+        var card = _layout.Cards[fullIndex];
+        _layout.Cards.RemoveAt(fullIndex);
+
+        // Find the target position in the full list
+        var targetTlIndex = tlIndex + (direction * positions);
+        targetTlIndex = Math.Max(0, Math.Min(targetTlIndex, topLevel.Count - 1));
+        if (targetTlIndex == tlIndex) { _layout.Cards.Insert(fullIndex, card); return; }
+
+        var targetCardId = topLevel[targetTlIndex].Id;
+        var insertIndex = _layout.Cards.FindIndex(c => c.Id == targetCardId);
+        if (direction > 0) insertIndex++; // insert after target when moving down
+        _layout.Cards.Insert(Math.Min(insertIndex, _layout.Cards.Count), card);
     }
 
     private string? _editToast;
@@ -861,7 +889,6 @@
         return _layout.Cards
             .Where(c => c.Id != hostCardId
                 && c.Id != DashboardCards.StatsRow
-                && c.Visible
                 && !c.FullWidth
                 && !allStacked.Contains(c.Id)
                 && c.StackedCards.Count == 0) // can't stack a host card
