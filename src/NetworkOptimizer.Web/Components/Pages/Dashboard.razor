@@ -92,9 +92,10 @@
             var hasStack = card.StackedCards.Count > 0;
 
             <div class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
-                <div style="@(_editMode ? "" : "display:none")">
+                @if (_editMode)
+                {
                     @RenderCardEditToolbar(card)
-                </div>
+                }
 
                 @if (hasStack)
                 {
@@ -102,12 +103,15 @@
                         @RenderCard(card.Id)
                         @foreach (var childId in card.StackedCards)
                         {
-                            <div class="stacked-child-toolbar" style="@(_editMode ? "" : "display:none")">
-                                <span class="card-edit-label">@DashboardCards.GetDisplayName(childId)</span>
-                                <button class="card-edit-btn" @onclick="() => UnstackCard(card.Id, childId)" data-tooltip="Unstack">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                </button>
-                            </div>
+                            @if (_editMode)
+                            {
+                                <div class="stacked-child-toolbar">
+                                    <span class="card-edit-label">@DashboardCards.GetDisplayName(childId)</span>
+                                    <button class="card-edit-btn" @onclick="() => UnstackCard(card.Id, childId)" data-tooltip="Unstack">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+                            }
                             @RenderCard(childId)
                         }
                     </div>
@@ -117,17 +121,21 @@
                     @RenderCard(card.Id)
                 }
 
-                @{
-                    var stackable = _editMode ? GetStackableCards(card.Id) : new List<string>();
-                }
-                <div class="stack-add-bar" style="@(stackable.Count > 0 ? "" : "display:none")">
-                    @foreach (var opt in stackable)
+                @if (_editMode)
+                {
+                    var stackable = GetStackableCards(card.Id);
+                    @if (stackable.Count > 0)
                     {
-                        <button class="stat-add-btn" @onclick="() => StackCard(card.Id, opt)">
-                            + Stack @DashboardCards.GetDisplayName(opt)
-                        </button>
+                        <div class="stack-add-bar">
+                            @foreach (var opt in stackable)
+                            {
+                                <button class="stat-add-btn" @onclick="() => StackCard(card.Id, opt)">
+                                    + Stack @DashboardCards.GetDisplayName(opt)
+                                </button>
+                            }
+                        </div>
                     }
-                </div>
+                }
             </div>
         }
 
@@ -196,7 +204,7 @@
     private int _alertsListKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
     private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
-    private int _threatChartKey = 0;
+    private ApexChart<ThreatTrendPoint>? _threatChart;
 
     protected override async Task OnInitializedAsync()
     {
@@ -482,7 +490,7 @@
                 }
                 else
                 {
-                    <ApexChart @key="_threatChartKey" TItem="ThreatTrendPoint"
+                    <ApexChart @ref="_threatChart" TItem="ThreatTrendPoint"
                                Options="_threatSparklineOptions"
                                Height="@("120px")">
                         <ApexPointSeries TItem="ThreatTrendPoint"
@@ -754,31 +762,36 @@
     {
         _layoutSnapshot = System.Text.Json.JsonSerializer.Serialize(_layout);
         _editMode = true;
-        // Bump key after layout settles so chart recreates with correct dimensions
-        await Task.Yield();
-        _threatChartKey++;
+        await ReRenderSparklines();
     }
 
     private async Task ExitEditMode()
     {
         _editMode = false;
-        _threatChartKey++;
         _layoutSnapshot = null;
         if (_layout != null)
         {
             await LayoutService.SaveLayoutAsync(_layout);
         }
+        await ReRenderSparklines();
     }
 
-    private void CancelEditMode()
+    private async Task CancelEditMode()
     {
         _editMode = false;
-        _threatChartKey++;
         if (_layoutSnapshot != null)
         {
             _layout = System.Text.Json.JsonSerializer.Deserialize<DashboardLayout>(_layoutSnapshot);
             _layoutSnapshot = null;
         }
+        await ReRenderSparklines();
+    }
+
+    private async Task ReRenderSparklines()
+    {
+        StateHasChanged();
+        await Task.Delay(200);
+        try { if (_threatChart != null) await _threatChart.RenderAsync(); } catch { }
     }
 
     private void MoveCard(string cardId, int direction)
