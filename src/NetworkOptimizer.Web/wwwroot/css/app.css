@@ -7512,6 +7512,10 @@ a.path-hop.hop-clickable:hover {
     color: #a855f7;
 }
 
+.radio-disabled {
+    opacity: 0.5;
+}
+
 .radio-channel {
     color: var(--text-secondary);
     width: 44px;

@@ -584,29 +584,46 @@
                                 <div class="ap-radios">
                                     @foreach (var radio in ap.Radios)
                                     {
-                                        <div class="ap-radio">
-                                            <span class="radio-band clickable @GetBandCssClass(radio.Band)"
-                                                  @onclick="@(() => NavigateToTab("metrics", ap.Mac, radio.Band))"
-                                                  @onclick:stopPropagation="true">@radio.Band.ToDisplayString()</span>
-                                            <span class="radio-channel clickable"
-                                                  @onclick="@(() => NavigateToTab("channels", null, radio.Band, radio.Channel))"
-                                                  @onclick:stopPropagation="true">Ch @radio.Channel</span>
-                                            @if (radio.ChannelUtilization.HasValue)
-                                            {
-                                                <span class="radio-util clickable @GetUtilizationClass(radio.ChannelUtilization.Value)"
+                                        @if (radio.Channel.HasValue)
+                                        {
+                                            <div class="ap-radio">
+                                                <span class="radio-band clickable @GetBandCssClass(radio.Band)"
                                                       @onclick="@(() => NavigateToTab("metrics", ap.Mac, radio.Band))"
-                                                      @onclick:stopPropagation="true">@radio.ChannelUtilization% util</span>
-                                            }
-                                            @if (radio.Eirp.HasValue)
-                                            {
-                                                <span class="radio-eirp clickable"
-                                                      @onclick="@(() => NavigateToTab("power"))"
-                                                      @onclick:stopPropagation="true">@(radio.Eirp) dBm</span>
-                                            }
-                                            <span class="radio-clients clickable"
-                                                  @onclick="@(() => NavigateToTab("client", ap.Mac, radio.Band))"
-                                                  @onclick:stopPropagation="true">@radio.ClientCount clients</span>
-                                        </div>
+                                                      @onclick:stopPropagation="true">@radio.Band.ToDisplayString()</span>
+                                                <span class="radio-channel clickable"
+                                                      @onclick="@(() => NavigateToTab("channels", null, radio.Band, radio.Channel))"
+                                                      @onclick:stopPropagation="true">Ch @radio.Channel</span>
+                                                @if (radio.ChannelUtilization.HasValue)
+                                                {
+                                                    <span class="radio-util clickable @GetUtilizationClass(radio.ChannelUtilization.Value)"
+                                                          @onclick="@(() => NavigateToTab("metrics", ap.Mac, radio.Band))"
+                                                          @onclick:stopPropagation="true">@radio.ChannelUtilization% util</span>
+                                                }
+                                                @if (radio.Eirp.HasValue)
+                                                {
+                                                    <span class="radio-eirp clickable"
+                                                          @onclick="@(() => NavigateToTab("power"))"
+                                                          @onclick:stopPropagation="true">@(radio.Eirp) dBm</span>
+                                                }
+                                                <span class="radio-clients clickable"
+                                                      @onclick="@(() => NavigateToTab("client", ap.Mac, radio.Band))"
+                                                      @onclick:stopPropagation="true">@radio.ClientCount clients</span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="ap-radio radio-disabled">
+                                                <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                                @if (radio.Band == RadioBand.Band6GHz && ap.IsAfcEnabled)
+                                                {
+                                                    <span class="radio-channel">AFC</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="radio-channel">Disabled</span>
+                                                }
+                                            </div>
+                                        }
                                     }
                                 </div>
                             </div>
