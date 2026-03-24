@@ -984,6 +984,23 @@ a.stat-card-link:active {
     font-style: italic;
 }
 
+/* Edit mode toast notification */
+.edit-toast {
+    padding: 10px 16px;
+    background: rgba(71, 151, 255, 0.12);
+    border: 1px solid rgba(71, 151, 255, 0.3);
+    border-radius: var(--border-radius-lg);
+    color: var(--info-color);
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+    animation: toast-fade-in 0.2s ease;
+}
+
+@@keyframes toast-fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 /* Stacked child toolbar (shown between cards in a stack during edit mode) */
 .stacked-child-toolbar {
     display: flex;
