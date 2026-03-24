@@ -321,6 +321,10 @@ a:hover {
 /* Page Header */
 .page-header {
     margin-bottom: 24px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 12px;
 }
 
 .page-header h1 {
@@ -330,9 +334,17 @@ a:hover {
     margin-bottom: 4px;
 }
 
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
 .page-description {
     color: var(--text-secondary);
     font-size: 0.875rem;
+    width: 100%;
 }
 
 .unstyled-link {
@@ -745,7 +757,276 @@ a.stat-card-link:active {
 
 /* Dashboard Grid */
 .dashboard-grid {
-    /* Dashboard specific styles */
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+/* Dashboard card wrapper for edit mode */
+.dashboard-card-wrapper {
+    min-width: 0;
+}
+
+.dashboard-card-wrapper.card-span-2 {
+    grid-column: span 2;
+}
+
+.dashboard-card-hidden {
+    opacity: 0.4;
+}
+
+.dashboard-card-editing {
+    position: relative;
+}
+
+/* Card edit toolbar */
+.card-edit-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+    border: 1px dashed var(--border-color);
+    border-bottom: none;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.card-edit-toolbar + .card,
+.card-edit-toolbar + .card-stack,
+.card-edit-toolbar + .stats-row {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.card-edit-label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.card-edit-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.card-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.card-edit-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.card-edit-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.card-edit-btn-toggle {
+    margin-left: 4px;
+}
+
+/* Stat item editing */
+.stat-item-wrapper {
+    position: relative;
+    display: contents;
+}
+
+.stat-item-editing {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-item-editing .stat-card {
+    flex: 1;
+}
+
+.stat-edit-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 2px 0;
+    background: var(--bg-tertiary);
+    border-radius: 4px 4px 0 0;
+    border: 1px dashed var(--border-color);
+    border-bottom: none;
+}
+
+.stat-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 18px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.stat-edit-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.stat-edit-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.stat-edit-btn-remove:hover {
+    color: var(--danger-color);
+}
+
+.stat-item-editing .stat-card {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+/* Add stat button area */
+.stat-add-wrapper {
+    display: flex;
+    align-items: stretch;
+}
+
+.stat-add-dropdown {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: var(--bg-card);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--border-radius-lg);
+    min-width: 160px;
+}
+
+.stat-add-btn {
+    padding: 6px 10px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+}
+
+.stat-add-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* Stats row editing mode */
+.stats-row-editing {
+    border: 1px dashed var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Wi-Fi Optimizer card */
+.wifi-health-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.wifi-health-score {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.wifi-health-grade {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.wifi-health-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.health-excellent { color: #10b981; }
+.health-good { color: #22c55e; }
+.health-fair { color: #eab308; }
+.health-weak { color: #f97316; }
+.health-poor { color: #ef4444; }
+
+.wifi-issues-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.wifi-issue-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 0.85rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.wifi-issue-row:last-child {
+    border-bottom: none;
+}
+
+.wifi-issue-severity {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.wifi-severity-critical {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+
+.wifi-severity-warning {
+    background: rgba(234, 179, 8, 0.15);
+    color: #eab308;
+}
+
+.wifi-severity-info {
+    background: rgba(71, 151, 255, 0.15);
+    color: #4797ff;
+}
+
+.wifi-issue-title {
+    flex: 1;
+    color: var(--text-primary);
+}
+
+.wifi-issue-entity {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
 }
 
 .device-grid {
@@ -2235,6 +2516,14 @@ select.form-control {
     .content-grid {
         grid-template-columns: 1fr;
     }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-card-wrapper.card-span-2 {
+        grid-column: span 1;
+    }
 }
 
 /* Hamburger Menu Button - hidden on desktop */
@@ -2465,6 +2754,12 @@ select.form-control {
     }
 
     .content-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .dashboard-grid {
         display: flex;
         flex-direction: column;
         gap: 8px;

@@ -1,7 +1,9 @@
 @page "/"
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.WiFi
 @inject DashboardService DashboardService
+@inject DashboardLayoutService LayoutService
 @inject UniFiConnectionService ConnectionService
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UwnSpeedTestService WanSpeedTestService
@@ -17,6 +19,16 @@
 
 <div class="page-header">
     <h1>Dashboard</h1>
+    <div class="page-header-actions">
+        @if (_editMode)
+        {
+            <button class="btn btn-sm btn-primary" @onclick="ExitEditMode">Done</button>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-outline-primary" @onclick="EnterEditMode">Edit</button>
+        }
+    </div>
     <p class="page-description">Network overview and health status</p>
 </div>
 
@@ -61,8 +73,165 @@
 <NetworkOptimizer.Web.Components.Shared.PwaBanner />
 
 <div class="dashboard-grid">
-    <!-- Quick Stats -->
-    <div class="stats-row">
+    @if (_layout != null)
+    {
+        @foreach (var card in _layout.Cards)
+        {
+            if (!card.Visible && !_editMode) continue;
+
+            <div class="dashboard-card-wrapper @(card.Visible ? "" : "dashboard-card-hidden") @(_editMode ? "dashboard-card-editing" : "") @(DashboardCards.FullWidth.Contains(card.Id) ? "card-span-2" : "")">
+                @if (_editMode)
+                {
+                    <div class="card-edit-toolbar">
+                        <span class="card-edit-label">@DashboardCards.GetDisplayName(card.Id)</span>
+                        <div class="card-edit-actions">
+                            <button class="card-edit-btn" @onclick="() => MoveCard(card.Id, -1)" disabled="@IsFirstVisible(card.Id)" data-tooltip="Move up">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg>
+                            </button>
+                            <button class="card-edit-btn" @onclick="() => MoveCard(card.Id, 1)" disabled="@IsLastVisible(card.Id)" data-tooltip="Move down">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <button class="card-edit-btn card-edit-btn-toggle" @onclick="() => ToggleCard(card.Id)" data-tooltip="@(card.Visible ? "Hide" : "Show")">
+                                @if (card.Visible)
+                                {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                }
+                                else
+                                {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                }
+
+                @if (card.Visible || _editMode)
+                {
+                    @RenderCard(card.Id)
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _speedTestLoading = true;
+    private bool _wanTestLoading = true;
+    private bool _threatLoading = true;
+    private bool _editMode;
+    private DashboardLayout? _layout;
+    private int deviceCount = 0;
+    private int securityScore = 0;
+    private string sqmStatus = "Not Configured";
+    private int alertCount = 0;
+    private int criticalIssues = 0;
+    private int warningIssues = 0;
+    private string lastAuditTime = "Never";
+    private int _threatCount24h;
+    private List<ThreatTrendPoint> _threatTrend = [];
+    private List<Services.DeviceInfo> devices = new();
+    private List<Iperf3Result> _recentSpeedTests = new();
+    private List<Iperf3Result> _recentWanTests = new();
+    private int? _wifiHealthScore;
+    private string? _wifiHealthGrade;
+    private List<HealthIssue> _wifiHealthIssues = new();
+    private int _sqmPanelKey = 0;
+    private int _alertsListKey = 0;
+    private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
+    private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
+
+    protected override async Task OnInitializedAsync()
+    {
+        NavigationManager.LocationChanged += OnLocationChanged;
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        PtrState.RefreshCallback = () => Task.WhenAll(
+            LoadDashboardData(), LoadSpeedTestData(), LoadWanTestData(), LoadThreatData());
+        PtrState.NotifyStateChanged = StateHasChanged;
+
+        _layout = await LayoutService.GetLayoutAsync();
+
+        // Fire and forget - page renders immediately with spinners, data loads in background
+        _ = LoadAllDataAsync();
+    }
+
+    private RenderFragment RenderCard(string cardId) => cardId switch
+    {
+        DashboardCards.StatsRow => RenderStatsRow,
+        DashboardCards.SecurityPosture => RenderSecurityPosture,
+        DashboardCards.SqmThreats => RenderSqmThreats,
+        DashboardCards.CellularStats => RenderCellularStats,
+        DashboardCards.SpeedTests => RenderSpeedTests,
+        DashboardCards.WiFiOptimizer => RenderWiFiOptimizer,
+        DashboardCards.RecentAlerts => RenderRecentAlerts,
+        DashboardCards.DeviceStatus => RenderDeviceStatus,
+        _ => builder => { }
+    };
+
+    // ──────────────────────────────────────────────────────────
+    // Card render fragments
+    // ──────────────────────────────────────────────────────────
+
+    private RenderFragment RenderStatsRow => __builder =>
+    {
+        <div class="stats-row @(_editMode ? "stats-row-editing" : "")">
+            @if (_layout != null)
+            {
+                @foreach (var statId in _layout.StatItems)
+                {
+                    <div class="stat-item-wrapper @(_editMode ? "stat-item-editing" : "")">
+                        @if (_editMode)
+                        {
+                            <div class="stat-edit-actions">
+                                <button class="stat-edit-btn" @onclick="() => MoveStatItem(statId, -1)" disabled="@(_layout.StatItems.IndexOf(statId) == 0)">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M15 18l-6-6 6-6"/></svg>
+                                </button>
+                                <button class="stat-edit-btn stat-edit-btn-remove" @onclick="() => RemoveStatItem(statId)">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                </button>
+                                <button class="stat-edit-btn" @onclick="() => MoveStatItem(statId, 1)" disabled="@(_layout.StatItems.IndexOf(statId) == _layout.StatItems.Count - 1)">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
+                                </button>
+                            </div>
+                        }
+                        @RenderStatItem(statId)
+                    </div>
+                }
+
+                @if (_editMode)
+                {
+                    var hiddenStats = DashboardStatItems.All.Where(s => !_layout.StatItems.Contains(s)).ToList();
+                    @if (hiddenStats.Any())
+                    {
+                        <div class="stat-add-wrapper">
+                            <div class="stat-add-dropdown">
+                                @foreach (var statId in hiddenStats)
+                                {
+                                    <button class="stat-add-btn" @onclick="() => AddStatItem(statId)">
+                                        + @DashboardStatItems.GetDisplayName(statId)
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            }
+        </div>
+    };
+
+    private RenderFragment RenderStatItem(string statId) => statId switch
+    {
+        DashboardStatItems.TotalDevices => RenderStatTotalDevices,
+        DashboardStatItems.SecurityScore => RenderStatSecurityScore,
+        DashboardStatItems.SqmStatus => RenderStatSqmStatus,
+        DashboardStatItems.ActiveAlerts => RenderStatActiveAlerts,
+        DashboardStatItems.ThreatEvents => RenderStatThreatEvents,
+        DashboardStatItems.WiFiHealth => RenderStatWiFiHealth,
+        _ => builder => { }
+    };
+
+    private RenderFragment RenderStatTotalDevices => __builder =>
+    {
         <a href="#device-status" class="stat-card stat-card-link">
             <div class="stat-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
@@ -74,36 +243,28 @@
             </div>
             <div class="stat-content">
                 <div class="stat-value">
-                    @if (_loading)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        @deviceCount
-                    }
+                    @if (_loading) { <span class="spinner-sm"></span> } else { @deviceCount }
                 </div>
                 <div class="stat-label">Total Devices</div>
             </div>
         </a>
+    };
 
+    private RenderFragment RenderStatSecurityScore => __builder =>
+    {
         <a href="/audit" class="stat-card stat-card-link">
             <img src="/icons/shield-v2.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value">
-                    @if (_loading)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        @securityScore
-                    }
+                    @if (_loading) { <span class="spinner-sm"></span> } else { @securityScore }
                 </div>
                 <div class="stat-label">Security Score</div>
             </div>
         </a>
+    };
 
+    private RenderFragment RenderStatSqmStatus => __builder =>
+    {
         <a href="/sqm" class="stat-card stat-card-link stat-success">
             <img src="/icons/sqm-v3.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
@@ -128,36 +289,28 @@
                 </div>
             </div>
         </a>
+    };
 
+    private RenderFragment RenderStatActiveAlerts => __builder =>
+    {
         <a href="#recent-alerts" class="stat-card stat-card-link stat-warning">
             <img src="/icons/warning-v2.png" alt="" class="stat-icon-img stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
-                    @if (_loading)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        @alertCount
-                    }
+                    @if (_loading) { <span class="spinner-sm"></span> } else { @alertCount }
                 </div>
                 <div class="stat-label">Active Alerts</div>
             </div>
         </a>
+    };
 
+    private RenderFragment RenderStatThreatEvents => __builder =>
+    {
         <a href="/threats" class="stat-card stat-card-link">
             <img src="/icons/threats.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value">
-                    @if (_threatLoading)
-                    {
-                        <span class="spinner-sm"></span>
-                    }
-                    else
-                    {
-                        @FormatNumber(_threatCount24h)
-                    }
+                    @if (_threatLoading) { <span class="spinner-sm"></span> } else { @FormatNumber(_threatCount24h) }
                 </div>
                 <div class="stat-label">
                     <span class="desktop-label">Threat Events (24h)</span>
@@ -165,11 +318,37 @@
                 </div>
             </div>
         </a>
-    </div>
+    };
 
-    <!-- Main Content Grid -->
-    <div class="content-grid">
-        <!-- Security Score Gauge -->
+    private RenderFragment RenderStatWiFiHealth => __builder =>
+    {
+        <a href="/wifi" class="stat-card stat-card-link">
+            <img src="/icons/wifi-optimizer.png" alt="" class="stat-icon-img" />
+            <div class="stat-content">
+                <div class="stat-value">
+                    @if (_loading)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else if (_wifiHealthScore.HasValue)
+                    {
+                        <span>@_wifiHealthScore</span>
+                    }
+                    else
+                    {
+                        <span class="stat-value-text">--</span>
+                    }
+                </div>
+                <div class="stat-label">
+                    <span class="desktop-label">Wi-Fi Health</span>
+                    <span class="mobile-label">Wi-Fi</span>
+                </div>
+            </div>
+        </a>
+    };
+
+    private RenderFragment RenderSecurityPosture => __builder =>
+    {
         <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/audit"))">
             <div class="card-header">
                 <a href="/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Security Posture</h2></a>
@@ -190,47 +369,28 @@
                     <div class="summary-item">
                         <span class="summary-label">Critical Issues:</span>
                         <span class="summary-value @(criticalIssues > 0 ? "critical" : "")">
-                            @if (_loading)
-                            {
-                                <span class="spinner-sm"></span>
-                            }
-                            else
-                            {
-                                @criticalIssues
-                            }
+                            @if (_loading) { <span class="spinner-sm"></span> } else { @criticalIssues }
                         </span>
                     </div>
                     <div class="summary-item">
                         <span class="summary-label">Recommended:</span>
                         <span class="summary-value @(warningIssues > 0 ? "recommended" : "")">
-                            @if (_loading)
-                            {
-                                <span class="spinner-sm"></span>
-                            }
-                            else
-                            {
-                                @warningIssues
-                            }
+                            @if (_loading) { <span class="spinner-sm"></span> } else { @warningIssues }
                         </span>
                     </div>
                     <div class="summary-item">
                         <span class="summary-label">Last Audit:</span>
                         <span class="summary-value">
-                            @if (_loading)
-                            {
-                                <span class="spinner-sm"></span>
-                            }
-                            else
-                            {
-                                @lastAuditTime
-                            }
+                            @if (_loading) { <span class="spinner-sm"></span> } else { @lastAuditTime }
                         </span>
                     </div>
                 </div>
             </div>
         </div>
+    };
 
-        <!-- SQM Status + Threat Trends (stacked) -->
+    private RenderFragment RenderSqmThreats => __builder =>
+    {
         <div class="card-stack">
             <div class="card">
                 <div class="card-header">
@@ -276,8 +436,10 @@
                 </div>
             </div>
         </div>
+    };
 
-        <!-- Cellular Modem Stats -->
+    private RenderFragment RenderCellularStats => __builder =>
+    {
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Cellular Stats (5G / LTE)</h2>
@@ -286,8 +448,10 @@
                 <CellularStatsPanel />
             </div>
         </div>
+    };
 
-        <!-- WAN + LAN Speed Tests (stacked 50/50) -->
+    private RenderFragment RenderSpeedTests => __builder =>
+    {
         <div class="card-stack card-stack-even">
             <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/wan-speedtest"))">
                 <div class="card-header">
@@ -364,9 +528,71 @@
                 </div>
             </div>
         </div>
+    };
 
-        <!-- Recent Audit Issues -->
-        <div class="card card-span-2" id="recent-alerts">
+    private RenderFragment RenderWiFiOptimizer => __builder =>
+    {
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/wifi"))">
+            <div class="card-header">
+                <a href="/wifi" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Wi-Fi Optimizer</h2></a>
+                <a href="/wifi" class="card-action" @onclick:stopPropagation>View All →</a>
+            </div>
+            <div class="card-body">
+                @if (_loading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Loading...</span>
+                    </div>
+                }
+                else if (_wifiHealthIssues.Count == 0 && !_wifiHealthScore.HasValue)
+                {
+                    <div class="empty-state">
+                        <p>No Wi-Fi health data yet</p>
+                    </div>
+                }
+                else
+                {
+                    @if (_wifiHealthScore.HasValue)
+                    {
+                        <div class="wifi-health-header">
+                            <span class="wifi-health-score @GetHealthScoreClass(_wifiHealthScore.Value)">@_wifiHealthScore</span>
+                            <span class="wifi-health-grade @GetHealthScoreClass(_wifiHealthScore.Value)">@_wifiHealthGrade</span>
+                            <span class="wifi-health-label">Site Health</span>
+                        </div>
+                    }
+                    @if (_wifiHealthIssues.Count > 0)
+                    {
+                        <div class="wifi-issues-list">
+                            @foreach (var issue in _wifiHealthIssues)
+                            {
+                                <div class="wifi-issue-row">
+                                    <span class="wifi-issue-severity wifi-severity-@issue.Severity.ToString().ToLowerInvariant()">
+                                        @issue.Severity.ToString()
+                                    </span>
+                                    <span class="wifi-issue-title">@issue.Title</span>
+                                    @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                                    {
+                                        <span class="wifi-issue-entity">@issue.AffectedEntity</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="empty-state">
+                            <p>No issues found - looking good!</p>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderRecentAlerts => __builder =>
+    {
+        <div class="card" id="recent-alerts">
             <div class="card-header">
                 <a href="/audit" class="card-title-link"><h2 class="card-title">Recent Audit Issues</h2></a>
                 <a href="/audit" class="card-action">View All →</a>
@@ -375,9 +601,11 @@
                 <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
             </div>
         </div>
+    };
 
-        <!-- Device Overview -->
-        <div class="card card-span-2" id="device-status">
+    private RenderFragment RenderDeviceStatus => __builder =>
+    {
+        <div class="card" id="device-status">
             <div class="card-header">
                 <h2 class="card-title">Device Status</h2>
             </div>
@@ -406,49 +634,75 @@
                 }
             </div>
         </div>
+    };
 
-    </div>
-</div>
+    // ──────────────────────────────────────────────────────────
+    // Edit mode logic
+    // ──────────────────────────────────────────────────────────
 
-@code {
-    private bool _loading = true;
-    private bool _speedTestLoading = true;
-    private bool _wanTestLoading = true;
-    private bool _threatLoading = true;
-    private int deviceCount = 0;
-    private int securityScore = 0;
-    private string sqmStatus = "Not Configured";
-    private int alertCount = 0;
-    private int criticalIssues = 0;
-    private int warningIssues = 0;
-    private string lastAuditTime = "Never";
-    private int _threatCount24h;
-    private List<ThreatTrendPoint> _threatTrend = [];
-    private List<Services.DeviceInfo> devices = new();
-    private List<Iperf3Result> _recentSpeedTests = new();
-    private List<Iperf3Result> _recentWanTests = new();
-    private int _sqmPanelKey = 0;
-    private int _alertsListKey = 0;
-    private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
-    private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
-
-    protected override void OnInitialized()
+    private void EnterEditMode()
     {
-        NavigationManager.LocationChanged += OnLocationChanged;
-        ConnectionService.OnConnectionChanged += OnConnectionChanged;
-        PtrState.RefreshCallback = () => Task.WhenAll(
-            LoadDashboardData(), LoadSpeedTestData(), LoadWanTestData(), LoadThreatData());
-        PtrState.NotifyStateChanged = StateHasChanged;
-
-        // Fire and forget - page renders immediately with spinners, data loads in background
-        _ = LoadAllDataAsync();
+        _editMode = true;
     }
+
+    private async Task ExitEditMode()
+    {
+        _editMode = false;
+        if (_layout != null)
+        {
+            await LayoutService.SaveLayoutAsync(_layout);
+        }
+    }
+
+    private void MoveCard(string cardId, int direction)
+    {
+        if (_layout == null) return;
+        var index = _layout.Cards.FindIndex(c => c.Id == cardId);
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= _layout.Cards.Count) return;
+        (_layout.Cards[index], _layout.Cards[newIndex]) = (_layout.Cards[newIndex], _layout.Cards[index]);
+    }
+
+    private void ToggleCard(string cardId)
+    {
+        if (_layout == null) return;
+        var card = _layout.Cards.Find(c => c.Id == cardId);
+        if (card != null) card.Visible = !card.Visible;
+    }
+
+    private bool IsFirstVisible(string cardId) =>
+        _layout?.Cards.FindIndex(c => c.Id == cardId) == 0;
+
+    private bool IsLastVisible(string cardId) =>
+        _layout?.Cards.FindIndex(c => c.Id == cardId) == (_layout?.Cards.Count ?? 0) - 1;
+
+    private void MoveStatItem(string statId, int direction)
+    {
+        if (_layout == null) return;
+        var index = _layout.StatItems.IndexOf(statId);
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= _layout.StatItems.Count) return;
+        (_layout.StatItems[index], _layout.StatItems[newIndex]) = (_layout.StatItems[newIndex], _layout.StatItems[index]);
+    }
+
+    private void RemoveStatItem(string statId)
+    {
+        _layout?.StatItems.Remove(statId);
+    }
+
+    private void AddStatItem(string statId)
+    {
+        _layout?.StatItems.Add(statId);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Data loading (unchanged from original)
+    // ──────────────────────────────────────────────────────────
 
     private async void OnConnectionChanged()
     {
-        // Connection changed (new site, reconnect, etc.) - refresh all data
-        _sqmPanelKey++; // Force SqmStatusPanel to recreate
-        _alertsListKey++; // Force AlertsList to recreate
+        _sqmPanelKey++;
+        _alertsListKey++;
         await Task.WhenAll(
             LoadDashboardData(),
             LoadSpeedTestData(),
@@ -460,20 +714,14 @@
 
     private async Task LoadAllDataAsync()
     {
-        // Check password source (don't wait for controller)
         try
         {
             _passwordSource = await AdminAuthService.GetPasswordSourceAsync();
         }
-        catch
-        {
-            // Ignore - will show as None
-        }
+        catch { }
 
-        // Brief wait for controller connection
         await ConnectionService.WaitForConnectionAsync();
 
-        // Load in parallel
         await Task.WhenAll(
             LoadDashboardData(),
             LoadSpeedTestData(),
@@ -486,11 +734,10 @@
 
     private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
-        // If navigating to dashboard, reload data
         if (e.Location.EndsWith("/") || e.Location.EndsWith("/dashboard", StringComparison.OrdinalIgnoreCase))
         {
-            _sqmPanelKey++; // Force SqmStatusPanel to recreate
-            _alertsListKey++; // Force AlertsList to recreate
+            _sqmPanelKey++;
+            _alertsListKey++;
             await Task.WhenAll(
                 LoadDashboardData(),
                 LoadSpeedTestData(),
@@ -514,14 +761,8 @@
             var results = await SpeedTestService.GetRecentResultsAsync(10);
             _recentSpeedTests = results.Where(r => r.Success).Take(5).ToList();
         }
-        catch
-        {
-            // Ignore errors - just show empty state
-        }
-        finally
-        {
-            _speedTestLoading = false;
-        }
+        catch { }
+        finally { _speedTestLoading = false; }
     }
 
     private async Task LoadWanTestData()
@@ -537,14 +778,8 @@
                 .Take(5)
                 .ToList();
         }
-        catch
-        {
-            // Ignore errors - just show empty state
-        }
-        finally
-        {
-            _wanTestLoading = false;
-        }
+        catch { }
+        finally { _wanTestLoading = false; }
     }
 
     private async Task LoadDashboardData()
@@ -561,16 +796,15 @@
             warningIssues = data.WarningIssues;
             lastAuditTime = data.LastAuditTime;
             devices = data.Devices;
+            _wifiHealthScore = data.WiFiHealthScore;
+            _wifiHealthGrade = data.WiFiHealthGrade;
+            _wifiHealthIssues = data.WiFiHealthIssues;
         }
-        finally
-        {
-            _loading = false;
-        }
+        finally { _loading = false; }
     }
 
     private async Task OnAlertDismissed()
     {
-        // Refresh dashboard data when an alert is dismissed
         await LoadDashboardData();
         StateHasChanged();
     }
@@ -584,26 +818,26 @@
             _threatCount24h = total;
             _threatTrend = points;
         }
-        catch
-        {
-            // Ignore - show 0 and empty sparkline
-        }
-        finally
-        {
-            _threatLoading = false;
-        }
+        catch { }
+        finally { _threatLoading = false; }
     }
 
-    private static string FormatNumber(int value)
+    private static string FormatNumber(int value) => value switch
     {
-        return value switch
-        {
-            >= 1_000_000 => $"{value / 1_000_000.0:F1}M",
-            >= 10_000 => $"{value / 1_000.0:F1}K",
-            >= 1_000 => $"{value:N0}",
-            _ => value.ToString()
-        };
-    }
+        >= 1_000_000 => $"{value / 1_000_000.0:F1}M",
+        >= 10_000 => $"{value / 1_000.0:F1}K",
+        >= 1_000 => $"{value:N0}",
+        _ => value.ToString()
+    };
+
+    private static string GetHealthScoreClass(int score) => score switch
+    {
+        >= 90 => "health-excellent",
+        >= 80 => "health-good",
+        >= 70 => "health-fair",
+        >= 60 => "health-weak",
+        _ => "health-poor"
+    };
 
     private static ApexChartOptions<ThreatTrendPoint> CreateThreatSparklineOptions()
     {

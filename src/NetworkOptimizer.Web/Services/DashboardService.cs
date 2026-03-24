@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.WiFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -16,6 +17,7 @@ public class DashboardService : IDashboardService
     private readonly GatewaySpeedTestService _gatewayService;
     private readonly TcMonitorClient _tcMonitorClient;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly WiFiOptimizerService _wifiOptimizerService;
 
     public DashboardService(
         ILogger<DashboardService> logger,
@@ -23,7 +25,8 @@ public class DashboardService : IDashboardService
         AuditService auditService,
         GatewaySpeedTestService gatewayService,
         TcMonitorClient tcMonitorClient,
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory)
+        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        WiFiOptimizerService wifiOptimizerService)
     {
         _logger = logger;
         _connectionService = connectionService;
@@ -31,6 +34,7 @@ public class DashboardService : IDashboardService
         _gatewayService = gatewayService;
         _tcMonitorClient = tcMonitorClient;
         _dbFactory = dbFactory;
+        _wifiOptimizerService = wifiOptimizerService;
     }
 
     /// <summary>
@@ -145,6 +149,26 @@ public class DashboardService : IDashboardService
             data.SqmStatus = "Unknown";
         }
 
+        // Load Wi-Fi health score
+        try
+        {
+            var healthScore = await _wifiOptimizerService.GetSiteHealthScoreAsync();
+            if (healthScore != null)
+            {
+                data.WiFiHealthScore = healthScore.OverallScore;
+                data.WiFiHealthGrade = healthScore.Grade;
+                data.WiFiHealthIssues = healthScore.Issues
+                    .Where(i => i.ShowOnOverview)
+                    .OrderByDescending(i => i.Severity)
+                    .Take(8)
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load Wi-Fi health score");
+        }
+
         return data;
     }
 
@@ -209,6 +233,11 @@ public class DashboardData
     public string? ControllerType { get; set; }
     public string? LastError { get; set; }
     public List<DeviceInfo> Devices { get; set; } = new();
+
+    // Wi-Fi health
+    public int? WiFiHealthScore { get; set; }
+    public string? WiFiHealthGrade { get; set; }
+    public List<HealthIssue> WiFiHealthIssues { get; set; } = new();
 }
 
 /// <summary>

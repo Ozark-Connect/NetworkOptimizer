@@ -51,6 +51,9 @@ public static class SystemSettingKeys
     // Channel recommendation disclaimer
     public const string ChannelDisclaimerDismissed = "ui.channel_disclaimer_dismissed";
 
+    // Dashboard layout preferences
+    public const string DashboardLayout = "ui.dashboard_layout";
+
     // External speed test server (WAN speed test via remote OpenSpeedTest)
     public const string ExternalSpeedTestHost = "external_speedtest.host";
     public const string ExternalSpeedTestPort = "external_speedtest.port";
