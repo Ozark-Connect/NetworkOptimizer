@@ -534,7 +534,7 @@
                     {
                         <div class="card chart-card">
                             <h3>Signal History</h3>
-                            <div class="chart-container">
+                            <div class="chart-container signal-chart-container">
                                 <ApexChart @ref="_signalChart" TItem="SignalChartPoint"
                                            Options="_signalChartOptions"
                                            Height="@("250px")">
@@ -874,7 +874,12 @@
 
     // Polling
     private System.Threading.Timer? _pollTimer;
+    private bool _hasWiFiManData;
+    private int _tickCount;
     private bool _isTooltipActive;
+    private bool _isMobile;
+
+    private int _fullPollCount;
 
     // GPS
     private double? _gpsLat;
@@ -965,20 +970,42 @@
 
         // Note: initial GPS request happens in OnAfterRenderAsync (needs JS interop)
 
-        // Start polling every 5 seconds
+        // Start polling - 1s ticks when WiFiman is available.
+        // Full poll (stat/sta + trace + storage) every 5th tick.
+        // Lightweight WiFiman-only poll on other ticks for live signal updates.
         _pollTimer = new System.Threading.Timer(async _ =>
         {
             try
             {
+                _tickCount++;
+                var isFullPoll = !_hasWiFiManData || _tickCount % 5 == 0;
+
                 await InvokeAsync(async () =>
                 {
-                    await PollAsync();
+                    if (isFullPoll)
+                    {
+                        await PollAsync();
+                    }
+                    else
+                    {
+                        await PollWiFiManOnlyAsync();
+                    }
                     StateHasChanged();
                 });
                 _consecutiveFailures = 0;
 
-                // Run daily cleanup check (non-blocking)
-                _ = DashboardService.TryCleanupAsync();
+                // Adapt polling interval based on WiFiman availability
+                var wifiManNow = _client?.HasWiFiManData == true;
+                if (wifiManNow != _hasWiFiManData)
+                {
+                    _hasWiFiManData = wifiManNow;
+                    var interval = _hasWiFiManData ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+                    _pollTimer?.Change(interval, interval);
+                }
+
+                // Run daily cleanup check (non-blocking, on full polls only)
+                if (isFullPoll)
+                    _ = DashboardService.TryCleanupAsync();
             }
             catch
             {
@@ -1002,6 +1029,7 @@
         // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
+        _isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth <= 768");
         _showGpsWarning = _isInsecureContext && _isOwnDevice;
 
         if (_showGpsWarning)
@@ -1069,6 +1097,44 @@
         return await DashboardService.IdentifyClientAsync(_clientIp);
     }
 
+    /// <summary>
+    /// Lightweight 1s poll: only hits WiFiman for live signal/channel/band/rates.
+    /// Merges into existing _client. No stat/sta, no trace, no DB write.
+    /// </summary>
+    private async Task PollWiFiManOnlyAsync()
+    {
+        if (string.IsNullOrEmpty(_clientIp) || _client == null)
+            return;
+
+        try
+        {
+            var update = await DashboardService.PollWiFiManOnlyAsync(_clientIp);
+            if (update == null)
+                return;
+
+            // Merge WiFiman signal fields into existing client identity
+            if (update.SignalDbm.HasValue) _client.SignalDbm = update.SignalDbm;
+            if (update.NoiseDbm.HasValue) _client.NoiseDbm = update.NoiseDbm;
+            if (update.Channel.HasValue) _client.Channel = update.Channel;
+            if (update.ChannelWidth.HasValue) _client.ChannelWidth = update.ChannelWidth;
+            if (!string.IsNullOrEmpty(update.Band)) _client.Band = update.Band;
+            if (!string.IsNullOrEmpty(update.Protocol)) _client.Protocol = update.Protocol;
+            if (update.TxRateKbps.HasValue) _client.TxRateKbps = update.TxRateKbps;
+            if (update.RxRateKbps.HasValue) _client.RxRateKbps = update.RxRateKbps;
+            if (update.Satisfaction.HasValue) _client.Satisfaction = update.Satisfaction;
+            _client.HasWiFiManData = true;
+            _pollCount++;
+
+            // WiFiman-only polls update the UI gauges but don't add chart points.
+            // Chart points are added by full polls only (every 5s) — this keeps
+            // data density low enough for Curve.Smooth to visually smooth the line.
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WiFiman-only poll failed: {ex.Message}");
+        }
+    }
+
     private async Task PollAsync()
     {
         if (string.IsNullOrEmpty(_clientIp))
@@ -1125,16 +1191,49 @@
                 try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
                 catch { _isTooltipActive = false; }
 
-                // Refresh the active tab data every poll
-                await LoadTabDataAsync();
-                if (!_isTooltipActive)
-                    await UpdateActiveChartsAsync();
+                // Refresh the active tab data.
+                // Signal tab: reload periodically (every 6 full polls = ~30s) to
+                // pick up new data. LTTB downsampling in LoadSignalDataAsync keeps
+                // the chart smooth. Other tabs reload every poll.
+                if (_activeTab == "signal")
+                {
+                    _fullPollCount++;
+                    if (_fullPollCount % 6 == 0)
+                    {
+                        await LoadTabDataAsync();
+                        if (!_isTooltipActive)
+                            await UpdateActiveChartsAsync();
+                    }
+                }
+                else
+                {
+                    await LoadTabDataAsync();
+                    if (!_isTooltipActive)
+                        await UpdateActiveChartsAsync();
+                }
 
-                // Add to live signal chart data
+                // Add to live signal chart data and history table
                 if (_activeTab == "signal" && _client.SignalDbm.HasValue)
                 {
                     _signalChartData.Add(new SignalChartPoint(
                         _latestPoll.Timestamp, (decimal)_client.SignalDbm.Value));
+
+                    // Append to signal history so the table updates live
+                    _signalHistory.Add(new SignalHistoryEntry
+                    {
+                        Timestamp = _latestPoll.Timestamp,
+                        SignalDbm = _client.SignalDbm,
+                        NoiseDbm = _client.NoiseDbm,
+                        Channel = _client.Channel,
+                        ChannelWidth = _client.ChannelWidth,
+                        Band = _client.Band,
+                        Protocol = _client.Protocol,
+                        TxRateKbps = _client.TxRateKbps,
+                        RxRateKbps = _client.RxRateKbps,
+                        ApMac = _client.ApMac,
+                        ApName = _client.ApName,
+                        DataSource = SignalDataSource.Local
+                    });
 
                     // Add live metadata for tooltip
                     if (_client.Channel.HasValue)
@@ -1151,12 +1250,12 @@
                         if (bandNum > 0) _signalBandData.Add(new SignalChartPoint(_latestPoll.Timestamp, bandNum));
                     }
 
-                    // Keep last 360 points (30 min at 5s interval)
-                    if (_signalChartData.Count > 360)
+                    // Keep last 1800 points (30 min at 1s interval)
+                    if (_signalChartData.Count > 1800)
                         _signalChartData.RemoveAt(0);
-                    if (_signalChannelData.Count > 360) _signalChannelData.RemoveAt(0);
-                    if (_signalApData.Count > 360) _signalApData.RemoveAt(0);
-                    if (_signalBandData.Count > 360) _signalBandData.RemoveAt(0);
+                    if (_signalChannelData.Count > 1800) _signalChannelData.RemoveAt(0);
+                    if (_signalApData.Count > 1800) _signalApData.RemoveAt(0);
+                    if (_signalBandData.Count > 1800) _signalBandData.RemoveAt(0);
 
                     if (!_isTooltipActive)
                     {
@@ -1225,63 +1324,91 @@
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
         // Build chart data (UTC timestamps - JS formatter converts to browser local time)
-        // Clear and repopulate existing lists (don't reassign - chart Items bindings hold the reference)
-        _speedDownloadData.Clear();
-        _speedUploadData.Clear();
-        _latencyPingData.Clear();
-        _latencyJitterData.Clear();
+        var rawDownload = new List<SpeedChartPoint>();
+        var rawUpload = new List<SpeedChartPoint>();
+        var rawPing = new List<SpeedChartPoint>();
+        var rawJitter = new List<SpeedChartPoint>();
         foreach (var r in _speedResults.OrderBy(r => r.TestTime))
         {
-            _speedDownloadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
-            _speedUploadData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
+            rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "download"));
+            rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "upload"));
 
             if (r.PingMs.HasValue)
-                _latencyPingData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+                rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
             if (r.JitterMs.HasValue)
-                _latencyJitterData.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+                rawJitter.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
         }
+
+        // LTTB downsample speed charts, sync upload to same timestamps as download
+        var dlDown = DownsampleLttb(rawDownload, MaxSpeedChartPoints, p => p.X, p => (double)p.Value);
+        var keptSpeedTs = new HashSet<long>(dlDown.Select(p => p.X));
+
+        _speedDownloadData.Clear();
+        _speedDownloadData.AddRange(dlDown);
+        _speedUploadData.Clear();
+        _speedUploadData.AddRange(rawUpload.Where(p => keptSpeedTs.Contains(p.X)));
+
+        // LTTB downsample latency charts, sync jitter to same timestamps as ping
+        var pingDown = DownsampleLttb(rawPing, MaxSpeedChartPoints, p => p.X, p => (double)p.Value);
+        var keptLatencyTs = new HashSet<long>(pingDown.Select(p => p.X));
+
+        _latencyPingData.Clear();
+        _latencyPingData.AddRange(pingDown);
+        _latencyJitterData.Clear();
+        _latencyJitterData.AddRange(rawJitter.Where(p => keptLatencyTs.Contains(p.X)));
     }
 
     private async Task LoadSignalDataAsync(DateTime from, DateTime to)
     {
         // Use merged history (local high-res + UniFi controller data)
-        _signalHistory = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
-
-        // Clear and repopulate existing lists (don't reassign - chart Items binding holds the reference)
-        _signalChartData.Clear();
-        _signalChannelData.Clear();
-        _signalApData.Clear();
-        _signalBandData.Clear();
+        var history = await DashboardService.GetMergedSignalHistoryAsync(_client!.Mac, from, to);
 
         // Build AP name lookup for tooltip
-        _apNameLookup = _signalHistory
+        var apLookup = history
             .Where(h => h.ApName != null)
             .Select(h => h.ApName!)
             .Distinct()
             .OrderBy(n => n)
             .ToList();
 
-        foreach (var h in _signalHistory.Where(h => h.SignalDbm.HasValue))
+        _signalHistory = history;
+        _apNameLookup = apLookup;
+
+        // Build chart data from history, then LTTB downsample for visual smoothing
+        var rawSignal = new List<SignalChartPoint>();
+        var rawChannel = new List<SignalChartPoint>();
+        var rawAp = new List<SignalChartPoint>();
+        var rawBand = new List<SignalChartPoint>();
+
+        foreach (var h in history.Where(h => h.SignalDbm.HasValue))
         {
-            _signalChartData.Add(new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value));
-
+            rawSignal.Add(new SignalChartPoint(h.Timestamp, (decimal)h.SignalDbm!.Value));
             if (h.Channel.HasValue)
-                _signalChannelData.Add(new SignalChartPoint(h.Timestamp, h.Channel.Value));
-
+                rawChannel.Add(new SignalChartPoint(h.Timestamp, h.Channel.Value));
             if (h.ApName != null)
             {
-                var apIdx = _apNameLookup.IndexOf(h.ApName);
-                if (apIdx >= 0)
-                    _signalApData.Add(new SignalChartPoint(h.Timestamp, apIdx));
+                var apIdx = apLookup.IndexOf(h.ApName);
+                if (apIdx >= 0) rawAp.Add(new SignalChartPoint(h.Timestamp, apIdx));
             }
-
             if (h.Band != null)
             {
                 decimal bandNum = h.Band switch { "ng" => 2.4m, "na" => 5m, "6e" => 6m, _ => 0m };
-                if (bandNum > 0)
-                    _signalBandData.Add(new SignalChartPoint(h.Timestamp, bandNum));
+                if (bandNum > 0) rawBand.Add(new SignalChartPoint(h.Timestamp, bandNum));
             }
         }
+
+        // LTTB downsample signal, sync others to same timestamps
+        var downsampled = DownsampleLttb(rawSignal, MaxSignalChartPoints, p => p.X, p => (double)p.Value);
+        var keptTimestamps = new HashSet<long>(downsampled.Select(p => p.X));
+
+        _signalChartData.Clear();
+        _signalChartData.AddRange(downsampled);
+        _signalChannelData.Clear();
+        _signalChannelData.AddRange(rawChannel.Where(p => keptTimestamps.Contains(p.X)));
+        _signalApData.Clear();
+        _signalApData.AddRange(rawAp.Where(p => keptTimestamps.Contains(p.X)));
+        _signalBandData.Clear();
+        _signalBandData.AddRange(rawBand.Where(p => keptTimestamps.Contains(p.X)));
 
         // Update tooltip formatter with current AP name lookup
         UpdateSignalTooltipFormatter();
@@ -1424,7 +1551,12 @@
         var uri = NavigationManager.GetUriWithQueryParameter("tab", tab);
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: true);
 
-        // Load data for the new tab
+        // Load data for the new tab and reset poll timer so next tick is immediate
+        _fullPollCount = 0;
+        _tickCount = 0;
+        var interval = _hasWiFiManData ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(5);
+        _pollTimer?.Change(TimeSpan.Zero, interval);
+
         _ = InvokeAsync(async () =>
         {
             _tabLoading = true;
@@ -1539,6 +1671,81 @@
     {
         if (_signalSortCol != col) return "";
         return _signalSortAsc ? "\u25B2" : "\u25BC";
+    }
+
+    private int MaxSignalChartPoints => _isMobile ? 30 : 60;
+    private int MaxSpeedChartPoints => _isMobile ? 30 : 60;
+
+    /// <summary>
+    /// Largest-Triangle-Three-Buckets downsampling. Selects real data points
+    /// that best preserve the visual shape of the time series.
+    /// Works with any list that has X (epoch ms) and Value (decimal) properties.
+    /// </summary>
+    private static List<T> DownsampleLttb<T>(List<T> data, int targetCount, Func<T, long> getX, Func<T, double> getY)
+    {
+        if (data.Count <= targetCount || targetCount < 3)
+            return data;
+
+        var result = new List<T>(targetCount);
+        result.Add(data[0]);
+
+        double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
+        int prevSelectedIndex = 0;
+
+        for (int bucket = 0; bucket < targetCount - 2; bucket++)
+        {
+            int currStart = (int)Math.Floor(bucket * bucketSize) + 1;
+            int currEnd = (int)Math.Floor((bucket + 1) * bucketSize) + 1;
+            currEnd = Math.Min(currEnd, data.Count - 1);
+
+            double avgX, avgY;
+            if (bucket == targetCount - 3)
+            {
+                avgX = getX(data[^1]);
+                avgY = getY(data[^1]);
+            }
+            else
+            {
+                int nextStart = currEnd;
+                int nextEnd = (int)Math.Floor((bucket + 2) * bucketSize) + 1;
+                nextEnd = Math.Min(nextEnd, data.Count - 1);
+
+                avgX = 0; avgY = 0;
+                int count = 0;
+                for (int j = nextStart; j < nextEnd; j++)
+                {
+                    avgX += getX(data[j]);
+                    avgY += getY(data[j]);
+                    count++;
+                }
+                if (count > 0) { avgX /= count; avgY /= count; }
+                else { avgX = getX(data[nextStart]); avgY = getY(data[nextStart]); }
+            }
+
+            double maxArea = -1;
+            int bestIndex = currStart;
+            double prevX = getX(data[prevSelectedIndex]);
+            double prevY = getY(data[prevSelectedIndex]);
+
+            for (int j = currStart; j < currEnd; j++)
+            {
+                double area = Math.Abs(
+                    (prevX - avgX) * (getY(data[j]) - prevY) -
+                    (prevX - getX(data[j])) * (avgY - prevY)
+                );
+                if (area > maxArea)
+                {
+                    maxArea = area;
+                    bestIndex = j;
+                }
+            }
+
+            result.Add(data[bestIndex]);
+            prevSelectedIndex = bestIndex;
+        }
+
+        result.Add(data[^1]);
+        return result;
     }
 
     private List<CollapsedSignalRow> _cachedCollapsed = new();
@@ -2723,8 +2930,24 @@
         font-style: italic;
     }
 
+    /* Chart left margin - pull charts left to reclaim axis label space */
+    .chart-container {
+        margin-left: -0.75rem;
+    }
+
+    .chart-container.signal-chart-container {
+        margin-left: -1.5rem;
+    }
+
     /* Mobile responsive */
     @@media (max-width: 768px) {
+        .chart-container {
+            margin-left: -0.75rem;
+        }
+
+        .chart-container.signal-chart-container {
+            margin-left: -2rem;
+        }
         .client-dashboard-page {
             padding: 0 0 80px;
         }
