@@ -889,7 +889,6 @@
         return _layout.Cards
             .Where(c => c.Id != hostCardId
                 && c.Id != DashboardCards.StatsRow
-                && c.Visible
                 && !c.FullWidth
                 && !allStacked.Contains(c.Id)
                 && c.StackedCards.Count == 0) // can't stack a host card
