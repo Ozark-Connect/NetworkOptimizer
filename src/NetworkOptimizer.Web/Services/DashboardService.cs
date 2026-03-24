@@ -160,7 +160,7 @@ public class DashboardService : IDashboardService
                 data.WiFiHealthIssues = healthScore.Issues
                     .Where(i => i.ShowOnOverview)
                     .OrderByDescending(i => i.Severity)
-                    .Take(8)
+                    .Take(5)
                     .ToList();
             }
         }
