@@ -15,6 +15,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        VERSION: ${VERSION:-0.0.0}
     image: ozark-connect/network-optimizer:latest
     container_name: network-optimizer
     restart: unless-stopped
