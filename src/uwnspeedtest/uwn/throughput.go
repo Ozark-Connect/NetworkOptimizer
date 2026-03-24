@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	uploadSize    = 2_000_000   // 2 MB per upload request
-	downloadSize  = 104_857_600 // 100 MB per download request (matches ui-speed)
-	warmupPct     = 0.20        // Skip first 20% of test duration as ramp-up
+	uploadSize   = 2_000_000   // 2 MB per upload request
+	downloadSize = 104_857_600 // 100 MB per download request (matches ui-speed)
+	warmupTime   = 2 * time.Second // TCP ramp-up before measurement starts
 )
 
 // MeasureThroughput runs concurrent download or upload workers distributed
@@ -24,7 +24,7 @@ const (
 // connection pooling and large TCP buffers for high-BDP links.
 func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, servers []Server, token string) (*speedtest.ThroughputResult, error) {
 	duration := time.Duration(cfg.DurationSecs) * time.Second
-	ctx, cancel := context.WithTimeout(ctx, duration+5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, warmupTime+duration+5*time.Second)
 	defer cancel()
 
 	// Shared transport: connection pooling across all workers, large buffers
@@ -130,6 +130,12 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 					}
 
 					for {
+						select {
+						case <-stopCh:
+							resp.Body.Close()
+							return
+						default:
+						}
 						n, err := resp.Body.Read(buf)
 						if n > 0 {
 							totalBytes.Add(int64(n))
@@ -213,6 +219,22 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 		return nil, fmt.Errorf("no workers could bind to interface %q", cfg.Interface)
 	}
 
+	// TCP warmup: let connections ramp (slow-start, window scaling) before measuring.
+	// This matches ui-speed behavior where discovery/latency pre-warms connections.
+	select {
+	case <-ctx.Done():
+		close(stopCh)
+		wg.Wait()
+		return nil, ctx.Err()
+	case <-time.After(warmupTime):
+	}
+
+	// Reset counters so measurement starts clean after warmup
+	totalBytes.Store(0)
+	latencyMu.Lock()
+	loadedLatencies = loadedLatencies[:0]
+	latencyMu.Unlock()
+
 	// Sample throughput at regular intervals
 	var mbpsSamples []float64
 	var lastBytes int64
@@ -250,18 +272,11 @@ func MeasureThroughput(ctx context.Context, isUpload bool, cfg UwnConfig, server
 		return &speedtest.ThroughputResult{Bytes: finalBytes}, nil
 	}
 
-	// Skip warmup samples, compute mean of steady-state
-	skipCount := int(float64(len(mbpsSamples)) * warmupPct)
-	steadySamples := mbpsSamples[skipCount:]
-	if len(steadySamples) == 0 {
-		steadySamples = mbpsSamples
-	}
-
 	var sum float64
-	for _, v := range steadySamples {
+	for _, v := range mbpsSamples {
 		sum += v
 	}
-	meanMbps := sum / float64(len(steadySamples))
+	meanMbps := sum / float64(len(mbpsSamples))
 	bps := meanMbps * 1_000_000.0
 
 	latencyMu.Lock()
