@@ -2772,7 +2772,7 @@ select.form-control {
     .dashboard-grid {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 12px 8px;
     }
 
     .device-grid {
