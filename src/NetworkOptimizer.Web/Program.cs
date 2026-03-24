@@ -334,6 +334,7 @@ builder.Services.AddAuthorization();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<DashboardLayoutService>();
 builder.Services.AddScoped<PullToRefreshState>();
 builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
