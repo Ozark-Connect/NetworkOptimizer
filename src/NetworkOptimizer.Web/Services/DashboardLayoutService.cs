@@ -27,7 +27,7 @@ public static class DashboardCards
     /// <summary>Cards that span the full width (2 columns)</summary>
     public static readonly HashSet<string> FullWidth = new()
     {
-        StatsRow, RecentAlerts, DeviceStatus
+        StatsRow, DeviceStatus
     };
 
     /// <summary>Display names for cards</summary>
