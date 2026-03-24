@@ -443,7 +443,7 @@ public class UniFiApiClient : IDisposable
             // For standalone controllers
             url = $"{_controllerUrl}/v2/api/{endpoint}";
         }
-        _logger.LogDebug("BuildV2ApiPath: _isUniFiOs={IsUniFiOs}, endpoint={Endpoint}, url={Url}", _isUniFiOs, endpoint, url);
+        _logger.LogTrace("BuildV2ApiPath: _isUniFiOs={IsUniFiOs}, endpoint={Endpoint}, url={Url}", _isUniFiOs, endpoint, url);
         return url;
     }
 
@@ -759,6 +759,43 @@ public class UniFiApiClient : IDisposable
 
         _logger.LogWarning("Client {Mac} not found", mac);
         return null;
+    }
+
+    /// <summary>
+    /// GET v2/api/site/{site}/wifiman/{clientIp}/ - Get WiFiman realtime client data.
+    /// Returns signal, noise, channel, band, link rates, experience, and nearest neighbors.
+    /// </summary>
+    public async Task<WiFiManClientResponse?> GetWiFiManClientAsync(string clientIp, CancellationToken cancellationToken = default)
+    {
+        _logger.LogTrace("Fetching WiFiman data for client {Ip} from site {Site}", clientIp, _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+            return null;
+
+        try
+        {
+            var url = BuildV2ApiPath($"site/{_site}/wifiman/{clientIp}/");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("WiFiman endpoint returned {StatusCode} for {Ip}", response.StatusCode, clientIp);
+                return null;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<WiFiManClientResponse>(cancellationToken: cancellationToken);
+            if (result != null)
+            {
+                _logger.LogTrace("WiFiman data for {Ip}: signal={Signal}, channel={Channel}, band={Band}",
+                    clientIp, result.Signal, result.Channel, result.WlanBand);
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WiFiman endpoint failed for {Ip}", clientIp);
+            return null;
+        }
     }
 
     /// <summary>

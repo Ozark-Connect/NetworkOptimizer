@@ -114,6 +114,10 @@ public class ClientDashboardService
                 _ipToMacCache[clientIp] = client.Mac;
 
                 var identity = MapClientToIdentity(client);
+
+                // Try WiFiman endpoint for more-realtime signal data, overlay on top of stat/sta
+                await OverlayWiFiManDataAsync(identity, clientIp);
+
                 await EnrichWithApInfoAsync(identity, client.ApMac);
                 return identity;
             }
@@ -220,10 +224,16 @@ public class ClientDashboardService
                     result.TraceChanged = true; // First poll for this client
                 _lastTraceHashes[identity.Mac] = result.TraceHash;
 
-                // Always store when trace changes (trace snapshots are deduped by hash).
-                // Also store on every poll when persist=true (own device with logging on).
-                if (persist || result.TraceChanged)
+                // Trace changes always store immediately (with full trace data).
+                // Regular polls buffer signal values and flush the mean every 5 seconds.
+                if (result.TraceChanged)
+                {
                     await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                }
+                else if (persist)
+                {
+                    await StoreSignalLogAsync(identity, result, gpsLat, gpsLng, gpsAccuracy);
+                }
             }
             else
             {
@@ -420,11 +430,11 @@ public class ClientDashboardService
     public async Task<List<SignalHistoryEntry>> GetMergedSignalHistoryAsync(
         string mac, DateTime from, DateTime to)
     {
-        // Scale the fetch limit to the time range. At 5s poll intervals:
-        // 1h=720, 6h=4320, 24h=17280. Cap at 20k to keep memory reasonable;
+        // Scale the fetch limit to the time range. At 1s poll intervals:
+        // 1h=3600, 6h=21600, 24h=86400. Cap at 90k to cover 24h of 1s polling;
         // the UI downsamples for display anyway.
         var spanHours = (to - from).TotalHours;
-        var take = Math.Min((int)(spanHours * 720) + 100, 20_000);
+        var take = Math.Min((int)(spanHours * 3600) + 100, 90_000);
 
         // Get local data first (high resolution, 5s intervals)
         var localEntries = await GetSignalHistoryAsync(mac, from, to, take: take);
@@ -754,6 +764,53 @@ public class ClientDashboardService
         }
     }
 
+    /// <summary>
+    /// Lightweight 1s poll: only hits the WiFiman endpoint to refresh signal/channel/band/rates
+    /// on an existing identity. No stat/sta, no trace, no storage. Returns null if WiFiman
+    /// is unavailable or identity is unknown.
+    /// </summary>
+    public async Task<ClientIdentity?> PollWiFiManOnlyAsync(string clientIp)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return null;
+
+        // Need a known MAC to have an existing identity
+        if (!_ipToMacCache.TryGetValue(clientIp, out _))
+            return null;
+
+        // Fetch WiFiman data only
+        try
+        {
+            var wifiman = await _connectionService.Client.GetWiFiManClientAsync(clientIp);
+            if (wifiman?.Signal == null)
+                return null;
+
+            // Get the last known identity from the offline cache or return a minimal one
+            // We don't call stat/sta here — just overlay WiFiman onto whatever we last knew
+            if (_offlineIdentityCache.TryGetValue(clientIp, out var cached) && cached.IsOffline)
+                return null;
+
+            // Build a lightweight update (caller merges into their existing _client)
+            return new ClientIdentity
+            {
+                SignalDbm = wifiman.Signal,
+                NoiseDbm = wifiman.Noise,
+                Channel = wifiman.Channel,
+                ChannelWidth = wifiman.ChannelWidth,
+                Band = wifiman.RadioCode,
+                Protocol = wifiman.RadioProtocol,
+                TxRateKbps = wifiman.LinkUploadRateKbps,
+                RxRateKbps = wifiman.LinkDownloadRateKbps,
+                Satisfaction = wifiman.WiFiExperience,
+                HasWiFiManData = true
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private ClientIdentity MapClientToIdentity(UniFiClientResponse client)
     {
         return new ClientIdentity
@@ -781,6 +838,53 @@ public class ClientDashboardService
             Essid = client.Essid,
             Satisfaction = client.Satisfaction
         };
+    }
+
+    /// <summary>
+    /// Overlay WiFiman realtime data onto an existing ClientIdentity.
+    /// WiFiman provides more-realtime signal/channel/band/rate data than stat/sta.
+    /// Falls back silently if the endpoint is unavailable (wired clients, older firmware, etc.).
+    /// </summary>
+    private async Task OverlayWiFiManDataAsync(ClientIdentity identity, string clientIp)
+    {
+        if (identity.IsWired || _connectionService.Client == null)
+            return;
+
+        try
+        {
+            var wifiman = await _connectionService.Client.GetWiFiManClientAsync(clientIp);
+            if (wifiman == null)
+                return;
+
+            // Overlay signal fields - WiFiman values take priority over stat/sta
+            if (wifiman.Signal.HasValue)
+                identity.SignalDbm = wifiman.Signal;
+            if (wifiman.Noise.HasValue)
+                identity.NoiseDbm = wifiman.Noise;
+            if (wifiman.Channel.HasValue)
+                identity.Channel = wifiman.Channel;
+            if (wifiman.ChannelWidth.HasValue)
+                identity.ChannelWidth = wifiman.ChannelWidth;
+            if (!string.IsNullOrEmpty(wifiman.RadioCode))
+                identity.Band = wifiman.RadioCode;
+            if (!string.IsNullOrEmpty(wifiman.RadioProtocol))
+                identity.Protocol = wifiman.RadioProtocol;
+            if (wifiman.WiFiExperience.HasValue)
+                identity.Satisfaction = wifiman.WiFiExperience;
+
+            // WiFiman reports from client perspective: download = client RX, upload = client TX
+            // Our TxRateKbps/RxRateKbps are from AP perspective: Tx = AP→client, Rx = client→AP
+            if (wifiman.LinkUploadRateKbps.HasValue)
+                identity.TxRateKbps = wifiman.LinkUploadRateKbps;
+            if (wifiman.LinkDownloadRateKbps.HasValue)
+                identity.RxRateKbps = wifiman.LinkDownloadRateKbps;
+
+            identity.HasWiFiManData = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WiFiman overlay failed for {Ip}, using stat/sta data", clientIp);
+        }
     }
 
     private async Task EnrichWithApInfoAsync(ClientIdentity identity, string? apMac)
