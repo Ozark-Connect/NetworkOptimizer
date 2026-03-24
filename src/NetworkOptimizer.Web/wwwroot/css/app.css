@@ -974,6 +974,16 @@ a.stat-card-link:active {
     background: var(--border-color);
 }
 
+.dashboard-card-stacked {
+    opacity: 0.5;
+}
+
+.stacked-in-label {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 /* Stacked child toolbar (shown between cards in a stack during edit mode) */
 .stacked-child-toolbar {
     display: flex;

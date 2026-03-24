@@ -76,57 +76,32 @@
 <div class="dashboard-grid">
     @if (_layout != null)
     {
-        @* Visible cards first, then hidden cards at the bottom in edit mode *@
-        var visibleCards = _layout.Cards.Where(c => c.Visible).ToList();
-        var hiddenCards = _editMode ? _layout.Cards.Where(c => !c.Visible).ToList() : new();
-        var orderedCards = visibleCards.Concat(hiddenCards);
-        var hiddenSeparatorShown = false;
-
-        @foreach (var card in orderedCards)
+        @* Visible top-level cards *@
+        @foreach (var card in _layout.Cards.Where(c => c.Visible))
         {
             if (IsStackedChild(card.Id)) continue;
 
-            @if (_editMode && !card.Visible && !hiddenSeparatorShown)
-            {
-                hiddenSeparatorShown = true;
-                <div class="hidden-cards-divider card-span-2">
-                    <span>Hidden Cards</span>
-                </div>
-            }
-
             var hasStack = card.StackedCards.Count > 0;
 
-            <div class="dashboard-card-wrapper @(card.Visible ? "" : "dashboard-card-hidden") @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
+            <div class="dashboard-card-wrapper @(_editMode ? "dashboard-card-editing" : "") @(card.FullWidth ? "card-span-2" : "")">
                 @if (_editMode)
                 {
                     @RenderCardEditToolbar(card)
                 }
 
-                @if (card.Visible || _editMode)
+                @if (hasStack)
                 {
-                    @if (hasStack)
-                    {
-                        <div class="card-stack">
-                            @RenderCard(card.Id)
-                            @foreach (var childId in card.StackedCards)
-                            {
-                                @if (_editMode)
-                                {
-                                    <div class="stacked-child-toolbar">
-                                        <span class="card-edit-label">@DashboardCards.GetDisplayName(childId)</span>
-                                        <button class="card-edit-btn" @onclick="() => UnstackCard(card.Id, childId)" data-tooltip="Unstack">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                        </button>
-                                    </div>
-                                }
-                                @RenderCard(childId)
-                            }
-                        </div>
-                    }
-                    else
-                    {
+                    <div class="card-stack">
                         @RenderCard(card.Id)
-                    }
+                        @foreach (var childId in card.StackedCards)
+                        {
+                            @RenderCard(childId)
+                        }
+                    </div>
+                }
+                else
+                {
+                    @RenderCard(card.Id)
                 }
 
                 @if (_editMode)
@@ -145,6 +120,43 @@
                     }
                 }
             </div>
+        }
+
+        @* Hidden + stacked cards at the bottom in edit mode *@
+        @if (_editMode)
+        {
+            var hiddenCards = _layout.Cards.Where(c => !c.Visible && !IsStackedChild(c.Id)).ToList();
+            var stackedCards = _layout.Cards.SelectMany(c => c.StackedCards.Select(s => new { ChildId = s, HostId = c.Id })).ToList();
+
+            @if (hiddenCards.Count > 0 || stackedCards.Count > 0)
+            {
+                <div class="hidden-cards-divider card-span-2">
+                    <span>Hidden Cards</span>
+                </div>
+            }
+
+            @foreach (var card in hiddenCards)
+            {
+                <div class="dashboard-card-wrapper dashboard-card-hidden dashboard-card-editing @(card.FullWidth ? "card-span-2" : "")">
+                    @RenderCardEditToolbar(card)
+                    @RenderCard(card.Id)
+                </div>
+            }
+
+            @foreach (var stacked in stackedCards)
+            {
+                <div class="dashboard-card-wrapper dashboard-card-stacked dashboard-card-editing">
+                    <div class="card-edit-toolbar">
+                        <span class="card-edit-label">@DashboardCards.GetDisplayName(stacked.ChildId) <span class="stacked-in-label">stacked in @DashboardCards.GetDisplayName(stacked.HostId)</span></span>
+                        <div class="card-edit-actions">
+                            <button class="card-edit-btn" @onclick="() => UnstackCard(stacked.HostId, stacked.ChildId)" data-tooltip="Show as independent card">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    @RenderCard(stacked.ChildId)
+                </div>
+            }
         }
     }
 </div>
