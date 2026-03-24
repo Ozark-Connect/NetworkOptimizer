@@ -104,6 +104,50 @@ public class MacRestrictionRuleTests
         result.Should().BeNull();
     }
 
+    [Fact]
+    public void Evaluate_ServerNetwork_NoDot1x_ReturnsNull()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-server", Name = "Service", VlanId = 1000, Purpose = NetworkPurpose.Server }
+        };
+        var port = CreatePort(isUp: true, forwardMode: "native", nativeNetworkId: "net-server", dot1xPortCtrlEnabled: false);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("switch doesn't support 802.1X, and MAC restriction is impractical for servers");
+    }
+
+    [Fact]
+    public void Evaluate_ServerNetwork_Dot1xAvailable_ReturnsIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-server", Name = "Service", VlanId = 1000, Purpose = NetworkPurpose.Server }
+        };
+        var port = CreatePort(isUp: true, forwardMode: "native", nativeNetworkId: "net-server", dot1xPortCtrlEnabled: true);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("802.1X is available and should be recommended for server ports");
+        result!.RecommendedAction.Should().Contain("802.1X");
+    }
+
+    [Fact]
+    public void Evaluate_ServerNetwork_Dot1xAlreadySecured_ReturnsNull()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-server", Name = "Service", VlanId = 1000, Purpose = NetworkPurpose.Server }
+        };
+        var port = CreatePort(isUp: true, forwardMode: "native", nativeNetworkId: "net-server",
+            dot1xPortCtrlEnabled: true, dot1xCtrl: "multi_host");
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("port is already secured via 802.1X");
+    }
+
     #endregion
 
     #region Evaluate Tests - Ports That Are Already Protected
@@ -460,14 +504,16 @@ public class MacRestrictionRuleTests
         string? nativeNetworkId = null,
         string? connectedDeviceType = null,
         UniFiPortProfile? assignedProfile = null,
-        string? dot1xCtrl = null)
+        string? dot1xCtrl = null,
+        bool dot1xPortCtrlEnabled = false)
     {
         var switchInfo = new SwitchInfo
         {
             Name = switchName,
             Capabilities = new SwitchCapabilities
             {
-                MaxCustomMacAcls = maxMacAcls
+                MaxCustomMacAcls = maxMacAcls,
+                Dot1xPortCtrlEnabled = dot1xPortCtrlEnabled
             }
         };
 
