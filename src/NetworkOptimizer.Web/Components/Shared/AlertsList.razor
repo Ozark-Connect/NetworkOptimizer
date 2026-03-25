@@ -50,10 +50,6 @@
                             <span class="alert-time">@alert.Time</span>
                         </div>
                         <p class="alert-message">@alert.Message</p>
-                        @if (!string.IsNullOrEmpty(alert.Source))
-                        {
-                            <div class="alert-source">Source: @alert.Source</div>
-                        }
                     </div>
                     <div class="alert-actions" @onclick:stopPropagation>
                         <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">

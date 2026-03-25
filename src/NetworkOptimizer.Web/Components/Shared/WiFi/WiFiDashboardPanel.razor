@@ -57,8 +57,8 @@ else
                     <div class="wifi-issue-group">
                         <div class="wifi-issue-group-header @(isExpanded ? "expanded" : "")"
                              @onclick="() => ToggleGroup(groupKey)" @onclick:stopPropagation>
-                            <span class="wifi-issue-severity wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">
-                                @firstIssue.Severity.ToString()
+                            <span class="wifi-issue-icon wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">
+                                @((MarkupString)GetSeverityIcon(firstIssue.Severity))
                             </span>
                             <span class="wifi-issue-title">@firstIssue.Title</span>
                             <span class="wifi-group-count wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">@groupCount</span>
