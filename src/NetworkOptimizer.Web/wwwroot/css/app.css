@@ -1149,6 +1149,10 @@ a.stat-card-link:active {
 }
 
 @media (max-width: 768px) {
+    .wifi-issue-row {
+        flex-wrap: wrap;
+    }
+
     .wifi-issue-entity {
         white-space: normal;
     }
