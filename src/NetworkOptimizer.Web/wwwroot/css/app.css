@@ -3935,7 +3935,7 @@ select.form-control {
 }
 
 .interface-rate {
-    margin: 0.75rem 0;
+    margin: 0.75rem 0 0.25rem;
 }
 
 .interface-rate .rate-value {
@@ -3954,10 +3954,6 @@ select.form-control {
     .interface-header {
         flex-direction: column;
         gap: 0.5rem;
-    }
-
-    .interface-rate {
-        margin-bottom: 0.25rem;
     }
 }
 
