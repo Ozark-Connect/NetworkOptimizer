@@ -1,0 +1,116 @@
+@using NetworkOptimizer.WiFi
+
+@if (Loading)
+{
+    <div class="loading-state">
+        <span class="spinner-sm"></span>
+        <span>Loading...</span>
+    </div>
+}
+else if (Issues.Count == 0 && !Score.HasValue)
+{
+    <div class="empty-state">
+        <p>No Wi-Fi health data yet</p>
+    </div>
+}
+else
+{
+    @if (Score.HasValue)
+    {
+        <HealthScoreGauge Score="@Score.Value" />
+    }
+    @if (Issues.Count > 0)
+    {
+        var shouldCollapse = Issues.Count > 3;
+        <div class="wifi-issues-list">
+            @if (!shouldCollapse)
+            {
+                @foreach (var issue in Issues)
+                {
+                    <div class="wifi-issue-item">
+                        <div class="wifi-issue-row">
+                            <span class="wifi-issue-severity wifi-severity-@issue.Severity.ToString().ToLowerInvariant()">
+                                @issue.Severity.ToString()
+                            </span>
+                            <span class="wifi-issue-title">@issue.Title</span>
+                            @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                            {
+                                <span class="wifi-issue-entity">@issue.AffectedEntity</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(issue.Description))
+                        {
+                            <div class="wifi-issue-description">@issue.Description</div>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                @foreach (var group in Issues.GroupBy(i => i.Title))
+                {
+                    var groupCount = group.Count();
+                    var groupKey = group.Key;
+                    var isExpanded = _expandedGroups.Contains(groupKey);
+                    var firstIssue = group.First();
+
+                    <div class="wifi-issue-group">
+                        <div class="wifi-issue-group-header @(isExpanded ? "expanded" : "")"
+                             @onclick="() => ToggleGroup(groupKey)" @onclick:stopPropagation>
+                            <span class="wifi-issue-severity wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">
+                                @firstIssue.Severity.ToString()
+                            </span>
+                            <span class="wifi-issue-title">@firstIssue.Title</span>
+                            <span class="wifi-group-count wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">@groupCount</span>
+                            <span class="wifi-issue-chevron">@(isExpanded ? "\u25B2" : "\u25BC")</span>
+                        </div>
+                        <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                            <div class="expand-content">
+                                @foreach (var issue in group)
+                                {
+                                    <div class="wifi-issue-nested">
+                                        <div class="wifi-issue-nested-header">
+                                            @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                                            {
+                                                <span class="wifi-issue-entity">@issue.AffectedEntity</span>
+                                            }
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(issue.Description))
+                                        {
+                                            <div class="wifi-issue-description">@issue.Description</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty-state">
+            <p>No issues found - looking good!</p>
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public bool Loading { get; set; }
+
+    [Parameter]
+    public int? Score { get; set; }
+
+    [Parameter]
+    public List<HealthIssue> Issues { get; set; } = new();
+
+    private HashSet<string> _expandedGroups = new();
+
+    private void ToggleGroup(string key)
+    {
+        if (!_expandedGroups.Remove(key))
+            _expandedGroups.Add(key);
+    }
+}
