@@ -42,7 +42,7 @@
         @if (Result != null && (OnTestAgain.HasDelegate || OnDelete.HasDelegate || (AvailableWans.Count >= 2 && OnWanReassigned.HasDelegate) || !string.IsNullOrEmpty(Result.DeviceHost)))
         {
             <div class="detail-actions" @onclick:stopPropagation="true">
-                @if (OnTestAgain.HasDelegate)
+                @if (OnTestAgain.HasDelegate && Result.Direction is not (SpeedTestDirection.ClientToServer or SpeedTestDirection.BrowserToServer or SpeedTestDirection.OpenSpeedTestWan))
                 {
                     <button class="btn-action-label" @onclick="HandleTestAgain" data-tooltip="Run this test again" data-tooltip-hover-only>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
