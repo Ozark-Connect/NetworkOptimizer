@@ -1131,7 +1131,7 @@ a.stat-card-link:active {
     border-radius: 4px;
 }
 
-.wifi-group-count {
+.group-count-badge {
     font-size: 0.7rem;
     font-weight: 600;
     min-width: 1.25rem;
