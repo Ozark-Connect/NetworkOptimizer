@@ -630,20 +630,8 @@
                     }
                     @if (_wifiHealthIssues.Count > 0)
                     {
-                        <div class="wifi-issues-list">
-                            @foreach (var issue in _wifiHealthIssues)
-                            {
-                                <div class="wifi-issue-row">
-                                    <span class="wifi-issue-severity wifi-severity-@issue.Severity.ToString().ToLowerInvariant()">
-                                        @issue.Severity.ToString()
-                                    </span>
-                                    <span class="wifi-issue-title">@issue.Title</span>
-                                    @if (!string.IsNullOrEmpty(issue.AffectedEntity))
-                                    {
-                                        <span class="wifi-issue-entity">@issue.AffectedEntity</span>
-                                    }
-                                </div>
-                            }
+                        <div @onclick:stopPropagation>
+                            <IssuesList Issues="_wifiHealthIssues" />
                         </div>
                     }
                     else
