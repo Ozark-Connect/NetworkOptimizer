@@ -35,35 +35,73 @@
     }
     else
     {
-        @foreach (var alert in GetDisplayAlerts())
+        var shouldCollapse = alerts.Count > 3;
+        @if (!shouldCollapse)
         {
-            <div class="alert-item alert-@alert.Severity.ToLower()">
-                <div class="alert-icon">
-                    @((MarkupString)GetAlertIcon(alert.Severity))
-                </div>
-                <div class="alert-content">
-                    <div class="alert-header">
-                        <h4 class="alert-title">@alert.Title</h4>
-                        <span class="alert-time">@alert.Time</span>
+            @foreach (var alert in GetDisplayAlerts())
+            {
+                <div class="alert-item alert-@alert.Severity.ToLower()">
+                    <div class="alert-icon">
+                        @((MarkupString)GetAlertIcon(alert.Severity))
                     </div>
-                    <p class="alert-message">@alert.Message</p>
-                    @if (!string.IsNullOrEmpty(alert.Source))
-                    {
-                        <div class="alert-source">Source: @alert.Source</div>
-                    }
+                    <div class="alert-content">
+                        <div class="alert-header">
+                            <h4 class="alert-title">@alert.Title</h4>
+                            <span class="alert-time">@alert.Time</span>
+                        </div>
+                        <p class="alert-message">@alert.Message</p>
+                    </div>
+                    <div class="alert-actions" @onclick:stopPropagation>
+                        <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
+                            Dismiss
+                        </button>
+                    </div>
                 </div>
-                <div class="alert-actions">
-                    <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
-                        Dismiss
-                    </button>
-                    @if (!string.IsNullOrEmpty(alert.ActionUrl))
-                    {
-                        <a href="@alert.ActionUrl" class="btn btn-sm btn-primary">
-                            View Details
-                        </a>
-                    }
+            }
+        }
+        else
+        {
+            @foreach (var group in GetGroupedAlerts())
+            {
+                var groupCount = group.Count();
+                var firstAlert = group.First();
+                var groupKey = group.Key;
+                var isExpanded = _expandedGroups.Contains(groupKey);
+                var severityClass = firstAlert.Severity.ToLower() == "critical" ? "critical" : "recommended";
+
+                <div class="issue-type-group issue-@severityClass">
+                    <div class="issue-type-header @(isExpanded ? "expanded" : "")"
+                         @onclick="() => ToggleGroup(groupKey)" @onclick:stopPropagation>
+                        <div class="issue-type-icon">
+                            @((MarkupString)GetAlertIcon(firstAlert.Severity))
+                        </div>
+                        <div class="issue-type-body">
+                            <div class="issue-title">@firstAlert.Title</div>
+                        </div>
+                        <span class="wifi-group-count alert-badge-@firstAlert.Severity.ToLower()">@groupCount</span>
+                        <span class="issue-type-chevron">@(isExpanded ? "\u25B2" : "\u25BC")</span>
+                    </div>
+                    <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                        <div class="expand-content">
+                            <div class="issue-type-items-list">
+                                @foreach (var alert in group)
+                                {
+                                    <div class="issue-type-item alert-group-item">
+                                        <div class="alert-content">
+                                            <p class="alert-message">@alert.Message</p>
+                                        </div>
+                                        <div class="alert-actions" @onclick:stopPropagation>
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
+                                                Dismiss
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            }
         }
     }
 </div>
@@ -77,6 +115,7 @@
 
     private List<AlertInfo> alerts = new();
     private bool isLoading = true;
+    private HashSet<string> _expandedGroups = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -149,10 +188,24 @@
     {
         var displayAlerts = alerts.AsEnumerable();
         if (MaxItems.HasValue)
+            displayAlerts = displayAlerts.Take(MaxItems.Value);
+        return displayAlerts;
+    }
+
+    private IEnumerable<IGrouping<string, AlertInfo>> GetGroupedAlerts()
+    {
+        var displayAlerts = alerts.AsEnumerable();
+        if (MaxItems.HasValue)
         {
             displayAlerts = displayAlerts.Take(MaxItems.Value);
         }
-        return displayAlerts;
+        return displayAlerts.GroupBy(a => a.Title);
+    }
+
+    private void ToggleGroup(string key)
+    {
+        if (!_expandedGroups.Remove(key))
+            _expandedGroups.Add(key);
     }
 
     private string GetAlertIcon(string severity)
@@ -201,3 +254,59 @@
         public string IssueKey { get; set; } = "";
     }
 }
+
+<style>
+    .alert-group-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-primary);
+    }
+
+    .alert-badge-critical {
+        color: var(--danger-color);
+        background: rgba(239, 68, 68, 0.15);
+    }
+
+    .alert-badge-recommended {
+        color: var(--warning-color);
+        background: rgba(251, 191, 36, 0.15);
+    }
+
+    .alert-group-item {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--bg-tertiary);
+    }
+
+    .alert-group-item:last-child {
+        border-bottom: none;
+    }
+
+    .alert-group-item .alert-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .alert-group-item .alert-message {
+        margin: 0;
+        font-size: 0.85rem;
+    }
+
+    .alert-group-item .alert-actions {
+        flex-shrink: 0;
+    }
+
+    .alert-message {
+        margin: 0;
+    }
+
+    .issue-type-header {
+        align-items: center;
+    }
+</style>
