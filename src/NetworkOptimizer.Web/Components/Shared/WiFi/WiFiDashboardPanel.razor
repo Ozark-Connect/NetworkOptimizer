@@ -21,7 +21,7 @@ else
     }
     @if (Issues.Count > 0)
     {
-        var shouldCollapse = Issues.Count > 3;
+        var shouldCollapse = Issues.Count > 4; // TODO: revert to 3 after testing
         <div class="wifi-issues-list">
             @if (!shouldCollapse)
             {
