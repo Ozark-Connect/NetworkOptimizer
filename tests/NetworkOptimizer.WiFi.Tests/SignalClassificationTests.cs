@@ -22,10 +22,10 @@ public class SignalClassificationTests
 
     [Theory]
     [InlineData(-45, RadioBand.Band2_4GHz, "signal-excellent")]
-    [InlineData(-55, RadioBand.Band2_4GHz, "signal-good")]
-    [InlineData(-65, RadioBand.Band2_4GHz, "signal-fair")]
-    [InlineData(-72, RadioBand.Band2_4GHz, "signal-weak")]
-    [InlineData(-80, RadioBand.Band2_4GHz, "signal-poor")]
+    [InlineData(-60, RadioBand.Band2_4GHz, "signal-good")]
+    [InlineData(-70, RadioBand.Band2_4GHz, "signal-fair")]
+    [InlineData(-76, RadioBand.Band2_4GHz, "signal-weak")]
+    [InlineData(-85, RadioBand.Band2_4GHz, "signal-poor")]
     public void GetSignalClass_2_4GHz_CorrectClassification(int dbm, RadioBand band, string expected)
     {
         SignalClassification.GetSignalClass(dbm, band).Should().Be(expected);
@@ -56,8 +56,8 @@ public class SignalClassificationTests
     [Fact]
     public void SameSignal_Minus68_ClassifiedDifferentlyByBand()
     {
-        // -68 dBm: weak on 2.4 GHz, good on 5 GHz, good on 6 GHz
-        SignalClassification.GetSignalClass(-68, RadioBand.Band2_4GHz).Should().Be("signal-weak");
+        // -68 dBm: fair on 2.4 GHz, good on 5 GHz, good on 6 GHz
+        SignalClassification.GetSignalClass(-68, RadioBand.Band2_4GHz).Should().Be("signal-fair");
         SignalClassification.GetSignalClass(-68, RadioBand.Band5GHz).Should().Be("signal-good");
         SignalClassification.GetSignalClass(-68, RadioBand.Band6GHz).Should().Be("signal-good");
     }
@@ -107,8 +107,8 @@ public class SignalClassificationTests
     // --- IsWeakSignal ---
 
     [Theory]
-    [InlineData(-67, RadioBand.Band2_4GHz, false)]  // exactly at threshold = not weak
-    [InlineData(-68, RadioBand.Band2_4GHz, true)]
+    [InlineData(-73, RadioBand.Band2_4GHz, false)]  // exactly at threshold = not weak
+    [InlineData(-74, RadioBand.Band2_4GHz, true)]
     [InlineData(-78, RadioBand.Band5GHz, false)]
     [InlineData(-79, RadioBand.Band5GHz, true)]
     [InlineData(-87, RadioBand.Band6GHz, false)]
@@ -130,8 +130,8 @@ public class SignalClassificationTests
     // --- IsCriticalSignal ---
 
     [Theory]
-    [InlineData(-75, RadioBand.Band2_4GHz, false)]
-    [InlineData(-76, RadioBand.Band2_4GHz, true)]
+    [InlineData(-80, RadioBand.Band2_4GHz, false)]
+    [InlineData(-81, RadioBand.Band2_4GHz, true)]
     [InlineData(-85, RadioBand.Band5GHz, false)]
     [InlineData(-86, RadioBand.Band5GHz, true)]
     [InlineData(-92, RadioBand.Band6GHz, false)]
@@ -144,7 +144,7 @@ public class SignalClassificationTests
     // --- GetWeakThreshold ---
 
     [Theory]
-    [InlineData(RadioBand.Band2_4GHz, -67)]
+    [InlineData(RadioBand.Band2_4GHz, -73)]
     [InlineData(RadioBand.Band5GHz, -78)]
     [InlineData(RadioBand.Band6GHz, -87)]
     public void GetWeakThreshold_ReturnsBandSpecificValues(RadioBand band, int expected)
