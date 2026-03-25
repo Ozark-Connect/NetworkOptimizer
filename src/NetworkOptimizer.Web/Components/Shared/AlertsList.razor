@@ -78,7 +78,7 @@
                         <div class="issue-type-body">
                             <div class="issue-title">@firstAlert.Title</div>
                         </div>
-                        <span class="wifi-group-count alert-badge-@firstAlert.Severity.ToLower()">@groupCount</span>
+                        <span class="group-count-badge alert-badge-@firstAlert.Severity.ToLower()">@groupCount</span>
                         <span class="issue-type-chevron">@(isExpanded ? "\u25B2" : "\u25BC")</span>
                     </div>
                     <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
@@ -308,5 +308,26 @@
 
     .issue-type-header {
         align-items: center;
+    }
+
+    .issue-title {
+        margin-bottom: 0;
+    }
+
+    .issue-type-chevron {
+        margin-left: -1rem;
+    }
+
+    @@media (max-width: 768px) {
+        .alerts-list .group-count-badge {
+            position: absolute;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .issue-type-chevron {
+            margin-left: 0;
+        }
     }
 </style>
