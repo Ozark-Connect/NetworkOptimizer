@@ -1148,16 +1148,21 @@ a.stat-card-link:active {
     margin-left: auto;
 }
 
-.wifi-issue-item {
+.dashboard-grid .wifi-issue-item {
+    display: block;
     padding: 6px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    background: none;
+    border-left: none;
+    border-radius: 0;
+    gap: 0;
 }
 
-.wifi-issue-item:last-child {
+.dashboard-grid .wifi-issue-item:last-child {
     border-bottom: none;
 }
 
-.wifi-issue-item .wifi-issue-row {
+.dashboard-grid .wifi-issue-item .wifi-issue-row {
     padding: 0;
     border-bottom: none;
 }
