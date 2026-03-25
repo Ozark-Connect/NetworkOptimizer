@@ -132,6 +132,7 @@ New audit section focused on network performance issues (distinct from security 
 - Prerequisite: Reuse SSH infrastructure from SQM/gateway speed tests
 
 ### WiFi Optimizer Enhancements
+- **Power & Coverage: per-band signal classification** - `GetSignalClass` and `GetSignalBucketClass` in PowerCoverageAnalysis.razor hardcode `RadioBand.Band5GHz` because they operate on aggregate values (avg signal, dBm bucket ranges) without per-client band context. Could classify each client by their actual band first, then aggregate the results. The signal distribution bar chart would need to either split by band or color each client's contribution by their band. Current behavior matches pre-band-aware thresholds so no regression, just a missed opportunity.
 - **MLO per-AP detection:** Check MLO status per-AP based on which SSIDs each AP broadcasts (via vap_table), not just global WLAN config. An AP only has MLO impact if it broadcasts an MLO-enabled SSID.
 
 ### AP Catalog: Enforce 5 GHz EIRP Cap (US Regulatory)
