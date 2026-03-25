@@ -1044,6 +1044,7 @@ a.stat-card-link:active {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    justify-content: flex-start;
 }
 
 .wifi-issue-row {
