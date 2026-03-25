@@ -1131,7 +1131,7 @@ a.stat-card-link:active {
     border-radius: 4px;
 }
 
-.wifi-group-count {
+.group-count-badge {
     font-size: 0.7rem;
     font-weight: 600;
     min-width: 1.25rem;
@@ -1140,12 +1140,31 @@ a.stat-card-link:active {
     text-align: center;
     border-radius: 9999px;
     flex-shrink: 0;
+    padding-top: 0.02rem;
 }
 
 .wifi-issue-chevron {
     color: var(--text-muted);
     font-size: 0.65rem;
     margin-left: auto;
+}
+
+.dashboard-grid .wifi-issue-group-header {
+    gap: 0.75rem;
+}
+
+.dashboard-grid .wifi-issue-row {
+    flex-wrap: wrap;
+}
+
+.dashboard-grid .wifi-issue-entity {
+    white-space: normal;
+}
+
+@media (max-width: 768px) {
+    .dashboard-grid .wifi-issue-group-header {
+        gap: 8px;
+    }
 }
 
 .dashboard-grid .wifi-issue-item {
@@ -3916,7 +3935,7 @@ select.form-control {
 }
 
 .interface-rate {
-    margin: 0.75rem 0;
+    margin: 0.75rem 0 0.25rem;
 }
 
 .interface-rate .rate-value {
@@ -3929,6 +3948,13 @@ select.form-control {
     font-size: 0.875rem;
     color: var(--text-secondary);
     margin-left: 0.25rem;
+}
+
+@media (max-width: 768px) {
+    .interface-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
 }
 
 .interface-details {

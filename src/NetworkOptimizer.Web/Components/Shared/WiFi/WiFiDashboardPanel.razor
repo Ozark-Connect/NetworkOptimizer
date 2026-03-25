@@ -61,7 +61,7 @@ else
                                 @((MarkupString)GetSeverityIcon(firstIssue.Severity))
                             </span>
                             <span class="wifi-issue-title">@firstIssue.Title</span>
-                            <span class="wifi-group-count wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">@groupCount</span>
+                            <span class="group-count-badge wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">@groupCount</span>
                             <span class="wifi-issue-chevron">@(isExpanded ? "\u25B2" : "\u25BC")</span>
                         </div>
                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
