@@ -849,11 +849,10 @@
     {
         if (_layout == null) return new();
         var allStacked = new HashSet<string>(_layout.Cards.SelectMany(c => c.StackedCards));
-        // Can't stack: stats-row, cards already stacked, the host itself, full-width cards
+        // Can't stack: stats-row, cards already stacked, the host itself
         return _layout.Cards
             .Where(c => c.Id != hostCardId
                 && c.Id != DashboardCards.StatsRow
-                && !c.FullWidth
                 && !allStacked.Contains(c.Id)
                 && c.StackedCards.Count == 0) // can't stack a host card
             .Select(c => c.Id)
