@@ -751,7 +751,7 @@ a.stat-card-link:active {
     gap: 0;
 }
 
-.card-stack > .card {
+.card-stack > .card:last-child {
     flex: 1;
 }
 
