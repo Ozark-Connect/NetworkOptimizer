@@ -1140,6 +1140,7 @@ a.stat-card-link:active {
     text-align: center;
     border-radius: 9999px;
     flex-shrink: 0;
+    padding-top: 0.05rem;
 }
 
 .wifi-issue-chevron {
