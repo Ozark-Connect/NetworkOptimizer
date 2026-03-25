@@ -1091,6 +1091,16 @@ a.stat-card-link:active {
     white-space: nowrap;
 }
 
+.wifi-issue-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.wifi-issue-icon svg {
+    display: block;
+}
+
 .wifi-issue-group {
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
@@ -1284,7 +1294,7 @@ a.stat-card-link:active {
 
 .gauge-container {
     max-width: 300px;
-    margin: 0 auto;
+    margin: -0.5rem auto 0;
 }
 
 .gauge-svg {
