@@ -962,7 +962,7 @@
         _speedTestLoading = true;
         try
         {
-            var results = await SpeedTestService.GetRecentResultsAsync(10);
+            var results = await SpeedTestService.GetRecentResultsAsync(25);
             _recentSpeedTests = results.Where(r => r.Success).Take(5).ToList();
         }
         catch { }
