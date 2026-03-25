@@ -43,7 +43,7 @@
     }
 
     @* Run Test Card *@
-    <div class="card">
+    <div class="card" id="wan-run-test">
         <div class="card-body">
             <p class="wan-test-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
             <div class="wan-test-options">
@@ -193,6 +193,7 @@
             <div class="card-body">
                 <SpeedTestDetails Result="_latestResult"
                                   UseWanLabels="true"
+                                  OnTestAgain="HandleTestAgain"
                                   OnNotesChanged="HandleNotesChanged"
                                   AvailableWans="_availableWans"
                                   OnWanReassigned="HandleWanReassigned" />
@@ -484,6 +485,7 @@
                                                         <SpeedTestDetails Result="result"
                                                                           PathAnalysis="pathAnalysis"
                                                                           UseWanLabels="true"
+                                                                          OnTestAgain="HandleTestAgain"
                                                                           OnDelete="HandleDeleteResult"
                                                                           OnNotesChanged="HandleNotesChanged"
                                                                           AvailableWans="_availableWans"
@@ -1522,6 +1524,41 @@
     private void OnWanSelectionChanged()
     {
         // No-op - just triggers @bind update
+    }
+
+    private async Task HandleTestAgain(Iperf3Result result)
+    {
+        if (_isRunning) return;
+
+        await JS.InvokeVoidAsync("eval", "document.getElementById('wan-run-test')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+
+        // Restore max mode from stream count (normal uses <= 20 streams)
+        var wasMaxMode = result.ParallelStreams > 20;
+
+        var isGateway = result.Direction is SpeedTestDirection.CloudflareWanGateway
+            or SpeedTestDirection.UwnWanGateway;
+
+        if (isGateway && !string.IsNullOrEmpty(result.WanNetworkGroup))
+        {
+            _gatewayMaxMode = wasMaxMode;
+
+            // Select the matching WAN option before re-running
+            var targetGroups = result.WanNetworkGroup.Split('+').OrderBy(g => g).ToArray();
+            var match = _wanSelectorOptions.FirstOrDefault(o =>
+                !o.IsSeparator && o.Indices.Length > 0 &&
+                o.Indices.Select(i => _wanInterfaces[i].NetworkGroup)
+                    .OrderBy(g => g)
+                    .SequenceEqual(targetGroups));
+            if (match != null)
+                _selectedWanOption = match.Value;
+
+            await RunGatewayTest();
+        }
+        else
+        {
+            _maxMode = wasMaxMode;
+            await RunServerTest();
+        }
     }
 
     private async Task RunGatewayTest()
