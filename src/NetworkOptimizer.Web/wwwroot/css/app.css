@@ -1149,11 +1149,11 @@ a.stat-card-link:active {
 }
 
 @media (max-width: 768px) {
-    .wifi-issue-row {
+    .dashboard-grid .wifi-issue-row {
         flex-wrap: wrap;
     }
 
-    .wifi-issue-entity {
+    .dashboard-grid .wifi-issue-entity {
         white-space: normal;
     }
 }
