@@ -1279,12 +1279,12 @@ a.stat-card-link:active {
 /* Security Score Gauge */
 .security-score-gauge {
     text-align: center;
-    padding: 1rem;
+    padding: 0 1rem 1rem;
 }
 
 .gauge-container {
     max-width: 300px;
-    margin: 0 auto 1rem;
+    margin: 0 auto;
 }
 
 .gauge-svg {
@@ -1293,7 +1293,7 @@ a.stat-card-link:active {
 }
 
 .gauge-rating {
-    margin-top: 1rem;
+    margin-top: 0.5rem;
 }
 
 .rating-badge {
@@ -1334,7 +1334,6 @@ a.stat-card-link:active {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    margin-top: 1rem;
 }
 
 .summary-item {
