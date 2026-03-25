@@ -3950,6 +3950,17 @@ select.form-control {
     margin-left: 0.25rem;
 }
 
+@media (max-width: 768px) {
+    .interface-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .interface-rate {
+        margin-bottom: 0.25rem;
+    }
+}
+
 .interface-details {
     display: flex;
     flex-direction: column;
