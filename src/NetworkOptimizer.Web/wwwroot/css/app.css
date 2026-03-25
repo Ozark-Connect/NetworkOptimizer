@@ -1095,6 +1095,8 @@ a.stat-card-link:active {
     display: flex;
     align-items: center;
     flex-shrink: 0;
+    background: transparent;
+    padding: 0;
 }
 
 .wifi-issue-icon svg {
@@ -1386,6 +1388,10 @@ a.stat-card-link:active {
 
 .cellular-stats-panel .sqm-header {
     margin-bottom: 0;
+}
+
+.cellular-stats-panel .sqm-actions {
+    margin-top: 0.5rem;
 }
 
 .sqm-status {
@@ -2975,7 +2981,7 @@ select.form-control {
     }
 
     .card-body {
-        padding: 1rem 0;
+        padding: 1rem 0 0.4rem;
     }
 
     /* Footer adjustments */
