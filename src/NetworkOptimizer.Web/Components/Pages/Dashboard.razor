@@ -631,19 +631,13 @@
                     }
                     @if (_wifiHealthIssues.Count > 0)
                     {
+                        var shouldCollapseWifi = _wifiHealthIssues.Count > 3;
                         <div class="wifi-issues-list">
-                            @foreach (var group in _wifiHealthIssues.GroupBy(i => i.Title))
+                            @if (!shouldCollapseWifi)
                             {
-                                var groupCount = group.Count();
-                                var groupKey = group.Key;
-                                var collapsible = groupCount > 3;
-                                var isExpanded = !collapsible || _expandedWifiGroups.Contains(groupKey);
-                                var firstIssue = group.First();
-
-                                @if (!collapsible)
+                                @foreach (var issue in _wifiHealthIssues)
                                 {
-                                    @foreach (var issue in group)
-                                    {
+                                    <div class="wifi-issue-item">
                                         <div class="wifi-issue-row">
                                             <span class="wifi-issue-severity wifi-severity-@issue.Severity.ToString().ToLowerInvariant()">
                                                 @issue.Severity.ToString()
@@ -654,10 +648,22 @@
                                                 <span class="wifi-issue-entity">@issue.AffectedEntity</span>
                                             }
                                         </div>
-                                    }
+                                        @if (!string.IsNullOrEmpty(issue.Description))
+                                        {
+                                            <div class="wifi-issue-description">@issue.Description</div>
+                                        }
+                                    </div>
                                 }
-                                else
+                            }
+                            else
+                            {
+                                @foreach (var group in _wifiHealthIssues.GroupBy(i => i.Title))
                                 {
+                                    var groupCount = group.Count();
+                                    var groupKey = group.Key;
+                                    var isExpanded = _expandedWifiGroups.Contains(groupKey);
+                                    var firstIssue = group.First();
+
                                     <div class="wifi-issue-group">
                                         <div class="wifi-issue-group-header @(isExpanded ? "expanded" : "")"
                                              @onclick="() => ToggleWifiGroup(groupKey)" @onclick:stopPropagation>
@@ -672,14 +678,16 @@
                                             <div class="expand-content">
                                                 @foreach (var issue in group)
                                                 {
-                                                    <div class="wifi-issue-row wifi-issue-nested">
-                                                        @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                                                    <div class="wifi-issue-nested">
+                                                        <div class="wifi-issue-nested-header">
+                                                            @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                                                            {
+                                                                <span class="wifi-issue-entity">@issue.AffectedEntity</span>
+                                                            }
+                                                        </div>
+                                                        @if (!string.IsNullOrEmpty(issue.Description))
                                                         {
-                                                            <span class="wifi-issue-entity">@issue.AffectedEntity</span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <span class="wifi-issue-entity">@issue.Description</span>
+                                                            <div class="wifi-issue-description">@issue.Description</div>
                                                         }
                                                     </div>
                                                 }

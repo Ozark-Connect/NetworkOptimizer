@@ -35,44 +35,44 @@
     }
     else
     {
-        @foreach (var group in GetGroupedAlerts())
+        var shouldCollapse = alerts.Count > 3;
+        @if (!shouldCollapse)
         {
-            var groupCount = group.Count();
-            var firstAlert = group.First();
-            var groupKey = group.Key;
-            var collapsible = groupCount > 3;
-            var isExpanded = !collapsible || _expandedGroups.Contains(groupKey);
-
-            @if (!collapsible)
+            @foreach (var alert in GetDisplayAlerts())
             {
-                @foreach (var alert in group)
-                {
-                    <div class="alert-item alert-@alert.Severity.ToLower()">
-                        <div class="alert-icon">
-                            @((MarkupString)GetAlertIcon(alert.Severity))
-                        </div>
-                        <div class="alert-content">
-                            <div class="alert-header">
-                                <h4 class="alert-title">@alert.Title</h4>
-                                <span class="alert-time">@alert.Time</span>
-                            </div>
-                            <p class="alert-message">@alert.Message</p>
-                            @if (!string.IsNullOrEmpty(alert.Source))
-                            {
-                                <div class="alert-source">Source: @alert.Source</div>
-                            }
-                        </div>
-                        <div class="alert-actions" @onclick:stopPropagation>
-                            <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
-                                Dismiss
-                            </button>
-                        </div>
+                <div class="alert-item alert-@alert.Severity.ToLower()">
+                    <div class="alert-icon">
+                        @((MarkupString)GetAlertIcon(alert.Severity))
                     </div>
-                }
+                    <div class="alert-content">
+                        <div class="alert-header">
+                            <h4 class="alert-title">@alert.Title</h4>
+                            <span class="alert-time">@alert.Time</span>
+                        </div>
+                        <p class="alert-message">@alert.Message</p>
+                        @if (!string.IsNullOrEmpty(alert.Source))
+                        {
+                            <div class="alert-source">Source: @alert.Source</div>
+                        }
+                    </div>
+                    <div class="alert-actions" @onclick:stopPropagation>
+                        <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
+                            Dismiss
+                        </button>
+                    </div>
+                </div>
             }
-            else
+        }
+        else
+        {
+            @foreach (var group in GetGroupedAlerts())
             {
+                var groupCount = group.Count();
+                var firstAlert = group.First();
+                var groupKey = group.Key;
+                var isExpanded = _expandedGroups.Contains(groupKey);
                 var severityClass = firstAlert.Severity.ToLower() == "critical" ? "critical" : "recommended";
+
                 <div class="issue-type-group issue-@severityClass">
                     <div class="issue-type-header @(isExpanded ? "expanded" : "")"
                          @onclick="() => ToggleGroup(groupKey)" @onclick:stopPropagation>
@@ -98,7 +98,7 @@
                                                 <div class="alert-source">Source: @alert.Source</div>
                                             }
                                         </div>
-                                        <div class="alert-actions">
+                                        <div class="alert-actions" @onclick:stopPropagation>
                                             <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
                                                 Dismiss
                                             </button>
@@ -191,6 +191,14 @@
 
     private string FormatTimeAgo(DateTime time) =>
         TimeFormatHelper.FormatRelativeTimeShort(time);
+
+    private IEnumerable<AlertInfo> GetDisplayAlerts()
+    {
+        var displayAlerts = alerts.AsEnumerable();
+        if (MaxItems.HasValue)
+            displayAlerts = displayAlerts.Take(MaxItems.Value);
+        return displayAlerts;
+    }
 
     private IEnumerable<IGrouping<string, AlertInfo>> GetGroupedAlerts()
     {

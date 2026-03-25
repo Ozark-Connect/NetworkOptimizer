@@ -1125,13 +1125,41 @@ a.stat-card-link:active {
     margin-left: auto;
 }
 
+.wifi-issue-item {
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.wifi-issue-item:last-child {
+    border-bottom: none;
+}
+
+.wifi-issue-item .wifi-issue-row {
+    padding: 0;
+    border-bottom: none;
+}
+
+.wifi-issue-description {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    padding-left: 0.5rem;
+    margin-top: 2px;
+    line-height: 1.3;
+}
+
 .wifi-issue-nested {
-    padding-left: 1.5rem;
+    padding: 6px 0 6px 1.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .wifi-issue-nested:last-child {
     border-bottom: none;
+}
+
+.wifi-issue-nested-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .device-grid {
