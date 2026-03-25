@@ -1119,7 +1119,7 @@ a.stat-card-link:active {
 .wifi-issue-group-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0.75rem;
     padding: 6px 0;
     font-size: 0.85rem;
     cursor: pointer;
