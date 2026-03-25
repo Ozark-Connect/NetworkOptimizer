@@ -76,9 +76,9 @@
                             @((MarkupString)GetAlertIcon(firstAlert.Severity))
                         </div>
                         <div class="issue-type-body">
-                            <span class="alert-group-badge alert-badge-@firstAlert.Severity.ToLower()">@firstAlert.Severity (@groupCount)</span>
                             <div class="issue-title">@firstAlert.Title</div>
                         </div>
+                        <span class="wifi-group-count alert-badge-@firstAlert.Severity.ToLower()">@groupCount</span>
                         <span class="issue-type-chevron">@(isExpanded ? "\u25B2" : "\u25BC")</span>
                     </div>
                     <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
