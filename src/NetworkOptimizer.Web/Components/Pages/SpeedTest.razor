@@ -106,7 +106,7 @@
 
 <div class="speedtest-container @(localIperf3Status != null && !localIperf3Status.IsAvailable ? "locked-out" : "")">
     <!-- Gateway Speed Test Section -->
-    <div class="card">
+    <div class="card" id="gateway-test">
         <div class="card-header">
             <h2 class="card-title">Gateway Speed Test</h2>
             @if (gatewayLastResult != null)
@@ -274,7 +274,7 @@
     }
 
     <!-- Discovered Devices from UniFi Console -->
-    <div class="card">
+    <div class="card" id="unifi-test">
         <div class="card-header">
             <h2 class="card-title">UniFi Device Speed Test</h2>
             <div class="header-actions">
@@ -420,7 +420,7 @@
     </div>
 
     <!-- Saved Devices (for repeated testing) -->
-    <div class="card">
+    <div class="card" id="saved-devices-test">
         <div class="card-header">
             <h2 class="card-title">Other Device Speed Test</h2>
             <div class="header-actions">
@@ -669,7 +669,7 @@
             <div class="card-body">
                 @if (currentResult.Success)
                 {
-                    <SpeedTestDetails Result="currentResult" OnNotesChanged="HandleNotesChanged" />
+                    <SpeedTestDetails Result="currentResult" OnTestAgain="HandleTestAgain" OnNotesChanged="HandleNotesChanged" />
                 }
                 else
                 {
@@ -836,7 +836,7 @@
                                                         // Use stored path analysis if available, otherwise use result's analysis
                                                         var pathAnalysis = historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
                                                     }
-                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnTestAgain="HandleTestAgain" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" />
 
                                                     @if (pathAnalysis == null && ConnectionService.IsConnected)
                                                     {
@@ -1994,6 +1994,47 @@
             runningTestHost = null;
             StateHasChanged();
         }
+    }
+
+    private async Task HandleTestAgain(Iperf3Result result)
+    {
+        if (isRunningTest) return;
+
+        // Try saved devices first
+        var savedDevice = devices.FirstOrDefault(d =>
+            d.Host.Equals(result.DeviceHost, StringComparison.OrdinalIgnoreCase));
+        if (savedDevice != null)
+        {
+            await ScrollTo("saved-devices-test");
+            await RunSpeedTest(savedDevice);
+            return;
+        }
+
+        // Try discovered UniFi devices
+        var discovered = discoveredDevices.FirstOrDefault(d =>
+            d.IpAddress?.Equals(result.DeviceHost, StringComparison.OrdinalIgnoreCase) == true);
+        if (discovered != null)
+        {
+            await ScrollTo("unifi-test");
+            await RunSpeedTestOnDiscovered(discovered);
+            return;
+        }
+
+        // Fallback: create temporary device config from result
+        await ScrollTo("saved-devices-test");
+        var tempDevice = new DeviceSshConfiguration
+        {
+            Name = result.DeviceName ?? result.DeviceHost,
+            Host = result.DeviceHost,
+            Enabled = true,
+            StartIperf3Server = true
+        };
+        await RunSpeedTest(tempDevice);
+    }
+
+    private async Task ScrollTo(string elementId)
+    {
+        await JS.InvokeVoidAsync("eval", $"document.getElementById('{elementId}')?.scrollIntoView({{ behavior: 'smooth', block: 'start' }})");
     }
 
     // Progress indicator helpers
