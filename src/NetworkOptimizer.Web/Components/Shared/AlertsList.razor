@@ -38,47 +38,44 @@
         @foreach (var group in GetGroupedAlerts())
         {
             var groupCount = group.Count();
-            var isSingleItem = groupCount == 1;
             var firstAlert = group.First();
             var groupKey = group.Key;
-            var isExpanded = isSingleItem || _expandedGroups.Contains(groupKey);
+            var collapsible = groupCount > 3;
+            var isExpanded = !collapsible || _expandedGroups.Contains(groupKey);
 
-            @if (isSingleItem)
+            @if (!collapsible)
             {
-                <div class="alert-item alert-@firstAlert.Severity.ToLower()">
-                    <div class="alert-icon">
-                        @((MarkupString)GetAlertIcon(firstAlert.Severity))
-                    </div>
-                    <div class="alert-content">
-                        <div class="alert-header">
-                            <h4 class="alert-title">@firstAlert.Title</h4>
-                            <span class="alert-time">@firstAlert.Time</span>
+                @foreach (var alert in group)
+                {
+                    <div class="alert-item alert-@alert.Severity.ToLower()">
+                        <div class="alert-icon">
+                            @((MarkupString)GetAlertIcon(alert.Severity))
                         </div>
-                        <p class="alert-message">@firstAlert.Message</p>
-                        @if (!string.IsNullOrEmpty(firstAlert.Source))
-                        {
-                            <div class="alert-source">Source: @firstAlert.Source</div>
-                        }
+                        <div class="alert-content">
+                            <div class="alert-header">
+                                <h4 class="alert-title">@alert.Title</h4>
+                                <span class="alert-time">@alert.Time</span>
+                            </div>
+                            <p class="alert-message">@alert.Message</p>
+                            @if (!string.IsNullOrEmpty(alert.Source))
+                            {
+                                <div class="alert-source">Source: @alert.Source</div>
+                            }
+                        </div>
+                        <div class="alert-actions" @onclick:stopPropagation>
+                            <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
+                                Dismiss
+                            </button>
+                        </div>
                     </div>
-                    <div class="alert-actions">
-                        <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(firstAlert.Id)">
-                            Dismiss
-                        </button>
-                        @if (!string.IsNullOrEmpty(firstAlert.ActionUrl))
-                        {
-                            <a href="@firstAlert.ActionUrl" class="btn btn-sm btn-primary">
-                                View Details
-                            </a>
-                        }
-                    </div>
-                </div>
+                }
             }
             else
             {
                 var severityClass = firstAlert.Severity.ToLower() == "critical" ? "critical" : "recommended";
                 <div class="issue-type-group issue-@severityClass">
                     <div class="issue-type-header @(isExpanded ? "expanded" : "")"
-                         @onclick="() => ToggleGroup(groupKey)">
+                         @onclick="() => ToggleGroup(groupKey)" @onclick:stopPropagation>
                         <div class="issue-type-icon">
                             @((MarkupString)GetAlertIcon(firstAlert.Severity))
                         </div>

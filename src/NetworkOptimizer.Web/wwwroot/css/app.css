@@ -1091,6 +1091,49 @@ a.stat-card-link:active {
     white-space: nowrap;
 }
 
+.wifi-issue-group {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.wifi-issue-group:last-child {
+    border-bottom: none;
+}
+
+.wifi-issue-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 0.85rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wifi-issue-group-header:hover {
+    background: var(--bg-hover);
+    border-radius: 4px;
+}
+
+.wifi-issue-count {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.wifi-issue-chevron {
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    margin-left: auto;
+}
+
+.wifi-issue-nested {
+    padding-left: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.wifi-issue-nested:last-child {
+    border-bottom: none;
+}
+
 .device-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

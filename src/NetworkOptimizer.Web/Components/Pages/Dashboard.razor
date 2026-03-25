@@ -202,6 +202,7 @@
     private List<HealthIssue> _wifiHealthIssues = new();
     private int _sqmPanelKey = 0;
     private int _alertsListKey = 0;
+    private HashSet<string> _expandedWifiGroups = new();
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
     private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
 
@@ -630,8 +631,63 @@
                     }
                     @if (_wifiHealthIssues.Count > 0)
                     {
-                        <div @onclick:stopPropagation>
-                            <IssuesList Issues="_wifiHealthIssues" />
+                        <div class="wifi-issues-list">
+                            @foreach (var group in _wifiHealthIssues.GroupBy(i => i.Title))
+                            {
+                                var groupCount = group.Count();
+                                var groupKey = group.Key;
+                                var collapsible = groupCount > 3;
+                                var isExpanded = !collapsible || _expandedWifiGroups.Contains(groupKey);
+                                var firstIssue = group.First();
+
+                                @if (!collapsible)
+                                {
+                                    @foreach (var issue in group)
+                                    {
+                                        <div class="wifi-issue-row">
+                                            <span class="wifi-issue-severity wifi-severity-@issue.Severity.ToString().ToLowerInvariant()">
+                                                @issue.Severity.ToString()
+                                            </span>
+                                            <span class="wifi-issue-title">@issue.Title</span>
+                                            @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                                            {
+                                                <span class="wifi-issue-entity">@issue.AffectedEntity</span>
+                                            }
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="wifi-issue-group">
+                                        <div class="wifi-issue-group-header @(isExpanded ? "expanded" : "")"
+                                             @onclick="() => ToggleWifiGroup(groupKey)" @onclick:stopPropagation>
+                                            <span class="wifi-issue-severity wifi-severity-@firstIssue.Severity.ToString().ToLowerInvariant()">
+                                                @firstIssue.Severity.ToString()
+                                            </span>
+                                            <span class="wifi-issue-title">@firstIssue.Title</span>
+                                            <span class="wifi-issue-count">(@groupCount)</span>
+                                            <span class="wifi-issue-chevron">@(isExpanded ? "\u25B2" : "\u25BC")</span>
+                                        </div>
+                                        <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                                            <div class="expand-content">
+                                                @foreach (var issue in group)
+                                                {
+                                                    <div class="wifi-issue-row wifi-issue-nested">
+                                                        @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                                                        {
+                                                            <span class="wifi-issue-entity">@issue.AffectedEntity</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="wifi-issue-entity">@issue.Description</span>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            }
                         </div>
                     }
                     else
@@ -647,10 +703,10 @@
 
     private RenderFragment RenderRecentAlerts => __builder =>
     {
-        <div class="card" id="recent-alerts">
+        <div class="card clickable-card" id="recent-alerts" @onclick="@(() => NavigationManager.NavigateTo("/audit"))">
             <div class="card-header">
-                <a href="/audit" class="card-title-link"><h2 class="card-title">Recent Audit Issues</h2></a>
-                <a href="/audit" class="card-action">View All →</a>
+                <a href="/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Recent Audit Issues</h2></a>
+                <a href="/audit" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
                 <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
@@ -828,6 +884,12 @@
 
     private string? _editToast;
     private System.Threading.Timer? _toastTimer;
+
+    private void ToggleWifiGroup(string key)
+    {
+        if (!_expandedWifiGroups.Remove(key))
+            _expandedWifiGroups.Add(key);
+    }
 
     private void ToggleCard(string cardId)
     {
