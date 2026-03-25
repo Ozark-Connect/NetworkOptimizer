@@ -1148,6 +1148,12 @@ a.stat-card-link:active {
     margin-left: auto;
 }
 
+@media (max-width: 768px) {
+    .wifi-issue-entity {
+        white-space: normal;
+    }
+}
+
 .dashboard-grid .wifi-issue-item {
     display: block;
     padding: 6px 0;
