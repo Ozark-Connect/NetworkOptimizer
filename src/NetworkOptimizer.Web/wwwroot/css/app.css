@@ -1157,6 +1157,10 @@ a.stat-card-link:active {
     .dashboard-grid .wifi-issue-entity {
         white-space: normal;
     }
+
+    .wifi-issue-group-header {
+        gap: 8px;
+    }
 }
 
 .dashboard-grid .wifi-issue-item {
