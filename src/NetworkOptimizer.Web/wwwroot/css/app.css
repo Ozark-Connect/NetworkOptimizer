@@ -1119,7 +1119,7 @@ a.stat-card-link:active {
 .wifi-issue-group-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 8px;
     padding: 6px 0;
     font-size: 0.85rem;
     cursor: pointer;
@@ -1149,6 +1149,10 @@ a.stat-card-link:active {
     margin-left: auto;
 }
 
+.dashboard-grid .wifi-issue-group-header {
+    gap: 0.75rem;
+}
+
 @media (max-width: 768px) {
     .dashboard-grid .wifi-issue-row {
         flex-wrap: wrap;
@@ -1158,7 +1162,7 @@ a.stat-card-link:active {
         white-space: normal;
     }
 
-    .wifi-issue-group-header {
+    .dashboard-grid .wifi-issue-group-header {
         gap: 8px;
     }
 }
