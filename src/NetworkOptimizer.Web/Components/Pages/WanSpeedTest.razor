@@ -405,6 +405,22 @@
                             </tr>
                         </thead>
                         <tbody>
+                            @if (!_pagedHistory.Any())
+                            {
+                                var emptyColSpan = _wanSeries.Count > 1 ? 9 : 8;
+                                <tr>
+                                    <td colspan="@emptyColSpan" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                        @if (_testHistory.Count == 0)
+                                        {
+                                            <span>No WAN speed test results yet. Run a test above to get started.</span>
+                                        }
+                                        else
+                                        {
+                                            <span>No results match the current filters.</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
                             @foreach (var result in _pagedHistory)
                             {
                                 var isExpanded = _expandedHistoryId == result.Id || _collapsingHistoryId == result.Id;
