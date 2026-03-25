@@ -1153,15 +1153,15 @@ a.stat-card-link:active {
     gap: 0.75rem;
 }
 
+.dashboard-grid .wifi-issue-row {
+    flex-wrap: wrap;
+}
+
+.dashboard-grid .wifi-issue-entity {
+    white-space: normal;
+}
+
 @media (max-width: 768px) {
-    .dashboard-grid .wifi-issue-row {
-        flex-wrap: wrap;
-    }
-
-    .dashboard-grid .wifi-issue-entity {
-        white-space: normal;
-    }
-
     .dashboard-grid .wifi-issue-group-header {
         gap: 8px;
     }
