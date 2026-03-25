@@ -523,7 +523,7 @@
 
     private RenderFragment RenderSpeedTests => __builder =>
     {
-        <div class="card-stack card-stack-even">
+        <div class="card-stack">
             <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/wan-speedtest"))">
                 <div class="card-header">
                     <a href="/wan-speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">WAN Speed Test</h2></a>
@@ -609,60 +609,20 @@
                 <a href="/wifi-optimizer" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
-                @if (_loading)
-                {
-                    <div class="loading-state">
-                        <span class="spinner-sm"></span>
-                        <span>Loading...</span>
-                    </div>
-                }
-                else if (_wifiHealthIssues.Count == 0 && !_wifiHealthScore.HasValue)
-                {
-                    <div class="empty-state">
-                        <p>No Wi-Fi health data yet</p>
-                    </div>
-                }
-                else
-                {
-                    @if (_wifiHealthScore.HasValue)
-                    {
-                        <NetworkOptimizer.Web.Components.Shared.WiFi.HealthScoreGauge Score="@_wifiHealthScore.Value" />
-                    }
-                    @if (_wifiHealthIssues.Count > 0)
-                    {
-                        <div class="wifi-issues-list">
-                            @foreach (var issue in _wifiHealthIssues)
-                            {
-                                <div class="wifi-issue-row">
-                                    <span class="wifi-issue-severity wifi-severity-@issue.Severity.ToString().ToLowerInvariant()">
-                                        @issue.Severity.ToString()
-                                    </span>
-                                    <span class="wifi-issue-title">@issue.Title</span>
-                                    @if (!string.IsNullOrEmpty(issue.AffectedEntity))
-                                    {
-                                        <span class="wifi-issue-entity">@issue.AffectedEntity</span>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="empty-state">
-                            <p>No issues found - looking good!</p>
-                        </div>
-                    }
-                }
+                <NetworkOptimizer.Web.Components.Shared.WiFi.WiFiDashboardPanel
+                    Loading="_loading"
+                    Score="_wifiHealthScore"
+                    Issues="_wifiHealthIssues" />
             </div>
         </div>
     };
 
     private RenderFragment RenderRecentAlerts => __builder =>
     {
-        <div class="card" id="recent-alerts">
+        <div class="card clickable-card" id="recent-alerts" @onclick="@(() => NavigationManager.NavigateTo("/audit"))">
             <div class="card-header">
-                <a href="/audit" class="card-title-link"><h2 class="card-title">Recent Audit Issues</h2></a>
-                <a href="/audit" class="card-action">View All →</a>
+                <a href="/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Recent Audit Issues</h2></a>
+                <a href="/audit" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
                 <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
@@ -889,11 +849,10 @@
     {
         if (_layout == null) return new();
         var allStacked = new HashSet<string>(_layout.Cards.SelectMany(c => c.StackedCards));
-        // Can't stack: stats-row, cards already stacked, the host itself, full-width cards
+        // Can't stack: stats-row, cards already stacked, the host itself
         return _layout.Cards
             .Where(c => c.Id != hostCardId
                 && c.Id != DashboardCards.StatsRow
-                && !c.FullWidth
                 && !allStacked.Contains(c.Id)
                 && c.StackedCards.Count == 0) // can't stack a host card
             .Select(c => c.Id)
@@ -1002,7 +961,7 @@
         _speedTestLoading = true;
         try
         {
-            var results = await SpeedTestService.GetRecentResultsAsync(10);
+            var results = await SpeedTestService.GetRecentResultsAsync(25);
             _recentSpeedTests = results.Where(r => r.Success).Take(5).ToList();
         }
         catch { }
