@@ -751,6 +751,10 @@ a.stat-card-link:active {
     gap: 0;
 }
 
+.card-stack > .card {
+    flex: 1;
+}
+
 .card-stack-even > .card {
     flex: 1;
 }
