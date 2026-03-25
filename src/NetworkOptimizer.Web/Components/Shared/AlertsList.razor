@@ -309,4 +309,25 @@
     .issue-type-header {
         align-items: center;
     }
+
+    .issue-title {
+        margin-bottom: 0;
+    }
+
+    .wifi-group-count {
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.125rem 0.4rem;
+        border-radius: 4px;
+        flex-shrink: 0;
+    }
+
+    @@media (max-width: 768px) {
+        .wifi-group-count {
+            position: absolute;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+    }
 </style>
