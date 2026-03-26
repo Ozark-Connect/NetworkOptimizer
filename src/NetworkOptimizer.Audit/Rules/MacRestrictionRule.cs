@@ -24,10 +24,6 @@ public class MacRestrictionRule : AuditRuleBase
         if (!port.IsUp && !port.LastConnectionSeen.HasValue)
             return null;
 
-        // Skip disabled ports - they're already secured
-        if (port.ForwardMode == "disabled" || !port.IsEnabled)
-            return null;
-
         // Check if this is an access port (native or custom with native network set)
         var isAccessPort = port.ForwardMode == "native" ||
                            (port.ForwardMode == "custom" && !string.IsNullOrEmpty(port.NativeNetworkId));
