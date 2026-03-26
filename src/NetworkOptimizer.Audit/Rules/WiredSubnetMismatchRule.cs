@@ -31,10 +31,8 @@ public class WiredSubnetMismatchRule : AuditRuleBase
         if (client == null)
             return null;
 
-        // Get client IP - prefer current IP, fall back to fixed IP
-        var clientIp = !string.IsNullOrEmpty(client.Ip)
-            ? client.Ip
-            : client.FixedIp;
+        // Get client IP (ip > last_ip > fixed_ip)
+        var clientIp = client.BestIp;
 
         if (string.IsNullOrEmpty(clientIp))
             return null;
