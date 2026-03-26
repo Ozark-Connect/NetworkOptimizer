@@ -17,8 +17,11 @@ public class MacRestrictionRule : AuditRuleBase
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
-        // Only check active ports
-        if (!port.IsUp)
+        // Skip ports that are down AND have no recent activity.
+        // Down ports with recent connections should still be checked - the unused port rule
+        // won't flag them (within grace period), so MAC restriction is the right recommendation.
+        // Truly inactive ports (no recent connection) will be caught by the unused port rule instead.
+        if (!port.IsUp && !port.LastConnectionSeen.HasValue)
             return null;
 
         // Check if this is an access port (native or custom with native network set)
@@ -83,16 +86,28 @@ public class MacRestrictionRule : AuditRuleBase
         if (HasIntentionalUnrestrictedProfile(port))
             return null;
 
+        // Tailor the message based on whether the port is actively in use or just recently used
+        var isInactive = !port.IsUp;
+
+        var message = isInactive
+            ? "Port is not in use - disable it, or add a MAC restriction if it's still needed"
+            : "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network";
+
+        var recommendation = isInactive
+            ? "This port has no active connection. If it's no longer needed, set it to 'Disabled' in UniFi to prevent unauthorized access. " +
+              "If it's still in use periodically, set it to 'Restricted' and add the device's MAC address to the allowed list."
+            : "Enable MAC-based port security to prevent unauthorized devices from connecting. " +
+              "In UniFi, set the port to 'Restricted' and add the device's MAC address to the allowed list. " +
+              "If this port is intended to be used by multiple devices, create an Ethernet Port Profile with MAC restriction disabled and assign it to this port.";
+
         return CreateIssue(
-            "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network",
+            message,
             port,
             new Dictionary<string, object>
             {
                 { "network", network?.Name ?? "Unknown" }
             },
-            "Enable MAC-based port security to prevent unauthorized devices from connecting. " +
-            "In UniFi, set the port to 'Restricted' and add the device's MAC address to the allowed list. " +
-            "If this port is intended to be used by multiple devices, create an Ethernet Port Profile with MAC restriction disabled and assign it to this port.");
+            recommendation);
     }
 
     /// <summary>
