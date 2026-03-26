@@ -800,7 +800,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
                 {
                     deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                    if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue)
+                    // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                    if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue
+                        && targetDevice.Type != DeviceType.Gateway)
                     {
                         deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, targetDevice.Mac, targetDevice.LocalUplinkPort);
                     }
@@ -891,8 +893,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         _logger.LogDebug("  Egress: GetPortSpeed({Mac}, port {Port}) = {Speed} Mbps",
                             device.UplinkMac, device.UplinkPort, hop.EgressSpeedMbps);
                         // If upstream device has no port table (e.g., AP with empty port_table),
-                        // fall back to local device's uplink port speed (same physical link, same negotiated speed)
-                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue)
+                        // fall back to local device's uplink port speed (same physical link, same negotiated speed).
+                        // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue && !isGateway)
                         {
                             var fallbackSpeed = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                             _logger.LogDebug("  Egress fallback: GetPortSpeed({Mac}, localPort {Port}) = {Speed} Mbps",
@@ -1748,8 +1751,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     targetDevice.Name, currentMac, currentPort, deviceHop.IngressSpeedMbps,
                     targetDevice.LocalUplinkPort?.ToString() ?? "null", targetDevice.Type == DeviceType.Gateway);
                 // If upstream device has no port table (e.g., AP with empty port_table),
-                // fall back to local device's uplink port speed (same physical link, same negotiated speed)
-                if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue)
+                // fall back to local device's uplink port speed (same physical link, same negotiated speed).
+                // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue
+                    && targetDevice.Type != DeviceType.Gateway)
                 {
                     deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, targetDevice.Mac, targetDevice.LocalUplinkPort);
                     _logger.LogDebug("BuildHopList target fallback: GetPortSpeed({Mac}, localPort {Port}) = {Speed} Mbps",
@@ -2121,8 +2126,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         _logger.LogDebug("  Egress (path2): GetPortSpeed({Mac}, port {Port}) = {Speed} Mbps",
                             device.UplinkMac, device.UplinkPort, hop.EgressSpeedMbps);
                         // If upstream device has no port table (e.g., AP with empty port_table),
-                        // fall back to local device's uplink port speed (same physical link, same negotiated speed)
-                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue)
+                        // fall back to local device's uplink port speed (same physical link, same negotiated speed).
+                        // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue && !isGateway)
                         {
                             var fallbackSpeed = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                             _logger.LogDebug("  Egress fallback (path2): GetPortSpeed({Mac}, localPort {Port}) = {Speed} Mbps",
