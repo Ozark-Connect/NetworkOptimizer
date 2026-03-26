@@ -9,6 +9,7 @@ using NetworkOptimizer.WiFi.Analyzers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Providers;
 using NetworkOptimizer.WiFi.Rules;
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Services;
 using AuditNetworkInfo = NetworkOptimizer.Audit.Models.NetworkInfo;
 
@@ -277,7 +278,7 @@ public class WiFiOptimizerService
                     .Average(c => c.Signal!.Value);
             }
 
-            summary.WeakSignalClients = onlineClients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
+            summary.WeakSignalClients = onlineClients.Count(c => c.Signal.HasValue && SignalClassification.IsWeakSignal(c.Signal.Value, c.Band));
 
             // Check if MLO is enabled on any enabled WLAN
             var wlanConfigs = await GetWlanConfigurationsAsync();
