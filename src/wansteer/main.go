@@ -132,6 +132,7 @@ func main() {
 			default:
 				slog.Info("shutdown signal received", "signal", sig)
 				removeRules()
+				// SFE flush happens inside flushAllSteeredConntrack via flushConntrackForMark
 				flushAllSteeredConntrack(cfg)
 				// Write final status
 				status := buildStatus(cfg, startedAt, lastReconcile, reconcileCount, health)
@@ -152,6 +153,10 @@ func main() {
 					"actual_rules", actual,
 					"jump_present", jumpOk,
 				)
+				// Flush SFE before rule changes: when rules are rebuilt,
+				// connections may shift WANs and SFE's offloaded paths
+				// become stale. Flushing prevents the double-free race.
+				flushSFE()
 				unhealthy := health.unhealthyWANs()
 				if err := reapplyRules(cfg, unhealthy); err != nil {
 					slog.Error("reconciliation failed", "error", err)

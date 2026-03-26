@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -329,10 +330,34 @@ func activeTargetWANs(cfg *Config) map[string]bool {
 	return targets
 }
 
+// flushSFE flushes the Shortcut Forwarding Engine cache for both IPv4 and IPv6.
+// On Qualcomm IPQ9574 (UniFi Cloud Gateway Fiber), SFE offloads connections into
+// a kernel fast path. If conntrack deletes an entry before SFE releases it, SFE
+// hits a double-free race that causes "sfe_ipv4_remove_connection: Connection has
+// been removed already" kernel errors. Always call this BEFORE deleting conntrack
+// entries.
+func flushSFE() {
+	for _, path := range []string{"/sys/sfe_ipv4/flush", "/sys/sfe_ipv6/flush"} {
+		if err := os.WriteFile(path, []byte("1"), 0644); err != nil {
+			// Not an error: SFE may not be present on all platforms
+			slog.Debug("sfe flush skipped", "path", path, "error", err)
+		} else {
+			slog.Debug("sfe cache flushed", "path", path)
+		}
+	}
+}
+
 // flushConntrackForMark deletes all conntrack entries with the given WAN fwmark.
 // This forces existing connections to be re-routed through the default WAN
 // when their assigned WAN goes down.
+// Order is critical: SFE flush must happen before conntrack delete to avoid
+// the SFE double-free race on IPQ9574.
 func flushConntrackForMark(fwmark string) {
+	// Flush SFE first: SFE must release offloaded connections before conntrack
+	// deletes the tracking entry, otherwise SFE tries to clean up a path whose
+	// conntrack entry is already gone.
+	flushSFE()
+
 	// conntrack -D -m <mark> deletes entries matching the mark
 	// The mark includes the WAN bits in 0x7e0000, so we match on those
 	err := run("conntrack", "-D", "-m", fwmark)
