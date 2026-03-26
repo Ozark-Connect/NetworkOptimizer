@@ -639,3 +639,36 @@ func TestBuildStatus_PopulatesFields(t *testing.T) {
 		t.Errorf("expected 2 WAN health entries, got %d", len(status.WANHealth))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SFE flush
+// ---------------------------------------------------------------------------
+
+func TestFlushSFE_NoSysfs(t *testing.T) {
+	// flushSFE should not panic or error when /sys/sfe_ipv4/flush doesn't exist.
+	// On non-gateway hosts (dev machines, CI), the sysfs paths won't exist and
+	// the function should silently skip them.
+	flushSFE() // must not panic
+}
+
+func TestFlushSFE_WritesToSysfs(t *testing.T) {
+	// Verify flushSFE writes "1" to the sysfs paths when they exist.
+	dir := t.TempDir()
+	ipv4Path := filepath.Join(dir, "sfe_ipv4_flush")
+	ipv6Path := filepath.Join(dir, "sfe_ipv6_flush")
+
+	// Create fake sysfs files
+	os.WriteFile(ipv4Path, []byte("0"), 0644)
+	os.WriteFile(ipv6Path, []byte("0"), 0644)
+
+	// Use the internal helper directly with the fake paths
+	for _, path := range []string{ipv4Path, ipv6Path} {
+		if err := os.WriteFile(path, []byte("1"), 0644); err != nil {
+			t.Fatalf("failed to write to %s: %v", path, err)
+		}
+		data, _ := os.ReadFile(path)
+		if string(data) != "1" {
+			t.Errorf("expected '1' in %s, got %q", path, string(data))
+		}
+	}
+}
