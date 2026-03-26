@@ -74,7 +74,7 @@ public class DnsSecurityAnalyzer
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
     /// <param name="zoneLookup">Optional firewall zone lookup for DMZ/Hotspot network identification</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null, List<UniFiNetworkConfig>? networkConfigs = null)
     {
         var result = new DnsSecurityResult();
 
@@ -96,6 +96,15 @@ public class DnsSecurityAnalyzer
         else
         {
             _logger.LogDebug("No device data available for WAN DNS extraction");
+        }
+
+        // Fallback: enrich WAN interfaces that have no DNS in port_table with
+        // wan_dns1/wan_dns2 from network configs (networkconf API).
+        // Some firmware versions don't populate the dns array in port_table even
+        // when static DNS is configured in the WAN network settings.
+        if (networkConfigs != null)
+        {
+            EnrichWanDnsFromNetworkConfigs(networkConfigs, result);
         }
 
         // Analyze firewall rules
@@ -370,6 +379,62 @@ public class DnsSecurityAnalyzer
         if (!wanInterfacesChecked.Any())
         {
             _logger.LogDebug("No WAN interfaces found in device port_table");
+        }
+    }
+
+    /// <summary>
+    /// Enrich WAN interfaces that have no DNS in port_table with wan_dns1/wan_dns2
+    /// from network configs. Correlates by matching port_table network_name (e.g., "wan", "wan2")
+    /// to networkconf wan_networkgroup (e.g., "WAN", "WAN2") case-insensitively.
+    /// </summary>
+    private void EnrichWanDnsFromNetworkConfigs(List<UniFiNetworkConfig> networkConfigs, DnsSecurityResult result)
+    {
+        var wanConfigs = networkConfigs
+            .Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrEmpty(n.WanNetworkgroup))
+            .ToList();
+
+        if (!wanConfigs.Any())
+            return;
+
+        foreach (var wanInterface in result.WanInterfaces)
+        {
+            if (wanInterface.HasStaticDns)
+                continue;
+
+            // Match port_table network_name ("wan", "wan2") to networkconf wan_networkgroup ("WAN", "WAN2")
+            var matchingConfig = wanConfigs.FirstOrDefault(c =>
+                string.Equals(c.WanNetworkgroup, wanInterface.InterfaceName, StringComparison.OrdinalIgnoreCase));
+
+            if (matchingConfig == null)
+                continue;
+
+            var dnsServers = new List<string>();
+            if (!string.IsNullOrEmpty(matchingConfig.WanDns1))
+                dnsServers.Add(matchingConfig.WanDns1);
+            if (!string.IsNullOrEmpty(matchingConfig.WanDns2))
+                dnsServers.Add(matchingConfig.WanDns2);
+
+            if (dnsServers.Count == 0)
+                continue;
+
+            _logger.LogInformation("Enriched {Interface} DNS from network config (wan_dns1/wan_dns2): {Servers}",
+                wanInterface.InterfaceName, string.Join(", ", dnsServers));
+
+            foreach (var dns in dnsServers)
+            {
+                wanInterface.DnsServers.Add(dns);
+                if (!result.WanDnsServers.Contains(dns))
+                {
+                    result.WanDnsServers.Add(dns);
+                }
+            }
+
+            // Clear the UsingIspDns flag if all interfaces now have DNS
+            if (result.UsingIspDns && result.WanInterfaces.All(w => w.HasStaticDns))
+            {
+                result.UsingIspDns = false;
+            }
         }
     }
 

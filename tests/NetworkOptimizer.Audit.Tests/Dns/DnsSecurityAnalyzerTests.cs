@@ -6596,6 +6596,153 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.WanInterfaces.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Analyze_WithEmptyPortTableDns_FallsBackToNetworkConfig()
+    {
+        // Arrange - WAN port has no dns array, but networkconf has wan_dns1/wan_dns2
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "UDM Pro",
+                "port_table": [
+                    {
+                        "name": "WAN",
+                        "network_name": "wan",
+                        "up": true,
+                        "ip": "203.0.113.50"
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig
+            {
+                Purpose = "wan",
+                WanNetworkgroup = "WAN",
+                WanDns1 = "1.1.1.1",
+                WanDns2 = "1.0.0.2"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData, null, null,
+            networkConfigs: networkConfigs);
+
+        // Assert
+        result.WanDnsServers.Should().Contain("1.1.1.1");
+        result.WanDnsServers.Should().Contain("1.0.0.2");
+        result.WanInterfaces.Should().HaveCount(1);
+        result.WanInterfaces[0].DnsServers.Should().Contain("1.1.1.1");
+        result.WanInterfaces[0].DnsServers.Should().Contain("1.0.0.2");
+        result.UsingIspDns.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMultiWan_FallsBackToCorrectNetworkConfig()
+    {
+        // Arrange - Dual WAN: wan has DNS in port_table, wan2 doesn't but has networkconf
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "UDM Pro",
+                "port_table": [
+                    {
+                        "name": "WAN",
+                        "network_name": "wan",
+                        "up": true,
+                        "dns": ["1.1.1.1", "1.0.0.1"]
+                    },
+                    {
+                        "name": "WAN2",
+                        "network_name": "wan2",
+                        "up": true,
+                        "ip": "198.51.100.1"
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig
+            {
+                Purpose = "wan",
+                WanNetworkgroup = "WAN",
+                WanDns1 = "1.1.1.1",
+                WanDns2 = "1.0.0.1"
+            },
+            new UniFiNetworkConfig
+            {
+                Purpose = "wan",
+                WanNetworkgroup = "WAN2",
+                WanDns1 = "9.9.9.9",
+                WanDns2 = "149.112.112.112"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData, null, null,
+            networkConfigs: networkConfigs);
+
+        // Assert - wan should keep port_table DNS, wan2 should get networkconf DNS
+        result.WanInterfaces.Should().HaveCount(2);
+
+        var wan1 = result.WanInterfaces.First(w => w.InterfaceName == "wan");
+        wan1.DnsServers.Should().BeEquivalentTo(new[] { "1.1.1.1", "1.0.0.1" });
+
+        var wan2 = result.WanInterfaces.First(w => w.InterfaceName == "wan2");
+        wan2.DnsServers.Should().BeEquivalentTo(new[] { "9.9.9.9", "149.112.112.112" });
+
+        result.UsingIspDns.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithPortTableDnsPresent_DoesNotOverrideFromNetworkConfig()
+    {
+        // Arrange - port_table already has DNS, networkconf should NOT override
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "UDM Pro",
+                "port_table": [
+                    {
+                        "name": "WAN",
+                        "network_name": "wan",
+                        "up": true,
+                        "dns": ["8.8.8.8", "8.8.4.4"]
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig
+            {
+                Purpose = "wan",
+                WanNetworkgroup = "WAN",
+                WanDns1 = "1.1.1.1",
+                WanDns2 = "1.0.0.1"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData, null, null,
+            networkConfigs: networkConfigs);
+
+        // Assert - should keep port_table DNS, not override with networkconf
+        result.WanInterfaces[0].DnsServers.Should().BeEquivalentTo(new[] { "8.8.8.8", "8.8.4.4" });
+        result.WanDnsServers.Should().NotContain("1.1.1.1");
+    }
+
     #endregion
 
     #region Device DNS Configuration Tests
