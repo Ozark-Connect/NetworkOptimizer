@@ -1349,6 +1349,10 @@ WantedBy=multi-user.target
         sb.AppendLine();
         sb.AppendLine("chmod +x \"$SQM_MONITOR_DIR/sqm-watchdog.sh\"");
         sb.AppendLine();
+        // Watchdog uses cron instead of a systemd timer. The oneshot timer logged 3 journal
+        // lines per invocation (Starting/Succeeded/Finished) from PID 1 - 6 eMMC writes/min
+        // with persistent journald. eMMC write pressure causes micro packet drops on the
+        // gateway during garbage collection. Cron runs silently; only failures get logged.
         sb.AppendLine("# Clean up legacy systemd watchdog timer/service (replaced by cron)");
         sb.AppendLine("if systemctl is-active sqm-monitor-watchdog.timer >/dev/null 2>&1; then");
         sb.AppendLine("    systemctl stop sqm-monitor-watchdog.timer 2>/dev/null");
