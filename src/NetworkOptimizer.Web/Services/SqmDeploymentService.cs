@@ -173,7 +173,7 @@ WantedBy=multi-user.target
                 $"echo '---SQM_BOOT_SCRIPTS---'; ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l; " +
                 $"echo '---SQM_SPEEDTEST_SCRIPTS---'; ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l; " +
                 $"echo '---SQM_MONITOR_CHECK---'; test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'; " +
-                "echo '---WATCHDOG_RUNNING---'; systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'; " +
+                "echo '---WATCHDOG_RUNNING---'; crontab -l 2>/dev/null | grep -q sqm-watchdog && echo 'active' || echo 'inactive'; " +
                 "echo '---CRON_CHECK---'; crontab -l 2>/dev/null | grep -c sqm || echo '0'; " +
                 "echo '---SPEEDTEST_CLI---'; which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'; " +
                 "echo '---BC_CHECK---'; which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'";
@@ -300,10 +300,14 @@ WantedBy=multi-user.target
             // Remove the boot script
             await RunCommandAsync($"rm -f {OnBootDir}/20-sqm-monitor.sh");
 
-            // Stop and disable any partially-created services
+            // Stop and disable any partially-created services (including legacy watchdog timer)
             await RunCommandAsync(
                 "systemctl stop sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null; " +
                 "systemctl disable sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null");
+
+            // Remove watchdog cron entry
+            await RunCommandAsync(
+                "(crontab -l 2>/dev/null | grep -v sqm-watchdog) | crontab -");
 
             // Remove service files and monitor directory
             await RunCommandAsync("rm -rf /data/sqm-monitor");
@@ -653,6 +657,10 @@ WantedBy=multi-user.target
                 await RunCommandAsync(
                     "systemctl stop sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null; " +
                     "systemctl disable sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null");
+
+                // Remove watchdog cron entry
+                await RunCommandAsync(
+                    "(crontab -l 2>/dev/null | grep -v sqm-watchdog) | crontab -");
 
                 steps.Add("Removing SQM Monitor...");
                 await RunCommandAsync(
@@ -1341,37 +1349,19 @@ WantedBy=multi-user.target
         sb.AppendLine();
         sb.AppendLine("chmod +x \"$SQM_MONITOR_DIR/sqm-watchdog.sh\"");
         sb.AppendLine();
-        sb.AppendLine("# Create systemd timer for watchdog (runs every minute)");
-        sb.AppendLine("cat > /etc/systemd/system/sqm-monitor-watchdog.timer << 'TIMER_EOF'");
-        sb.AppendLine("[Unit]");
-        sb.AppendLine("Description=SQM Monitor Watchdog Timer");
-        sb.AppendLine();
-        sb.AppendLine("[Timer]");
-        sb.AppendLine("OnBootSec=2min");
-        sb.AppendLine("OnUnitActiveSec=1min");
-        sb.AppendLine("AccuracySec=30s");
-        sb.AppendLine();
-        sb.AppendLine("[Install]");
-        sb.AppendLine("WantedBy=timers.target");
-        sb.AppendLine("TIMER_EOF");
-        sb.AppendLine();
-        sb.AppendLine("# Create systemd service for watchdog");
-        sb.AppendLine("cat > /etc/systemd/system/sqm-monitor-watchdog.service << 'WATCHDOG_SVC_EOF'");
-        sb.AppendLine("[Unit]");
-        sb.AppendLine("Description=SQM Monitor Watchdog Health Check");
-        sb.AppendLine();
-        sb.AppendLine("[Service]");
-        sb.AppendLine("Type=oneshot");
-        sb.AppendLine("ExecStart=/data/sqm-monitor/sqm-watchdog.sh");
-        sb.AppendLine("WATCHDOG_SVC_EOF");
-        sb.AppendLine();
+        sb.AppendLine("# Clean up legacy systemd watchdog timer/service (replaced by cron)");
+        sb.AppendLine("if systemctl is-active sqm-monitor-watchdog.timer >/dev/null 2>&1; then");
+        sb.AppendLine("    systemctl stop sqm-monitor-watchdog.timer 2>/dev/null");
+        sb.AppendLine("    systemctl disable sqm-monitor-watchdog.timer 2>/dev/null");
+        sb.AppendLine("fi");
+        sb.AppendLine("rm -f /etc/systemd/system/sqm-monitor-watchdog.timer /etc/systemd/system/sqm-monitor-watchdog.service");
         sb.AppendLine("systemctl daemon-reload");
+        sb.AppendLine();
         sb.AppendLine("systemctl enable \"$SERVICE_NAME\"");
         sb.AppendLine("systemctl restart \"$SERVICE_NAME\"");
         sb.AppendLine();
-        sb.AppendLine("# Enable and start the watchdog timer");
-        sb.AppendLine("systemctl enable sqm-monitor-watchdog.timer");
-        sb.AppendLine("systemctl start sqm-monitor-watchdog.timer");
+        sb.AppendLine("# Install watchdog cron job (every minute, silent on success)");
+        sb.AppendLine("(crontab -l 2>/dev/null | grep -v sqm-watchdog; echo '* * * * * /data/sqm-monitor/sqm-watchdog.sh') | crontab -");
         sb.AppendLine();
         sb.AppendLine("if systemctl is-active --quiet \"$SERVICE_NAME\"; then");
         sb.AppendLine("    echo \"$(date): SQM Monitor started on port $PORT with watchdog\" >> \"$LOG_FILE\"");
