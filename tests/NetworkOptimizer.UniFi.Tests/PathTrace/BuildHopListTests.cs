@@ -903,4 +903,222 @@ public class BuildHopListTests
     }
 
     #endregion
+
+    #region Scenario 10: Mid-path bottleneck with faster links on both sides
+
+    [Fact]
+    public void MidPathBottleneck_10G_10G_1G_10G_5G()
+    {
+        // Topology: Client(10G) -> AccessSwitch(10G up) -> DistSwitch(1G up!) -> CoreSwitch(10G up) -> Gateway
+        // Server on CoreSwitch at 5G port
+        // The 1G link between Dist and Core is the bottleneck, sandwiched by faster links
+        var builder = new TopologyBuilder()
+            .WithGateway("aa:bb:cc:00:00:01", "Gateway", wanPortIdx: 1, wanSpeed: 1000)
+            .WithSwitch("aa:bb:cc:00:00:10", "Core Switch",
+                uplinkTo: "aa:bb:cc:00:00:01", uplinkRemotePort: 6, localUplinkPort: 9,
+                ports: new[] { (1, 1000), (5, 5000), (6, 10000), (9, 10000) })
+            .WithSwitch("aa:bb:cc:00:00:11", "Distribution Switch",
+                uplinkTo: "aa:bb:cc:00:00:10", uplinkRemotePort: 1, localUplinkPort: 8,
+                ports: new[] { (1, 10000), (8, 1000) })  // 1G uplink to Core - the bottleneck
+            .WithSwitch("aa:bb:cc:00:00:12", "Access Switch",
+                uplinkTo: "aa:bb:cc:00:00:11", uplinkRemotePort: 1, localUplinkPort: 4,
+                ports: new[] { (1, 10000), (3, 10000), (4, 10000) })
+            .WithWiredClient("aa:bb:cc:00:01:01", "192.0.2.100",
+                connectedTo: "aa:bb:cc:00:00:12", port: 3, network: "net1")
+            .WithNetwork("net1", "Main", purpose: "corporate", subnet: "192.0.2.0/24")
+            .WithServer("192.0.2.200", connectedTo: "aa:bb:cc:00:00:10", port: 5, network: "net1");
+
+        var path = new NetworkPath { DestinationHost = "192.0.2.100" };
+        _analyzer.BuildHopList(path, builder.BuildServerPosition(),
+            null, builder.GetClient("aa:bb:cc:00:01:01"),
+            builder.BuildTopology(), builder.BuildRawDevices());
+
+        // Should have: Client -> AccessSwitch -> DistSwitch -> CoreSwitch -> Server
+        path.Hops.Count.Should().BeGreaterThanOrEqualTo(4);
+
+        // Find the Distribution Switch hop - its egress (toward Core) should be 1G
+        var distHop = path.Hops.FirstOrDefault(h => h.DeviceName == "Distribution Switch");
+        distHop.Should().NotBeNull();
+        distHop!.EgressSpeedMbps.Should().Be(1000, "1G uplink from Distribution to Core is the bottleneck");
+
+        // Access Switch egress (toward Dist) should be 10G
+        var accessHop = path.Hops.FirstOrDefault(h => h.DeviceName == "Access Switch");
+        accessHop.Should().NotBeNull();
+        accessHop!.EgressSpeedMbps.Should().Be(10000, "10G link from Access to Distribution");
+
+        // Core Switch egress to server should be 5G
+        var coreHop = path.Hops.FirstOrDefault(h => h.DeviceName == "Core Switch");
+        coreHop.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void MidPathBottleneck_2500G_Sandwiched_By_10G()
+    {
+        // Topology: Client(1G) -> Switch A(10G up) -> Switch B(2.5G up!) -> Switch C(10G up) -> Gateway
+        // Server on Switch C at 10G port
+        // 2.5G link in the middle, 10G on both sides, 1G at client edge
+        var builder = new TopologyBuilder()
+            .WithGateway("aa:bb:cc:00:00:01", "Gateway", wanPortIdx: 1, wanSpeed: 1000)
+            .WithSwitch("aa:bb:cc:00:00:10", "Switch C",
+                uplinkTo: "aa:bb:cc:00:00:01", uplinkRemotePort: 6, localUplinkPort: 9,
+                ports: new[] { (1, 2500), (3, 10000), (6, 10000), (9, 10000) })
+            .WithSwitch("aa:bb:cc:00:00:11", "Switch B",
+                uplinkTo: "aa:bb:cc:00:00:10", uplinkRemotePort: 1, localUplinkPort: 8,
+                ports: new[] { (1, 10000), (8, 2500) })  // 2.5G uplink - mid-path bottleneck
+            .WithSwitch("aa:bb:cc:00:00:12", "Switch A",
+                uplinkTo: "aa:bb:cc:00:00:11", uplinkRemotePort: 1, localUplinkPort: 4,
+                ports: new[] { (1, 1000), (4, 10000) })
+            .WithWiredClient("aa:bb:cc:00:01:01", "192.0.2.100",
+                connectedTo: "aa:bb:cc:00:00:12", port: 1, network: "net1")
+            .WithNetwork("net1", "Main", purpose: "corporate", subnet: "192.0.2.0/24")
+            .WithServer("192.0.2.200", connectedTo: "aa:bb:cc:00:00:10", port: 3, network: "net1");
+
+        var path = new NetworkPath { DestinationHost = "192.0.2.100" };
+        _analyzer.BuildHopList(path, builder.BuildServerPosition(),
+            null, builder.GetClient("aa:bb:cc:00:01:01"),
+            builder.BuildTopology(), builder.BuildRawDevices());
+
+        // Switch B egress should be 2.5G (the mid-path bottleneck)
+        var switchB = path.Hops.FirstOrDefault(h => h.DeviceName == "Switch B");
+        switchB.Should().NotBeNull();
+        switchB!.EgressSpeedMbps.Should().Be(2500, "2.5G uplink from Switch B to Switch C");
+
+        // Switch B ingress (from Switch A) should be 10G
+        switchB.IngressSpeedMbps.Should().Be(10000, "10G link from Switch A to Switch B");
+
+        // Switch A egress (toward Switch B) should be 10G
+        var switchA = path.Hops.FirstOrDefault(h => h.DeviceName == "Switch A");
+        switchA.Should().NotBeNull();
+        switchA!.EgressSpeedMbps.Should().Be(10000, "10G link from Switch A to Switch B");
+
+        // Client edge is 1G
+        var clientHop = path.Hops.First(h => h.Type == HopType.Client);
+        clientHop.EgressSpeedMbps.Should().Be(1000, "1G client port");
+    }
+
+    [Fact]
+    public void MidPathBottleneck_InterVlan_1G_Between_10G()
+    {
+        // Inter-VLAN: Client(VLAN 150) -> Switch A(10G) -> Switch B(1G up!) -> Gateway(routes) -> Switch B -> Switch C(10G) -> Server(VLAN 1)
+        // 1G bottleneck between Switch B and Gateway
+        var builder = new TopologyBuilder()
+            .WithGateway("aa:bb:cc:00:00:01", "Gateway", wanPortIdx: 1, wanSpeed: 1000)
+            .WithSwitch("aa:bb:cc:00:00:10", "Switch C",
+                uplinkTo: "aa:bb:cc:00:00:01", uplinkRemotePort: 6, localUplinkPort: 9,
+                ports: new[] { (1, 10000), (3, 10000), (6, 10000), (9, 10000) })
+            .WithSwitch("aa:bb:cc:00:00:11", "Switch B",
+                uplinkTo: "aa:bb:cc:00:00:01", uplinkRemotePort: 7, localUplinkPort: 8,
+                ports: new[] { (1, 10000), (8, 1000) })  // 1G uplink to gateway!
+            .WithSwitch("aa:bb:cc:00:00:12", "Switch A",
+                uplinkTo: "aa:bb:cc:00:00:11", uplinkRemotePort: 1, localUplinkPort: 4,
+                ports: new[] { (1, 10000), (3, 10000), (4, 10000) })
+            .WithWiredClient("aa:bb:cc:00:01:01", "198.51.100.50",
+                connectedTo: "aa:bb:cc:00:00:12", port: 3, network: "mgmt-net", vlan: 150)
+            .WithNetwork("net1", "Main", purpose: "corporate", subnet: "192.0.2.0/24")
+            .WithNetwork("mgmt-net", "Management", purpose: "corporate", vlan: 150, subnet: "198.51.100.0/24")
+            .WithServer("192.0.2.200", connectedTo: "aa:bb:cc:00:00:10", port: 3, network: "net1");
+
+        var path = new NetworkPath { DestinationHost = "198.51.100.50" };
+        path.SourceVlanId = null;
+        path.SourceNetworkName = "Main";
+        path.DestinationVlanId = 150;
+        path.DestinationNetworkName = "Management";
+        path.RequiresRouting = true;
+
+        _analyzer.BuildHopList(path, builder.BuildServerPosition(),
+            null, builder.GetClient("aa:bb:cc:00:01:01"),
+            builder.BuildTopology(), builder.BuildRawDevices());
+
+        path.RequiresRouting.Should().BeTrue();
+
+        // Switch B's egress toward gateway should be 1G (the bottleneck)
+        var switchBHops = path.Hops.Where(h => h.DeviceName == "Switch B").ToList();
+        switchBHops.Should().NotBeEmpty();
+        var switchBUp = switchBHops.First(); // Going up toward gateway
+        switchBUp.EgressSpeedMbps.Should().Be(1000, "1G uplink from Switch B to Gateway is the bottleneck");
+
+        // Gateway hop should exist with routing note
+        var gwHop = path.Hops.FirstOrDefault(h => h.Type == HopType.Gateway);
+        gwHop.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void MidPathBottleneck_GatewayTarget_1G_Between_10G()
+    {
+        // Gateway test: Server(10G) -> Core Switch(10G) -> Dist Switch(1G up!) -> Gateway(target)
+        // 1G bottleneck at Dist Switch uplink, with 10G on both sides
+        var builder = new TopologyBuilder()
+            .WithGateway("aa:bb:cc:00:00:01", "Gateway", wanPortIdx: 1, wanSpeed: 5000,
+                lanPorts: new[] { (6, 10000), (7, 1000) })
+            .WithSwitch("aa:bb:cc:00:00:10", "Core Switch",
+                uplinkTo: "aa:bb:cc:00:00:01", uplinkRemotePort: 6, localUplinkPort: 9,
+                ports: new[] { (1, 10000), (3, 10000), (9, 10000) })
+            .WithSwitch("aa:bb:cc:00:00:11", "Dist Switch",
+                uplinkTo: "aa:bb:cc:00:00:01", uplinkRemotePort: 7, localUplinkPort: 8,
+                ports: new[] { (1, 10000), (8, 1000) })  // 1G uplink to gateway
+            .WithSwitch("aa:bb:cc:00:00:12", "Access Switch",
+                uplinkTo: "aa:bb:cc:00:00:11", uplinkRemotePort: 1, localUplinkPort: 4,
+                ports: new[] { (1, 10000), (3, 10000), (4, 10000) })
+            .WithNetwork("net1", "Main", purpose: "corporate", subnet: "192.0.2.0/24")
+            .WithServer("192.0.2.200", connectedTo: "aa:bb:cc:00:00:10", port: 3, network: "net1");
+
+        // Target is the gateway itself
+        var gateway = builder.GetDevice("aa:bb:cc:00:00:01");
+        var path = new NetworkPath { DestinationHost = "192.0.2.1" };
+        path.TargetIsGateway = true;
+
+        _analyzer.BuildHopList(path, builder.BuildServerPosition(),
+            gateway, null,
+            builder.BuildTopology(), builder.BuildRawDevices());
+
+        // Gateway hop should NOT have 5G WAN speed
+        var gwHop = path.Hops.FirstOrDefault(h => h.Type == HopType.Gateway);
+        gwHop.Should().NotBeNull();
+        gwHop!.IngressSpeedMbps.Should().NotBe(5000, "gateway ingress must not use WAN port speed");
+    }
+
+    [Fact]
+    public void MidPathBottleneck_DirectServerToClient_NoRouting()
+    {
+        // Same VLAN, no routing: Server(10G) -> Core(10G) -> Dist(1G up!) -> Access(10G) -> Client(10G)
+        // 1G bottleneck at Dist Switch uplink, everything else 10G, same VLAN
+        var builder = new TopologyBuilder()
+            .WithGateway("aa:bb:cc:00:00:01", "Gateway", wanPortIdx: 1, wanSpeed: 1000)
+            .WithSwitch("aa:bb:cc:00:00:10", "Core Switch",
+                uplinkTo: "aa:bb:cc:00:00:01", uplinkRemotePort: 6, localUplinkPort: 9,
+                ports: new[] { (1, 1000), (3, 10000), (6, 10000), (9, 10000) })
+            .WithSwitch("aa:bb:cc:00:00:11", "Dist Switch",
+                uplinkTo: "aa:bb:cc:00:00:10", uplinkRemotePort: 1, localUplinkPort: 8,
+                ports: new[] { (1, 10000), (8, 1000) })  // 1G uplink to Core
+            .WithSwitch("aa:bb:cc:00:00:12", "Access Switch",
+                uplinkTo: "aa:bb:cc:00:00:11", uplinkRemotePort: 1, localUplinkPort: 4,
+                ports: new[] { (1, 10000), (3, 10000), (4, 10000) })
+            .WithWiredClient("aa:bb:cc:00:01:01", "192.0.2.100",
+                connectedTo: "aa:bb:cc:00:00:12", port: 3, network: "net1")
+            .WithNetwork("net1", "Main", purpose: "corporate", subnet: "192.0.2.0/24")
+            .WithServer("192.0.2.200", connectedTo: "aa:bb:cc:00:00:10", port: 3, network: "net1");
+
+        var path = new NetworkPath { DestinationHost = "192.0.2.100" };
+        _analyzer.BuildHopList(path, builder.BuildServerPosition(),
+            null, builder.GetClient("aa:bb:cc:00:01:01"),
+            builder.BuildTopology(), builder.BuildRawDevices());
+
+        path.RequiresRouting.Should().BeFalse();
+
+        // Dist Switch egress toward Core should be 1G bottleneck
+        var distHop = path.Hops.FirstOrDefault(h => h.DeviceName == "Dist Switch");
+        distHop.Should().NotBeNull();
+        distHop!.EgressSpeedMbps.Should().Be(1000, "1G uplink from Dist to Core is the mid-path bottleneck");
+
+        // Access Switch ingress from client side should be 10G
+        var accessHop = path.Hops.FirstOrDefault(h => h.DeviceName == "Access Switch");
+        accessHop.Should().NotBeNull();
+        accessHop!.IngressSpeedMbps.Should().Be(10000);
+
+        // No gateway hop in path (same VLAN, should stop at common ancestor)
+        path.Hops.Should().NotContain(h => h.Type == HopType.Gateway,
+            "same-VLAN traffic should not traverse the gateway");
+    }
+
+    #endregion
 }
