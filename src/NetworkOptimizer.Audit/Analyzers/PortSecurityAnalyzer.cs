@@ -730,7 +730,7 @@ public class PortSecurityAnalyzer
                 // Log SFP+ port state for diagnostics (these ports have known API quirks)
                 if (port.Name?.Contains("SFP", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    _logger.LogInformation("SFP port state: {Switch} port {Port} '{Name}': up={Up}, enabled={Enabled}, forward={Forward}, isUplink={Uplink}, isWan={Wan}, native={Native}, macRestricted={MacRestricted}, portSecurity={PortSec}, connectedDevice={Device}",
+                    _logger.LogDebug("SFP port state: {Switch} port {Port} '{Name}': up={Up}, enabled={Enabled}, forward={Forward}, isUplink={Uplink}, isWan={Wan}, native={Native}, macRestricted={MacRestricted}, portSecurity={PortSec}, connectedDevice={Device}",
                         switchInfo.Name, port.PortIndex, port.Name, port.IsUp, port.IsEnabled, port.ForwardMode,
                         port.IsUplink, port.IsWan, port.NativeNetworkId ?? "none",
                         port.AllowedMacAddresses?.Any() ?? false, port.PortSecurityEnabled, port.ConnectedDeviceType ?? "none");
