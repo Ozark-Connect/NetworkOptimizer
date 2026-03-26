@@ -92,6 +92,24 @@ public class NetworkHop
     /// <summary>RX rate in Mbps for wireless link (from uplink to device)</summary>
     public int? WirelessRxRateMbps { get; set; }
 
+    /// <summary>Whether the ingress port is part of a Link Aggregation Group</summary>
+    public bool IsLagIngress { get; set; }
+
+    /// <summary>Whether the egress port is part of a Link Aggregation Group</summary>
+    public bool IsLagEgress { get; set; }
+
+    /// <summary>Number of member ports in the LAG group (ingress side). Null if not LAG.</summary>
+    public int? LagIngressMemberCount { get; set; }
+
+    /// <summary>Number of member ports in the LAG group (egress side). Null if not LAG.</summary>
+    public int? LagEgressMemberCount { get; set; }
+
+    /// <summary>Per-member speed in the LAG group (ingress side, Mbps). Null if not LAG.</summary>
+    public int? LagIngressMemberSpeedMbps { get; set; }
+
+    /// <summary>Per-member speed in the LAG group (egress side, Mbps). Null if not LAG.</summary>
+    public int? LagEgressMemberSpeedMbps { get; set; }
+
     /// <summary>Additional notes (e.g., "L3 routing", "Wireless uplink")</summary>
     public string? Notes { get; set; }
 }

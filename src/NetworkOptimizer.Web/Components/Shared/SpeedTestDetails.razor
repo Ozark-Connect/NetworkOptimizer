@@ -887,17 +887,31 @@
         if (isWirelessLink)
             return GetWifiTooltip(hop, nextHop, isBottleneckLink);
 
+        var parts = new List<string>();
+
+        // LAG info - check egress of current hop or ingress of next hop
+        var lagMemberCount = hop.LagEgressMemberCount ?? nextHop.LagIngressMemberCount;
+        var lagMemberSpeed = hop.LagEgressMemberSpeedMbps ?? nextHop.LagIngressMemberSpeedMbps;
+        if (lagMemberCount.HasValue && lagMemberSpeed.HasValue)
+        {
+            var memberSpeedStr = lagMemberSpeed.Value >= 1000
+                ? $"{lagMemberSpeed.Value / 1000.0:G} Gbps"
+                : $"{lagMemberSpeed.Value} Mbps";
+            parts.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Link Aggregation:</span> {lagMemberCount.Value}x {memberSpeedStr}</div>");
+        }
+
+        // SQM info for WAN links
         var wanHop = hop.Type == HopType.Wan ? hop : (nextHop.Type == HopType.Wan ? nextHop : null);
         if (wanHop?.SmartQueueEnabled.HasValue == true)
         {
             var sqmStatus = wanHop.SmartQueueEnabled!.Value ? "Enabled" : "Disabled";
-            var sqmLine = $"<div class='device-tooltip-row'><span class='device-tooltip-label'>Smart Queues:</span> {sqmStatus}</div>";
-            if (isBottleneckLink)
-                return sqmLine + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>";
-            return sqmLine;
+            parts.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Smart Queues:</span> {sqmStatus}</div>");
         }
 
-        return isBottleneckLink ? "Bottleneck: slowest link in path" : null;
+        if (isBottleneckLink)
+            parts.Add("<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>");
+
+        return parts.Count > 0 ? string.Join("", parts) : null;
     }
 
     /// <summary>
