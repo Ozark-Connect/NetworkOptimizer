@@ -505,6 +505,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Enrich hops with device settings (jumbo frames, flow control, HW accel)
             await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
 
+            // Annotate LAG membership on hop ports
+            AnnotateLagMembership(path.Hops, rawDevices);
+
             // Calculate bottleneck
             CalculateBottleneck(path);
 
@@ -596,6 +599,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             // Enrich hops with device settings (jumbo frames, flow control, HW accel)
             await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+
+            // Annotate LAG membership on hop ports
+            AnnotateLagMembership(path.Hops, rawDevices);
 
             CalculateBottleneck(path);
 
@@ -794,7 +800,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
                 {
                     deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                    if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue)
+                    // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                    if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue
+                        && targetDevice.Type != DeviceType.Gateway)
                     {
                         deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, targetDevice.Mac, targetDevice.LocalUplinkPort);
                     }
@@ -867,8 +875,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.EgressPort = device.UplinkPort;
                         hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
                         // If upstream device has no port table (e.g., AP with empty port_table),
-                        // fall back to local device's uplink port speed (same physical link, same negotiated speed)
-                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue)
+                        // fall back to local device's uplink port speed (same physical link, same negotiated speed).
+                        // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue && !isGateway)
                         {
                             hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                         }
@@ -902,6 +911,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             // Enrich hops with device settings
             await EnrichDeviceSettingsAsync(path.Hops, rawDevices, cancellationToken);
+
+            // Annotate LAG membership on hop ports
+            AnnotateLagMembership(path.Hops, rawDevices);
 
             // Calculate bottleneck
             CalculateBottleneck(path);
@@ -1294,6 +1306,78 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     }
 
     /// <summary>
+    /// Annotate hops with LAG membership info by checking each hop's ingress/egress ports
+    /// against the device port tables. Purely additive - only sets new LAG fields, never
+    /// modifies existing hop data.
+    /// </summary>
+    private void AnnotateLagMembership(List<NetworkHop> hops, Dictionary<string, UniFiDeviceResponse> rawDevices)
+    {
+        foreach (var hop in hops)
+        {
+            if (string.IsNullOrEmpty(hop.DeviceMac) || !rawDevices.TryGetValue(hop.DeviceMac, out var device))
+                continue;
+
+            if (device.PortTable == null || device.PortTable.Count == 0)
+                continue;
+
+            // Check ingress port for LAG
+            if (hop.IngressPort.HasValue)
+            {
+                var lagInfo = GetLagMemberInfo(device.PortTable, hop.IngressPort.Value);
+                if (lagInfo.HasValue)
+                {
+                    hop.IsLagIngress = true;
+                    hop.LagIngressMemberCount = lagInfo.Value.MemberCount;
+                    hop.LagIngressMemberSpeedMbps = lagInfo.Value.MemberSpeedMbps;
+                }
+            }
+
+            // Check egress port for LAG
+            if (hop.EgressPort.HasValue)
+            {
+                var lagInfo = GetLagMemberInfo(device.PortTable, hop.EgressPort.Value);
+                if (lagInfo.HasValue)
+                {
+                    hop.IsLagEgress = true;
+                    hop.LagEgressMemberCount = lagInfo.Value.MemberCount;
+                    hop.LagEgressMemberSpeedMbps = lagInfo.Value.MemberSpeedMbps;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns LAG member info for a port if it's part of a LAG group.
+    /// </summary>
+    private static (int MemberCount, int MemberSpeedMbps)? GetLagMemberInfo(List<SwitchPort> portTable, int portIdx)
+    {
+        var port = portTable.FirstOrDefault(p => p.PortIdx == portIdx);
+        if (port == null)
+            return null;
+
+        // Port is a LAG child
+        if (port.AggregatedBy.HasValue)
+        {
+            var parent = portTable.FirstOrDefault(p => p.PortIdx == port.AggregatedBy.Value);
+            var siblings = portTable.Where(p => p.AggregatedBy == port.AggregatedBy.Value).ToList();
+            var memberCount = siblings.Count + (parent != null ? 1 : 0);
+            var memberSpeed = parent?.Speed ?? siblings.FirstOrDefault(s => s.Up)?.Speed ?? 0;
+            return memberCount > 1 ? (memberCount, memberSpeed) : null;
+        }
+
+        // Port is a LAG parent
+        var children = portTable.Where(p => p.AggregatedBy == portIdx).ToList();
+        if (children.Count > 0)
+        {
+            var memberCount = children.Count + 1; // parent + children
+            var memberSpeed = port.Speed;
+            return (memberCount, memberSpeed);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Gets the port speed for a specific port on a device.
     /// Returns the LAG aggregate speed when the port is part of a Link Aggregation Group.
     /// </summary>
@@ -1637,8 +1721,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // Wired uplink - get port speed from upstream switch
                 deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 // If upstream device has no port table (e.g., AP with empty port_table),
-                // fall back to local device's uplink port speed (same physical link, same negotiated speed)
-                if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue)
+                // fall back to local device's uplink port speed (same physical link, same negotiated speed).
+                // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                if (deviceHop.IngressSpeedMbps == 0 && targetDevice.LocalUplinkPort.HasValue
+                    && targetDevice.Type != DeviceType.Gateway)
                 {
                     deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, targetDevice.Mac, targetDevice.LocalUplinkPort);
                 }
@@ -1993,8 +2079,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.EgressPort = device.UplinkPort;
                         hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
                         // If upstream device has no port table (e.g., AP with empty port_table),
-                        // fall back to local device's uplink port speed (same physical link, same negotiated speed)
-                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue)
+                        // fall back to local device's uplink port speed (same physical link, same negotiated speed).
+                        // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
+                        if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue && !isGateway)
                         {
                             hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                         }
