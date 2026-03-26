@@ -568,8 +568,9 @@ update_all_tc_classes() {
         prio=$(echo ""$line"" | grep -o ""prio [0-9]*"" | awk '{print $2}')
         rate=$(echo ""$line"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
 
-        # Skip classes with rate > 64bit (UniFi-configured classes)
-        if [ ""$rate"" != ""64bit"" ]; then
+        # Skip classes with a real guaranteed rate (UniFi-configured classes).
+        # Match 64bit (stock UniFi) and 100Kbit (after our update) as best-effort markers.
+        if [ ""$rate"" != ""64bit"" ] && [ ""$rate"" != ""100Kbit"" ]; then
             continue
         fi
 
@@ -585,9 +586,9 @@ update_all_tc_classes() {
             fi
 
             if [ -n ""$prio"" ]; then
-                tc class change dev $device parent 1:1 classid $classid htb rate 64bit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b prio $prio
+                tc class change dev $device parent 1:1 classid $classid htb rate 100kbit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b prio $prio
             else
-                tc class change dev $device parent 1:1 classid $classid htb rate 64bit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b
+                tc class change dev $device parent 1:1 classid $classid htb rate 100kbit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b
             fi
         fi
     done

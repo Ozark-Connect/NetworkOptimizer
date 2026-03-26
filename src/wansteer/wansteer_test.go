@@ -639,3 +639,22 @@ func TestBuildStatus_PopulatesFields(t *testing.T) {
 		t.Errorf("expected 2 WAN health entries, got %d", len(status.WANHealth))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SFE flush
+// ---------------------------------------------------------------------------
+
+func TestFlushSFE_NoSysfs(t *testing.T) {
+	// flushSFE should not panic or error when /sys/sfe_ipv4/flush doesn't exist.
+	// On non-gateway hosts (dev machines, CI), the sysfs paths won't exist and
+	// the function should silently skip them.
+	flushSFE() // must not panic
+}
+
+func TestFlushSFE_Idempotent(t *testing.T) {
+	// Calling flushSFE multiple times should be safe (e.g. when
+	// flushAllSteeredConntrack calls flushConntrackForMark per-WAN).
+	flushSFE()
+	flushSFE()
+	// No panic, no error - global SFE flush is idempotent
+}
