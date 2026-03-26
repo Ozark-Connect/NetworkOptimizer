@@ -825,25 +825,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 bool isWirelessUplink = device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
                     && device.UplinkSpeedMbps > 0;
 
-                // --- DIAGNOSTIC: Log everything about this hop's resolution ---
-                _logger.LogDebug(
-                    "HOP {Order} chain walk: device={Name} ({Type}), currentMac={CurMac}, currentPort={CurPort}, " +
-                    "UplinkMac={UplinkMac}, UplinkPort={UplinkPort}, LocalUplinkPort={LocalPort}, UplinkSpeedMbps={UplinkSpeed}, " +
-                    "isGateway={IsGw}, isWirelessUplink={IsWifi}",
-                    hopOrder, device.Name, device.Type, currentMac, currentPort,
-                    device.UplinkMac ?? "null", device.UplinkPort?.ToString() ?? "null",
-                    device.LocalUplinkPort?.ToString() ?? "null", device.UplinkSpeedMbps,
-                    isGateway, isWirelessUplink);
-
                 int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                _logger.LogDebug("  Ingress: GetPortSpeed({Mac}, port {Port}) = {Speed} Mbps",
-                    currentMac, currentPort, ingressSpeed);
-
                 // If this device has no port table (e.g., AP with empty port_table),
                 // use the previous hop's egress speed (same physical link, same negotiated speed)
                 if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0)
                 {
-                    _logger.LogDebug("  Ingress fallback: using previous hop egress = {Speed} Mbps", hops[^1].EgressSpeedMbps);
                     ingressSpeed = hops[^1].EgressSpeedMbps;
                 }
                 string? ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
@@ -866,7 +852,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 {
                     // Gateway is the end of the path - no egress needed
                     hop.Notes = "Gateway";
-                    _logger.LogDebug("  Gateway reached: no egress, ingressSpeed={Speed}", ingressSpeed);
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
@@ -884,38 +869,27 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         var uplinkRx = FilterIdleRate(device.UplinkRxRateKbps);
                         hop.WirelessTxRateMbps = uplinkTx > 0 ? (int)(uplinkTx / 1000) : null;
                         hop.WirelessRxRateMbps = uplinkRx > 0 ? (int)(uplinkRx / 1000) : null;
-                        _logger.LogDebug("  Egress (wireless): UplinkSpeedMbps={Speed}", device.UplinkSpeedMbps);
                     }
                     else
                     {
                         hop.EgressPort = device.UplinkPort;
                         hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
-                        _logger.LogDebug("  Egress: GetPortSpeed({Mac}, port {Port}) = {Speed} Mbps",
-                            device.UplinkMac, device.UplinkPort, hop.EgressSpeedMbps);
                         // If upstream device has no port table (e.g., AP with empty port_table),
                         // fall back to local device's uplink port speed (same physical link, same negotiated speed).
                         // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
                         if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue && !isGateway)
                         {
-                            var fallbackSpeed = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
-                            _logger.LogDebug("  Egress fallback: GetPortSpeed({Mac}, localPort {Port}) = {Speed} Mbps",
-                                device.Mac, device.LocalUplinkPort, fallbackSpeed);
-                            hop.EgressSpeedMbps = fallbackSpeed;
+                            hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                         }
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
                     }
                 }
-
-                _logger.LogDebug("  RESULT hop {Order} {Name}: ingress={Ingress} Mbps (port {IPort}), egress={Egress} Mbps (port {EPort})",
-                    hopOrder, device.Name, hop.IngressSpeedMbps, hop.IngressPort, hop.EgressSpeedMbps, hop.EgressPort);
 
                 hops.Add(hop);
 
                 if (isGateway)
                     break;
 
-                _logger.LogDebug("  Next: currentMac={Mac} (UplinkMac), currentPort={Port} (UplinkPort)",
-                    device.UplinkMac, device.UplinkPort);
                 currentMac = device.UplinkMac;
                 currentPort = device.UplinkPort;
                 hopOrder++;
@@ -1746,10 +1720,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 // Wired uplink - get port speed from upstream switch
                 deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                _logger.LogDebug("BuildHopList target device {Name}: GetPortSpeed(uplinkMac={Mac}, uplinkPort={Port}) = {Speed} Mbps, " +
-                    "LocalUplinkPort={LocalPort}, isGateway={IsGw}",
-                    targetDevice.Name, currentMac, currentPort, deviceHop.IngressSpeedMbps,
-                    targetDevice.LocalUplinkPort?.ToString() ?? "null", targetDevice.Type == DeviceType.Gateway);
                 // If upstream device has no port table (e.g., AP with empty port_table),
                 // fall back to local device's uplink port speed (same physical link, same negotiated speed).
                 // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
@@ -1757,8 +1727,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     && targetDevice.Type != DeviceType.Gateway)
                 {
                     deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, targetDevice.Mac, targetDevice.LocalUplinkPort);
-                    _logger.LogDebug("BuildHopList target fallback: GetPortSpeed({Mac}, localPort {Port}) = {Speed} Mbps",
-                        targetDevice.Mac, targetDevice.LocalUplinkPort, deviceHop.IngressSpeedMbps);
                 }
                 deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
             }
@@ -2035,26 +2003,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 bool isWirelessUplink = device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
                     && device.UplinkSpeedMbps > 0;
 
-                // --- DIAGNOSTIC: Log everything about this hop's resolution ---
-                _logger.LogDebug(
-                    "HOP {Order} chain walk (path2): device={Name} ({Type}), currentMac={CurMac}, currentPort={CurPort}, " +
-                    "UplinkMac={UplinkMac}, UplinkPort={UplinkPort}, LocalUplinkPort={LocalPort}, UplinkSpeedMbps={UplinkSpeed}, " +
-                    "isGateway={IsGw}, isWirelessUplink={IsWifi}, stopAtServer={StopServer}, stopAtAncestor={StopAnc}",
-                    hopOrder, device.Name, device.Type, currentMac, currentPort,
-                    device.UplinkMac ?? "null", device.UplinkPort?.ToString() ?? "null",
-                    device.LocalUplinkPort?.ToString() ?? "null", device.UplinkSpeedMbps,
-                    isGateway, isWirelessUplink, stopAtServerSwitch, stopAtCommonAncestor);
-
                 // Ingress speed comes from the port/connection from the PREVIOUS hop, not this device's uplink
                 // For APs after a wireless client, ingress is the client's wireless connection (handled by client hop's egress)
                 int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                _logger.LogDebug("  Ingress (path2): GetPortSpeed({Mac}, port {Port}) = {Speed} Mbps",
-                    currentMac, currentPort, ingressSpeed);
                 // If this device has no port table (e.g., AP with empty port_table),
                 // use the previous hop's egress speed (same physical link, same negotiated speed)
                 if (ingressSpeed == 0 && hops.Count > 0 && hops[^1].EgressSpeedMbps > 0)
                 {
-                    _logger.LogDebug("  Ingress fallback (path2): using previous hop egress = {Speed} Mbps", hops[^1].EgressSpeedMbps);
                     ingressSpeed = hops[^1].EgressSpeedMbps;
                 }
                 string? ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
@@ -2123,24 +2078,16 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     {
                         hop.EgressPort = device.UplinkPort;
                         hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
-                        _logger.LogDebug("  Egress (path2): GetPortSpeed({Mac}, port {Port}) = {Speed} Mbps",
-                            device.UplinkMac, device.UplinkPort, hop.EgressSpeedMbps);
                         // If upstream device has no port table (e.g., AP with empty port_table),
                         // fall back to local device's uplink port speed (same physical link, same negotiated speed).
                         // Skip for gateways: their LocalUplinkPort is the WAN port, not a LAN-side link.
                         if (hop.EgressSpeedMbps == 0 && device.LocalUplinkPort.HasValue && !isGateway)
                         {
-                            var fallbackSpeed = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
-                            _logger.LogDebug("  Egress fallback (path2): GetPortSpeed({Mac}, localPort {Port}) = {Speed} Mbps",
-                                device.Mac, device.LocalUplinkPort, fallbackSpeed);
-                            hop.EgressSpeedMbps = fallbackSpeed;
+                            hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                         }
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
                     }
                 }
-
-                _logger.LogDebug("  RESULT hop {Order} {Name} (path2): ingress={Ingress} Mbps (port {IPort}), egress={Egress} Mbps (port {EPort})",
-                    hopOrder, device.Name, hop.IngressSpeedMbps, hop.IngressPort, hop.EgressSpeedMbps, hop.EgressPort);
 
                 hops.Add(hop);
 
