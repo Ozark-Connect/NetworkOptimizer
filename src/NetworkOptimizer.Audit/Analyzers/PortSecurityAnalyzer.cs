@@ -727,15 +727,6 @@ public class PortSecurityAnalyzer
 
             foreach (var port in switchInfo.Ports)
             {
-                // Log SFP+ port state for diagnostics (these ports have known API quirks)
-                if (port.Name?.Contains("SFP", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    _logger.LogDebug("SFP port state: {Switch} port {Port} '{Name}': up={Up}, enabled={Enabled}, forward={Forward}, isUplink={Uplink}, isWan={Wan}, native={Native}, macRestricted={MacRestricted}, portSecurity={PortSec}, connectedDevice={Device}",
-                        switchInfo.Name, port.PortIndex, port.Name, port.IsUp, port.IsEnabled, port.ForwardMode,
-                        port.IsUplink, port.IsWan, port.NativeNetworkId ?? "none",
-                        port.AllowedMacAddresses?.Any() ?? false, port.PortSecurityEnabled, port.ConnectedDeviceType ?? "none");
-                }
-
                 // Run all enabled rules against this port
                 // LAG child ports are only evaluated by rules that opt in (e.g., unused port detection)
                 foreach (var rule in _rules.Where(r => r.Enabled && (!port.IsLagChild || r.AppliesToLagChildPorts)))
