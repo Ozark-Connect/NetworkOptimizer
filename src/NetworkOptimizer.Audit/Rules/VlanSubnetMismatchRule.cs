@@ -27,10 +27,8 @@ public class VlanSubnetMismatchRule : WirelessAuditRuleBase
         if (!client.Client.VirtualNetworkOverrideEnabled)
             return null;
 
-        // Get client IP - prefer current IP, fall back to fixed IP
-        var clientIp = !string.IsNullOrEmpty(client.Client.Ip)
-            ? client.Client.Ip
-            : client.Client.FixedIp;
+        // Get client IP (ip > last_ip > fixed_ip)
+        var clientIp = client.Client.BestIp;
 
         if (string.IsNullOrEmpty(clientIp))
             return null;
