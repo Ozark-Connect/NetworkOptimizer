@@ -146,7 +146,7 @@ public class UniFiDiscovery
     /// Excludes: UDM-Pro, UDM-SE, UDM-Pro-Max (start with "UDM-"), EFG, EFG-Core (start with "EFG").
     /// Allows: UDM (original Dream Machine), UDR, UX, etc. which have real Wi-Fi.
     /// </summary>
-    private static bool IsGatewayOnlyConsole(DiscoveredDevice device)
+    internal static bool IsGatewayOnlyConsole(DiscoveredDevice device)
     {
         var name = device.FriendlyModelName;
         return name.StartsWith("UDM-", StringComparison.OrdinalIgnoreCase) ||
