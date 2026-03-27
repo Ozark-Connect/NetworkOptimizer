@@ -3631,7 +3631,12 @@ select.form-control {
     }
 }
 
-@media (max-width: 421px) {
+@media (max-width: 460px) {
+    .sponsorship-banner .banner-actions {
+        flex-direction: column;
+        align-items: flex-end;
+    }
+
     .sponsorship-banner .banner-corgi {
         left: 10px;
         right: auto;
