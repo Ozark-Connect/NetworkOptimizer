@@ -2052,8 +2052,8 @@ public class UniFiApiClient : IDisposable
 
         return await _retryPolicy.ExecuteAsync(async () =>
         {
-            // This endpoint requires POST with empty body
-            var content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+            // This endpoint requires POST; pass within=259200 for 72-hour lookback
+            var content = new StringContent("{\"within\":259200}", System.Text.Encoding.UTF8, "application/json");
             var response = await _httpClient!.PostAsync(url, content, cancellationToken);
 
             if (response.IsSuccessStatusCode)

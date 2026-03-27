@@ -96,7 +96,7 @@ public class SiteHealthScorer
 
         if (roamingData != null)
         {
-            stats.TotalRoamsLast24h = roamingData.Edges.Sum(e => e.TotalRoamAttempts);
+            stats.TotalRoamsLast72h = roamingData.Edges.Sum(e => e.TotalRoamAttempts);
             var totalAttempts = roamingData.Edges.Sum(e => e.TotalRoamAttempts);
             var totalSuccess = roamingData.Edges.Sum(e => e.TotalSuccessfulRoams);
             stats.RoamSuccessRate = totalAttempts > 0 ? (double)totalSuccess / totalAttempts * 100 : 100;
@@ -273,7 +273,7 @@ public class SiteHealthScorer
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Total roams (24h)",
+            Name = "Total roams (72h)",
             Value = totalAttempts.ToString(),
             Impact = 0
         });

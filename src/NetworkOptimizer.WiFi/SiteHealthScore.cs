@@ -161,6 +161,6 @@ public class HealthSummaryStats
     public double AvgChannelUtilization2_4GHz { get; set; }
     public double AvgChannelUtilization5GHz { get; set; }
     public double AvgChannelUtilization6GHz { get; set; }
-    public int TotalRoamsLast24h { get; set; }
+    public int TotalRoamsLast72h { get; set; }
     public double RoamSuccessRate { get; set; }
 }
