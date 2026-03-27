@@ -50,8 +50,14 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
         if (imbalance < ImbalanceThreshold)
             return null;
 
-        var maxAp = ctx.AccessPoints.OrderByDescending(a => a.TotalClients).First();
-        var minAp = ctx.AccessPoints.OrderBy(a => a.TotalClients).First();
+        // Stable tie-breaking: when multiple APs have the same client count, use MAC to
+        // guarantee maxAp and minAp are different APs (opposite MAC sort direction).
+        var maxAp = ctx.AccessPoints.OrderByDescending(a => a.TotalClients).ThenBy(a => a.Mac).First();
+        var minAp = ctx.AccessPoints.OrderBy(a => a.TotalClients).ThenByDescending(a => a.Mac).First();
+
+        // Safety: if they resolved to the same AP (e.g., single AP after filtering), bail
+        if (maxAp.Mac.Equals(minAp.Mac, StringComparison.OrdinalIgnoreCase))
+            return null;
 
         // RF distance check: if both APs are placed on the floor plan, use propagation
         // modeling to determine if they're in separate coverage zones. If the APs are
