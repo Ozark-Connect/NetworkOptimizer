@@ -143,14 +143,14 @@ public class UniFiDiscovery
     /// The UniFi API sometimes reports radio_table entries for these devices even though
     /// they have no wireless capability. Uses FriendlyModelName (the UI display name)
     /// as the source of truth rather than trusting API radio data.
-    /// Excludes: UDM-Pro, UDM-SE, UDM-Pro-Max, EFG (all start with "UDM-" or are "EFG").
+    /// Excludes: UDM-Pro, UDM-SE, UDM-Pro-Max (start with "UDM-"), EFG, EFG-Core (start with "EFG").
     /// Allows: UDM (original Dream Machine), UDR, UX, etc. which have real Wi-Fi.
     /// </summary>
     private static bool IsGatewayOnlyConsole(DiscoveredDevice device)
     {
         var name = device.FriendlyModelName;
         return name.StartsWith("UDM-", StringComparison.OrdinalIgnoreCase) ||
-               name.Equals("EFG", StringComparison.OrdinalIgnoreCase);
+               name.StartsWith("EFG", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
