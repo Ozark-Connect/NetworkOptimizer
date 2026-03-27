@@ -126,6 +126,8 @@ public class UniFiDiscovery
     /// Discovers all devices with wireless radios for WiFi Optimizer.
     /// Includes traditional APs (type=uap), UDM/UX mesh APs, and gateway-class devices
     /// (UDR, UX, UDM) that have integrated wireless radios broadcasting Wi-Fi.
+    /// Excludes gateway-only consoles (UDM-Pro, UDM-SE, UDM-Pro-Max, EFG) that report
+    /// radio_table entries in the API but don't actually have Wi-Fi radios.
     /// SmartPower devices (USP-Strip, USP-Plug) are excluded via DeviceType classification.
     /// </summary>
     public async Task<List<DiscoveredDevice>> DiscoverAccessPointsAsync(CancellationToken cancellationToken = default)
@@ -133,7 +135,22 @@ public class UniFiDiscovery
         var devices = await DiscoverDevicesAsync(cancellationToken);
         return devices.Where(d =>
             d.Type == DeviceType.AccessPoint ||
-            (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 })).ToList();
+            (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && !IsGatewayOnlyConsole(d))).ToList();
+    }
+
+    /// <summary>
+    /// Returns true for gateway-class consoles that do NOT have integrated Wi-Fi radios.
+    /// The UniFi API sometimes reports radio_table entries for these devices even though
+    /// they have no wireless capability. Uses FriendlyModelName (the UI display name)
+    /// as the source of truth rather than trusting API radio data.
+    /// Excludes: UDM-Pro, UDM-SE, UDM-Pro-Max (start with "UDM-"), EFG, EFG-Core (start with "EFG").
+    /// Allows: UDM (original Dream Machine), UDR, UX, etc. which have real Wi-Fi.
+    /// </summary>
+    internal static bool IsGatewayOnlyConsole(DiscoveredDevice device)
+    {
+        var name = device.FriendlyModelName;
+        return name.StartsWith("UDM-", StringComparison.OrdinalIgnoreCase) ||
+               name.StartsWith("EFG", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

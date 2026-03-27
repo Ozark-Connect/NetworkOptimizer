@@ -7665,20 +7665,20 @@ a.path-hop.hop-clickable:hover {
 
 .radio-channel {
     color: var(--text-secondary);
-    width: 44px;
+    width: 45px;
     flex-shrink: 0;
 }
 
 .radio-eirp {
     color: var(--text-muted);
     font-size: 0.75rem;
-    width: 50px;
+    width: 47px;
     flex-shrink: 0;
 }
 
 .radio-util {
     font-weight: 500;
-    width: 58px;
+    width: 54px;
     flex-shrink: 0;
 }
 
@@ -7688,6 +7688,7 @@ a.path-hop.hop-clickable:hover {
 
 .radio-clients {
     color: var(--text-muted);
+    width: 60px;
     margin-left: auto;
 }
 
