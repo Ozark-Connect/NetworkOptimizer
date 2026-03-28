@@ -2371,6 +2371,13 @@
 
         if (!wan1Ready && !wan2Ready)
         {
+            // If SQM is currently deployed, allow deploying with all disabled to remove scripts (disable without deleting configs)
+            if (deploymentStatus?.IsDeployed == true)
+            {
+                await DisableAllSqm();
+                return;
+            }
+
             statusMessage = "Enable at least one WAN configuration and select its interface";
             statusSuccess = false;
             return;
@@ -2778,6 +2785,58 @@
             else
             {
                 statusMessage = "Failed to remove SQM scripts";
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            statusSuccess = false;
+            deploymentSteps.Add($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DisableAllSqm()
+    {
+        isDeploying = true;
+        deploymentSteps.Clear();
+        deploymentWarnings.Clear();
+        statusMessage = null;
+        adjustmentMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            deploymentSteps.Add("Disabling Adaptive SQM (keeping configurations)...");
+            await ScrollDeploymentLog();
+
+            var (success, steps) = await DeploymentService.RemoveAsync(includeTcMonitor: true);
+            deploymentSteps.AddRange(steps);
+            await ScrollDeploymentLog();
+
+            if (success)
+            {
+                // Save disabled state to database WITHOUT deleting configs
+                await SaveWanConfigsAsync();
+                deploymentSteps.Add("Configurations saved (disabled)");
+                await ScrollDeploymentLog();
+
+                // Update snapshots so change detection doesn't show stale "deployed" state
+                CaptureDeployedSnapshots();
+
+                statusMessage = "Adaptive SQM disabled. Configurations preserved - re-enable and deploy to resume.";
+                statusSuccess = true;
+                InvalidateCache();
+                await RefreshStatus();
+            }
+            else
+            {
+                statusMessage = "Failed to disable SQM scripts";
                 statusSuccess = false;
             }
         }
