@@ -51,7 +51,7 @@
                         Test again
                     </button>
                 }
-                @if (_isLanDevice)
+                @if (_isLanDevice && !HideClientDashboardLink)
                 {
                     <a href="/client-dashboard?ip=@Result.DeviceHost&tab=speed&range=30d" class="btn-action-icon"
                        data-tooltip="View full speed and signal history" data-tooltip-hover-only>
@@ -437,6 +437,11 @@
     /// Hide the device name in test details (useful when already shown in context)
     /// </summary>
     [Parameter] public bool HideDeviceName { get; set; }
+
+    /// <summary>
+    /// Hide the Client Performance link (useful when already on the Client Performance page)
+    /// </summary>
+    [Parameter] public bool HideClientDashboardLink { get; set; }
 
     /// <summary>
     /// Client Wi-Fi signal for PathOnly mode (when no Iperf3Result is available)
