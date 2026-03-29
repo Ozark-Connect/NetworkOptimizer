@@ -1074,10 +1074,10 @@
         return parts.Count > 0 ? string.Join(" | ", parts) : "Match all traffic";
     }
 
-    private static string FormatUptime(DateTime startedAt)
+    private static string FormatUptime(DateTimeOffset startedAt)
     {
         if (startedAt == default) return "-";
-        var span = DateTime.UtcNow - startedAt;
+        var span = DateTimeOffset.UtcNow - startedAt;
         if (span.TotalDays >= 1)
             return $"{(int)span.TotalDays}d {span.Hours}h";
         if (span.TotalHours >= 1)
@@ -1260,8 +1260,8 @@
     {
         public string Version { get; set; } = "";
         public bool Running { get; set; }
-        public DateTime StartedAt { get; set; }
-        public DateTime LastReconcile { get; set; }
+        public DateTimeOffset StartedAt { get; set; }
+        public DateTimeOffset LastReconcile { get; set; }
         public int RuleCount { get; set; }
         public int ReconcileCount { get; set; }
         public Dictionary<string, ParsedWanHealth> WanHealth { get; set; } = new();
