@@ -1141,8 +1141,7 @@
         var binBase = ExtractBaseVersion(binaryVersion);
 
         // Source builds produce 0.0.0 - suppress
-        // TEMP: bypassed for testing dismiss behavior
-        // if (appBase == "0.0.0") return;
+        if (appBase == "0.0.0") return;
 
         // Binary is "dev" or a different base version: warn
         if (binBase != appBase)
