@@ -84,7 +84,14 @@
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
-                @if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
+                @if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
+                {
+                    <div class="metric">
+                        <div class="metric-label">Version</div>
+                        <div class="metric-value"><span class="spinner spinner-sm"></span></div>
+                    </div>
+                }
+                else if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
                 {
                     <div class="metric">
                         <div class="metric-label">Version</div>
