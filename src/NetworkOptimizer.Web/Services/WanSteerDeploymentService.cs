@@ -48,7 +48,7 @@ public class WanSteerDeploymentService
         {
             var combinedCommand =
                 "echo '---PROCESS---'; pgrep -x wansteer > /dev/null 2>&1 && echo running || echo stopped; " +
-                "echo '---STATUS---'; cat /tmp/wan-steer-status.json 2>/dev/null || echo '{}'; " +
+                "echo '---STATUS---'; cat /tmp/wan-steer-status.json 2>/dev/null || echo '{}'; echo; " +
                 "echo '---VERSION---'; /data/wan-steer/wansteer -version 2>/dev/null || echo 'not installed'; " +
                 "echo '---BINARY---'; test -x /data/wan-steer/wansteer && echo 'exists' || echo 'missing'";
 

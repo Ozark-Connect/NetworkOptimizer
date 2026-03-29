@@ -17,6 +17,27 @@ type Config struct {
 	HealthPassThreshold int                     `json:"health_pass_threshold"`
 	TrafficClasses      []TrafficClass          `json:"traffic_classes"`
 	StatusFile          string                  `json:"status_file"`
+
+	// Stability detection: prevent SFE kernel errors during WAN flapping.
+
+	// StartupGraceSeconds is how long to wait after start for WAN interfaces
+	// to stabilize before applying rules or starting health checks.
+	StartupGraceSeconds int `json:"startup_grace_seconds"`
+
+	// InstabilityThreshold is the number of state transitions within
+	// InstabilityWindowSeconds that marks a WAN as "unstable".
+	InstabilityThreshold int `json:"instability_threshold"`
+
+	// InstabilityWindowSeconds is the sliding window for counting state transitions.
+	InstabilityWindowSeconds int `json:"instability_window_seconds"`
+
+	// BackoffRecoverySeconds is how long all WANs must be stable before
+	// exiting backoff mode (single flush + full reapply on exit).
+	BackoffRecoverySeconds int `json:"backoff_recovery_seconds"`
+
+	// SFEFlushCooldownSeconds is the minimum interval between SFE flushes.
+	// Calls within the cooldown window are skipped.
+	SFEFlushCooldownSeconds int `json:"sfe_flush_cooldown_seconds"`
 }
 
 // WANInterface describes a WAN link the daemon can steer traffic to.
@@ -89,6 +110,21 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if cfg.StatusFile == "" {
 		cfg.StatusFile = "/tmp/wan-steer-status.json"
+	}
+	if cfg.StartupGraceSeconds <= 0 {
+		cfg.StartupGraceSeconds = 30
+	}
+	if cfg.InstabilityThreshold <= 0 {
+		cfg.InstabilityThreshold = 3
+	}
+	if cfg.InstabilityWindowSeconds <= 0 {
+		cfg.InstabilityWindowSeconds = 300
+	}
+	if cfg.BackoffRecoverySeconds <= 0 {
+		cfg.BackoffRecoverySeconds = 60
+	}
+	if cfg.SFEFlushCooldownSeconds <= 0 {
+		cfg.SFEFlushCooldownSeconds = 10
 	}
 
 	return &cfg, nil

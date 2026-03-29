@@ -12,6 +12,8 @@
 @using Microsoft.EntityFrameworkCore
 @using System.Text.Json
 @using NetworkOptimizer.Core.Helpers
+@using System.Reflection
+@using System.Text.RegularExpressions
 @inject IJSRuntime JS
 
 <PageTitle>WAN Steering - Network Optimizer</PageTitle>
@@ -82,6 +84,13 @@
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
+                @if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
+                {
+                    <div class="metric">
+                        <div class="metric-label">Version</div>
+                        <div class="metric-value">@_parsedStatus.Version</div>
+                    </div>
+                }
                 <div class="metric">
                     <div class="metric-label">Daemon</div>
                     <div class="metric-value">
@@ -99,18 +108,15 @@
                         <div class="metric-label">Active Rules</div>
                         <div class="metric-value">@_parsedStatus.RuleCount</div>
                     </div>
-                    @foreach (var kvp in _parsedStatus.WanHealth)
-                    {
-                        <div class="metric">
-                            <div class="metric-label">@kvp.Key</div>
-                            <div class="metric-value">
-                                <span class="status-indicator @(kvp.Value.Healthy ? "status-active" : "status-inactive")"></span>
-                                @(kvp.Value.Healthy ? "Healthy" : "Down")
-                            </div>
-                        </div>
-                    }
                 }
             </div>
+            @if (_showVersionWarning && _parsedStatus != null)
+            {
+                <div class="alert alert-warning" style="margin-top: 1rem;">
+                    <strong>WAN Steer binary outdated.</strong>
+                    Gateway is running @(_parsedStatus.Version) but the app is @_appVersion. Redeploy to update.
+                </div>
+            }
         }
     </div>
 </div>
@@ -496,6 +502,8 @@
     private List<WanSteerWanInfo> _wanInterfaces = new();
     private WanSteerStatus? _status;
     private ParsedDaemonStatus? _parsedStatus;
+    private bool _showVersionWarning;
+    private string _appVersion = "";
 
     // Rule editing
     private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
@@ -1066,10 +1074,10 @@
         return parts.Count > 0 ? string.Join(" | ", parts) : "Match all traffic";
     }
 
-    private static string FormatUptime(DateTime startedAt)
+    private static string FormatUptime(DateTimeOffset startedAt)
     {
         if (startedAt == default) return "-";
-        var span = DateTime.UtcNow - startedAt;
+        var span = DateTimeOffset.UtcNow - startedAt;
         if (span.TotalDays >= 1)
             return $"{(int)span.TotalDays}d {span.Hours}h";
         if (span.TotalHours >= 1)
@@ -1082,16 +1090,51 @@
     private void ParseStatusJson()
     {
         _parsedStatus = null;
+        _showVersionWarning = false;
         if (string.IsNullOrWhiteSpace(_status?.StatusJson)) return;
 
         try
         {
             _parsedStatus = JsonSerializer.Deserialize<ParsedDaemonStatus>(_status.StatusJson, _jsonOptions);
+            CheckVersionMismatch();
         }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to parse WAN Steering status JSON");
         }
+    }
+
+    private void CheckVersionMismatch()
+    {
+        _showVersionWarning = false;
+        if (_parsedStatus == null) return;
+
+        _appVersion = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion ?? "";
+
+        var binaryVersion = _parsedStatus.Version ?? "";
+
+        // Extract base version (X.Y.Z) from both, stripping v prefix, pre-release, and metadata.
+        // e.g., "v1.14.7" -> "1.14.7", "1.14.7-alpha.0.2+hash" -> "1.14.7", "dev" -> "dev"
+        var appBase = ExtractBaseVersion(_appVersion);
+        var binBase = ExtractBaseVersion(binaryVersion);
+
+        // Source builds produce 0.0.0 - suppress
+        if (appBase == "0.0.0") return;
+
+        // Binary is "dev" or a different base version: warn
+        if (binBase != appBase)
+        {
+            _showVersionWarning = true;
+        }
+    }
+
+    // Extracts X.Y.Z from version strings like "v1.14.7", "1.14.7-alpha.0.2+hash", "dev"
+    private static string ExtractBaseVersion(string version)
+    {
+        var match = Regex.Match(version, @"v?(\d+\.\d+\.\d+)");
+        return match.Success ? match.Groups[1].Value : version;
     }
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
@@ -1217,8 +1260,8 @@
     {
         public string Version { get; set; } = "";
         public bool Running { get; set; }
-        public DateTime StartedAt { get; set; }
-        public DateTime LastReconcile { get; set; }
+        public DateTimeOffset StartedAt { get; set; }
+        public DateTimeOffset LastReconcile { get; set; }
         public int RuleCount { get; set; }
         public int ReconcileCount { get; set; }
         public Dictionary<string, ParsedWanHealth> WanHealth { get; set; } = new();

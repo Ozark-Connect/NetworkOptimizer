@@ -16,6 +16,8 @@ type Status struct {
 	ReconcileCount  int                     `json:"reconcile_count"`
 	WANHealth       map[string]WANHealth    `json:"wan_health"`
 	TrafficClasses  []TrafficClassStatus    `json:"traffic_classes"`
+	InBackoff       bool                    `json:"in_backoff"`
+	UnstableWANs    []string                `json:"unstable_wans,omitempty"`
 }
 
 // WANHealth is the health state of a single WAN link.
@@ -48,7 +50,7 @@ func writeStatus(path string, status *Status) error {
 	return os.Rename(tmp, path)
 }
 
-func buildStatus(cfg *Config, startedAt time.Time, lastReconcile time.Time, reconcileCount int, health *HealthChecker) *Status {
+func buildStatus(cfg *Config, startedAt time.Time, lastReconcile time.Time, reconcileCount int, health *HealthChecker, inBackoff bool) *Status {
 	classes := make([]TrafficClassStatus, 0, len(cfg.TrafficClasses))
 	for _, tc := range cfg.TrafficClasses {
 		classes = append(classes, TrafficClassStatus{
@@ -60,6 +62,13 @@ func buildStatus(cfg *Config, startedAt time.Time, lastReconcile time.Time, reco
 		})
 	}
 
+	// Collect unstable WAN names for status output
+	unstable := health.unstableWANs()
+	var unstableNames []string
+	for name := range unstable {
+		unstableNames = append(unstableNames, name)
+	}
+
 	return &Status{
 		Version:        version,
 		Running:        true,
@@ -69,5 +78,7 @@ func buildStatus(cfg *Config, startedAt time.Time, lastReconcile time.Time, reco
 		ReconcileCount: reconcileCount,
 		WANHealth:      health.snapshot(),
 		TrafficClasses: classes,
+		InBackoff:      inBackoff,
+		UnstableWANs:   unstableNames,
 	}
 }

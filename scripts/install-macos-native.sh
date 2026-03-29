@@ -261,6 +261,11 @@ echo "[3b/9] Building Go binaries..."
 if command -v go &> /dev/null; then
     mkdir -p "$INSTALL_DIR/tools"
 
+    # Get version from git tags for Go binary version stamps
+    GO_VERSION=$(cd "$REPO_ROOT" && git describe --tags --always 2>/dev/null || echo "dev")
+    GO_VERSION="${GO_VERSION#v}" # strip leading v
+    echo "Go binary version: $GO_VERSION"
+
     # Detect Go architecture for local binary
     GO_ARCH="amd64"
     if [ "$ARCH" = "arm64" ]; then
@@ -271,7 +276,7 @@ if command -v go &> /dev/null; then
     if [ -d "$CFSPEEDTEST_SRC" ]; then
         cd "$CFSPEEDTEST_SRC"
         CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
-            -ldflags "-s -w" \
+            -ldflags "-s -w -X main.version=$GO_VERSION" \
             -o "$INSTALL_DIR/tools/cfspeedtest-linux-arm64" .
         echo "Built cfspeedtest for linux/arm64"
     else
@@ -283,12 +288,12 @@ if command -v go &> /dev/null; then
         cd "$UWNSPEEDTEST_SRC"
         # Build local binary for server-side WAN speed tests
         CGO_ENABLED=0 GOOS=darwin GOARCH=$GO_ARCH go build -a -trimpath \
-            -ldflags "-s -w" \
+            -ldflags "-s -w -X main.version=$GO_VERSION" \
             -o "$INSTALL_DIR/tools/uwnspeedtest-darwin-$GO_ARCH" .
         echo "Built uwnspeedtest for darwin/$GO_ARCH (local)"
         # Build gateway binary for deployment via SSH to UniFi gateways
         CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
-            -ldflags "-s -w" \
+            -ldflags "-s -w -X main.version=$GO_VERSION" \
             -o "$INSTALL_DIR/tools/uwnspeedtest-linux-arm64" .
         echo "Built uwnspeedtest for linux/arm64 (gateway)"
     else
@@ -300,7 +305,7 @@ if command -v go &> /dev/null; then
         cd "$WANSTEER_SRC"
         # Build gateway binary for WAN steering (deployed via SSH to UniFi gateways)
         CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -trimpath \
-            -ldflags "-s -w" \
+            -ldflags "-s -w -X main.version=$GO_VERSION" \
             -o "$INSTALL_DIR/tools/wansteer-linux-arm64" .
         echo "Built wansteer for linux/arm64 (gateway)"
     else

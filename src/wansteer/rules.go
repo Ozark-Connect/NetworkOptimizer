@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 )
 
 const chainName = "WAN_STEER"
@@ -268,11 +270,12 @@ func ruleCount() int {
 	return count
 }
 
-// expectedRuleCount returns how many iptables rules the current config should produce.
-func expectedRuleCount(cfg *Config) int {
+// expectedRuleCount returns how many iptables rules the current config should produce,
+// accounting for unhealthy WANs whose traffic classes are disabled.
+func expectedRuleCount(cfg *Config, disabledWANs map[string]bool) int {
 	count := 0
 	for _, tc := range cfg.TrafficClasses {
-		if !tc.Enabled {
+		if !tc.Enabled || disabledWANs[tc.TargetWAN] {
 			continue
 		}
 		srcCount := len(tc.Match.SrcCIDRs) + len(tc.Match.SrcRanges) + len(tc.Match.SrcMACs)
@@ -330,13 +333,56 @@ func activeTargetWANs(cfg *Config) map[string]bool {
 	return targets
 }
 
+// sfeFlushState manages the cooldown between SFE flushes to prevent pile-up
+// of redundant flushes during rapid state changes.
+var sfeFlushState struct {
+	mu       sync.Mutex
+	lastTime time.Time
+	cooldown time.Duration // set from config at startup
+}
+
+// initSFECooldown sets the minimum interval between SFE flushes.
+func initSFECooldown(cooldownSeconds int) {
+	sfeFlushState.mu.Lock()
+	defer sfeFlushState.mu.Unlock()
+	sfeFlushState.cooldown = time.Duration(cooldownSeconds) * time.Second
+}
+
 // flushSFE flushes the Shortcut Forwarding Engine cache for both IPv4 and IPv6.
 // On Qualcomm IPQ9574 (UniFi Cloud Gateway Fiber), SFE offloads connections into
 // a kernel fast path. If conntrack deletes an entry before SFE releases it, SFE
 // hits a double-free race that causes "sfe_ipv4_remove_connection: Connection has
 // been removed already" kernel errors. Always call this BEFORE deleting conntrack
 // entries.
+//
+// Respects a cooldown period: if called within SFEFlushCooldownSeconds of the
+// last flush, the call is skipped. Use flushSFEForce() to bypass the cooldown.
 func flushSFE() {
+	sfeFlushState.mu.Lock()
+	now := time.Now()
+	if sfeFlushState.cooldown > 0 && now.Sub(sfeFlushState.lastTime) < sfeFlushState.cooldown {
+		sfeFlushState.mu.Unlock()
+		slog.Debug("sfe flush skipped (cooldown)", "remaining",
+			sfeFlushState.cooldown-now.Sub(sfeFlushState.lastTime))
+		return
+	}
+	sfeFlushState.lastTime = now
+	sfeFlushState.mu.Unlock()
+
+	doFlushSFE()
+}
+
+// flushSFEForce flushes SFE regardless of cooldown. Used when exiting backoff
+// mode to ensure a clean state.
+func flushSFEForce() {
+	sfeFlushState.mu.Lock()
+	sfeFlushState.lastTime = time.Now()
+	sfeFlushState.mu.Unlock()
+	doFlushSFE()
+}
+
+// doFlushSFE performs the actual SFE flush by writing to sysfs.
+func doFlushSFE() {
 	for _, path := range []string{"/sys/sfe_ipv4/flush", "/sys/sfe_ipv6/flush"} {
 		if err := os.WriteFile(path, []byte("1"), 0644); err != nil {
 			// Not an error: SFE may not be present on all platforms
