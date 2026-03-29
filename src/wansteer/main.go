@@ -74,10 +74,12 @@ func main() {
 	reconcileCount := 0
 	inBackoff := false
 
-	// Health checker with callback to re-apply rules on state change.
-	// When in backoff mode, suppress SFE/conntrack flushes but still reapply rules.
+	// onHealthChange is the callback for health state transitions.
+	// Extracted to avoid duplication between initial setup and SIGHUP reload.
+	// The inBackoff parameter is passed explicitly by the health checker
+	// rather than captured from the enclosing scope.
 	var health *HealthChecker
-	health = newHealthChecker(cfg, func(wan string, healthy bool) {
+	onHealthChange := func(wan string, healthy bool, inBackoff bool) {
 		unhealthy := health.unhealthyWANs()
 		if err := reapplyRules(cfg, unhealthy); err != nil {
 			slog.Error("failed to reapply rules after health change", "error", err)
@@ -91,7 +93,8 @@ func main() {
 				}
 			}
 		}
-	})
+	}
+	health = newHealthChecker(cfg, onHealthChange)
 
 	// Signal handling: SIGTERM/SIGINT = clean shutdown, SIGHUP = reload config
 	sigCh := make(chan os.Signal, 1)
@@ -105,10 +108,6 @@ func main() {
 
 	statusTicker := time.NewTicker(10 * time.Second)
 	defer statusTicker.Stop()
-
-	// Stability check runs on the health check interval to detect backoff entry/exit
-	stabilityTicker := time.NewTicker(time.Duration(cfg.HealthCheckInterval) * time.Second)
-	defer stabilityTicker.Stop()
 
 	slog.Info("wan-steer running", "status_file", cfg.StatusFile)
 
@@ -137,21 +136,8 @@ func main() {
 				cfg = newCfg
 				initSFECooldown(cfg.SFEFlushCooldownSeconds)
 				inBackoff = false
-				health = newHealthChecker(cfg, func(wan string, healthy bool) {
-					unhealthy := health.unhealthyWANs()
-					if err := reapplyRules(cfg, unhealthy); err != nil {
-						slog.Error("failed to reapply rules after health change", "error", err)
-					}
-					if !healthy {
-						if inBackoff {
-							slog.Info("suppressing conntrack flush (backoff active)", "wan", wan)
-						} else {
-							if w, ok := cfg.WANInterfaces[wan]; ok {
-								flushConntrackForMark(w.FWMark)
-							}
-						}
-					}
-				})
+				health = newHealthChecker(cfg, onHealthChange)
+				health.setBackoff(false)
 				if err := applyRules(cfg); err != nil {
 					slog.Error("failed to apply rules after reload", "error", err)
 				}
@@ -203,11 +189,11 @@ func main() {
 		case <-healthTicker.C:
 			health.checkAll()
 
-		case <-stabilityTicker.C:
-			// Check for backoff entry/exit
+			// Check for backoff entry/exit after each health check round
 			if health.anyUnstable() {
 				if !inBackoff {
 					inBackoff = true
+					health.setBackoff(true)
 					slog.Warn("entering backoff mode: WAN instability detected, suppressing SFE flushes",
 						"unstable_wans", health.unstableWANs(),
 					)
@@ -216,6 +202,7 @@ func main() {
 				// All WANs stable — check if recovery period has elapsed
 				if health.checkStability() {
 					inBackoff = false
+					health.setBackoff(false)
 					slog.Info("exiting backoff mode: all WANs stable, performing recovery flush")
 					health.resetStableSince()
 					// Single forced SFE flush + full rule reapply for clean state

@@ -16,16 +16,19 @@ type HealthChecker struct {
 	passCounts    map[string]int  // consecutive successes per WAN
 	healthy       map[string]bool // current health state per WAN
 	lastCheck     map[string]time.Time
-	onStateChange func(wan string, healthy bool)
+	onStateChange func(wan string, healthy bool, inBackoff bool)
 
 	// Instability tracking: timestamps of recent state transitions per WAN.
 	transitions map[string][]time.Time
 	// When instability was last cleared (all WANs stable). Used to track
 	// whether BackoffRecoverySeconds has elapsed.
 	stableSince time.Time
+	// backoff is set by the main loop so the onStateChange callback can
+	// access it without closing over a variable from a different scope.
+	backoff bool
 }
 
-func newHealthChecker(cfg *Config, onStateChange func(string, bool)) *HealthChecker {
+func newHealthChecker(cfg *Config, onStateChange func(string, bool, bool)) *HealthChecker {
 	h := &HealthChecker{
 		cfg:           cfg,
 		failCounts:    make(map[string]int),
@@ -102,9 +105,16 @@ func (h *HealthChecker) update(wan string, reachable bool) {
 
 	h.mu.Unlock()
 
-	// Callback outside lock to prevent deadlock
+	// Callback outside lock to prevent deadlock.
+	// Read backoff under lock so the callback gets a consistent value.
+	var backoffState bool
+	if stateChanged {
+		h.mu.RLock()
+		backoffState = h.backoff
+		h.mu.RUnlock()
+	}
 	if stateChanged && h.onStateChange != nil {
-		h.onStateChange(wan, newHealthy)
+		h.onStateChange(wan, newHealthy, backoffState)
 	}
 }
 
@@ -143,6 +153,13 @@ func (h *HealthChecker) snapshot() map[string]WANHealth {
 		}
 	}
 	return result
+}
+
+// setBackoff updates the backoff state so the onStateChange callback can access it.
+func (h *HealthChecker) setBackoff(b bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.backoff = b
 }
 
 // pruneTransitions removes transitions older than the instability window.

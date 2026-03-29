@@ -523,7 +523,7 @@ func TestHealthChecker_FailThreshold(t *testing.T) {
 	cfg.HealthPassThreshold = 2
 
 	var changed []bool
-	h := newHealthChecker(cfg, func(wan string, healthy bool) {
+	h := newHealthChecker(cfg, func(wan string, healthy bool, inBackoff bool) {
 		changed = append(changed, healthy)
 	})
 
