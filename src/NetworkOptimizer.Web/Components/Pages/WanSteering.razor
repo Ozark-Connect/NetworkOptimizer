@@ -504,6 +504,7 @@
     private ParsedDaemonStatus? _parsedStatus;
     private bool _showVersionWarning;
     private string _appVersion = "";
+    private DateTime? _deployedAt;
 
     // Rule editing
     private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
@@ -855,10 +856,10 @@
             if (success)
             {
                 _hasUndeployedChanges = false;
-                // Clear stale version warning immediately - the old status file
-                // lingers during the startup grace period (~30s). The poll timer
-                // will re-evaluate once the new binary writes its status.
                 _showVersionWarning = false;
+                // Suppress version check until the new binary has time to start
+                // and write its status file (startup grace period is ~30s).
+                _deployedAt = DateTime.UtcNow;
             }
 
             await RefreshStatusQuietAsync();
@@ -1115,6 +1116,11 @@
     {
         _showVersionWarning = false;
         if (_parsedStatus == null) return;
+
+        // After a deploy, suppress the check for 45s (30s grace + 15s buffer)
+        // to avoid showing a stale warning from the old status file.
+        if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
+            return;
 
         _appVersion = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
