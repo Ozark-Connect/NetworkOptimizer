@@ -852,7 +852,14 @@
             var (success, error) = await DeployService.DeployAsync(progress);
             _deploySuccess = success;
             _deployMessage = success ? "WAN Steering deployed successfully." : error;
-            if (success) _hasUndeployedChanges = false;
+            if (success)
+            {
+                _hasUndeployedChanges = false;
+                // Clear stale version warning immediately - the old status file
+                // lingers during the startup grace period (~30s). The poll timer
+                // will re-evaluate once the new binary writes its status.
+                _showVersionWarning = false;
+            }
 
             await RefreshStatusQuietAsync();
         }
