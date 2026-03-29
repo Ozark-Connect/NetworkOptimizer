@@ -12,6 +12,8 @@
 @using Microsoft.EntityFrameworkCore
 @using System.Text.Json
 @using NetworkOptimizer.Core.Helpers
+@using System.Reflection
+@using System.Text.RegularExpressions
 @inject IJSRuntime JS
 
 <PageTitle>WAN Steering - Network Optimizer</PageTitle>
@@ -111,6 +113,13 @@
                     }
                 }
             </div>
+            @if (_showVersionWarning && _parsedStatus != null)
+            {
+                <div class="alert alert-warning" style="margin-top: 1rem;">
+                    <strong>WAN Steer binary outdated.</strong>
+                    Gateway is running @(_parsedStatus.Version) but the app is @_appVersion. Redeploy to update.
+                </div>
+            }
         }
     </div>
 </div>
@@ -496,6 +505,8 @@
     private List<WanSteerWanInfo> _wanInterfaces = new();
     private WanSteerStatus? _status;
     private ParsedDaemonStatus? _parsedStatus;
+    private bool _showVersionWarning;
+    private string _appVersion = "";
 
     // Rule editing
     private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
@@ -1082,16 +1093,51 @@
     private void ParseStatusJson()
     {
         _parsedStatus = null;
+        _showVersionWarning = false;
         if (string.IsNullOrWhiteSpace(_status?.StatusJson)) return;
 
         try
         {
             _parsedStatus = JsonSerializer.Deserialize<ParsedDaemonStatus>(_status.StatusJson, _jsonOptions);
+            CheckVersionMismatch();
         }
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to parse WAN Steering status JSON");
         }
+    }
+
+    private void CheckVersionMismatch()
+    {
+        _showVersionWarning = false;
+        if (_parsedStatus == null) return;
+
+        _appVersion = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion ?? "";
+
+        var binaryVersion = _parsedStatus.Version ?? "";
+
+        // Extract base version (X.Y.Z) from both, stripping v prefix, pre-release, and metadata.
+        // e.g., "v1.14.7" -> "1.14.7", "1.14.7-alpha.0.2+hash" -> "1.14.7", "dev" -> "dev"
+        var appBase = ExtractBaseVersion(_appVersion);
+        var binBase = ExtractBaseVersion(binaryVersion);
+
+        // Source builds produce 0.0.0 - suppress
+        if (appBase == "0.0.0") return;
+
+        // Binary is "dev" or a different base version: warn
+        if (binBase != appBase)
+        {
+            _showVersionWarning = true;
+        }
+    }
+
+    // Extracts X.Y.Z from version strings like "v1.14.7", "1.14.7-alpha.0.2+hash", "dev"
+    private static string ExtractBaseVersion(string version)
+    {
+        var match = Regex.Match(version, @"v?(\d+\.\d+\.\d+)");
+        return match.Success ? match.Groups[1].Value : version;
     }
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
