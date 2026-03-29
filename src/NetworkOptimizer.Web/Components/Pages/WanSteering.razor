@@ -84,6 +84,13 @@
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
+                @if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
+                {
+                    <div class="metric">
+                        <div class="metric-label">Version</div>
+                        <div class="metric-value">@_parsedStatus.Version</div>
+                    </div>
+                }
                 <div class="metric">
                     <div class="metric-label">Daemon</div>
                     <div class="metric-value">
