@@ -84,7 +84,14 @@
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
-                @if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
+                @if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
+                {
+                    <div class="metric">
+                        <div class="metric-label">Version</div>
+                        <div class="metric-value"><span class="spinner spinner-sm"></span></div>
+                    </div>
+                }
+                else if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
                 {
                     <div class="metric">
                         <div class="metric-label">Version</div>
@@ -504,6 +511,7 @@
     private ParsedDaemonStatus? _parsedStatus;
     private bool _showVersionWarning;
     private string _appVersion = "";
+    private DateTime? _deployedAt;
 
     // Rule editing
     private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
@@ -852,7 +860,14 @@
             var (success, error) = await DeployService.DeployAsync(progress);
             _deploySuccess = success;
             _deployMessage = success ? "WAN Steering deployed successfully." : error;
-            if (success) _hasUndeployedChanges = false;
+            if (success)
+            {
+                _hasUndeployedChanges = false;
+                _showVersionWarning = false;
+                // Suppress version check until the new binary has time to start
+                // and write its status file (startup grace period is ~30s).
+                _deployedAt = DateTime.UtcNow;
+            }
 
             await RefreshStatusQuietAsync();
         }
@@ -1108,6 +1123,11 @@
     {
         _showVersionWarning = false;
         if (_parsedStatus == null) return;
+
+        // After a deploy, suppress the check for 45s (30s grace + 15s buffer)
+        // to avoid showing a stale warning from the old status file.
+        if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
+            return;
 
         _appVersion = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
