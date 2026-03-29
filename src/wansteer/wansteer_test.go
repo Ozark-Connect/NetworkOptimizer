@@ -27,6 +27,11 @@ func validConfig() *Config {
 				Enabled:     true,
 			},
 		},
+		// High instability threshold for existing tests so normal health
+		// transitions don't trigger spurious "unstable" warnings.
+		InstabilityThreshold:     100,
+		InstabilityWindowSeconds: 300,
+		BackoffRecoverySeconds:   60,
 	}
 }
 
@@ -614,7 +619,7 @@ func TestBuildStatus_PopulatesFields(t *testing.T) {
 	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	lastReconcile := time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC)
 
-	status := buildStatus(cfg, started, lastReconcile, 5, h)
+	status := buildStatus(cfg, started, lastReconcile, 5, h, false)
 
 	if !status.Running {
 		t.Error("expected Running=true")
@@ -657,4 +662,357 @@ func TestFlushSFE_Idempotent(t *testing.T) {
 	flushSFE()
 	flushSFE()
 	// No panic, no error - global SFE flush is idempotent
+}
+
+// ---------------------------------------------------------------------------
+// Config defaults for new stability fields
+// ---------------------------------------------------------------------------
+
+func TestLoadConfig_StabilityDefaults(t *testing.T) {
+	cfgJSON := `{
+		"wan_interfaces": {
+			"primary": {"interface": "eth0", "gateway": "192.0.2.1", "route_table": "100", "fwmark": "0x20000"}
+		},
+		"default_wan": "primary",
+		"traffic_classes": [
+			{
+				"name": "test",
+				"match": {"dst_cidrs": ["10.0.0.0/8"]},
+				"probability": 1.0,
+				"target_wan": "primary",
+				"enabled": true
+			}
+		]
+	}`
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(cfgJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+
+	if cfg.StartupGraceSeconds != 30 {
+		t.Errorf("expected default StartupGraceSeconds 30, got %d", cfg.StartupGraceSeconds)
+	}
+	if cfg.InstabilityThreshold != 3 {
+		t.Errorf("expected default InstabilityThreshold 3, got %d", cfg.InstabilityThreshold)
+	}
+	if cfg.InstabilityWindowSeconds != 300 {
+		t.Errorf("expected default InstabilityWindowSeconds 300, got %d", cfg.InstabilityWindowSeconds)
+	}
+	if cfg.BackoffRecoverySeconds != 60 {
+		t.Errorf("expected default BackoffRecoverySeconds 60, got %d", cfg.BackoffRecoverySeconds)
+	}
+	if cfg.SFEFlushCooldownSeconds != 10 {
+		t.Errorf("expected default SFEFlushCooldownSeconds 10, got %d", cfg.SFEFlushCooldownSeconds)
+	}
+}
+
+func TestLoadConfig_StabilityCustomValues(t *testing.T) {
+	cfgJSON := `{
+		"wan_interfaces": {
+			"primary": {"interface": "eth0", "gateway": "192.0.2.1", "route_table": "100", "fwmark": "0x20000"}
+		},
+		"default_wan": "primary",
+		"startup_grace_seconds": 15,
+		"instability_threshold": 5,
+		"instability_window_seconds": 600,
+		"backoff_recovery_seconds": 120,
+		"sfe_flush_cooldown_seconds": 20,
+		"traffic_classes": [
+			{
+				"name": "test",
+				"match": {"dst_cidrs": ["10.0.0.0/8"]},
+				"probability": 1.0,
+				"target_wan": "primary",
+				"enabled": true
+			}
+		]
+	}`
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(cfgJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+
+	if cfg.StartupGraceSeconds != 15 {
+		t.Errorf("expected StartupGraceSeconds 15, got %d", cfg.StartupGraceSeconds)
+	}
+	if cfg.InstabilityThreshold != 5 {
+		t.Errorf("expected InstabilityThreshold 5, got %d", cfg.InstabilityThreshold)
+	}
+	if cfg.InstabilityWindowSeconds != 600 {
+		t.Errorf("expected InstabilityWindowSeconds 600, got %d", cfg.InstabilityWindowSeconds)
+	}
+	if cfg.BackoffRecoverySeconds != 120 {
+		t.Errorf("expected BackoffRecoverySeconds 120, got %d", cfg.BackoffRecoverySeconds)
+	}
+	if cfg.SFEFlushCooldownSeconds != 20 {
+		t.Errorf("expected SFEFlushCooldownSeconds 20, got %d", cfg.SFEFlushCooldownSeconds)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Instability detection
+// ---------------------------------------------------------------------------
+
+func TestHealthChecker_InstabilityDetection(t *testing.T) {
+	cfg := validConfig()
+	cfg.HealthFailThreshold = 1
+	cfg.HealthPassThreshold = 1
+	cfg.InstabilityThreshold = 3
+	cfg.InstabilityWindowSeconds = 300
+
+	h := newHealthChecker(cfg, nil)
+
+	// Transition 1: healthy -> unhealthy
+	h.update("backup", false)
+	if len(h.unstableWANs()) != 0 {
+		t.Error("should not be unstable after 1 transition")
+	}
+
+	// Transition 2: unhealthy -> healthy
+	h.update("backup", true)
+	if len(h.unstableWANs()) != 0 {
+		t.Error("should not be unstable after 2 transitions")
+	}
+
+	// Transition 3: healthy -> unhealthy (threshold reached)
+	h.update("backup", false)
+	unstable := h.unstableWANs()
+	if !unstable["backup"] {
+		t.Error("backup should be unstable after 3 transitions")
+	}
+	if h.anyUnstable() != true {
+		t.Error("anyUnstable should return true")
+	}
+}
+
+func TestHealthChecker_InstabilityWindowExpiry(t *testing.T) {
+	cfg := validConfig()
+	cfg.HealthFailThreshold = 1
+	cfg.HealthPassThreshold = 1
+	cfg.InstabilityThreshold = 3
+	cfg.InstabilityWindowSeconds = 1 // 1 second window for test speed
+
+	h := newHealthChecker(cfg, nil)
+
+	// Create 3 transitions to trigger instability
+	h.update("backup", false)
+	h.update("backup", true)
+	h.update("backup", false)
+
+	if !h.anyUnstable() {
+		t.Fatal("should be unstable after 3 rapid transitions")
+	}
+
+	// Wait for window to expire
+	time.Sleep(1100 * time.Millisecond)
+
+	if h.anyUnstable() {
+		t.Error("should no longer be unstable after window expires")
+	}
+}
+
+func TestHealthChecker_StabilityRecovery(t *testing.T) {
+	cfg := validConfig()
+	cfg.HealthFailThreshold = 1
+	cfg.HealthPassThreshold = 1
+	cfg.InstabilityThreshold = 3
+	cfg.InstabilityWindowSeconds = 1
+	cfg.BackoffRecoverySeconds = 1
+
+	h := newHealthChecker(cfg, nil)
+
+	// Trigger instability
+	h.update("backup", false)
+	h.update("backup", true)
+	h.update("backup", false)
+
+	// checkStability should return false while unstable
+	if h.checkStability() {
+		t.Error("checkStability should be false while unstable")
+	}
+
+	// Wait for instability window to expire
+	time.Sleep(1100 * time.Millisecond)
+
+	// First check starts the recovery timer
+	if h.checkStability() {
+		t.Error("checkStability should be false on first check (recovery timer just started)")
+	}
+
+	// Wait for recovery period
+	time.Sleep(1100 * time.Millisecond)
+
+	if !h.checkStability() {
+		t.Error("checkStability should be true after recovery period")
+	}
+}
+
+func TestHealthChecker_ResetStableSince(t *testing.T) {
+	cfg := validConfig()
+	cfg.HealthFailThreshold = 1
+	cfg.HealthPassThreshold = 1
+	cfg.InstabilityThreshold = 3
+	cfg.InstabilityWindowSeconds = 1
+	cfg.BackoffRecoverySeconds = 1
+
+	h := newHealthChecker(cfg, nil)
+
+	// Trigger and let expire
+	h.update("backup", false)
+	h.update("backup", true)
+	h.update("backup", false)
+	time.Sleep(1100 * time.Millisecond)
+	h.checkStability() // start recovery timer
+	time.Sleep(1100 * time.Millisecond)
+
+	// Reset clears history
+	h.resetStableSince()
+
+	// After reset, transitions should be cleared
+	if h.anyUnstable() {
+		t.Error("should not be unstable after reset")
+	}
+}
+
+func TestHealthChecker_OnlyTargetWANUnstable(t *testing.T) {
+	cfg := validConfig()
+	cfg.HealthFailThreshold = 1
+	cfg.HealthPassThreshold = 1
+	cfg.InstabilityThreshold = 3
+	cfg.InstabilityWindowSeconds = 300
+
+	h := newHealthChecker(cfg, nil)
+
+	// Flap backup only
+	h.update("backup", false)
+	h.update("backup", true)
+	h.update("backup", false)
+
+	unstable := h.unstableWANs()
+	if !unstable["backup"] {
+		t.Error("backup should be unstable")
+	}
+	if unstable["primary"] {
+		t.Error("primary should not be unstable")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SFE flush cooldown
+// ---------------------------------------------------------------------------
+
+func TestSFEFlushCooldown(t *testing.T) {
+	// Initialize with a 1-second cooldown
+	initSFECooldown(1)
+
+	// First flush should work (resets the timer)
+	flushSFE()
+
+	// Record time of first flush
+	sfeFlushState.mu.Lock()
+	firstFlush := sfeFlushState.lastTime
+	sfeFlushState.mu.Unlock()
+
+	// Second flush within cooldown should be skipped (lastTime unchanged)
+	flushSFE()
+
+	sfeFlushState.mu.Lock()
+	afterSecond := sfeFlushState.lastTime
+	sfeFlushState.mu.Unlock()
+
+	if !afterSecond.Equal(firstFlush) {
+		t.Error("second flush should have been skipped (cooldown)")
+	}
+
+	// Wait for cooldown to expire
+	time.Sleep(1100 * time.Millisecond)
+
+	// Third flush should work
+	flushSFE()
+
+	sfeFlushState.mu.Lock()
+	afterThird := sfeFlushState.lastTime
+	sfeFlushState.mu.Unlock()
+
+	if afterThird.Equal(firstFlush) {
+		t.Error("third flush should have proceeded after cooldown expired")
+	}
+
+	// Reset cooldown for other tests
+	initSFECooldown(0)
+}
+
+func TestSFEFlushForce_BypassesCooldown(t *testing.T) {
+	initSFECooldown(60) // 60-second cooldown
+
+	flushSFE() // sets lastTime
+
+	sfeFlushState.mu.Lock()
+	firstFlush := sfeFlushState.lastTime
+	sfeFlushState.mu.Unlock()
+
+	// Force flush should bypass cooldown
+	time.Sleep(10 * time.Millisecond) // ensure time difference
+	flushSFEForce()
+
+	sfeFlushState.mu.Lock()
+	afterForce := sfeFlushState.lastTime
+	sfeFlushState.mu.Unlock()
+
+	if !afterForce.After(firstFlush) {
+		t.Error("force flush should have updated lastTime despite cooldown")
+	}
+
+	// Reset cooldown for other tests
+	initSFECooldown(0)
+}
+
+// ---------------------------------------------------------------------------
+// buildStatus with backoff fields
+// ---------------------------------------------------------------------------
+
+func TestBuildStatus_BackoffFields(t *testing.T) {
+	cfg := validConfig()
+	cfg.HealthFailThreshold = 1
+	cfg.HealthPassThreshold = 1
+	cfg.InstabilityThreshold = 2
+	cfg.InstabilityWindowSeconds = 300
+
+	h := newHealthChecker(cfg, nil)
+	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// No backoff
+	status := buildStatus(cfg, started, time.Time{}, 0, h, false)
+	if status.InBackoff {
+		t.Error("InBackoff should be false")
+	}
+	if len(status.UnstableWANs) != 0 {
+		t.Error("UnstableWANs should be empty")
+	}
+
+	// Trigger instability
+	h.update("backup", false)
+	h.update("backup", true)
+
+	status = buildStatus(cfg, started, time.Time{}, 0, h, true)
+	if !status.InBackoff {
+		t.Error("InBackoff should be true")
+	}
+	if len(status.UnstableWANs) != 1 || status.UnstableWANs[0] != "backup" {
+		t.Errorf("expected unstable_wans=[backup], got %v", status.UnstableWANs)
+	}
 }
