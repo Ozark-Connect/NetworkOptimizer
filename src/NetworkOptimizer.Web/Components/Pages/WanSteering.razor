@@ -108,16 +108,6 @@
                         <div class="metric-label">Active Rules</div>
                         <div class="metric-value">@_parsedStatus.RuleCount</div>
                     </div>
-                    @foreach (var kvp in _parsedStatus.WanHealth)
-                    {
-                        <div class="metric">
-                            <div class="metric-label">@kvp.Key</div>
-                            <div class="metric-value">
-                                <span class="status-indicator @(kvp.Value.Healthy ? "status-active" : "status-inactive")"></span>
-                                @(kvp.Value.Healthy ? "Healthy" : "Down")
-                            </div>
-                        </div>
-                    }
                 }
             </div>
             @if (_showVersionWarning && _parsedStatus != null)
