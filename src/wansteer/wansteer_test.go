@@ -210,7 +210,7 @@ func TestNormalizePortsForIptables_Empty(t *testing.T) {
 
 func TestExpectedRuleCount_SingleCIDR(t *testing.T) {
 	cfg := validConfig() // 1 dst CIDR, no src = 1*1*2 = 2
-	got := expectedRuleCount(cfg)
+	got := expectedRuleCount(cfg, nil)
 	if got != 2 {
 		t.Fatalf("expected 2, got %d", got)
 	}
@@ -219,7 +219,7 @@ func TestExpectedRuleCount_SingleCIDR(t *testing.T) {
 func TestExpectedRuleCount_MultipleDstCIDRs(t *testing.T) {
 	cfg := validConfig()
 	cfg.TrafficClasses[0].Match.DstCIDRs = []string{"10.0.0.0/8", "172.16.0.0/12"}
-	got := expectedRuleCount(cfg)
+	got := expectedRuleCount(cfg, nil)
 	// 2 dst * 1 src * 2 = 4
 	if got != 4 {
 		t.Fatalf("expected 4, got %d", got)
@@ -230,7 +230,7 @@ func TestExpectedRuleCount_SrcAndDstCrossProduct(t *testing.T) {
 	cfg := validConfig()
 	cfg.TrafficClasses[0].Match.SrcCIDRs = []string{"192.168.1.0/24", "192.168.2.0/24"}
 	cfg.TrafficClasses[0].Match.DstCIDRs = []string{"10.0.0.0/8", "172.16.0.0/12", "203.0.113.0/24"}
-	got := expectedRuleCount(cfg)
+	got := expectedRuleCount(cfg, nil)
 	// 2 src * 3 dst * 2 = 12
 	if got != 12 {
 		t.Fatalf("expected 12, got %d", got)
@@ -240,7 +240,7 @@ func TestExpectedRuleCount_SrcAndDstCrossProduct(t *testing.T) {
 func TestExpectedRuleCount_DisabledClassNotCounted(t *testing.T) {
 	cfg := validConfig()
 	cfg.TrafficClasses[0].Enabled = false
-	got := expectedRuleCount(cfg)
+	got := expectedRuleCount(cfg, nil)
 	if got != 0 {
 		t.Fatalf("expected 0 for disabled class, got %d", got)
 	}
@@ -253,7 +253,7 @@ func TestExpectedRuleCount_RangesIncluded(t *testing.T) {
 		DstCIDRs:  []string{"10.0.0.0/8"},
 		DstRanges: []string{"172.16.0.1-172.16.0.254"},
 	}
-	got := expectedRuleCount(cfg)
+	got := expectedRuleCount(cfg, nil)
 	// 1 src_range * (1 dst_cidr + 1 dst_range) * 2 = 4
 	if got != 4 {
 		t.Fatalf("expected 4, got %d", got)
@@ -268,7 +268,7 @@ func TestExpectedRuleCount_MixedSrcTypes(t *testing.T) {
 		SrcMACs:   []string{"aa:bb:cc:dd:ee:ff"},
 		DstCIDRs:  []string{"203.0.113.0/24"},
 	}
-	got := expectedRuleCount(cfg)
+	got := expectedRuleCount(cfg, nil)
 	// 3 src * 1 dst * 2 = 6
 	if got != 6 {
 		t.Fatalf("expected 6, got %d", got)
@@ -284,10 +284,38 @@ func TestExpectedRuleCount_MultipleClasses(t *testing.T) {
 		TargetWAN:   "backup",
 		Enabled:     true,
 	})
-	got := expectedRuleCount(cfg)
+	got := expectedRuleCount(cfg, nil)
 	// class 0: 1*1*2=2, class 1: 1*2*2=4, total=6
 	if got != 6 {
 		t.Fatalf("expected 6, got %d", got)
+	}
+}
+
+func TestExpectedRuleCount_UnhealthyWANExcluded(t *testing.T) {
+	cfg := validConfig() // gaming -> backup
+	cfg.TrafficClasses = append(cfg.TrafficClasses, TrafficClass{
+		Name:        "video",
+		Match:       MatchCriteria{DstCIDRs: []string{"198.51.100.0/24"}},
+		Probability: 1.0,
+		TargetWAN:   "primary",
+		Enabled:     true,
+	})
+	// Full config: gaming=2 + video=2 = 4
+	got := expectedRuleCount(cfg, nil)
+	if got != 4 {
+		t.Fatalf("expected 4 with no disabled WANs, got %d", got)
+	}
+
+	// backup unhealthy: gaming disabled, video still counts = 2
+	got = expectedRuleCount(cfg, map[string]bool{"backup": true})
+	if got != 2 {
+		t.Fatalf("expected 2 with backup disabled, got %d", got)
+	}
+
+	// both unhealthy: 0
+	got = expectedRuleCount(cfg, map[string]bool{"backup": true, "primary": true})
+	if got != 0 {
+		t.Fatalf("expected 0 with all WANs disabled, got %d", got)
 	}
 }
 

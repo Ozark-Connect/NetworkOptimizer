@@ -170,8 +170,11 @@ func main() {
 			}
 
 		case <-reconcileTicker.C:
-			// Check if our chain and rules still exist (drift detection)
-			expected := expectedRuleCount(cfg)
+			// Check if our chain and rules still exist (drift detection).
+			// Account for unhealthy WANs so we don't false-positive on
+			// intentionally disabled traffic classes.
+			unhealthy := health.unhealthyWANs()
+			expected := expectedRuleCount(cfg, unhealthy)
 			actual := ruleCount()
 			jumpOk := hasJump()
 
@@ -190,7 +193,6 @@ func main() {
 					// become stale. Flushing prevents the double-free race.
 					flushSFE()
 				}
-				unhealthy := health.unhealthyWANs()
 				if err := reapplyRules(cfg, unhealthy); err != nil {
 					slog.Error("reconciliation failed", "error", err)
 				}

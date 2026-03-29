@@ -270,11 +270,12 @@ func ruleCount() int {
 	return count
 }
 
-// expectedRuleCount returns how many iptables rules the current config should produce.
-func expectedRuleCount(cfg *Config) int {
+// expectedRuleCount returns how many iptables rules the current config should produce,
+// accounting for unhealthy WANs whose traffic classes are disabled.
+func expectedRuleCount(cfg *Config, disabledWANs map[string]bool) int {
 	count := 0
 	for _, tc := range cfg.TrafficClasses {
-		if !tc.Enabled {
+		if !tc.Enabled || disabledWANs[tc.TargetWAN] {
 			continue
 		}
 		srcCount := len(tc.Match.SrcCIDRs) + len(tc.Match.SrcRanges) + len(tc.Match.SrcMACs)
