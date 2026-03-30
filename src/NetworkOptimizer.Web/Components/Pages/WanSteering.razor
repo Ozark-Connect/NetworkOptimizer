@@ -113,7 +113,7 @@
                     </div>
                     <div class="metric">
                         <div class="metric-label">Active Rules</div>
-                        <div class="metric-value">@_parsedStatus.RuleCount</div>
+                        <div class="metric-value">@_parsedStatus.ActiveTrafficClassCount</div>
                     </div>
                 }
             </div>
@@ -1285,6 +1285,15 @@
         public int RuleCount { get; set; }
         public int ReconcileCount { get; set; }
         public Dictionary<string, ParsedWanHealth> WanHealth { get; set; } = new();
+        public List<ParsedTrafficClassStatus> TrafficClasses { get; set; } = new();
+        public int ActiveTrafficClassCount => TrafficClasses.Count(tc => tc.Enabled);
+    }
+
+    private class ParsedTrafficClassStatus
+    {
+        public string Name { get; set; } = "";
+        public bool Enabled { get; set; }
+        public string TargetWan { get; set; } = "";
     }
 
     private class ParsedWanHealth
