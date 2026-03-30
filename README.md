@@ -15,6 +15,12 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
+## New: WAN Steering
+
+UniFi makes you choose between WAN Failover and Load Balancing, and its Policy-Based Routes can only match by destination IP or domain - not port or protocol. WAN Steering removes both limitations. Keep your primary WAN for responsive, latency-sensitive traffic by default, and selectively load balance bulk traffic - Steam downloads, OS updates, Xbox downloads - across your secondary connections so they're not just sitting idle waiting for a failover event.
+
+Route by source, destination, port, or protocol with full load balancing support. Pin gaming traffic to your fastest link while HTTP/HTTPS flows get split 50/50 across all your WANs. Health-check failover, automatic rule recovery after gateway reprovisioning, and zero impact to gateway performance.
+
 ## New: HTTPS Reverse Proxy
 
 Enable HTTPS with automatic Let's Encrypt certificates using the included [Traefik reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy). It forces HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results) while keeping HTTP/2 for the main app. Windows MSI users can enable Traefik as an optional feature during install. HTTPS also unlocks GPS-based tagging on your self-hosted Speed Test and Signal walk test data, since browsers require a secure context for location access.
@@ -96,6 +102,12 @@ Firewall analysis catches the subtle stuff: rules that shadow each other, allow 
 
 You get a score, a breakdown by severity (critical, recommended, informational), and specific recommendations for each issue. Dismiss false positives if your setup is intentional, export PDF reports for documentation, track your score over time.
 
+### WAN Steering
+
+UniFi's WAN Failover keeps secondary connections idle until your primary goes down. Load Balancing splits everything across all WANs but gives you no control over what goes where. WAN Steering lets you have both: keep your primary WAN as the default for latency-sensitive traffic, and selectively load balance bulk traffic across your secondary connections with full port and protocol matching.
+
+Define traffic classes by source, destination, port, or protocol, assign them to specific WANs or load balance across multiple WANs with configurable weight. A lightweight Go binary on your gateway inserts rules above UniFi's routing table, watches for WAN state changes and reprovisioning events, and recovers automatically. Health-check failover still works as expected - if a WAN goes down, traffic redistributes to healthy links.
+
 ### Adaptive SQM
 
 If you're on cable, DSL, or cellular, you know bufferbloat. That lag spike when someone starts a download or joins a video call. SQM fixes it, but setting the bandwidth limits correctly is a guessing game; too high and SQM can't shape traffic effectively, too low and you're leaving speed on the table.
@@ -151,6 +163,7 @@ Most features work with just API access. SSH is only needed for speed testing an
 | Client Speed Test | No |
 | WAN Speed Test | No, but gateway-based requires Gateway SSH |
 | LAN Speed Test | Yes - Gateway SSH and/or Device SSH |
+| WAN Steering | Yes - Gateway SSH |
 | Adaptive SQM | Yes - Gateway SSH |
 
 To enable SSH, see [SSH Configuration](docker/DEPLOYMENT.md#unifi-ssh-configuration) in the Deployment Guide. SSH must be configured via the UniFi web interface (not the mobile app).
