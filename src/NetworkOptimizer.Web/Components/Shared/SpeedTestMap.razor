@@ -167,6 +167,10 @@
     [Parameter]
     public int? TimeFilterHours { get; set; }
 
+    /// <summary>Fires when the time slider changes, passing the number of hours (0 = all time)</summary>
+    [Parameter]
+    public EventCallback<int> OnTimeRangeChanged { get; set; }
+
     // Search filter state (internal to map only)
     private string searchFilter = "";
 
@@ -332,7 +336,12 @@
 
     private async Task OnSliderChanged()
     {
-        // Time filter is applied internally via LocationResults property
+        // Notify parent to re-fetch with the new time range (server-side filtering)
+        var hours = TimeBreakpoints[sliderValue].hours;
+        if (OnTimeRangeChanged.HasDelegate)
+            await OnTimeRangeChanged.InvokeAsync(hours);
+
+        // Time filter is also applied internally via LocationResults property
         // Only fit bounds if user hasn't manually zoomed/panned
         if (mapInitialized)
         {

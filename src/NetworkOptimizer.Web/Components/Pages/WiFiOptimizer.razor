@@ -225,6 +225,7 @@
                       OnApLocationChanged="HandleApLocationChanged"
                       OnClientClick="HandleMapClientClick"
                       OnRefresh="RefreshData"
+                      OnTimeRangeChanged="HandleSpeedTestTimeRangeChanged"
                       ClientDetailMode="true"
                       ShowDashboardLinks="true"
                       MapHeight="676px" />
@@ -641,6 +642,7 @@
                           OnApLocationChanged="HandleApLocationChanged"
                           OnClientClick="HandleMapClientClick"
                           OnRefresh="RefreshData"
+                          OnTimeRangeChanged="HandleSpeedTestTimeRangeChanged"
                           ClientDetailMode="true"
                           ShowDashboardLinks="true" />
         }
@@ -757,6 +759,7 @@
     private List<ApMapMarker> _apMapMarkers = new();
     private System.Threading.Timer? _mapPollTimer;
     private int _signalTimeRangeHours = 168; // 1 week default, matches FloorPlanEditor slider
+    private int _speedTestTimeRangeHours = 720; // 30 days default, matches SpeedTestMap slider
 
     protected override void OnInitialized()
     {
@@ -796,7 +799,7 @@
                 await InvokeAsync(async () =>
                 {
                     var now = DateTime.UtcNow;
-                    var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+                    var speedTestTask = SpeedTestService.GetResultsAsync(count: 0, hours: _speedTestTimeRangeHours);
                     var signalTask = DashboardService.GetSignalMapPointsAsync(
                         null, _signalTimeRangeHours > 0 ? now.AddHours(-_signalTimeRangeHours) : DateTime.MinValue, now);
 
@@ -860,7 +863,7 @@
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync();
             var apsTask = WiFiService.GetAccessPointsAsync();
-            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0, hours: _speedTestTimeRangeHours);
             var signalTask = DashboardService.GetSignalMapPointsAsync(
                 null, _signalTimeRangeHours > 0 ? now.AddHours(-_signalTimeRangeHours) : DateTime.MinValue, now);
 
@@ -895,7 +898,7 @@
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
-            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
+            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0, hours: _speedTestTimeRangeHours);
             var signalTask = DashboardService.GetSignalMapPointsAsync(
                 null, _signalTimeRangeHours > 0 ? now.AddHours(-_signalTimeRangeHours) : DateTime.MinValue, now);
 
@@ -961,6 +964,13 @@
         var now = DateTime.UtcNow;
         _signalMapPoints = await DashboardService.GetSignalMapPointsAsync(
             null, hours > 0 ? now.AddHours(-hours) : DateTime.MinValue, now);
+        StateHasChanged();
+    }
+
+    private async Task HandleSpeedTestTimeRangeChanged(int hours)
+    {
+        _speedTestTimeRangeHours = hours;
+        _speedTestResults = await SpeedTestService.GetResultsAsync(count: 0, hours: hours);
         StateHasChanged();
     }
 

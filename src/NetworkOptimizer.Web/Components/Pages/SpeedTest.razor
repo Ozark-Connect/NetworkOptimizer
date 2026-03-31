@@ -900,6 +900,7 @@
                   OnResultClick="ScrollToResult"
                   ApMarkers="apMapMarkers"
                   OnApLocationChanged="HandleApLocationChanged"
+                  OnTimeRangeChanged="HandleSpeedTestTimeRangeChanged"
                   ShowDashboardLinks="true" />
 
     <!-- How it Works -->
@@ -1472,12 +1473,20 @@
         }
     }
 
+    private int _speedTestTimeRangeHours = 720; // 30 days default, matches SpeedTestMap slider
+
+    private async Task HandleSpeedTestTimeRangeChanged(int hours)
+    {
+        _speedTestTimeRangeHours = hours;
+        testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: hours);
+        StateHasChanged();
+    }
+
     private async Task LoadHistory()
     {
         try
         {
-            // Load all results (map handles its own time filtering)
-            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0);
+            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: _speedTestTimeRangeHours);
             historyPage = 1; // Reset to first page when loading fresh data
 
             // Only set currentResult on initial page load (when it's null)
