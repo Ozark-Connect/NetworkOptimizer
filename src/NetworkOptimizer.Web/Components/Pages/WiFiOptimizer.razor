@@ -226,6 +226,7 @@
                       OnClientClick="HandleMapClientClick"
                       OnRefresh="RefreshData"
                       OnTimeRangeChanged="HandleSpeedTestTimeRangeChanged"
+                      TimeFilterHours="_speedTestTimeRangeHours"
                       ClientDetailMode="true"
                       ShowDashboardLinks="true"
                       MapHeight="676px" />
@@ -233,7 +234,7 @@
     else if (_activeTab == "floorplan")
     {
         <!-- Signal Map / Floor Plan Editor -->
-        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" />
+        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" SignalTimeFilterHours="_signalTimeRangeHours" />
     }
     else if (_activeTab == "roaming")
     {
@@ -643,6 +644,7 @@
                           OnClientClick="HandleMapClientClick"
                           OnRefresh="RefreshData"
                           OnTimeRangeChanged="HandleSpeedTestTimeRangeChanged"
+                          TimeFilterHours="_speedTestTimeRangeHours"
                           ClientDetailMode="true"
                           ShowDashboardLinks="true" />
         }

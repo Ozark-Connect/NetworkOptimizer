@@ -1623,6 +1623,8 @@
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
     /// <summary>Fires when the signal time slider changes, passing the number of hours (0 = all time)</summary>
     [Parameter] public EventCallback<int> OnSignalTimeRangeChanged { get; set; }
+    /// <summary>External signal time filter in hours (syncs slider position from parent)</summary>
+    [Parameter] public int? SignalTimeFilterHours { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
@@ -1691,9 +1693,19 @@
         (0, "All time")      // 10
     };
     private int _signalSliderValue = 4; // Default to 1 week (index 4)
+    private int? _lastSignalTimeFilter;
 
     protected override async Task OnParametersSetAsync()
     {
+        // Sync slider with external time filter from parent
+        if (SignalTimeFilterHours.HasValue && SignalTimeFilterHours != _lastSignalTimeFilter)
+        {
+            _lastSignalTimeFilter = SignalTimeFilterHours;
+            var targetIndex = FindClosestSignalBreakpointIndex(SignalTimeFilterHours.Value);
+            if (targetIndex != _signalSliderValue)
+                _signalSliderValue = targetIndex;
+        }
+
         // Auto-update signal data markers when either data source changes
         if (_mapInitialized && _showSignalData
             && (SignalLogMarkers.Count != _lastSignalLogCount || SpeedTestResults.Count != _lastSpeedTestCount))
@@ -1702,6 +1714,20 @@
             _lastSpeedTestCount = SpeedTestResults.Count;
             await UpdateSignalDataMarkers();
         }
+    }
+
+    private static int FindClosestSignalBreakpointIndex(int hours)
+    {
+        if (hours == 0) return 10; // All time
+        var bestIndex = 4; // default
+        var bestDiff = int.MaxValue;
+        for (int i = 0; i < SignalTimeBreakpoints.Length; i++)
+        {
+            if (SignalTimeBreakpoints[i].hours == 0) continue;
+            var diff = Math.Abs(SignalTimeBreakpoints[i].hours - hours);
+            if (diff < bestDiff) { bestDiff = diff; bestIndex = i; }
+        }
+        return bestIndex;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
