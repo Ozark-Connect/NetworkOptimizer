@@ -308,14 +308,6 @@
             </div>
         }
 
-        @if (_showSignalData)
-        {
-            <div class="fp-signal-time-slider">
-                <input type="range" min="0" max="10" step="1" @bind="_signalSliderValue" @bind:after="OnSignalSliderChanged" />
-                <span class="time-label">@GetSignalTimeLabel()</span>
-            </div>
-        }
-
         @if (_showHeatmap)
         {
             <div class="fp-heatmap-legend">
@@ -331,6 +323,16 @@
             </div>
         }
     </div>
+
+    @if (_showSignalData)
+    {
+        <div class="fp-signal-footer">
+            <div class="fp-signal-time-slider">
+                <input type="range" min="0" max="10" step="1" @bind="_signalSliderValue" @bind:after="OnSignalSliderChanged" />
+                <span class="time-label">@GetSignalTimeLabel()</span>
+            </div>
+        </div>
+    }
 
     <!-- Bottom bar -->
     @if (!ReadOnly && _selectedFloor != null)
@@ -966,28 +968,27 @@
         margin-top: 2px;
     }
 
+    .fp-signal-footer {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        margin-top: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
     .fp-signal-time-slider {
-        position: absolute;
-        bottom: 30px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 1000;
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        background: rgba(15, 23, 42, 0.9);
-        border: 1px solid rgba(100, 116, 139, 0.4);
-        border-radius: 6px;
-        padding: 6px 12px;
+        gap: 0.5rem;
     }
     .fp-signal-time-slider input[type="range"] {
-        width: 200px;
+        width: 140px;
         height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
         background: linear-gradient(to right, #3b82f6, #60a5fa);
         border-radius: 2px;
         cursor: pointer;
-        -webkit-appearance: none;
-        appearance: none;
     }
     .fp-signal-time-slider input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none;
@@ -996,6 +997,15 @@
         background: #fff;
         border-radius: 50%;
         cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    .fp-signal-time-slider input[type="range"]::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     }
     .fp-signal-time-slider .time-label {
