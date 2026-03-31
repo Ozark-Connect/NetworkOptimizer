@@ -332,7 +332,7 @@ window.fpEditor = {
                     return L.divIcon({
                         html: "<div class='speed-cluster' style='background:" + color + "'>" + markers.length + "</div>",
                         className: 'speed-cluster-icon',
-                        iconSize: L.point(40, 40)
+                        iconSize: L.point(24, 24)
                     });
                 }
             });
