@@ -605,6 +605,23 @@ public class UniFiApiClient : IDisposable
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/device"), cancellationToken);
 
+            // Handle authentication failures (session expired)
+            if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _logger.LogWarning("Got {StatusCode} fetching raw device JSON, re-authenticating...", response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while fetching raw device JSON");
+                    return null;
+                }
+
+                // Retry with new authentication
+                response = await _httpClient!.GetAsync(BuildApiPath("stat/device"), cancellationToken);
+            }
+
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -934,6 +951,23 @@ public class UniFiApiClient : IDisposable
         try
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("rest/firewallrule"), cancellationToken);
+
+            // Handle authentication failures (session expired)
+            if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _logger.LogWarning("Got {StatusCode} fetching legacy firewall rules, re-authenticating...", response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while fetching legacy firewall rules");
+                    return null;
+                }
+
+                response = await _httpClient!.GetAsync(BuildApiPath("rest/firewallrule"), cancellationToken);
+            }
+
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1253,6 +1287,22 @@ public class UniFiApiClient : IDisposable
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/health"), cancellationToken);
 
+            // Handle authentication failures (session expired)
+            if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _logger.LogWarning("Got {StatusCode} fetching site health, re-authenticating...", response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while fetching site health");
+                    return null;
+                }
+
+                response = await _httpClient!.GetAsync(BuildApiPath("stat/health"), cancellationToken);
+            }
+
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1432,6 +1482,22 @@ public class UniFiApiClient : IDisposable
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("rest/setting"), cancellationToken);
 
+            // Handle authentication failures (session expired)
+            if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _logger.LogWarning("Got {StatusCode} fetching settings, re-authenticating...", response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while fetching settings");
+                    return null;
+                }
+
+                response = await _httpClient!.GetAsync(BuildApiPath("rest/setting"), cancellationToken);
+            }
+
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1460,6 +1526,22 @@ public class UniFiApiClient : IDisposable
         return await _retryPolicy.ExecuteAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/current-channel"), cancellationToken);
+
+            // Handle authentication failures (session expired)
+            if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _logger.LogWarning("Got {StatusCode} fetching current channel data, re-authenticating...", response.StatusCode);
+                _isAuthenticated = false;
+
+                if (!await LoginAsync(cancellationToken))
+                {
+                    _logger.LogError("Re-authentication failed while fetching current channel data");
+                    return null;
+                }
+
+                response = await _httpClient!.GetAsync(BuildApiPath("stat/current-channel"), cancellationToken);
+            }
 
             if (response.IsSuccessStatusCode)
             {
