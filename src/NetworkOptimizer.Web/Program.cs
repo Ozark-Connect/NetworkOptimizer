@@ -1372,6 +1372,12 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
         request.Band, placedAps, cached.WallsByFloor, activeFloor, request.GridResolutionMeters, cached.BuildingFloorInfos);
 
+    // Apply IDW adjustment from real-world signal measurements if provided
+    if (request.SignalMeasurements is { Count: > 0 })
+    {
+        propagationSvc.AdjustWithMeasurements(result, request.SignalMeasurements);
+    }
+
     return Results.Ok(result);
 });
 

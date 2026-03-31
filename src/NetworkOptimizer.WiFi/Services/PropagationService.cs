@@ -122,6 +122,107 @@ public class PropagationService
     }
 
     /// <summary>
+    /// Adjust a simulated heatmap grid using real-world signal measurements via
+    /// Inverse Distance Weighting (IDW). At each measurement location, the delta
+    /// between measured and simulated values is computed. Grid cells within the
+    /// influence radius are adjusted by the distance-weighted average of nearby deltas.
+    /// </summary>
+    public void AdjustWithMeasurements(HeatmapResponse heatmap, List<SignalMeasurement> measurements)
+    {
+        if (measurements.Count == 0) return;
+
+        const double influenceRadiusMeters = 30.0;
+        const double power = 2.0; // IDW power parameter
+
+        var latStep = (heatmap.NeLat - heatmap.SwLat) / heatmap.Height;
+        var lngStep = (heatmap.NeLng - heatmap.SwLng) / heatmap.Width;
+
+        // Convert measurements to grid coordinates and sample simulated values
+        var gridMeasurements = new List<(double gridX, double gridY, float delta, double lat, double lng)>();
+        foreach (var m in measurements)
+        {
+            var gy = (m.Latitude - heatmap.SwLat) / latStep - 0.5;
+            var gx = (m.Longitude - heatmap.SwLng) / lngStep - 0.5;
+
+            // Skip measurements outside the grid
+            if (gx < 0 || gx >= heatmap.Width || gy < 0 || gy >= heatmap.Height)
+                continue;
+
+            // Sample simulated value at measurement location (bilinear)
+            var simulated = SampleGrid(heatmap.Data, heatmap.Width, heatmap.Height, gx, gy);
+            var delta = m.SignalDbm - simulated;
+
+            gridMeasurements.Add((gx, gy, delta, m.Latitude, m.Longitude));
+        }
+
+        if (gridMeasurements.Count == 0) return;
+
+        // Approximate meters per grid cell for distance calculation
+        var cellWidthMeters = HaversineDistance(
+            heatmap.SwLat, heatmap.SwLng, heatmap.SwLat, heatmap.SwLng + lngStep);
+        var cellHeightMeters = HaversineDistance(
+            heatmap.SwLat, heatmap.SwLng, heatmap.SwLat + latStep, heatmap.SwLng);
+        var influenceRadiusCellsX = influenceRadiusMeters / cellWidthMeters;
+        var influenceRadiusCellsY = influenceRadiusMeters / cellHeightMeters;
+
+        Parallel.For(0, heatmap.Height, y =>
+        {
+            for (int x = 0; x < heatmap.Width; x++)
+            {
+                var weightSum = 0.0;
+                var deltaSum = 0.0;
+
+                foreach (var (gx, gy, delta, mLat, mLng) in gridMeasurements)
+                {
+                    var dx = (x - gx) * cellWidthMeters;
+                    var dy = (y - gy) * cellHeightMeters;
+                    var distSq = dx * dx + dy * dy;
+                    var dist = Math.Sqrt(distSq);
+
+                    if (dist > influenceRadiusMeters) continue;
+
+                    if (dist < 0.5) // nearly on top of the measurement
+                    {
+                        // Direct override - use measured delta with very high weight
+                        weightSum += 1e6;
+                        deltaSum += delta * 1e6;
+                    }
+                    else
+                    {
+                        var w = 1.0 / Math.Pow(dist, power);
+                        weightSum += w;
+                        deltaSum += delta * w;
+                    }
+                }
+
+                if (weightSum > 0)
+                {
+                    var idx = y * heatmap.Width + x;
+                    heatmap.Data[idx] += (float)(deltaSum / weightSum);
+                }
+            }
+        });
+    }
+
+    private static float SampleGrid(float[] data, int width, int height, double gx, double gy)
+    {
+        var x0 = Math.Clamp((int)gx, 0, width - 1);
+        var y0 = Math.Clamp((int)gy, 0, height - 1);
+        var x1 = Math.Min(x0 + 1, width - 1);
+        var y1 = Math.Min(y0 + 1, height - 1);
+        var fx = gx - x0;
+        var fy = gy - y0;
+
+        var v00 = data[y0 * width + x0];
+        var v10 = data[y0 * width + x1];
+        var v01 = data[y1 * width + x0];
+        var v11 = data[y1 * width + x1];
+
+        return (float)(v00 * (1 - fx) * (1 - fy) + v10 * fx * (1 - fy) +
+                        v01 * (1 - fx) * fy + v11 * fx * fy);
+    }
+
+    /// <summary>
     /// Check if two APs interfere on a given band based on propagation modeling.
     /// Returns true if either AP's signal at the other's location is above the threshold.
     /// Uses the same ITU-R P.1238 model as the floor plan heatmap.

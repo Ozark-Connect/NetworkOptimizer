@@ -31,6 +31,9 @@ public class HeatmapRequest
     public double? SwLng { get; set; }
     public double? NeLat { get; set; }
     public double? NeLng { get; set; }
+
+    /// <summary>Optional real-world signal measurements for IDW adjustment of the simulated heatmap</summary>
+    public List<SignalMeasurement>? SignalMeasurements { get; set; }
 }
 
 /// <summary>
@@ -134,6 +137,16 @@ public class ApPropagationContext
 
     /// <summary>Building floor info for cross-floor attenuation</summary>
     public List<BuildingFloorInfo>? Buildings { get; init; }
+}
+
+/// <summary>
+/// A real-world signal strength measurement at a GPS location.
+/// </summary>
+public class SignalMeasurement
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public int SignalDbm { get; set; }
 }
 
 /// <summary>

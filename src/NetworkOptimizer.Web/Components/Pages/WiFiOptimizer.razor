@@ -797,7 +797,7 @@
                     var now = DateTime.UtcNow;
                     var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
                     var signalTask = DashboardService.GetSignalMapPointsAsync(
-                        null, now.AddDays(-7), now);
+                        null, now.AddDays(-365), now);
 
                     await Task.WhenAll(speedTestTask, signalTask);
 
@@ -861,7 +861,7 @@
             var apsTask = WiFiService.GetAccessPointsAsync();
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
             var signalTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-7), now);
+                null, now.AddDays(-365), now);
 
             await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
@@ -896,7 +896,7 @@
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
             var signalTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-7), now);
+                null, now.AddDays(-365), now);
 
             await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
