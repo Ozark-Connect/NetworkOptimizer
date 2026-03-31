@@ -49,7 +49,8 @@ dotnet publish $WebProject `
     -p:Version=$Version `
     -p:FileVersion=$Version `
     -p:AssemblyVersion=$Version `
-    -p:IncludeSourceRevisionInInformationalVersion=false
+    -p:IncludeSourceRevisionInInformationalVersion=false `
+    /nodeReuse:false
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Publish failed!"
@@ -131,7 +132,7 @@ Write-Host ""
 
 # Step 4: Build WiX installer
 Write-Host "[4/5] Building MSI installer with WiX..." -ForegroundColor Yellow
-dotnet build $InstallerProject -c $Configuration
+dotnet build $InstallerProject -c $Configuration /nodeReuse:false
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "WiX build failed!"

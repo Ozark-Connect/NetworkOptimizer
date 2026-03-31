@@ -1372,6 +1372,24 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
         request.SwLat.Value, request.SwLng.Value, request.NeLat.Value, request.NeLng.Value,
         request.Band, placedAps, cached.WallsByFloor, activeFloor, request.GridResolutionMeters, cached.BuildingFloorInfos);
 
+    // Apply calibration adjustment from real-world signal measurements if provided.
+    // Filter to measurements matching the active heatmap band.
+    if (request.SignalMeasurements is { Count: > 0 })
+    {
+        var bandAliases = request.Band switch
+        {
+            "2.4" => new[] { "ng", "2.4" },
+            "5" => new[] { "na", "5" },
+            "6" => new[] { "6e", "6" },
+            _ => new[] { request.Band }
+        };
+        var bandFiltered = request.SignalMeasurements
+            .Where(m => m.Band == null || bandAliases.Any(a => string.Equals(m.Band, a, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (bandFiltered.Count > 0)
+            propagationSvc.AdjustWithMeasurements(result, bandFiltered);
+    }
+
     return Results.Ok(result);
 });
 

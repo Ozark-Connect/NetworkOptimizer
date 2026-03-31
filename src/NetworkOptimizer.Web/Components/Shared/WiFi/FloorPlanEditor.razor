@@ -311,7 +311,7 @@
         @if (_showHeatmap)
         {
             <div class="fp-heatmap-legend">
-                <div class="fp-legend-title">Signal (dBm)</div>
+                <div class="fp-legend-title">Signal (dBm)@(_showSignalData && _showHeatmap && SignalLogMarkers.Any() ? " - Adjusted" : "")</div>
                 <div class="fp-legend-bar"></div>
                 <div class="fp-legend-labels">
                     <span>-30</span>
@@ -323,6 +323,16 @@
             </div>
         }
     </div>
+
+    @if (_showSignalData)
+    {
+        <div class="fp-signal-footer">
+            <div class="fp-signal-time-slider">
+                <input type="range" min="0" max="10" step="1" @bind="_signalSliderValue" @bind:after="OnSignalSliderChanged" />
+                <span class="time-label">@GetSignalTimeLabel()</span>
+            </div>
+        </div>
+    }
 
     <!-- Bottom bar -->
     @if (!ReadOnly && _selectedFloor != null)
@@ -958,6 +968,53 @@
         margin-top: 2px;
     }
 
+    .fp-signal-footer {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        margin-top: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .fp-signal-time-slider {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .fp-signal-time-slider input[type="range"] {
+        width: 140px;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: linear-gradient(to right, #3b82f6, #60a5fa);
+        border-radius: 2px;
+        cursor: pointer;
+    }
+    .fp-signal-time-slider input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    .fp-signal-time-slider input[type="range"]::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    .fp-signal-time-slider .time-label {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+        min-width: 60px;
+    }
+
     /* AP markers - match Coverage Map (no :global() - that only works in .razor.css files) */
     .fp-ap-marker-container {
         background: transparent !important;
@@ -1464,15 +1521,15 @@
 
     /* Signal-colored cluster icons */
     .speed-cluster {
-        width: 36px;
-        height: 36px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
         color: white;
         font-weight: bold;
-        font-size: 12px;
+        font-size: 10px;
         border: 2px solid white;
         box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
@@ -1564,6 +1621,10 @@
     [Parameter] public List<SignalMapPoint> SignalLogMarkers { get; set; } = new();
     [Parameter] public bool HideDashboardLinks { get; set; }
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
+    /// <summary>Fires when the signal time slider changes, passing the number of hours (0 = all time)</summary>
+    [Parameter] public EventCallback<int> OnSignalTimeRangeChanged { get; set; }
+    /// <summary>External signal time filter in hours (syncs slider position from parent)</summary>
+    [Parameter] public int? SignalTimeFilterHours { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
@@ -1616,8 +1677,35 @@
     private int _lastSignalLogCount;
     private int _lastSpeedTestCount;
 
+    // Signal data time slider (same breakpoints as Speed Map)
+    private static readonly (int hours, string label)[] SignalTimeBreakpoints = new[]
+    {
+        (1, "1 hr"),         // 0
+        (4, "4 hrs"),        // 1
+        (24, "24 hrs"),      // 2
+        (72, "3 days"),      // 3
+        (168, "1 week"),     // 4
+        (336, "2 weeks"),    // 5
+        (720, "30 days"),    // 6
+        (2160, "90 days"),   // 7
+        (4320, "6 months"),  // 8
+        (8760, "1 year"),    // 9
+        (0, "All time")      // 10
+    };
+    private int _signalSliderValue = 4; // Default to 1 week (index 4)
+    private int? _lastSignalTimeFilter;
+
     protected override async Task OnParametersSetAsync()
     {
+        // Sync slider with external time filter from parent
+        if (SignalTimeFilterHours.HasValue && SignalTimeFilterHours != _lastSignalTimeFilter)
+        {
+            _lastSignalTimeFilter = SignalTimeFilterHours;
+            var targetIndex = FindClosestSignalBreakpointIndex(SignalTimeFilterHours.Value);
+            if (targetIndex != _signalSliderValue)
+                _signalSliderValue = targetIndex;
+        }
+
         // Auto-update signal data markers when either data source changes
         if (_mapInitialized && _showSignalData
             && (SignalLogMarkers.Count != _lastSignalLogCount || SpeedTestResults.Count != _lastSpeedTestCount))
@@ -1626,6 +1714,20 @@
             _lastSpeedTestCount = SpeedTestResults.Count;
             await UpdateSignalDataMarkers();
         }
+    }
+
+    private static int FindClosestSignalBreakpointIndex(int hours)
+    {
+        if (hours == 0) return 10; // All time
+        var bestIndex = 4; // default
+        var bestDiff = int.MaxValue;
+        for (int i = 0; i < SignalTimeBreakpoints.Length; i++)
+        {
+            if (SignalTimeBreakpoints[i].hours == 0) continue;
+            var diff = Math.Abs(SignalTimeBreakpoints[i].hours - hours);
+            if (diff < bestDiff) { bestDiff = diff; bestIndex = i; }
+        }
+        return bestIndex;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -3201,7 +3303,32 @@
     {
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
-        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand, !_showPlannedAps);
+
+        // Build signal measurements for calibration adjustment when signal data is active
+        object? signalMeasurements = null;
+        if (_showSignalData)
+        {
+            var measurements = new List<object>();
+
+            foreach (var p in SignalLogMarkers)
+            {
+                measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band });
+            }
+
+            var stHours = SignalTimeBreakpoints[_signalSliderValue].hours;
+            var stCutoff = stHours > 0 ? DateTime.UtcNow.AddHours(-stHours) : DateTime.MinValue;
+            foreach (var r in SpeedTestResults
+                .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
+                .Where(r => r.TestTime >= stCutoff))
+            {
+                measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio });
+            }
+
+            if (measurements.Count > 0)
+                signalMeasurements = measurements;
+        }
+
+        await JS.InvokeVoidAsync("fpEditor.computeHeatmap", baseUrl, _globalActiveFloor, _heatmapBand, !_showPlannedAps, signalMeasurements);
     }
 
     private async Task TogglePlannedAps()
@@ -3218,16 +3345,45 @@
     {
         _showSignalData = !_showSignalData;
         if (_showSignalData)
+        {
             await UpdateSignalDataMarkers();
+        }
         else
+        {
             await JS.InvokeVoidAsync("fpEditor.clearSignalData");
+            // Clear signal measurements and recompute pure simulation heatmap
+            if (_showHeatmap) await ComputeHeatmap();
+        }
+    }
+
+    private async Task OnSignalSliderChanged()
+    {
+        // Tell parent to re-fetch signal data with the new time range
+        var hours = SignalTimeBreakpoints[_signalSliderValue].hours;
+        if (OnSignalTimeRangeChanged.HasDelegate)
+            await OnSignalTimeRangeChanged.InvokeAsync(hours);
+        // Markers will update via OnParametersSetAsync when parent passes new data
+    }
+
+    private string GetSignalTimeLabel()
+    {
+        return SignalTimeBreakpoints[_signalSliderValue].label;
     }
 
     private async Task UpdateSignalDataMarkers()
     {
         if (!_mapInitialized || !_showSignalData) return;
 
-        var speedTestMarkers = SpeedTestResults
+        // Signal logs are pre-filtered server-side via the callback.
+        // Speed test results are shared with the Speed Map (different time range),
+        // so filter them client-side to match the signal slider.
+        var filteredSignalLogs = SignalLogMarkers;
+        var hours = SignalTimeBreakpoints[_signalSliderValue].hours;
+        var filteredSpeedTests = hours > 0
+            ? SpeedTestResults.Where(r => r.TestTime >= DateTime.UtcNow.AddHours(-hours))
+            : SpeedTestResults;
+
+        var speedTestMarkers = filteredSpeedTests
             .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
             .Select(r => new
             {
@@ -3240,7 +3396,7 @@
             });
 
         // Markers from signal log entries (client dashboard)
-        var signalLogMarkers = SignalLogMarkers
+        var signalLogMarkers = filteredSignalLogs
             .Select((p, i) => new
             {
                 key = $"sl-{p.Timestamp.Ticks}-{i}",
@@ -3255,6 +3411,9 @@
         var markersJson = System.Text.Json.JsonSerializer.Serialize(allMarkers);
 
         await JS.InvokeVoidAsync("fpEditor.updateSignalData", markersJson);
+
+        // Recompute heatmap with signal adjustment if heatmap is active
+        if (_showHeatmap) await ComputeHeatmap();
     }
 
     private static string GetSignalColor(int dbm)
