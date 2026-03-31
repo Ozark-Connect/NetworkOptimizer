@@ -3289,8 +3289,11 @@
                 measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band });
             }
 
+            var stHours = SignalTimeBreakpoints[_signalSliderValue].hours;
+            var stCutoff = stHours > 0 ? DateTime.UtcNow.AddHours(-stHours) : DateTime.MinValue;
             foreach (var r in SpeedTestResults
-                .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue))
+                .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
+                .Where(r => r.TestTime >= stCutoff))
             {
                 measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio });
             }
@@ -3345,8 +3348,14 @@
     {
         if (!_mapInitialized || !_showSignalData) return;
 
-        var filteredSpeedTests = SpeedTestResults;
+        // Signal logs are pre-filtered server-side via the callback.
+        // Speed test results are shared with the Speed Map (different time range),
+        // so filter them client-side to match the signal slider.
         var filteredSignalLogs = SignalLogMarkers;
+        var hours = SignalTimeBreakpoints[_signalSliderValue].hours;
+        var filteredSpeedTests = hours > 0
+            ? SpeedTestResults.Where(r => r.TestTime >= DateTime.UtcNow.AddHours(-hours))
+            : SpeedTestResults;
 
         var speedTestMarkers = filteredSpeedTests
             .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
