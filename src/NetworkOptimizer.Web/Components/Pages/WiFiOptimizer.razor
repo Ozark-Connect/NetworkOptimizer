@@ -232,7 +232,7 @@
     else if (_activeTab == "floorplan")
     {
         <!-- Signal Map / Floor Plan Editor -->
-        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" />
+        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" />
     }
     else if (_activeTab == "roaming")
     {
@@ -756,6 +756,7 @@
     private List<SignalMapPoint> _signalMapPoints = new();
     private List<ApMapMarker> _apMapMarkers = new();
     private System.Threading.Timer? _mapPollTimer;
+    private int _signalTimeRangeHours = 168; // 1 week default, matches FloorPlanEditor slider
 
     protected override void OnInitialized()
     {
@@ -797,7 +798,7 @@
                     var now = DateTime.UtcNow;
                     var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
                     var signalTask = DashboardService.GetSignalMapPointsAsync(
-                        null, now.AddDays(-365), now);
+                        null, _signalTimeRangeHours > 0 ? now.AddHours(-_signalTimeRangeHours) : DateTime.MinValue, now);
 
                     await Task.WhenAll(speedTestTask, signalTask);
 
@@ -861,7 +862,7 @@
             var apsTask = WiFiService.GetAccessPointsAsync();
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
             var signalTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-365), now);
+                null, _signalTimeRangeHours > 0 ? now.AddHours(-_signalTimeRangeHours) : DateTime.MinValue, now);
 
             await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
@@ -896,7 +897,7 @@
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
             var signalTask = DashboardService.GetSignalMapPointsAsync(
-                null, now.AddDays(-365), now);
+                null, _signalTimeRangeHours > 0 ? now.AddHours(-_signalTimeRangeHours) : DateTime.MinValue, now);
 
             await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask, signalTask);
 
@@ -952,6 +953,15 @@
         _initialClientMac = mac;
         NavigationManager.NavigateTo("/wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(mac), forceLoad: false, replace: false);
         _lastTabParam = "client";
+    }
+
+    private async Task HandleSignalTimeRangeChanged(int hours)
+    {
+        _signalTimeRangeHours = hours;
+        var now = DateTime.UtcNow;
+        _signalMapPoints = await DashboardService.GetSignalMapPointsAsync(
+            null, hours > 0 ? now.AddHours(-hours) : DateTime.MinValue, now);
+        StateHasChanged();
     }
 
     public void Dispose()

@@ -311,7 +311,7 @@
         @if (_showHeatmap)
         {
             <div class="fp-heatmap-legend">
-                <div class="fp-legend-title">Signal (dBm)@(_showSignalData && _showHeatmap && TimeFilteredSignalPoints.Any() ? " - Adjusted" : "")</div>
+                <div class="fp-legend-title">Signal (dBm)@(_showSignalData && _showHeatmap && SignalLogMarkers.Any() ? " - Adjusted" : "")</div>
                 <div class="fp-legend-bar"></div>
                 <div class="fp-legend-labels">
                     <span>-30</span>
@@ -1621,6 +1621,8 @@
     [Parameter] public List<SignalMapPoint> SignalLogMarkers { get; set; } = new();
     [Parameter] public bool HideDashboardLinks { get; set; }
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
+    /// <summary>Fires when the signal time slider changes, passing the number of hours (0 = all time)</summary>
+    [Parameter] public EventCallback<int> OnSignalTimeRangeChanged { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
@@ -1689,28 +1691,6 @@
         (0, "All time")      // 10
     };
     private int _signalSliderValue = 4; // Default to 1 week (index 4)
-
-    private IEnumerable<SignalMapPoint> TimeFilteredSignalPoints
-    {
-        get
-        {
-            var hours = SignalTimeBreakpoints[_signalSliderValue].hours;
-            if (hours == 0) return SignalLogMarkers;
-            var cutoff = DateTime.UtcNow.AddHours(-hours);
-            return SignalLogMarkers.Where(p => p.Timestamp >= cutoff);
-        }
-    }
-
-    private IEnumerable<Iperf3Result> TimeFilteredSpeedTestResults
-    {
-        get
-        {
-            var hours = SignalTimeBreakpoints[_signalSliderValue].hours;
-            if (hours == 0) return SpeedTestResults;
-            var cutoff = DateTime.UtcNow.AddHours(-hours);
-            return SpeedTestResults.Where(r => r.TestTime >= cutoff);
-        }
-    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -3304,12 +3284,12 @@
         {
             var measurements = new List<object>();
 
-            foreach (var p in TimeFilteredSignalPoints)
+            foreach (var p in SignalLogMarkers)
             {
                 measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band });
             }
 
-            foreach (var r in TimeFilteredSpeedTestResults
+            foreach (var r in SpeedTestResults
                 .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue))
             {
                 measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio });
@@ -3349,8 +3329,11 @@
 
     private async Task OnSignalSliderChanged()
     {
-        if (_showSignalData)
-            await UpdateSignalDataMarkers();
+        // Tell parent to re-fetch signal data with the new time range
+        var hours = SignalTimeBreakpoints[_signalSliderValue].hours;
+        if (OnSignalTimeRangeChanged.HasDelegate)
+            await OnSignalTimeRangeChanged.InvokeAsync(hours);
+        // Markers will update via OnParametersSetAsync when parent passes new data
     }
 
     private string GetSignalTimeLabel()
@@ -3362,8 +3345,8 @@
     {
         if (!_mapInitialized || !_showSignalData) return;
 
-        var filteredSpeedTests = TimeFilteredSpeedTestResults;
-        var filteredSignalLogs = TimeFilteredSignalPoints;
+        var filteredSpeedTests = SpeedTestResults;
+        var filteredSignalLogs = SignalLogMarkers;
 
         var speedTestMarkers = filteredSpeedTests
             .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
