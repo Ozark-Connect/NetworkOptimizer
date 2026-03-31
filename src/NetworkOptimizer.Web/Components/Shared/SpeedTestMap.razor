@@ -167,6 +167,10 @@
     [Parameter]
     public int? TimeFilterHours { get; set; }
 
+    /// <summary>Fires when the time slider changes, passing the number of hours (0 = all time)</summary>
+    [Parameter]
+    public EventCallback<int> OnTimeRangeChanged { get; set; }
+
     // Search filter state (internal to map only)
     private string searchFilter = "";
 
@@ -332,7 +336,12 @@
 
     private async Task OnSliderChanged()
     {
-        // Time filter is applied internally via LocationResults property
+        // Notify parent to re-fetch with the new time range (server-side filtering)
+        var hours = TimeBreakpoints[sliderValue].hours;
+        if (OnTimeRangeChanged.HasDelegate)
+            await OnTimeRangeChanged.InvokeAsync(hours);
+
+        // Time filter is also applied internally via LocationResults property
         // Only fit bounds if user hasn't manually zoomed/panned
         if (mapInitialized)
         {
@@ -678,7 +687,7 @@
                             return L.divIcon({{
                                 html: ""<div class='speed-cluster' style='background:"" + color + ""'>"" + markers.length + ""</div>"",
                                 className: 'speed-cluster-icon',
-                                iconSize: L.point(40, 40)
+                                iconSize: L.point(24, 24)
                             }});
                         }}
                     }});
@@ -1894,15 +1903,15 @@
 
     /* Speed-colored cluster icons */
     .speed-cluster {
-        width: 36px;
-        height: 36px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
         color: white;
         font-weight: bold;
-        font-size: 12px;
+        font-size: 10px;
         border: 2px solid white;
         box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }

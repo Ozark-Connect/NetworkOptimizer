@@ -46,6 +46,7 @@ window.fpEditor = {
     _signalClusterGroup: null,
     _signalCurrentSpider: null,
     _signalSwitchingSpider: false,
+    _signalMeasurements: null,
     _bgWalls: [],
     _sameBuildingWalls: [],
     _snapGuideLine: null,
@@ -331,7 +332,7 @@ window.fpEditor = {
                     return L.divIcon({
                         html: "<div class='speed-cluster' style='background:" + color + "'>" + markers.length + "</div>",
                         className: 'speed-cluster-icon',
-                        iconSize: L.point(40, 40)
+                        iconSize: L.point(24, 24)
                     });
                 }
             });
@@ -3098,7 +3099,7 @@ window.fpEditor = {
 
     // ── Heatmap ──────────────────────────────────────────────────────
 
-    computeHeatmap: function (baseUrl, activeFloor, band, excludePlannedAps) {
+    computeHeatmap: function (baseUrl, activeFloor, band, excludePlannedAps, signalMeasurements) {
         var m = this._map;
         if (!m) return;
         var self = this;
@@ -3113,6 +3114,7 @@ window.fpEditor = {
         if (activeFloor != null) this._heatmapFloor = activeFloor;
         if (band) this._heatmapBand = band;
         if (excludePlannedAps != null) this._excludePlannedAps = excludePlannedAps;
+        if (signalMeasurements !== undefined) this._signalMeasurements = signalMeasurements;
         baseUrl = this._heatmapBaseUrl;
         activeFloor = this._heatmapFloor;
         band = this._heatmapBand;
@@ -3158,6 +3160,10 @@ window.fpEditor = {
         }
         if (self._excludePlannedAps) {
             body.excludePlannedAps = true;
+        }
+        // Include signal measurements for IDW adjustment when available
+        if (self._signalMeasurements && self._signalMeasurements.length > 0) {
+            body.signalMeasurements = self._signalMeasurements;
         }
 
         fetch(baseUrl + '/api/floor-plan/heatmap', {
@@ -3303,6 +3309,7 @@ window.fpEditor = {
 
     clearHeatmap: function () {
         this._heatmapBaseUrl = null; // stop moveend from recomputing
+        this._signalMeasurements = null;
         if (this._heatmapAbort) this._heatmapAbort.abort(); // cancel in-flight fetch
         this._heatmapRequestId++; // invalidate any in-flight compute
         if (this._heatmapOverlay && this._map) {
