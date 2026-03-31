@@ -3288,7 +3288,7 @@
         if (!_mapInitialized) return;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
 
-        // Build signal measurements for IDW adjustment when signal data is active
+        // Build signal measurements for calibration adjustment when signal data is active
         object? signalMeasurements = null;
         if (_showSignalData)
         {
@@ -3296,13 +3296,13 @@
 
             foreach (var p in TimeFilteredSignalPoints)
             {
-                measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm });
+                measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band });
             }
 
             foreach (var r in TimeFilteredSpeedTestResults
                 .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue))
             {
-                measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value });
+                measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio });
             }
 
             if (measurements.Count > 0)

@@ -147,6 +147,8 @@ public class SignalMeasurement
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public int SignalDbm { get; set; }
+    /// <summary>RF band: "ng" (2.4 GHz), "na" (5 GHz), or "6e" (6 GHz). Used to filter measurements to the active heatmap band.</summary>
+    public string? Band { get; set; }
 }
 
 /// <summary>

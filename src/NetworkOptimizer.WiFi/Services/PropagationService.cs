@@ -122,23 +122,32 @@ public class PropagationService
     }
 
     /// <summary>
-    /// Adjust a simulated heatmap grid using real-world signal measurements via
-    /// Inverse Distance Weighting (IDW). At each measurement location, the delta
-    /// between measured and simulated values is computed. Grid cells within the
-    /// influence radius are adjusted by the distance-weighted average of nearby deltas.
+    /// Calibrate a simulated heatmap grid using real-world signal measurements.
+    /// Uses IDW to compute a smooth correction field from measurement deltas,
+    /// then applies it with heavy damping so the propagation model shape is
+    /// preserved and measurements only gently nudge the rings. Client device
+    /// antenna variation means measurements are inherently noisy - this treats
+    /// them as hints, not ground truth.
     /// </summary>
     public void AdjustWithMeasurements(HeatmapResponse heatmap, List<SignalMeasurement> measurements)
     {
         if (measurements.Count == 0) return;
 
-        const double influenceRadiusMeters = 30.0;
-        const double power = 2.0; // IDW power parameter
+        // Calibration strength: 0.25 means measurements contribute at most 25%
+        // of the delta. Preserves propagation ring shape while gently nudging.
+        const double calibrationStrength = 0.25;
+
+        // Wider radius for smooth, gradual influence on propagation rings
+        const double influenceRadiusMeters = 50.0;
+
+        // Cap the per-cell adjustment to prevent extreme shifts from noisy data
+        const float maxAdjustmentDb = 8.0f;
 
         var latStep = (heatmap.NeLat - heatmap.SwLat) / heatmap.Height;
         var lngStep = (heatmap.NeLng - heatmap.SwLng) / heatmap.Width;
 
         // Convert measurements to grid coordinates and sample simulated values
-        var gridMeasurements = new List<(double gridX, double gridY, float delta, double lat, double lng)>();
+        var gridMeasurements = new List<(double gridX, double gridY, float delta)>();
         foreach (var m in measurements)
         {
             var gy = (m.Latitude - heatmap.SwLat) / latStep - 0.5;
@@ -152,7 +161,7 @@ public class PropagationService
             var simulated = SampleGrid(heatmap.Data, heatmap.Width, heatmap.Height, gx, gy);
             var delta = m.SignalDbm - simulated;
 
-            gridMeasurements.Add((gx, gy, delta, m.Latitude, m.Longitude));
+            gridMeasurements.Add((gx, gy, delta));
         }
 
         if (gridMeasurements.Count == 0) return;
@@ -162,8 +171,6 @@ public class PropagationService
             heatmap.SwLat, heatmap.SwLng, heatmap.SwLat, heatmap.SwLng + lngStep);
         var cellHeightMeters = HaversineDistance(
             heatmap.SwLat, heatmap.SwLng, heatmap.SwLat + latStep, heatmap.SwLng);
-        var influenceRadiusCellsX = influenceRadiusMeters / cellWidthMeters;
-        var influenceRadiusCellsY = influenceRadiusMeters / cellHeightMeters;
 
         Parallel.For(0, heatmap.Height, y =>
         {
@@ -172,33 +179,30 @@ public class PropagationService
                 var weightSum = 0.0;
                 var deltaSum = 0.0;
 
-                foreach (var (gx, gy, delta, mLat, mLng) in gridMeasurements)
+                foreach (var (gx, gy, delta) in gridMeasurements)
                 {
                     var dx = (x - gx) * cellWidthMeters;
                     var dy = (y - gy) * cellHeightMeters;
-                    var distSq = dx * dx + dy * dy;
-                    var dist = Math.Sqrt(distSq);
+                    var dist = Math.Sqrt(dx * dx + dy * dy);
 
                     if (dist > influenceRadiusMeters) continue;
 
-                    if (dist < 0.5) // nearly on top of the measurement
-                    {
-                        // Direct override - use measured delta with very high weight
-                        weightSum += 1e6;
-                        deltaSum += delta * 1e6;
-                    }
-                    else
-                    {
-                        var w = 1.0 / Math.Pow(dist, power);
-                        weightSum += w;
-                        deltaSum += delta * w;
-                    }
+                    // Smooth falloff: weight drops to zero at the edge of the radius
+                    var normalizedDist = dist / influenceRadiusMeters;
+                    var falloff = 1.0 - normalizedDist * normalizedDist; // quadratic falloff
+                    var w = falloff / Math.Max(dist, 0.5);
+                    w *= w; // sharpen near-field, soften far-field
+
+                    weightSum += w;
+                    deltaSum += delta * w;
                 }
 
                 if (weightSum > 0)
                 {
+                    var rawAdjustment = (float)(calibrationStrength * deltaSum / weightSum);
+                    var clampedAdjustment = Math.Clamp(rawAdjustment, -maxAdjustmentDb, maxAdjustmentDb);
                     var idx = y * heatmap.Width + x;
-                    heatmap.Data[idx] += (float)(deltaSum / weightSum);
+                    heatmap.Data[idx] += clampedAdjustment;
                 }
             }
         });
