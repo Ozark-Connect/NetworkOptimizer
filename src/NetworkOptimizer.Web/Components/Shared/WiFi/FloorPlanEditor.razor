@@ -123,7 +123,7 @@
                     Heatmap
                 </button>
                 <select class="fp-select fp-select-sm" value="@_heatmapBand" @onchange="OnBandChanged"
-                        disabled="@(!_showHeatmap)">
+                        disabled="@(!_showHeatmap && !_showSignalData)">
                     <option value="2.4">2.4 GHz</option>
                     <option value="5">5 GHz</option>
                     <option value="6">6 GHz</option>
@@ -3398,17 +3398,10 @@
             : SpeedTestResults;
 
         // Filter both datasets to match the active heatmap band
-        var bandAliases = _heatmapBand switch
-        {
-            "2.4" => new[] { "ng", "2.4" },
-            "5" => new[] { "na", "5" },
-            "6" => new[] { "6e", "6" },
-            _ => new[] { _heatmapBand }
-        };
         var bandFilteredSignalLogs = filteredSignalLogs
-            .Where(p => p.Band == null || bandAliases.Any(a => string.Equals(p.Band, a, StringComparison.OrdinalIgnoreCase)));
+            .Where(p => RadioBandExtensions.MatchesPropagationBand(p.Band, _heatmapBand));
         filteredSpeedTests = filteredSpeedTests
-            .Where(r => r.WifiRadio == null || bandAliases.Any(a => string.Equals(r.WifiRadio, a, StringComparison.OrdinalIgnoreCase)));
+            .Where(r => RadioBandExtensions.MatchesPropagationBand(r.WifiRadio, _heatmapBand));
 
         var speedTestMarkers = filteredSpeedTests
             .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)

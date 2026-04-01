@@ -124,23 +124,29 @@ public class PropagationService
     /// <summary>
     /// Calibrate a simulated heatmap grid using real-world signal measurements.
     /// Each measurement is associated with the AP the client was connected to.
-    /// The adjustment only applies to grid cells where that AP is the closest
-    /// placed AP (approximate Voronoi), so measurements from one AP don't
-    /// distort another AP's propagation rings.
+    /// A per-AP median baseline offset is computed first to remove systematic
+    /// client antenna deficit (phones read ~8 dB below simulation consistently).
+    /// Only the residual beyond that baseline is used for calibration, revealing
+    /// genuine environmental factors the propagation model misses (unmodeled
+    /// walls, furniture, dead spots). Adjustments are scoped to each AP's
+    /// approximate Voronoi region.
     /// </summary>
     public void AdjustWithMeasurements(HeatmapResponse heatmap, List<SignalMeasurement> measurements, List<PropagationAp> aps)
     {
         if (measurements.Count == 0) return;
 
-        // Calibration strength: 0.25 means measurements contribute at most 25%
-        // of the delta. Preserves propagation ring shape while gently nudging.
-        const double calibrationStrength = 0.25;
+        // Asymmetric calibration: negative residuals (coverage gaps) are more
+        // trustworthy than positive ones (better-than-expected), since real
+        // obstacles reliably degrade signal but positive outliers are often noise.
+        const double negativeStrength = 0.25;
+        const double positiveStrength = 0.10;
 
-        // Wider radius for smooth, gradual influence on propagation rings
-        const double influenceRadiusMeters = 50.0;
+        // Influence radius for IDW interpolation - wide enough to avoid
+        // visible dead zones between measurement clusters at zoomed-out views
+        const double influenceRadiusMeters = 100.0;
 
-        // Cap the per-cell adjustment to prevent extreme shifts from noisy data
-        const float maxAdjustmentDb = 8.0f;
+        // Cap per-cell adjustment to prevent noisy outliers from distorting
+        const float maxAdjustmentDb = 5.0f;
 
         var latStep = (heatmap.NeLat - heatmap.SwLat) / heatmap.Height;
         var lngStep = (heatmap.NeLng - heatmap.SwLng) / heatmap.Width;
@@ -148,8 +154,10 @@ public class PropagationService
         // Build AP lookup by MAC for quick matching
         var apByMac = aps.ToDictionary(a => a.Mac.ToLowerInvariant());
 
-        // Convert measurements to grid coordinates and resolve the connected AP MAC
-        var gridMeasurements = new List<(double gridX, double gridY, float delta, string? apMac)>();
+        // First pass: compute raw deltas and group by AP for baseline calculation
+        var rawMeasurements = new List<(double gx, double gy, float delta, string? apMac)>();
+        var deltasByAp = new Dictionary<string, List<float>>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var m in measurements)
         {
             var gy = (m.Latitude - heatmap.SwLat) / latStep - 0.5;
@@ -161,17 +169,49 @@ public class PropagationService
             var simulated = SampleGrid(heatmap.Data, heatmap.Width, heatmap.Height, gx, gy);
             var delta = m.SignalDbm - simulated;
 
-            // Normalize AP MAC for matching (only if the AP is in our placed AP list)
+            // Only use measurements from APs in our placed AP list
             string? apMac = null;
-            if (!string.IsNullOrEmpty(m.ApMac) && apByMac.ContainsKey(m.ApMac.ToLowerInvariant()))
-                apMac = m.ApMac.ToLowerInvariant();
+            if (!string.IsNullOrEmpty(m.ApMac))
+            {
+                var normalizedMac = m.ApMac.ToLowerInvariant();
+                if (!apByMac.ContainsKey(normalizedMac))
+                    continue;
+                apMac = normalizedMac;
+            }
 
-            gridMeasurements.Add((gx, gy, delta, apMac));
+            rawMeasurements.Add((gx, gy, delta, apMac));
+
+            if (apMac != null)
+            {
+                if (!deltasByAp.TryGetValue(apMac, out var list))
+                {
+                    list = new List<float>();
+                    deltasByAp[apMac] = list;
+                }
+                list.Add(delta);
+            }
         }
 
-        if (gridMeasurements.Count == 0) return;
+        if (rawMeasurements.Count == 0) return;
 
-        // Pre-compute AP grid positions for nearest-AP check
+        // Compute per-AP baseline offset (median delta) to remove systematic
+        // client antenna deficit. Median is robust against outliers.
+        var baselineByAp = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (mac, deltas) in deltasByAp)
+        {
+            deltas.Sort();
+            baselineByAp[mac] = deltas[deltas.Count / 2];
+        }
+
+        // Second pass: subtract baseline to get residual (environmental) deltas
+        var gridMeasurements = new List<(double gx, double gy, float residual, string? apMac)>();
+        foreach (var (gx, gy, delta, apMac) in rawMeasurements)
+        {
+            var baseline = apMac != null && baselineByAp.TryGetValue(apMac, out var b) ? b : 0f;
+            gridMeasurements.Add((gx, gy, delta - baseline, apMac));
+        }
+
+        // Pre-compute AP grid positions for nearest-AP (Voronoi) check
         var apGridPositions = aps.Select(a => (
             gx: (a.Longitude - heatmap.SwLng) / lngStep - 0.5,
             gy: (a.Latitude - heatmap.SwLat) / latStep - 0.5,
@@ -200,12 +240,11 @@ public class PropagationService
                 }
 
                 var weightSum = 0.0;
-                var deltaSum = 0.0;
+                var residualSum = 0.0;
 
-                foreach (var (gx, gy, delta, apMac) in gridMeasurements)
+                foreach (var (gx, gy, residual, apMac) in gridMeasurements)
                 {
-                    // If measurement has AP info, only apply it in cells where
-                    // that AP is the nearest (approximate Voronoi region)
+                    // Scope to connected AP's Voronoi region
                     if (apMac != null && nearestApMac != null && apMac != nearestApMac)
                         continue;
 
@@ -221,12 +260,14 @@ public class PropagationService
                     w *= w;
 
                     weightSum += w;
-                    deltaSum += delta * w;
+                    residualSum += residual * w;
                 }
 
                 if (weightSum > 0)
                 {
-                    var rawAdjustment = (float)(calibrationStrength * deltaSum / weightSum);
+                    var weightedResidual = residualSum / weightSum;
+                    var strength = weightedResidual < 0 ? negativeStrength : positiveStrength;
+                    var rawAdjustment = (float)(strength * weightedResidual);
                     var clampedAdjustment = Math.Clamp(rawAdjustment, -maxAdjustmentDb, maxAdjustmentDb);
                     var idx = y * heatmap.Width + x;
                     heatmap.Data[idx] += clampedAdjustment;

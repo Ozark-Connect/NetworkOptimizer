@@ -553,6 +553,29 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     }
 
     /// <summary>
+    /// Gets recent successful LAN speed test results for a set of AP device IPs,
+    /// grouped by AP MAC address.
+    /// </summary>
+    public async Task<Dictionary<string, List<Iperf3Result>>> GetApDeviceTestsAsync(
+        Dictionary<string, string> apIpToMac, int countPerAp = 5)
+    {
+        if (apIpToMac.Count == 0) return new();
+
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var apIps = apIpToMac.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var results = await db.Iperf3Results
+            .Where(r => apIps.Contains(r.DeviceHost) && r.Direction == SpeedTestDirection.ServerToDevice && r.Success)
+            .OrderByDescending(r => r.TestTime)
+            .ToListAsync();
+
+        return results
+            .Where(r => apIpToMac.ContainsKey(r.DeviceHost))
+            .GroupBy(r => apIpToMac[r.DeviceHost], StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Take(countPerAp).ToList(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Delete a single speed test result by ID
     /// </summary>
     public async Task<bool> DeleteResultAsync(int id)
