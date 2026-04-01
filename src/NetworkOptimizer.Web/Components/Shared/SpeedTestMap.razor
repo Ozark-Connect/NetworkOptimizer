@@ -530,6 +530,7 @@
             lastNewestResultId = newestId;
             lastFilteredCount = filteredCount;
             await UpdateMarkers(fitBounds: false);
+            await UpdateApMarkers(); // Rebuild popups with fresh device test data
             StateHasChanged();
         }
 
