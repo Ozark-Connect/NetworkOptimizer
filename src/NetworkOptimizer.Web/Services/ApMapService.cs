@@ -44,6 +44,7 @@ public class ApMapService
                 Mac = ap.Mac,
                 Name = ap.Name,
                 Model = ap.Model,
+                Ip = ap.Ip,
                 Latitude = savedLocation?.Latitude,
                 Longitude = savedLocation?.Longitude,
                 Floor = savedLocation?.Floor,
