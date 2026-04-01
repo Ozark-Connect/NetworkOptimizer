@@ -1625,10 +1625,6 @@
     [Parameter] public EventCallback<int> OnSignalTimeRangeChanged { get; set; }
     /// <summary>External signal time filter in hours (syncs slider position from parent)</summary>
     [Parameter] public int? SignalTimeFilterHours { get; set; }
-    /// <summary>Initial heatmap band to restore from parent session state. Applied once in OnInitialized.</summary>
-    [Parameter] public string? InitialHeatmapBand { get; set; }
-    /// <summary>Stores the band in the parent without triggering a re-render cascade.</summary>
-    [Parameter] public Action<string>? OnHeatmapBandChanged { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
@@ -1699,10 +1695,12 @@
     private int _signalSliderValue = 4; // Default to 1 week (index 4)
     private int? _lastSignalTimeFilter;
 
+    // Session state stored outside Blazor's parameter/render system
+    private static string _savedHeatmapBand = "5";
+
     protected override void OnInitialized()
     {
-        if (!string.IsNullOrEmpty(InitialHeatmapBand))
-            _heatmapBand = InitialHeatmapBand;
+        _heatmapBand = _savedHeatmapBand;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -3299,7 +3297,7 @@
     private async Task OnBandChanged(ChangeEventArgs e)
     {
         _heatmapBand = e.Value?.ToString() ?? "5";
-        OnHeatmapBandChanged?.Invoke(_heatmapBand);
+        _savedHeatmapBand = _heatmapBand;
         await UpdateApMarkers();
         if (_showSignalData) await UpdateSignalDataMarkers();
         else if (_showHeatmap) await ComputeHeatmap();
