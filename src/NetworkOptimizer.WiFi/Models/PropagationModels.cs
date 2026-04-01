@@ -149,6 +149,8 @@ public class SignalMeasurement
     public int SignalDbm { get; set; }
     /// <summary>RF band: "ng" (2.4 GHz), "na" (5 GHz), or "6e" (6 GHz). Used to filter measurements to the active heatmap band.</summary>
     public string? Band { get; set; }
+    /// <summary>MAC address of the AP the client was connected to when this measurement was taken.</summary>
+    public string? ApMac { get; set; }
 }
 
 /// <summary>

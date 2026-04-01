@@ -1695,6 +1695,16 @@
     private int _signalSliderValue = 4; // Default to 1 week (index 4)
     private int? _lastSignalTimeFilter;
 
+    // Session state stored outside Blazor's parameter/render system.
+    // TODO: Replace with per-circuit scoped service when app supports multiple users.
+    // Static field works for single-user but is shared across all Blazor circuits.
+    private static string _savedHeatmapBand = "5";
+
+    protected override void OnInitialized()
+    {
+        _heatmapBand = _savedHeatmapBand;
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         // Sync slider with external time filter from parent
@@ -3289,6 +3299,7 @@
     private async Task OnBandChanged(ChangeEventArgs e)
     {
         _heatmapBand = e.Value?.ToString() ?? "5";
+        _savedHeatmapBand = _heatmapBand;
         await UpdateApMarkers();
         if (_showSignalData) await UpdateSignalDataMarkers();
         else if (_showHeatmap) await ComputeHeatmap();
@@ -3313,7 +3324,7 @@
 
             foreach (var p in SignalLogMarkers)
             {
-                measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band });
+                measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band, apMac = p.ApMac });
             }
 
             var stHours = SignalTimeBreakpoints[_signalSliderValue].hours;
@@ -3322,7 +3333,9 @@
                 .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
                 .Where(r => r.TestTime >= stCutoff))
             {
-                measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio });
+                var apMac = r.PathAnalysis?.Path?.Hops?
+                    .FirstOrDefault(h => h.Type == HopType.AccessPoint)?.DeviceMac;
+                measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio, apMac });
             }
 
             if (measurements.Count > 0)
