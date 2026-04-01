@@ -402,6 +402,9 @@
         _nodePositions.Clear();
         if (_topology == null || _topology.Vertices.Count == 0) return;
 
+        // Sort vertices by name for deterministic layout
+        _topology.Vertices.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+
         // Arrange nodes in a circle
         var count = _topology.Vertices.Count;
         var centerX = 50.0;
