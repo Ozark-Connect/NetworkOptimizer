@@ -1242,6 +1242,42 @@
             html += "</div>";
         }
 
+        // Recent speed test results for this AP
+        var recentTests = Results
+            .Where(r => r.PathAnalysis?.Path?.Hops?.Any(h =>
+                h.Type == HopType.AccessPoint &&
+                h.DeviceMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase)) == true)
+            .OrderByDescending(r => r.TestTime)
+            .Take(5)
+            .ToList();
+
+        if (recentTests.Count > 0)
+        {
+            html += "<div class='wifi-tooltip-divider'></div>";
+            html += "<div class='ap-popup-recent-tests'>";
+            html += "<div class='ap-popup-recent-header'>Recent Tests</div>";
+            foreach (var test in recentTests)
+            {
+                var testDevice = test.DeviceName ?? test.DeviceHost ?? "Unknown";
+                testDevice = testDevice.Replace("'", "\\'").Replace("\"", "&quot;");
+                var testTime = test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+                var dlColor = GetSpeedColor(test.DownloadMbps);
+                var ulColor = GetSpeedColor(test.UploadMbps);
+                var clickAttr = OnResultClick.HasDelegate
+                    ? $" onclick='window._speedTestMapClick({test.Id})' style='cursor:pointer'"
+                    : "";
+                html += $"<div class='ap-popup-test-row'{clickAttr}>";
+                html += $"<span class='ap-popup-test-device'>{testDevice}</span>";
+                html += $"<span class='ap-popup-test-speeds'>";
+                html += $"<span style='color:{dlColor}'>↓{test.DownloadMbps:F0}</span>";
+                html += $"<span style='color:{ulColor}'>↑{test.UploadMbps:F0}</span>";
+                html += "</span>";
+                html += $"<span class='ap-popup-test-time'>{testTime}</span>";
+                html += "</div>";
+            }
+            html += "</div>";
+        }
+
         // Footer: client count, test count, and filter link
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
@@ -2162,6 +2198,58 @@
     .ap-popup-clients {
         font-size: 0.8rem;
         color: var(--text-secondary);
+    }
+
+    .ap-popup-recent-header {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.3rem;
+    }
+
+    .ap-popup-recent-tests {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        margin: 0.25rem 0;
+    }
+
+    .ap-popup-test-row {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.25rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        transition: background 0.15s ease;
+    }
+
+    .ap-popup-test-row[onclick]:hover {
+        background: var(--bg-hover);
+    }
+
+    .ap-popup-test-device {
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 110px;
+    }
+
+    .ap-popup-test-speeds {
+        display: flex;
+        gap: 0.35rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .ap-popup-test-time {
+        font-size: 0.65rem;
+        color: var(--text-muted);
+        white-space: nowrap;
     }
 
     .btn-warning {
