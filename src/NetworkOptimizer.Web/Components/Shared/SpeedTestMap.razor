@@ -115,7 +115,7 @@
                 {
                     var apName = ApMarkers.FirstOrDefault(a => a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase))?.Name ?? "AP";
                     <div class="map-ap-filter-chip" @onclick="ClearApFilter">
-                        @apName test results <span class="map-chip-close">&times;</span>
+                        @apName client test results <span class="map-chip-close">&times;</span>
                     </div>
                 }
             </div>
