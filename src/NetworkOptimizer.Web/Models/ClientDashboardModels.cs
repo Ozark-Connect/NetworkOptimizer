@@ -145,6 +145,7 @@ public class SignalMapPoint
     public DateTime Timestamp { get; set; }
     public string? Band { get; set; }
     public int? Channel { get; set; }
+    public string? ApMac { get; set; }
     public string? ApName { get; set; }
     public string? ClientMac { get; set; }
     public string? ClientIp { get; set; }

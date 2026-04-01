@@ -1387,7 +1387,7 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
             .Where(m => m.Band == null || bandAliases.Any(a => string.Equals(m.Band, a, StringComparison.OrdinalIgnoreCase)))
             .ToList();
         if (bandFiltered.Count > 0)
-            propagationSvc.AdjustWithMeasurements(result, bandFiltered);
+            propagationSvc.AdjustWithMeasurements(result, bandFiltered, placedAps);
     }
 
     return Results.Ok(result);
