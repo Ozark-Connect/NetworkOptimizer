@@ -7,11 +7,10 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
 @using Microsoft.JSInterop
-@using Microsoft.EntityFrameworkCore
 @implements IDisposable
 @inject IJSRuntime JS
 @inject UniFiConnectionService ConnectionService
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject Iperf3SpeedTestService SpeedTestService
 
 @if (HasAnyMapData)
 {
@@ -1063,19 +1062,8 @@
 
         try
         {
-            using var db = await DbFactory.CreateDbContextAsync();
-            var apIps = apsWithIp.Select(a => a.Ip).ToHashSet();
             var ipToMac = apsWithIp.ToDictionary(a => a.Ip, a => a.Mac, StringComparer.OrdinalIgnoreCase);
-
-            var results = await db.Iperf3Results
-                .Where(r => apIps.Contains(r.DeviceHost) && r.Direction == SpeedTestDirection.ServerToDevice && r.Success)
-                .OrderByDescending(r => r.TestTime)
-                .ToListAsync();
-
-            apDeviceTests = results
-                .Where(r => ipToMac.ContainsKey(r.DeviceHost))
-                .GroupBy(r => ipToMac[r.DeviceHost], StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.Take(5).ToList(), StringComparer.OrdinalIgnoreCase);
+            apDeviceTests = await SpeedTestService.GetApDeviceTestsAsync(ipToMac);
         }
         catch (Exception ex)
         {

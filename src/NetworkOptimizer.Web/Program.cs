@@ -8,6 +8,7 @@ using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -1376,15 +1377,8 @@ app.MapPost("/api/floor-plan/heatmap", async (HttpContext context,
     // Filter to measurements matching the active heatmap band.
     if (request.SignalMeasurements is { Count: > 0 })
     {
-        var bandAliases = request.Band switch
-        {
-            "2.4" => new[] { "ng", "2.4" },
-            "5" => new[] { "na", "5" },
-            "6" => new[] { "6e", "6" },
-            _ => new[] { request.Band }
-        };
         var bandFiltered = request.SignalMeasurements
-            .Where(m => m.Band == null || bandAliases.Any(a => string.Equals(m.Band, a, StringComparison.OrdinalIgnoreCase)))
+            .Where(m => RadioBandExtensions.MatchesPropagationBand(m.Band, request.Band))
             .ToList();
         if (bandFiltered.Count > 0)
             propagationSvc.AdjustWithMeasurements(result, bandFiltered, placedAps);

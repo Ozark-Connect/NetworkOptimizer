@@ -107,6 +107,16 @@ public interface IIperf3SpeedTestService
     Task<List<Iperf3Result>> GetResultsForDeviceAsync(string deviceHost, int count = 20);
 
     /// <summary>
+    /// Gets recent successful LAN speed test results for a set of AP device IPs,
+    /// grouped by AP MAC address.
+    /// </summary>
+    /// <param name="apIpToMac">Mapping of AP IP addresses to MAC addresses.</param>
+    /// <param name="countPerAp">Maximum results per AP (default 5).</param>
+    /// <returns>Dictionary keyed by AP MAC with recent test results.</returns>
+    Task<Dictionary<string, List<Iperf3Result>>> GetApDeviceTestsAsync(
+        Dictionary<string, string> apIpToMac, int countPerAp = 5);
+
+    /// <summary>
     /// Deletes a single speed test result by ID.
     /// </summary>
     /// <param name="id">The ID of the result to delete.</param>

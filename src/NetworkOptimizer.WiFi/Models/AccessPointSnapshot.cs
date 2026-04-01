@@ -274,4 +274,16 @@ public static class RadioBandExtensions
         RadioBand.Band6GHz => "6",
         _ => "5"
     };
+
+    /// <summary>
+    /// Check if a data band string (e.g. "ng", "na", "6e", "2.4", "5", "6") matches
+    /// a propagation band string ("2.4", "5", "6"). Null data band is treated as a match.
+    /// </summary>
+    public static bool MatchesPropagationBand(string? dataBand, string propagationBand)
+    {
+        if (dataBand == null) return true;
+        if (string.Equals(dataBand, propagationBand, StringComparison.OrdinalIgnoreCase)) return true;
+        var resolved = FromUniFiCode(dataBand);
+        return resolved != RadioBand.Unknown && string.Equals(resolved.ToPropagationBand(), propagationBand, StringComparison.OrdinalIgnoreCase);
+    }
 }
