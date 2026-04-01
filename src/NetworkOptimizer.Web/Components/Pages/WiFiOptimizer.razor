@@ -234,7 +234,7 @@
     else if (_activeTab == "floorplan")
     {
         <!-- Signal Map / Floor Plan Editor -->
-        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" SignalTimeFilterHours="_signalTimeRangeHours" />
+        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" SignalTimeFilterHours="_signalTimeRangeHours" InitialHeatmapBand="_heatmapBand" OnHeatmapBandChanged="HandleHeatmapBandChanged" />
     }
     else if (_activeTab == "roaming")
     {
@@ -762,6 +762,7 @@
     private System.Threading.Timer? _mapPollTimer;
     private int _signalTimeRangeHours = 168; // 1 week default, matches FloorPlanEditor slider
     private int _speedTestTimeRangeHours = 720; // 30 days default, matches SpeedTestMap slider
+    private string _heatmapBand = "5";
 
     protected override void OnInitialized()
     {
@@ -974,6 +975,11 @@
         _speedTestTimeRangeHours = hours;
         _speedTestResults = await SpeedTestService.GetResultsAsync(count: 0, hours: hours);
         StateHasChanged();
+    }
+
+    private void HandleHeatmapBandChanged(string band)
+    {
+        _heatmapBand = band;
     }
 
     public void Dispose()
