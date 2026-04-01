@@ -234,7 +234,7 @@
     else if (_activeTab == "floorplan")
     {
         <!-- Signal Map / Floor Plan Editor -->
-        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" SignalTimeFilterHours="_signalTimeRangeHours" InitialHeatmapBand="_heatmapBand" OnHeatmapBandChanged="HandleHeatmapBandChanged" />
+        <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor MapHeight="676px" SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" SignalTimeFilterHours="_signalTimeRangeHours" InitialHeatmapBand="_heatmapBand" OnHeatmapBandChanged="b => _heatmapBand = b" />
     }
     else if (_activeTab == "roaming")
     {
@@ -975,11 +975,6 @@
         _speedTestTimeRangeHours = hours;
         _speedTestResults = await SpeedTestService.GetResultsAsync(count: 0, hours: hours);
         StateHasChanged();
-    }
-
-    private void HandleHeatmapBandChanged(string band)
-    {
-        _heatmapBand = band;
     }
 
     public void Dispose()
