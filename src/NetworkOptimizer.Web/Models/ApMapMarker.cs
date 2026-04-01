@@ -30,6 +30,9 @@ public class ApMapMarker
     /// <summary>Mount type: "ceiling", "wall", or "desktop"</summary>
     public string MountType { get; set; } = "ceiling";
 
+    /// <summary>AP IP address (for matching device speed tests)</summary>
+    public string Ip { get; set; } = "";
+
     /// <summary>Whether the AP is currently online</summary>
     public bool IsOnline { get; set; }
 

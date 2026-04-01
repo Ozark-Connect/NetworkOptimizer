@@ -7,9 +7,11 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
 @using Microsoft.JSInterop
+@using Microsoft.EntityFrameworkCore
 @implements IDisposable
 @inject IJSRuntime JS
 @inject UniFiConnectionService ConnectionService
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 
 @if (HasAnyMapData)
 {
@@ -113,7 +115,7 @@
                 {
                     var apName = ApMarkers.FirstOrDefault(a => a.Mac.Equals(selectedApMacFilter, StringComparison.OrdinalIgnoreCase))?.Name ?? "AP";
                     <div class="map-ap-filter-chip" @onclick="ClearApFilter">
-                        @apName test results <span class="map-chip-close">&times;</span>
+                        @apName client test results <span class="map-chip-close">&times;</span>
                     </div>
                 }
             </div>
@@ -187,6 +189,7 @@
     private bool ShowApMarkers { get; set; } = true; // AP layer visibility
     private ApMapMarker? selectedApForPlacement = null; // AP selected for click-to-place
     private string? selectedApMacFilter = null; // AP MAC to filter speed tests by (null = show all)
+    private Dictionary<string, List<Iperf3Result>> apDeviceTests = new(); // Cached AP device iperf3 results by MAC
 
     // Unplaced APs that need to be positioned on the map
     private IEnumerable<ApMapMarker> UnplacedAps => ApMarkers.Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue);
@@ -527,6 +530,7 @@
             lastNewestResultId = newestId;
             lastFilteredCount = filteredCount;
             await UpdateMarkers(fitBounds: false);
+            await UpdateApMarkers(); // Rebuild popups with fresh device test data
             StateHasChanged();
         }
 
@@ -1052,12 +1056,41 @@
         }
     }
 
+    private async Task LoadApDeviceTests()
+    {
+        var apsWithIp = ApMarkers.Where(a => !string.IsNullOrEmpty(a.Ip)).ToList();
+        if (apsWithIp.Count == 0) { apDeviceTests.Clear(); return; }
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var apIps = apsWithIp.Select(a => a.Ip).ToHashSet();
+            var ipToMac = apsWithIp.ToDictionary(a => a.Ip, a => a.Mac, StringComparer.OrdinalIgnoreCase);
+
+            var results = await db.Iperf3Results
+                .Where(r => apIps.Contains(r.DeviceHost) && r.Direction == SpeedTestDirection.ServerToDevice && r.Success)
+                .OrderByDescending(r => r.TestTime)
+                .ToListAsync();
+
+            apDeviceTests = results
+                .Where(r => ipToMac.ContainsKey(r.DeviceHost))
+                .GroupBy(r => ipToMac[r.DeviceHost], StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Take(5).ToList(), StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"AP device test load error: {ex.Message}");
+        }
+    }
+
     private async Task UpdateApMarkers()
     {
         if (!mapInitialized) return;
 
         try
         {
+            await LoadApDeviceTests();
+
             var placedAps = ShowApMarkers
                 ? ApMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToArray()
                 : Array.Empty<ApMapMarker>();
@@ -1242,6 +1275,33 @@
             html += "</div>";
         }
 
+        // Recent device iperf3 speed test results for this AP
+        apDeviceTests.TryGetValue(ap.Mac, out var recentTests);
+
+        if (recentTests is { Count: > 0 })
+        {
+            html += "<div class='wifi-tooltip-divider'></div>";
+            html += "<div class='ap-popup-recent-tests'>";
+            html += "<div class='ap-popup-recent-header'>Recent LAN Speed Tests</div>";
+            foreach (var test in recentTests)
+            {
+                var testTime = test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+                var dlColor = GetSpeedColor(test.DownloadMbps);
+                var ulColor = GetSpeedColor(test.UploadMbps);
+                var clickAttr = OnResultClick.HasDelegate
+                    ? $" onclick='window._speedTestMapClick({test.Id})' style='cursor:pointer'"
+                    : "";
+                html += $"<div class='ap-popup-test-row'{clickAttr}>";
+                html += $"<span class='ap-popup-test-time'>{testTime}</span>";
+                html += $"<span class='ap-popup-test-speeds'>";
+                html += $"<span style='color:{dlColor}'>↓ {test.DownloadMbps:F0}</span>";
+                html += $"<span style='color:{ulColor}'>↑ {test.UploadMbps:F0}</span>";
+                html += " Mbps</span>";
+                html += "</div>";
+            }
+            html += "</div>";
+        }
+
         // Footer: client count, test count, and filter link
         html += "<div class='wifi-tooltip-divider'></div>";
         html += "<div class='map-popup-footer'>";
@@ -1257,7 +1317,7 @@
         }
         else if (testCount > 0)
         {
-            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"{ap.Mac}\")' class='map-popup-link'>Show AP tests</a>";
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestApFilterAndClose(\"{mapId}\", \"{ap.Mac}\")' class='map-popup-link'>AP client tests</a>";
         }
         html += "</div>";
 
@@ -2162,6 +2222,49 @@
     .ap-popup-clients {
         font-size: 0.8rem;
         color: var(--text-secondary);
+    }
+
+    .ap-popup-recent-header {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.3rem;
+    }
+
+    .ap-popup-recent-tests {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        margin: 0.25rem 0;
+    }
+
+    .ap-popup-test-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.25rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        transition: background 0.15s ease;
+    }
+
+    .ap-popup-test-row[onclick]:hover {
+        background: var(--bg-hover);
+    }
+
+    .ap-popup-test-speeds {
+        font-size: 0.75rem;
+        font-weight: 600;
+        white-space: nowrap;
+        color: var(--text-secondary);
+    }
+
+    .ap-popup-test-time {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
     }
 
     .btn-warning {
