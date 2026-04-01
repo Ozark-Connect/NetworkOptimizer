@@ -334,6 +334,7 @@ public class ClientDashboardService
                 Timestamp = l.Timestamp,
                 Band = l.Band,
                 Channel = l.Channel,
+                ApMac = l.ApMac,
                 ApName = l.ApName,
                 ClientMac = l.ClientMac,
                 ClientIp = l.ClientIp,

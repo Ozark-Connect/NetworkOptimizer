@@ -123,13 +123,12 @@ public class PropagationService
 
     /// <summary>
     /// Calibrate a simulated heatmap grid using real-world signal measurements.
-    /// Uses IDW to compute a smooth correction field from measurement deltas,
-    /// then applies it with heavy damping so the propagation model shape is
-    /// preserved and measurements only gently nudge the rings. Client device
-    /// antenna variation means measurements are inherently noisy - this treats
-    /// them as hints, not ground truth.
+    /// Each measurement is associated with the AP the client was connected to.
+    /// The adjustment only applies to grid cells where that AP is the closest
+    /// placed AP (approximate Voronoi), so measurements from one AP don't
+    /// distort another AP's propagation rings.
     /// </summary>
-    public void AdjustWithMeasurements(HeatmapResponse heatmap, List<SignalMeasurement> measurements)
+    public void AdjustWithMeasurements(HeatmapResponse heatmap, List<SignalMeasurement> measurements, List<PropagationAp> aps)
     {
         if (measurements.Count == 0) return;
 
@@ -146,27 +145,39 @@ public class PropagationService
         var latStep = (heatmap.NeLat - heatmap.SwLat) / heatmap.Height;
         var lngStep = (heatmap.NeLng - heatmap.SwLng) / heatmap.Width;
 
-        // Convert measurements to grid coordinates and sample simulated values
-        var gridMeasurements = new List<(double gridX, double gridY, float delta)>();
+        // Build AP lookup by MAC for quick matching
+        var apByMac = aps.ToDictionary(a => a.Mac.ToLowerInvariant());
+
+        // Convert measurements to grid coordinates and resolve the connected AP MAC
+        var gridMeasurements = new List<(double gridX, double gridY, float delta, string? apMac)>();
         foreach (var m in measurements)
         {
             var gy = (m.Latitude - heatmap.SwLat) / latStep - 0.5;
             var gx = (m.Longitude - heatmap.SwLng) / lngStep - 0.5;
 
-            // Skip measurements outside the grid
             if (gx < 0 || gx >= heatmap.Width || gy < 0 || gy >= heatmap.Height)
                 continue;
 
-            // Sample simulated value at measurement location (bilinear)
             var simulated = SampleGrid(heatmap.Data, heatmap.Width, heatmap.Height, gx, gy);
             var delta = m.SignalDbm - simulated;
 
-            gridMeasurements.Add((gx, gy, delta));
+            // Normalize AP MAC for matching (only if the AP is in our placed AP list)
+            string? apMac = null;
+            if (!string.IsNullOrEmpty(m.ApMac) && apByMac.ContainsKey(m.ApMac.ToLowerInvariant()))
+                apMac = m.ApMac.ToLowerInvariant();
+
+            gridMeasurements.Add((gx, gy, delta, apMac));
         }
 
         if (gridMeasurements.Count == 0) return;
 
-        // Approximate meters per grid cell for distance calculation
+        // Pre-compute AP grid positions for nearest-AP check
+        var apGridPositions = aps.Select(a => (
+            gx: (a.Longitude - heatmap.SwLng) / lngStep - 0.5,
+            gy: (a.Latitude - heatmap.SwLat) / latStep - 0.5,
+            mac: a.Mac.ToLowerInvariant()
+        )).ToList();
+
         var cellWidthMeters = HaversineDistance(
             heatmap.SwLat, heatmap.SwLng, heatmap.SwLat, heatmap.SwLng + lngStep);
         var cellHeightMeters = HaversineDistance(
@@ -176,22 +187,38 @@ public class PropagationService
         {
             for (int x = 0; x < heatmap.Width; x++)
             {
+                // Find the nearest AP to this grid cell
+                string? nearestApMac = null;
+                if (apGridPositions.Count > 0)
+                {
+                    var bestDist = double.MaxValue;
+                    foreach (var (agx, agy, mac) in apGridPositions)
+                    {
+                        var d = (x - agx) * (x - agx) + (y - agy) * (y - agy);
+                        if (d < bestDist) { bestDist = d; nearestApMac = mac; }
+                    }
+                }
+
                 var weightSum = 0.0;
                 var deltaSum = 0.0;
 
-                foreach (var (gx, gy, delta) in gridMeasurements)
+                foreach (var (gx, gy, delta, apMac) in gridMeasurements)
                 {
+                    // If measurement has AP info, only apply it in cells where
+                    // that AP is the nearest (approximate Voronoi region)
+                    if (apMac != null && nearestApMac != null && apMac != nearestApMac)
+                        continue;
+
                     var dx = (x - gx) * cellWidthMeters;
                     var dy = (y - gy) * cellHeightMeters;
                     var dist = Math.Sqrt(dx * dx + dy * dy);
 
                     if (dist > influenceRadiusMeters) continue;
 
-                    // Smooth falloff: weight drops to zero at the edge of the radius
                     var normalizedDist = dist / influenceRadiusMeters;
-                    var falloff = 1.0 - normalizedDist * normalizedDist; // quadratic falloff
+                    var falloff = 1.0 - normalizedDist * normalizedDist;
                     var w = falloff / Math.Max(dist, 0.5);
-                    w *= w; // sharpen near-field, soften far-field
+                    w *= w;
 
                     weightSum += w;
                     deltaSum += delta * w;

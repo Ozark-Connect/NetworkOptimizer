@@ -3313,7 +3313,7 @@
 
             foreach (var p in SignalLogMarkers)
             {
-                measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band });
+                measurements.Add(new { latitude = p.Latitude, longitude = p.Longitude, signalDbm = p.SignalDbm, band = p.Band, apMac = p.ApMac });
             }
 
             var stHours = SignalTimeBreakpoints[_signalSliderValue].hours;
@@ -3322,7 +3322,9 @@
                 .Where(r => r.Latitude.HasValue && r.Longitude.HasValue && r.WifiSignalDbm.HasValue)
                 .Where(r => r.TestTime >= stCutoff))
             {
-                measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio });
+                var apMac = r.PathAnalysis?.Path?.Hops?
+                    .FirstOrDefault(h => h.Type == HopType.AccessPoint)?.DeviceMac;
+                measurements.Add(new { latitude = r.Latitude!.Value, longitude = r.Longitude!.Value, signalDbm = r.WifiSignalDbm!.Value, band = r.WifiRadio, apMac });
             }
 
             if (measurements.Count > 0)
