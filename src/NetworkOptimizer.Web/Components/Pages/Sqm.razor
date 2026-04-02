@@ -2128,7 +2128,18 @@
             config.ConnectionType = ConnectionType.CellularHome;
         }
         else if (name.Contains("XGS-PON", StringComparison.OrdinalIgnoreCase) ||
-                 name.Contains("XGSPON", StringComparison.OrdinalIgnoreCase))
+                 name.Contains("XGSPON", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("XG-PON", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("10G", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("10 Gig", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("5G Fiber", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("5 Gig", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("3 Gig", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("2 Gig", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("2Gig", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("3Gig", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("5Gig", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("10Gig", StringComparison.OrdinalIgnoreCase))
         {
             config.ConnectionType = ConnectionType.XgsPon;
         }
