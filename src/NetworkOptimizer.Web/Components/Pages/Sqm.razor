@@ -3167,6 +3167,7 @@
             var pattern = profile.GetBaselinePatternPublic();
             double absoluteMax = profile.AbsoluteMaxDownloadMbps;
             double safetyCap = profile.SafetyCapPercent;
+            bool isFiber = ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon;
 
             double minRate = double.MaxValue;
             double maxRate = double.MinValue;
@@ -3179,16 +3180,19 @@
                     if (CongestionSeverity != 1.0)
                         multiplier = 1.0 - (1.0 - multiplier) * CongestionSeverity;
 
-                    var baseline = (int)(multiplier * NominalDownload);
                     double rate;
-                    if (ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon)
+                    if (isFiber)
                     {
-                        var ratio = (double)baseline / NominalDownload;
-                        rate = absoluteMax * safetyCap * ratio;
+                        // Fiber: safety cap scales with baseline (baseline-proportional cap)
+                        rate = absoluteMax * safetyCap * multiplier;
                     }
                     else
                     {
-                        rate = absoluteMax * safetyCap;
+                        // Variable connections: baseline with overhead, capped at flat safety cap
+                        var baseline = multiplier * NominalDownload;
+                        var withOverhead = baseline * profile.OverheadMultiplier;
+                        var cap = absoluteMax * safetyCap;
+                        rate = Math.Min(withOverhead, cap);
                     }
 
                     if (rate < minRate) minRate = rate;
