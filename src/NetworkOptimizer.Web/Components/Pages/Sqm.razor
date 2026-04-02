@@ -584,10 +584,12 @@
                         <span class="param-value">@wan1CongestionRange.Min–@wan1CongestionRange.Max</span>
                         <span class="param-unit">Mbps</span>
                     </div>
-                    <div class="param">
+                    <div class="param" style="grid-column: 1 / -1;">
                         <span class="param-label">Severity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Scales how deep the congestion dips go. 1.0 = default profile. Higher = more aggressive shaping at peak. Lower = flatter curve.">?</span></span>
-                        <input type="range" min="0.90" max="1.10" step="0.01" @bind="wan1Config.CongestionSeverity" @bind:event="oninput" style="width: 120px; vertical-align: middle;" />
-                        <span class="param-value" style="min-width: 40px; text-align: center;">@wan1Config.CongestionSeverity.ToString("F2")</span>
+                        <div class="wan-time-slider" style="padding: 0; gap: 0.5rem;">
+                            <input type="range" min="0.75" max="1.25" step="0.01" @bind="wan1Config.CongestionSeverity" @bind:event="oninput" />
+                            <span class="param-value" style="min-width: 40px; text-align: center;">@wan1Config.CongestionSeverity.ToString("F2")</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -748,10 +750,12 @@
                         <span class="param-value">@wan2CongestionRange.Min–@wan2CongestionRange.Max</span>
                         <span class="param-unit">Mbps</span>
                     </div>
-                    <div class="param">
+                    <div class="param" style="grid-column: 1 / -1;">
                         <span class="param-label">Severity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Scales how deep the congestion dips go. 1.0 = default profile. Higher = more aggressive shaping at peak. Lower = flatter curve.">?</span></span>
-                        <input type="range" min="0.90" max="1.10" step="0.01" @bind="wan2Config.CongestionSeverity" @bind:event="oninput" style="width: 120px; vertical-align: middle;" />
-                        <span class="param-value" style="min-width: 40px; text-align: center;">@wan2Config.CongestionSeverity.ToString("F2")</span>
+                        <div class="wan-time-slider" style="padding: 0; gap: 0.5rem;">
+                            <input type="range" min="0.75" max="1.25" step="0.01" @bind="wan2Config.CongestionSeverity" @bind:event="oninput" />
+                            <span class="param-value" style="min-width: 40px; text-align: center;">@wan2Config.CongestionSeverity.ToString("F2")</span>
+                        </div>
                     </div>
                 </div>
             </div>
