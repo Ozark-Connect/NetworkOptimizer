@@ -149,6 +149,13 @@ public class SqmConfiguration
     public double SafetyCapPercent { get; set; } = 0.95;
 
     /// <summary>
+    /// Congestion severity multiplier (0.9-1.1, default 1.0).
+    /// Scales the magnitude of baseline schedule dips while keeping 1.0 hours unchanged.
+    /// effective = 1.0 - (1.0 - schedule_multiplier) * severity
+    /// </summary>
+    public double CongestionSeverity { get; set; } = 1.0;
+
+    /// <summary>
     /// Get the ConnectionProfile for this configuration
     /// </summary>
     public ConnectionProfile GetProfile()

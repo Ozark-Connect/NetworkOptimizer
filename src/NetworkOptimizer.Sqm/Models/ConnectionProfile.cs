@@ -363,7 +363,7 @@ public class ConnectionProfile
     /// Get 168-hour baseline dictionary scaled to nominal speed.
     /// Keys are "day_hour" format (0=Mon, 6=Sun), values are speeds in Mbps.
     /// </summary>
-    public Dictionary<string, string> GetHourlyBaseline()
+    public Dictionary<string, string> GetHourlyBaseline(double congestionSeverity = 1.0)
     {
         var baseline = new Dictionary<string, string>();
         var pattern = GetBaselinePattern();
@@ -373,8 +373,15 @@ public class ConnectionProfile
             for (int hour = 0; hour < 24; hour++)
             {
                 var key = $"{day}_{hour}";
-                // Scale the pattern percentage by nominal speed
-                var speed = (int)(pattern[day, hour] * NominalDownloadMbps);
+                var multiplier = pattern[day, hour];
+
+                // Scale the dip magnitude: effective = 1.0 - (1.0 - multiplier) * severity
+                // At severity 1.0: unchanged. At 1.1: 10% deeper dips. At 0.9: 10% shallower.
+                // Hours at 1.0 stay at 1.0 regardless of severity.
+                if (congestionSeverity != 1.0)
+                    multiplier = 1.0 - (1.0 - multiplier) * congestionSeverity;
+
+                var speed = (int)(multiplier * NominalDownloadMbps);
                 baseline[key] = speed.ToString();
             }
         }
@@ -423,6 +430,11 @@ public class ConnectionProfile
             _ => withinThreshold ? (0.60, 0.40) : (0.80, 0.20)
         };
     }
+
+    /// <summary>
+    /// Get the raw baseline pattern for UI display (e.g., congestion range preview).
+    /// </summary>
+    public double[,] GetBaselinePatternPublic() => GetBaselinePattern();
 
     /// <summary>
     /// Get 168-hour baseline pattern as percentage of nominal speed (7 days × 24 hours).

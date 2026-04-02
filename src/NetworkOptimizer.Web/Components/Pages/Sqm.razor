@@ -575,6 +575,23 @@
                 </div>
             </div>
 
+            @{ var wan1CongestionRange = wan1Config.GetCongestionRange(); }
+            <div class="calculated-params" style="margin-top: 0.75rem;">
+                <h4>Congestion Schedule <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How much the shaping rate drops during peak hours. The schedule varies by time of day based on your connection type's congestion profile.">?</span></h4>
+                <div class="params-grid">
+                    <div class="param">
+                        <span class="param-label">Congestion Range</span>
+                        <span class="param-value">@wan1CongestionRange.Min–@wan1CongestionRange.Max</span>
+                        <span class="param-unit">Mbps</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Severity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Scales how deep the congestion dips go. 1.0 = default profile. Higher = more aggressive shaping at peak. Lower = flatter curve.">?</span></span>
+                        <input type="range" min="0.90" max="1.10" step="0.01" @bind="wan1Config.CongestionSeverity" @bind:event="oninput" style="width: 120px; vertical-align: middle;" />
+                        <span class="param-value" style="min-width: 40px; text-align: center;">@wan1Config.CongestionSeverity.ToString("F2")</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
                 <input type="text" class="form-control" @bind="wan1Config.PingHost" placeholder="1.1.1.1" />
@@ -718,6 +735,23 @@
                         <span class="param-label">Latency Threshold</span>
                         <span class="param-value">@wan2Config.LatencyThreshold</span>
                         <span class="param-unit">ms</span>
+                    </div>
+                </div>
+            </div>
+
+            @{ var wan2CongestionRange = wan2Config.GetCongestionRange(); }
+            <div class="calculated-params" style="margin-top: 0.75rem;">
+                <h4>Congestion Schedule <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How much the shaping rate drops during peak hours. The schedule varies by time of day based on your connection type's congestion profile.">?</span></h4>
+                <div class="params-grid">
+                    <div class="param">
+                        <span class="param-label">Congestion Range</span>
+                        <span class="param-value">@wan2CongestionRange.Min–@wan2CongestionRange.Max</span>
+                        <span class="param-unit">Mbps</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Severity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Scales how deep the congestion dips go. 1.0 = default profile. Higher = more aggressive shaping at peak. Lower = flatter curve.">?</span></span>
+                        <input type="range" min="0.90" max="1.10" step="0.01" @bind="wan2Config.CongestionSeverity" @bind:event="oninput" style="width: 120px; vertical-align: middle;" />
+                        <span class="param-value" style="min-width: 40px; text-align: center;">@wan2Config.CongestionSeverity.ToString("F2")</span>
                     </div>
                 </div>
             </div>
@@ -1829,6 +1863,8 @@
                     if (saved.BaselineLatencyMs.HasValue)
                         config.BaselineLatency = saved.BaselineLatencyMs.Value;
 
+                    config.CongestionSeverity = saved.CongestionSeverity;
+
                     // Track this interface as loaded
                     if (!string.IsNullOrEmpty(saved.Interface))
                         loadedInterfaces.Add(saved.Interface);
@@ -1870,6 +1906,7 @@
                     PingHost = wan1Config.PingHost,
                     SpeedtestServerId = wan1Config.SpeedtestServerId,
                     BaselineLatencyMs = wan1Config.BaselineLatency,
+                    CongestionSeverity = wan1Config.CongestionSeverity,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
                     SpeedtestEveningHour = wan1Config.EveningHour,
@@ -1894,6 +1931,7 @@
                     PingHost = wan2Config.PingHost,
                     SpeedtestServerId = wan2Config.SpeedtestServerId,
                     BaselineLatencyMs = wan2Config.BaselineLatency,
+                    CongestionSeverity = wan2Config.CongestionSeverity,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
                     SpeedtestEveningHour = wan2Config.EveningHour,
@@ -2992,6 +3030,7 @@
 
         // Restore user's baseline latency override (ApplyProfileSettings recalculates it)
         config.BaselineLatency = model.BaselineLatency;
+        config.CongestionSeverity = model.CongestionSeverity;
 
         return config;
     }
@@ -3086,6 +3125,9 @@
         public string PingHost { get; set; } = "1.1.1.1";
         public string? SpeedtestServerId { get; set; }
 
+        // Congestion severity (0.9-1.1, scales dip magnitude)
+        public double CongestionSeverity { get; set; } = 1.0;
+
         // Speedtest schedule
         public int MorningHour { get; set; } = 6;
         public int MorningMinute { get; set; } = 0;
@@ -3103,6 +3145,49 @@
         public double BaselineLatency { get; set; }
         public double LatencyThreshold { get; set; }
 
+        // Congestion schedule range (effective shaping rates from baseline-proportional safety cap)
+        public (int Min, int Max) GetCongestionRange()
+        {
+            var profile = new ConnectionProfile
+            {
+                Type = ConnectionType,
+                NominalDownloadMbps = NominalDownload
+            };
+            var pattern = profile.GetBaselinePatternPublic();
+            double absoluteMax = profile.AbsoluteMaxDownloadMbps;
+            double safetyCap = profile.SafetyCapPercent;
+
+            double minRate = double.MaxValue;
+            double maxRate = double.MinValue;
+
+            for (int day = 0; day < 7; day++)
+            {
+                for (int hour = 0; hour < 24; hour++)
+                {
+                    var multiplier = pattern[day, hour];
+                    if (CongestionSeverity != 1.0)
+                        multiplier = 1.0 - (1.0 - multiplier) * CongestionSeverity;
+
+                    var baseline = (int)(multiplier * NominalDownload);
+                    double rate;
+                    if (ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon)
+                    {
+                        var ratio = (double)baseline / NominalDownload;
+                        rate = absoluteMax * safetyCap * ratio;
+                    }
+                    else
+                    {
+                        rate = absoluteMax * safetyCap;
+                    }
+
+                    if (rate < minRate) minRate = rate;
+                    if (rate > maxRate) maxRate = rate;
+                }
+            }
+
+            return ((int)minRate, (int)maxRate);
+        }
+
         // Helper to format time display
         public string MorningTimeDisplay => $"{MorningHour:D2}:{MorningMinute:D2}";
         public string EveningTimeDisplay => $"{EveningHour:D2}:{EveningMinute:D2}";
@@ -3111,7 +3196,7 @@
         public WanConfigSnapshot ToSnapshot() => new(
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
-            BaselineLatency);
+            BaselineLatency, CongestionSeverity);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -3129,7 +3214,8 @@
                    MorningMinute != snapshot.MorningMinute ||
                    EveningHour != snapshot.EveningHour ||
                    EveningMinute != snapshot.EveningMinute ||
-                   Math.Abs(BaselineLatency - snapshot.BaselineLatency) > 0.01;
+                   Math.Abs(BaselineLatency - snapshot.BaselineLatency) > 0.01 ||
+                   Math.Abs(CongestionSeverity - snapshot.CongestionSeverity) > 0.001;
         }
     }
 
@@ -3138,7 +3224,7 @@
         bool Enabled, string Name, string Interface, ConnectionType ConnectionType,
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
-        double BaselineLatency);
+        double BaselineLatency, double CongestionSeverity);
 
     public void Dispose()
     {

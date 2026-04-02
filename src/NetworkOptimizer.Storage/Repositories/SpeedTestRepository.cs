@@ -443,6 +443,7 @@ public class SpeedTestRepository : ISpeedTestRepository
                 existing.SpeedtestEveningHour = config.SpeedtestEveningHour;
                 existing.SpeedtestEveningMinute = config.SpeedtestEveningMinute;
                 existing.BaselineLatencyMs = config.BaselineLatencyMs;
+                existing.CongestionSeverity = config.CongestionSeverity;
                 existing.UpdatedAt = DateTime.UtcNow;
             }
             else
