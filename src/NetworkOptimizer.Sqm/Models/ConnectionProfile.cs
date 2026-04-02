@@ -11,8 +11,8 @@ public enum ConnectionType
     /// <summary>Starlink Satellite - Variable speeds, weather-sensitive, higher latency</summary>
     Starlink,
 
-    /// <summary>Fiber (FTTH/FTTP) - Very stable, low latency, high speed</summary>
-    Fiber,
+    /// <summary>GPON Fiber - Shared splitter, slight peak-hour congestion</summary>
+    Gpon,
 
     /// <summary>DSL (ADSL/VDSL) - Stable, lower speeds, distance-dependent</summary>
     Dsl,
@@ -21,7 +21,10 @@ public enum ConnectionType
     FixedWireless,
 
     /// <summary>Fixed LTE/5G - Variable, cell congestion-sensitive</summary>
-    CellularHome
+    CellularHome,
+
+    /// <summary>XGS-PON Fiber - Near line-rate, minimal congestion</summary>
+    XgsPon
 }
 
 /// <summary>
@@ -142,8 +145,11 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber often exceeds advertised speeds
-            ConnectionType.Fiber => (int)(nominalSpeed * 1.05),
+            // GPON: often exceeds advertised speeds
+            ConnectionType.Gpon => (int)(nominalSpeed * 1.05),
+
+            // XGS-PON: 10G headroom, easily exceeds advertised
+            ConnectionType.XgsPon => (int)(nominalSpeed * 1.05),
 
             // DOCSIS cable typically hits 95% of advertised
             ConnectionType.DocsisCable => (int)(nominalSpeed * 0.95),
@@ -171,8 +177,11 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber is very consistent
-            ConnectionType.Fiber => (int)(nominalSpeed * 0.90),
+            // GPON: consistent, splitter contention is minor
+            ConnectionType.Gpon => (int)(nominalSpeed * 0.90),
+
+            // XGS-PON: very consistent
+            ConnectionType.XgsPon => (int)(nominalSpeed * 0.92),
 
             // DOCSIS can drop during peak congestion
             ConnectionType.DocsisCable => (int)(nominalSpeed * 0.65),
@@ -200,7 +209,8 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            ConnectionType.Fiber => (int)(nominalSpeed * 1.07),
+            ConnectionType.Gpon => (int)(nominalSpeed * 1.07),
+            ConnectionType.XgsPon => (int)(nominalSpeed * 1.07),
             ConnectionType.DocsisCable => (int)(nominalSpeed * 0.98),
             ConnectionType.Starlink => (int)(nominalSpeed * 1.15),
             ConnectionType.Dsl => (int)(nominalSpeed * 0.98),
@@ -217,8 +227,11 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber: stable, can run close to line rate
-            ConnectionType.Fiber => 1.08,
+            // GPON: stable, can run close to line rate
+            ConnectionType.Gpon => 1.08,
+
+            // XGS-PON: very stable, near line rate
+            ConnectionType.XgsPon => 1.08,
 
             // DOCSIS: needs buffer for peak-hour congestion
             ConnectionType.DocsisCable => 1.05,
@@ -246,7 +259,8 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            ConnectionType.Fiber => 5.0,
+            ConnectionType.Gpon => 5.0,
+            ConnectionType.XgsPon => 4.0,
             ConnectionType.DocsisCable => 18.0,
             ConnectionType.Starlink => 25.0,
             ConnectionType.Dsl => 20.0,
@@ -263,8 +277,11 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber: tight threshold, consistent connection
-            ConnectionType.Fiber => 2.0,
+            // GPON: tight threshold, consistent connection
+            ConnectionType.Gpon => 2.0,
+
+            // XGS-PON: tightest threshold, very consistent
+            ConnectionType.XgsPon => 1.5,
 
             // DOCSIS: moderate threshold
             ConnectionType.DocsisCable => 2.5,
@@ -292,7 +309,8 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            ConnectionType.Fiber => 0.98,
+            ConnectionType.Gpon => 0.98,
+            ConnectionType.XgsPon => 0.99,
             ConnectionType.DocsisCable => 0.97,
             ConnectionType.Starlink => 0.97,
             ConnectionType.Dsl => 0.97,
@@ -309,7 +327,8 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            ConnectionType.Fiber => 1.03,
+            ConnectionType.Gpon => 1.03,
+            ConnectionType.XgsPon => 1.02,
             ConnectionType.DocsisCable => 1.04,
             ConnectionType.Starlink => 1.04,
             ConnectionType.Dsl => 1.03,
@@ -327,10 +346,13 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber: 95% cap gives htb headroom to shape properly at near-line-rate
+            // GPON: 95% cap gives htb headroom to shape properly at near-line-rate
             // At 98% (980 Mbps on 1G), fq_codel memory fills before AQM can react
             // At 95% (950 Mbps on 1G), htb absorbs bursts and fq_codel manages flows cleanly
-            ConnectionType.Fiber => 0.95,
+            ConnectionType.Gpon => 0.95,
+
+            // XGS-PON: same 95% cap for htb headroom
+            ConnectionType.XgsPon => 0.95,
 
             // All other types: 95% safety margin below the bottleneck
             _ => 0.95
@@ -378,10 +400,15 @@ public class ConnectionProfile
                 ? (0.60, 0.40)  // 60/40 favor baseline when close
                 : (0.80, 0.20), // 80/20 heavily favor baseline when below
 
-            // Fiber: very stable, trust baseline heavily
-            ConnectionType.Fiber => withinThreshold
+            // GPON: stable, trust baseline heavily
+            ConnectionType.Gpon => withinThreshold
                 ? (0.70, 0.30)
                 : (0.85, 0.15),
+
+            // XGS-PON: very stable, trust baseline most
+            ConnectionType.XgsPon => withinThreshold
+                ? (0.75, 0.25)
+                : (0.90, 0.10),
 
             // DSL: stable once synced
             ConnectionType.Dsl => withinThreshold
@@ -446,9 +473,17 @@ public class ConnectionProfile
                 { 0.77, 0.75, 0.79, 0.67, 0.49, 0.44, 0.41, 0.43, 0.52, 0.87, 0.71, 0.55, 0.60, 0.51, 0.66, 0.77, 0.72, 0.71, 0.71, 0.70, 0.70, 0.48, 0.41, 0.62 }
             },
 
-            // Fiber: very stable, minimal variation (same pattern all week)
-            ConnectionType.Fiber => CreateUniformWeekPattern(new double[]
-                { 0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.95, 0.95, 0.95, 0.95, 0.98, 0.98 }),
+            // GPON: shared splitter means noticeable congestion at peak hours.
+            // Smooth curve: 1.00 overnight → 0.99 morning → 0.98/0.975 → 0.97 workday → 0.965 streaming → taper back up
+            //  Hour:  0      1     2     3     4     5     6     7     8     9    10    11    12    13    14    15    16    17    18    19    20    21    22    23
+            ConnectionType.Gpon => CreateUniformWeekPattern(new double[]
+                { 0.995, 1.00, 1.00, 1.00, 1.00, 1.00, 0.99, 0.99, 0.98, 0.975, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.965, 0.965, 0.965, 0.965, 0.97, 0.985 }),
+
+            // XGS-PON: 10G headroom, minimal congestion even at peak.
+            // Compressed version of GPON curve: 1.00 overnight → 0.995 → 0.99/0.9875 → 0.985 workday → 0.98 streaming
+            //  Hour:  0      1     2     3     4     5     6      7      8     9      10     11     12     13     14     15     16     17     18    19    20    21     22     23
+            ConnectionType.XgsPon => CreateUniformWeekPattern(new double[]
+                { 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 0.995, 0.995, 0.99, 0.9875, 0.985, 0.985, 0.985, 0.985, 0.985, 0.985, 0.985, 0.985, 0.98, 0.98, 0.98, 0.98, 0.985, 0.99 }),
 
             // DSL: stable but may have minor peak-hour drops (same pattern all week)
             ConnectionType.Dsl => CreateUniformWeekPattern(new double[]
@@ -532,7 +567,8 @@ public class ConnectionProfile
         {
             ConnectionType.DocsisCable => "DOCSIS Cable",
             ConnectionType.Starlink => "Starlink",
-            ConnectionType.Fiber => "Fiber (FTTH)",
+            ConnectionType.Gpon => "Fiber (GPON)",
+            ConnectionType.XgsPon => "Fiber (XGS-PON)",
             ConnectionType.Dsl => "DSL",
             ConnectionType.FixedWireless => "Fixed Wireless (WISP)",
             ConnectionType.CellularHome => "Fixed LTE/5G",
@@ -549,7 +585,8 @@ public class ConnectionProfile
         {
             ConnectionType.DocsisCable => "Slows during prime time",
             ConnectionType.Starlink => "Weather and congestion dependent",
-            ConnectionType.Fiber => "Fast and reliable",
+            ConnectionType.Gpon => "Shared splitter, slight peak-hour dip",
+            ConnectionType.XgsPon => "Near line-rate, minimal congestion",
             ConnectionType.Dsl => "Line quality varies by distance",
             ConnectionType.FixedWireless => "Weather and interference sensitive",
             ConnectionType.CellularHome => "Varies by tower load",

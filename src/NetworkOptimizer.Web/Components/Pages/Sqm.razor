@@ -2127,11 +2127,17 @@
         {
             config.ConnectionType = ConnectionType.CellularHome;
         }
+        else if (name.Contains("XGS-PON", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("XGSPON", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.XgsPon;
+        }
         else if (name.Contains("Fiber", StringComparison.OrdinalIgnoreCase) ||
                  name.Contains("FTTH", StringComparison.OrdinalIgnoreCase) ||
-                 name.Contains("FTTP", StringComparison.OrdinalIgnoreCase))
+                 name.Contains("FTTP", StringComparison.OrdinalIgnoreCase) ||
+                 name.Contains("GPON", StringComparison.OrdinalIgnoreCase))
         {
-            config.ConnectionType = ConnectionType.Fiber;
+            config.ConnectionType = ConnectionType.Gpon;
         }
         else if (name.Contains("DSL", StringComparison.OrdinalIgnoreCase))
         {
