@@ -11,8 +11,8 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    [Migration("20260402100000_AddCongestionSeverity")]
-    partial class AddCongestionSeverity
+    [Migration("20260402110000_AddLatencyThreshold")]
+    partial class AddLatencyThreshold
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -917,6 +917,9 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<int>("ConnectionType")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("LatencyThresholdMs")
+                        .HasColumnType("REAL");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");

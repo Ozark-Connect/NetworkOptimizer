@@ -4,22 +4,21 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace NetworkOptimizer.Storage.Migrations
 {
-    public partial class AddCongestionSeverity : Migration
+    public partial class AddLatencyThreshold : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<double>(
-                name: "CongestionSeverity",
+                name: "LatencyThresholdMs",
                 table: "SqmWanConfigurations",
                 type: "REAL",
-                nullable: false,
-                defaultValue: 1.0);
+                nullable: true);
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
-                name: "CongestionSeverity",
+                name: "LatencyThresholdMs",
                 table: "SqmWanConfigurations");
         }
     }
