@@ -361,6 +361,7 @@ public class ScriptGenerator
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
+        sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -441,9 +442,15 @@ public class ScriptGenerator
         sb.AppendLine(GetLatencyAdjustmentLogic());
         sb.AppendLine();
 
-        // Apply limits
-        sb.AppendLine("# Apply limits");
-        sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+        // Apply limits - safety cap scales with baseline schedule so congested hours
+        // produce lower ceilings (e.g., 0.965 streaming vs 1.00 overnight)
+        sb.AppendLine("# Apply limits - safety cap scales with baseline schedule");
+        sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
+        sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
+        sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
+        sb.AppendLine("else");
+        sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+        sb.AppendLine("fi");
         sb.AppendLine("if (( $(echo \"$new_rate > $max_adjusted_rate\" | bc) )); then");
         sb.AppendLine("    new_rate=$max_adjusted_rate");
         sb.AppendLine("fi");
