@@ -46,6 +46,9 @@ public class SqmWanConfiguration
     /// <summary>User-overridden baseline latency in ms. Null = use auto-calculated value from connection type.</summary>
     public double? BaselineLatencyMs { get; set; }
 
+    /// <summary>User-overridden latency threshold in ms. Null = use auto-calculated value from connection type.</summary>
+    public double? LatencyThresholdMs { get; set; }
+
     /// <summary>Morning speedtest hour (0-23), default 6 for WAN1, 5 for WAN2</summary>
     public int SpeedtestMorningHour { get; set; } = 6;
 

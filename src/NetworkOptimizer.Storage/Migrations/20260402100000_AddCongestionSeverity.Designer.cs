@@ -918,6 +918,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("ConnectionType")
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("LatencyThresholdMs")
+                        .HasColumnType("REAL");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 

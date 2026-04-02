@@ -568,8 +568,8 @@
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Latency Threshold</span>
-                        <span class="param-value">@wan1Config.LatencyThreshold</span>
+                        <span class="param-label">Latency Threshold <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Ping deviation from baseline that triggers a rate adjustment. Auto-calculated from connection type, but you can override it.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan1Config.LatencyThreshold" min="0.5" max="50" step="0.5" />
                         <span class="param-unit">ms</span>
                     </div>
                 </div>
@@ -734,8 +734,8 @@
                         <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Latency Threshold</span>
-                        <span class="param-value">@wan2Config.LatencyThreshold</span>
+                        <span class="param-label">Latency Threshold <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Ping deviation from baseline that triggers a rate adjustment. Auto-calculated from connection type, but you can override it.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan2Config.LatencyThreshold" min="0.5" max="50" step="0.5" />
                         <span class="param-unit">ms</span>
                     </div>
                 </div>
@@ -1863,9 +1863,11 @@
 
                     UpdateCalculatedSpeeds(config);
 
-                    // Restore user's baseline latency override (if saved)
+                    // Restore user overrides (if saved)
                     if (saved.BaselineLatencyMs.HasValue)
                         config.BaselineLatency = saved.BaselineLatencyMs.Value;
+                    if (saved.LatencyThresholdMs.HasValue)
+                        config.LatencyThreshold = saved.LatencyThresholdMs.Value;
 
                     config.CongestionSeverity = saved.CongestionSeverity;
 
@@ -1910,6 +1912,7 @@
                     PingHost = wan1Config.PingHost,
                     SpeedtestServerId = wan1Config.SpeedtestServerId,
                     BaselineLatencyMs = wan1Config.BaselineLatency,
+                    LatencyThresholdMs = wan1Config.LatencyThreshold,
                     CongestionSeverity = wan1Config.CongestionSeverity,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
@@ -1935,6 +1938,7 @@
                     PingHost = wan2Config.PingHost,
                     SpeedtestServerId = wan2Config.SpeedtestServerId,
                     BaselineLatencyMs = wan2Config.BaselineLatency,
+                    LatencyThresholdMs = wan2Config.LatencyThreshold,
                     CongestionSeverity = wan2Config.CongestionSeverity,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
@@ -2076,12 +2080,14 @@
         config.MinSpeed = profile.MinDownloadMbps;
         config.AbsoluteMax = profile.AbsoluteMaxDownloadMbps;
         config.Overhead = profile.OverheadMultiplier;
-        config.LatencyThreshold = profile.LatencyThreshold;
 
-        // Only reset baseline latency when connection type changes or on initial load,
-        // not when the user adjusts nominal speed (which would overwrite their override)
+        // Only reset latency values when connection type changes or on initial load,
+        // not when the user adjusts nominal speed (which would overwrite their overrides)
         if (resetLatency)
+        {
             config.BaselineLatency = profile.BaselineLatency;
+            config.LatencyThreshold = profile.LatencyThreshold;
+        }
 
         // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
         if (config.WanLinkSpeedMbps is > 0)
@@ -3032,8 +3038,9 @@
 
         config.ApplyProfileSettings(model.WanLinkSpeedMbps);
 
-        // Restore user's baseline latency override (ApplyProfileSettings recalculates it)
+        // Restore user overrides (ApplyProfileSettings recalculates both)
         config.BaselineLatency = model.BaselineLatency;
+        config.LatencyThreshold = model.LatencyThreshold;
         config.CongestionSeverity = model.CongestionSeverity;
 
         return config;
@@ -3200,7 +3207,7 @@
         public WanConfigSnapshot ToSnapshot() => new(
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
-            BaselineLatency, CongestionSeverity);
+            BaselineLatency, LatencyThreshold, CongestionSeverity);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -3219,6 +3226,7 @@
                    EveningHour != snapshot.EveningHour ||
                    EveningMinute != snapshot.EveningMinute ||
                    Math.Abs(BaselineLatency - snapshot.BaselineLatency) > 0.01 ||
+                   Math.Abs(LatencyThreshold - snapshot.LatencyThreshold) > 0.01 ||
                    Math.Abs(CongestionSeverity - snapshot.CongestionSeverity) > 0.001;
         }
     }
@@ -3228,7 +3236,7 @@
         bool Enabled, string Name, string Interface, ConnectionType ConnectionType,
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
-        double BaselineLatency, double CongestionSeverity);
+        double BaselineLatency, double LatencyThreshold, double CongestionSeverity);
 
     public void Dispose()
     {
