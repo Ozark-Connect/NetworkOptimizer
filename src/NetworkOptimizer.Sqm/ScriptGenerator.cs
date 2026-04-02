@@ -442,15 +442,27 @@ public class ScriptGenerator
         sb.AppendLine(GetLatencyAdjustmentLogic());
         sb.AppendLine();
 
-        // Apply limits - safety cap scales with baseline schedule so congested hours
-        // produce lower ceilings (e.g., 0.965 streaming vs 1.00 overnight)
-        sb.AppendLine("# Apply limits - safety cap scales with baseline schedule");
-        sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
-        sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
-        sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
-        sb.AppendLine("else");
-        sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
-        sb.AppendLine("fi");
+        // Apply limits
+        // Fiber (GPON/XGS-PON): safety cap scales with baseline schedule so congested hours
+        // produce lower ceilings. Without this, the flat cap is always binding and the schedule
+        // has no effect on the final rate. Variable connections (DOCSIS, Starlink, etc.) keep the
+        // flat cap because their blended rates are already well below it.
+        var useBaselineRatio = _config.ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon;
+        if (useBaselineRatio)
+        {
+            sb.AppendLine("# Apply limits - safety cap scales with baseline schedule (fiber)");
+            sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
+            sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
+            sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
+            sb.AppendLine("else");
+            sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+            sb.AppendLine("fi");
+        }
+        else
+        {
+            sb.AppendLine("# Apply limits");
+            sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+        }
         sb.AppendLine("if (( $(echo \"$new_rate > $max_adjusted_rate\" | bc) )); then");
         sb.AppendLine("    new_rate=$max_adjusted_rate");
         sb.AppendLine("fi");
