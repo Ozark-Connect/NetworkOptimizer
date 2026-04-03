@@ -735,9 +735,9 @@ fi";
     {
         return @"# Latency-based adjustment
 if (( $(echo ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"" | bc -l) )); then
-    # High latency: decrease rate with non-linear response (n^0.7)
+    # High latency: decrease rate with non-linear response ((n+1)^0.7 - 1)
     # Gentle at low deviations (transient spikes), aggressive at high (real congestion)
-    effective_count=$(echo ""scale=4; e(0.7 * l($deviation_count))"" | bc -l)
+    effective_count=$(echo ""scale=4; e(0.7 * l($deviation_count + 1)) - 1"" | bc -l)
     decrease_multiplier=$(echo ""e($effective_count * l($LATENCY_DECREASE))"" | bc -l)
     new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $decrease_multiplier"" | bc)
     if (( $(echo ""$new_rate < $MIN_DOWNLOAD_SPEED"" | bc) )); then
