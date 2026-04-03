@@ -76,6 +76,12 @@ public class ScriptGenerator
         sb.AppendLine("RESULT_FILE=\"$SQM_DIR/${SQM_NAME}-result.txt\"");
         sb.AppendLine("LOG_FILE=\"/var/log/sqm-${SQM_NAME}.log\"");
         sb.AppendLine();
+        // Rotate log on boot/deploy: keep last 2000 lines (~1.5 days at 1 min ping interval)
+        sb.AppendLine("# Rotate log to prevent unbounded growth");
+        sb.AppendLine("if [ -f \"$LOG_FILE\" ] && [ $(wc -l < \"$LOG_FILE\") -gt 2000 ]; then");
+        sb.AppendLine("    tail -n 2000 \"$LOG_FILE\" > \"${LOG_FILE}.tmp\" && mv \"${LOG_FILE}.tmp\" \"$LOG_FILE\"");
+        sb.AppendLine("fi");
+        sb.AppendLine();
         sb.AppendLine("echo \"[$(date)] SQM boot script starting for $SQM_NAME ($INTERFACE)...\" >> $LOG_FILE");
         sb.AppendLine();
 
