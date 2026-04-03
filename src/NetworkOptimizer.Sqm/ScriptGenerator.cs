@@ -509,6 +509,15 @@ public class ScriptGenerator
         // TC update function and apply
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
+
+        // Skip tc update if rate hasn't changed (avoids no-op tc rewrites every minute)
+        sb.AppendLine("# Skip tc update if rate unchanged");
+        sb.AppendLine("current_rate=$(tc class show dev $IFB_DEVICE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
+        sb.AppendLine("if [ \"$new_rate_int\" = \"$current_rate\" ]; then");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate_int");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
