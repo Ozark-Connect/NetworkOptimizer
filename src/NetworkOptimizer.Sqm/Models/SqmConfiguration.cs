@@ -115,7 +115,7 @@ public class SqmConfiguration
     /// <summary>
     /// Ping adjustment interval in minutes (default: 5)
     /// </summary>
-    public int PingAdjustmentInterval { get; set; } = 5;
+    public int PingAdjustmentInterval { get; set; } = 1;
 
     /// <summary>
     /// Learning mode enabled - collect baseline data without aggressive adjustments
