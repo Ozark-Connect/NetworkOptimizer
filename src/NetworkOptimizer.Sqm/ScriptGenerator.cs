@@ -446,7 +446,7 @@ public class ScriptGenerator
 
         // Measure latency with validation
         sb.AppendLine("# Measure latency");
-        sb.AppendLine($"latency=$(ping -I $INTERFACE -c 20 -i 0.25 -q \"$PING_HOST\" 2>/dev/null | tail -n 1 | awk -F '/' '{{print $5}}')");
+        sb.AppendLine($"latency=$(ping -I $INTERFACE -c 10 -i 0.5 -q \"$PING_HOST\" 2>/dev/null | tail -n 1 | awk -F '/' '{{print $5}}')");
         sb.AppendLine();
         sb.AppendLine("# Validate latency result");
         sb.AppendLine("if [ -z \"$latency\" ]; then");
