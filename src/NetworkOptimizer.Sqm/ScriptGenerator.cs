@@ -419,6 +419,31 @@ public class ScriptGenerator
         sb.AppendLine(GetBaselineBlendingLogicForPing());
         sb.AppendLine();
 
+        // Apply safety cap to MAX_DOWNLOAD_SPEED BEFORE latency adjustment.
+        // This sets the schedule-derived ceiling as the starting point, then latency
+        // can freely decrease below it. Without this, the cap creates a dead zone where
+        // mild latency spikes are detected but produce no visible rate change.
+        var useBaselineRatio = _config.ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon;
+        if (useBaselineRatio)
+        {
+            sb.AppendLine("# Apply baseline-proportional safety cap before latency adjustment (fiber)");
+            sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
+            sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
+            sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
+            sb.AppendLine("else");
+            sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+            sb.AppendLine("fi");
+        }
+        else
+        {
+            sb.AppendLine("# Apply flat safety cap before latency adjustment");
+            sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+        }
+        sb.AppendLine("if (( $(echo \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\" | bc) )); then");
+        sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(echo \"scale=0; $max_adjusted_rate / 1\" | bc)");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         // Measure latency with validation
         sb.AppendLine("# Measure latency");
         sb.AppendLine($"latency=$(ping -I $INTERFACE -c 20 -i 0.25 -q \"$PING_HOST\" 2>/dev/null | tail -n 1 | awk -F '/' '{{print $5}}')");
@@ -438,31 +463,11 @@ public class ScriptGenerator
         sb.AppendLine("deviation_count=$(echo \"($latency - $BASELINE_LATENCY) / $LATENCY_THRESHOLD\" | bc)");
         sb.AppendLine();
 
-        // Latency adjustment logic
+        // Latency adjustment logic (operates on capped MAX_DOWNLOAD_SPEED, can decrease freely)
         sb.AppendLine(GetLatencyAdjustmentLogic());
         sb.AppendLine();
 
-        // Apply limits
-        // Fiber (GPON/XGS-PON): safety cap scales with baseline schedule so congested hours
-        // produce lower ceilings. Without this, the flat cap is always binding and the schedule
-        // has no effect on the final rate. Variable connections (DOCSIS, Starlink, etc.) keep the
-        // flat cap because their blended rates are already well below it.
-        var useBaselineRatio = _config.ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon;
-        if (useBaselineRatio)
-        {
-            sb.AppendLine("# Apply limits - safety cap scales with baseline schedule (fiber)");
-            sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
-            sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
-            sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
-            sb.AppendLine("else");
-            sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
-            sb.AppendLine("fi");
-        }
-        else
-        {
-            sb.AppendLine("# Apply limits");
-            sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
-        }
+        // Post-latency ceiling: prevent increase branch from exceeding schedule cap
         sb.AppendLine("if (( $(echo \"$new_rate > $max_adjusted_rate\" | bc) )); then");
         sb.AppendLine("    new_rate=$max_adjusted_rate");
         sb.AppendLine("fi");
