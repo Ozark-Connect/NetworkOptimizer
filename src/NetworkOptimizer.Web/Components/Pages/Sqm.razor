@@ -1912,7 +1912,8 @@
                     PingHost = wan1Config.PingHost,
                     SpeedtestServerId = wan1Config.SpeedtestServerId,
                     BaselineLatencyMs = wan1Config.BaselineLatency,
-                    LatencyThresholdMs = wan1Config.LatencyThreshold,
+                    LatencyThresholdMs = Math.Abs(wan1Config.LatencyThreshold - wan1Config.DefaultLatencyThreshold) > 0.01
+                        ? wan1Config.LatencyThreshold : null,
                     CongestionSeverity = wan1Config.CongestionSeverity,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
@@ -1938,7 +1939,8 @@
                     PingHost = wan2Config.PingHost,
                     SpeedtestServerId = wan2Config.SpeedtestServerId,
                     BaselineLatencyMs = wan2Config.BaselineLatency,
-                    LatencyThresholdMs = wan2Config.LatencyThreshold,
+                    LatencyThresholdMs = Math.Abs(wan2Config.LatencyThreshold - wan2Config.DefaultLatencyThreshold) > 0.01
+                        ? wan2Config.LatencyThreshold : null,
                     CongestionSeverity = wan2Config.CongestionSeverity,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
@@ -2088,6 +2090,7 @@
             config.BaselineLatency = profile.BaselineLatency;
             config.LatencyThreshold = profile.LatencyThreshold;
         }
+        config.DefaultLatencyThreshold = profile.LatencyThreshold;
 
         // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
         if (config.WanLinkSpeedMbps is > 0)
@@ -3155,6 +3158,7 @@
         public double Overhead { get; set; }
         public double BaselineLatency { get; set; }
         public double LatencyThreshold { get; set; }
+        public double DefaultLatencyThreshold { get; set; }
 
         // Congestion schedule range (effective shaping rates from baseline-proportional safety cap)
         public (int Min, int Max) GetCongestionRange()
