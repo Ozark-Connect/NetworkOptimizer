@@ -277,11 +277,11 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // GPON: tight threshold, consistent connection
-            ConnectionType.Gpon => 2.0,
+            // GPON: tight threshold, fiber latency is clean enough to detect mild congestion
+            ConnectionType.Gpon => 1.0,
 
-            // XGS-PON: tightest threshold, very consistent
-            ConnectionType.XgsPon => 1.5,
+            // XGS-PON: tight threshold, 10G headroom means very stable latency
+            ConnectionType.XgsPon => 1.0,
 
             // DOCSIS: moderate threshold
             ConnectionType.DocsisCable => 2.5,
