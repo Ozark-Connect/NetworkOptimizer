@@ -896,8 +896,8 @@ WantedBy=multi-user.target
             NominalUploadMbps = config.NominalUploadSpeed
         };
 
-        // Get the 168-hour baseline scaled to nominal speed
-        return profile.GetHourlyBaseline();
+        // Get the 168-hour baseline scaled to nominal speed, with congestion severity applied
+        return profile.GetHourlyBaseline(config.CongestionSeverity);
     }
 
     /// <summary>
