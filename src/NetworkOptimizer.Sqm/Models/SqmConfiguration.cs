@@ -115,7 +115,7 @@ public class SqmConfiguration
     /// <summary>
     /// Ping adjustment interval in minutes (default: 5)
     /// </summary>
-    public int PingAdjustmentInterval { get; set; } = 5;
+    public int PingAdjustmentInterval { get; set; } = 1;
 
     /// <summary>
     /// Learning mode enabled - collect baseline data without aggressive adjustments
@@ -147,6 +147,13 @@ public class SqmConfiguration
     /// Fiber uses 1.0 because the WAN link speed already provides headroom.
     /// </summary>
     public double SafetyCapPercent { get; set; } = 0.95;
+
+    /// <summary>
+    /// Congestion severity multiplier (0.9-1.1, default 1.0).
+    /// Scales the magnitude of baseline schedule dips while keeping 1.0 hours unchanged.
+    /// effective = 1.0 - (1.0 - schedule_multiplier) * severity
+    /// </summary>
+    public double CongestionSeverity { get; set; } = 1.0;
 
     /// <summary>
     /// Get the ConnectionProfile for this configuration

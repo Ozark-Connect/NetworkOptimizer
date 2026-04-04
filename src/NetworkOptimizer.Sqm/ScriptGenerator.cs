@@ -76,6 +76,12 @@ public class ScriptGenerator
         sb.AppendLine("RESULT_FILE=\"$SQM_DIR/${SQM_NAME}-result.txt\"");
         sb.AppendLine("LOG_FILE=\"/var/log/sqm-${SQM_NAME}.log\"");
         sb.AppendLine();
+        // Rotate log on boot/deploy: keep last 2000 lines (~1.5 days at 1 min ping interval)
+        sb.AppendLine("# Rotate log to prevent unbounded growth");
+        sb.AppendLine("if [ -f \"$LOG_FILE\" ] && [ $(wc -l < \"$LOG_FILE\") -gt 2000 ]; then");
+        sb.AppendLine("    tail -n 2000 \"$LOG_FILE\" > \"${LOG_FILE}.tmp\" && mv \"${LOG_FILE}.tmp\" \"$LOG_FILE\"");
+        sb.AppendLine("fi");
+        sb.AppendLine();
         sb.AppendLine("echo \"[$(date)] SQM boot script starting for $SQM_NAME ($INTERFACE)...\" >> $LOG_FILE");
         sb.AppendLine();
 
@@ -361,6 +367,7 @@ public class ScriptGenerator
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
+        sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -418,9 +425,34 @@ public class ScriptGenerator
         sb.AppendLine(GetBaselineBlendingLogicForPing());
         sb.AppendLine();
 
+        // Apply safety cap to MAX_DOWNLOAD_SPEED BEFORE latency adjustment.
+        // This sets the schedule-derived ceiling as the starting point, then latency
+        // can freely decrease below it. Without this, the cap creates a dead zone where
+        // mild latency spikes are detected but produce no visible rate change.
+        var useBaselineRatio = _config.ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon;
+        if (useBaselineRatio)
+        {
+            sb.AppendLine("# Apply baseline-proportional safety cap before latency adjustment (fiber)");
+            sb.AppendLine("if [ -n \"$baseline_speed\" ] && [ \"$NOMINAL_SPEED\" -gt 0 ]; then");
+            sb.AppendLine("    baseline_ratio=$(echo \"scale=4; $baseline_speed / $NOMINAL_SPEED\" | bc)");
+            sb.AppendLine("    max_adjusted_rate=$(echo \"scale=0; $ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP * $baseline_ratio / 1\" | bc)");
+            sb.AppendLine("else");
+            sb.AppendLine("    max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+            sb.AppendLine("fi");
+        }
+        else
+        {
+            sb.AppendLine("# Apply flat safety cap before latency adjustment");
+            sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+        }
+        sb.AppendLine("if (( $(echo \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\" | bc) )); then");
+        sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(echo \"scale=0; $max_adjusted_rate / 1\" | bc)");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         // Measure latency with validation
         sb.AppendLine("# Measure latency");
-        sb.AppendLine($"latency=$(ping -I $INTERFACE -c 20 -i 0.25 -q \"$PING_HOST\" 2>/dev/null | tail -n 1 | awk -F '/' '{{print $5}}')");
+        sb.AppendLine($"latency=$(ping -I $INTERFACE -c 10 -i 0.5 -q \"$PING_HOST\" 2>/dev/null | tail -n 1 | awk -F '/' '{{print $5}}')");
         sb.AppendLine();
         sb.AppendLine("# Validate latency result");
         sb.AppendLine("if [ -z \"$latency\" ]; then");
@@ -437,13 +469,11 @@ public class ScriptGenerator
         sb.AppendLine("deviation_count=$(echo \"($latency - $BASELINE_LATENCY) / $LATENCY_THRESHOLD\" | bc)");
         sb.AppendLine();
 
-        // Latency adjustment logic
+        // Latency adjustment logic (operates on capped MAX_DOWNLOAD_SPEED, can decrease freely)
         sb.AppendLine(GetLatencyAdjustmentLogic());
         sb.AppendLine();
 
-        // Apply limits
-        sb.AppendLine("# Apply limits");
-        sb.AppendLine("max_adjusted_rate=$(echo \"$ABSOLUTE_MAX_DOWNLOAD_SPEED * $SAFETY_CAP\" | bc)");
+        // Post-latency ceiling: prevent increase branch from exceeding schedule cap
         sb.AppendLine("if (( $(echo \"$new_rate > $max_adjusted_rate\" | bc) )); then");
         sb.AppendLine("    new_rate=$max_adjusted_rate");
         sb.AppendLine("fi");
@@ -479,6 +509,15 @@ public class ScriptGenerator
         // TC update function and apply
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
+
+        // Skip tc update if rate hasn't changed (avoids no-op tc rewrites every minute)
+        sb.AppendLine("# Skip tc update if rate unchanged");
+        sb.AppendLine("current_rate=$(tc class show dev $IFB_DEVICE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
+        sb.AppendLine("if [ \"$new_rate_int\" = \"$current_rate\" ]; then");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate_int");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
@@ -696,8 +735,10 @@ fi";
     {
         return @"# Latency-based adjustment
 if (( $(echo ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"" | bc -l) )); then
-    # High latency: decrease rate
-    decrease_multiplier=$(echo ""$LATENCY_DECREASE^$deviation_count"" | bc -l)
+    # High latency: decrease rate with non-linear response ((n+1)^0.7 - 1)
+    # Gentle at low deviations (transient spikes), aggressive at high (real congestion)
+    effective_count=$(echo ""scale=4; e(0.7 * l($deviation_count + 1)) - 1"" | bc -l)
+    decrease_multiplier=$(echo ""e($effective_count * l($LATENCY_DECREASE))"" | bc -l)
     new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $decrease_multiplier"" | bc)
     if (( $(echo ""$new_rate < $MIN_DOWNLOAD_SPEED"" | bc) )); then
         new_rate=$MIN_DOWNLOAD_SPEED
