@@ -319,6 +319,9 @@
 @code {
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
 
+    /// <summary>Initial edge to auto-select, format: "mac1_mac2"</summary>
+    [Parameter] public string? InitialEdge { get; set; }
+
     private bool _loading = true;
     private RoamingTopology? _topology;
     private RoamingEdge? _selectedEdge;
@@ -349,6 +352,7 @@
             {
                 CalculateStats();
                 CalculateNodePositions();
+                TrySelectInitialEdge();
             }
         }
         finally
@@ -356,6 +360,44 @@
             _loading = false;
             StateHasChanged();
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingScrollToEdge)
+        {
+            _pendingScrollToEdge = false;
+            // Use the app's scroll restoration infrastructure - it handles fragment scrolling
+            // and nav bar hiding. The fragment (#roaming-edge-details) is already in the URL.
+            await JS.InvokeVoidAsync("eval",
+                "window.scrollRestoration?.restoreOrScrollToTop(window.location.pathname + window.location.search)");
+        }
+    }
+
+    private bool _pendingScrollToEdge;
+
+    private void TrySelectInitialEdge()
+    {
+        if (string.IsNullOrEmpty(InitialEdge) || _topology == null) return;
+
+        var parts = InitialEdge.Split('_', 2);
+        if (parts.Length != 2) return;
+
+        var mac1 = parts[0];
+        var mac2 = parts[1];
+
+        var edge = _topology.Edges.FirstOrDefault(e =>
+            (e.Endpoint1Mac == mac1 && e.Endpoint2Mac == mac2) ||
+            (e.Endpoint1Mac == mac2 && e.Endpoint2Mac == mac1));
+
+        if (edge != null)
+        {
+            _selectedEdge = edge;
+            _pendingScrollToEdge = true;
+        }
+
+        // Clear so it doesn't re-trigger on refresh
+        InitialEdge = null;
     }
 
     private async Task RefreshData()

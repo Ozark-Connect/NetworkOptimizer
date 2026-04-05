@@ -534,6 +534,7 @@ public class SiteHealthScorer
                     Title = "Roaming failures",
                     Description = $"{failures} failed roams between these APs",
                     AffectedEntity = $"{ap1Name} ↔ {ap2Name}",
+                    LinkUrl = $"./wifi-optimizer?tab=roaming&edge={Uri.EscapeDataString(edge.Endpoint1Mac)}_{Uri.EscapeDataString(edge.Endpoint2Mac)}#roaming-edge-details",
                     Recommendation = "Check for coverage gaps or enable fast roaming.",
                     ScoreImpact = -5 * failures
                 });
