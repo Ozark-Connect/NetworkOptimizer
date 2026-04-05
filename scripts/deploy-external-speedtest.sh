@@ -51,12 +51,17 @@ if [ "${1}" = "--update" ]; then
         curl -sL "$BASE_URL/src/OpenSpeedTest/assets/js/$f" -o "src/OpenSpeedTest/assets/js/$f"
     done
 
-    for f in ozark-overrides.css; do
+    for f in app.css darkmode.css ozark-overrides.css; do
         curl -sL "$BASE_URL/src/OpenSpeedTest/assets/css/$f" -o "src/OpenSpeedTest/assets/css/$f"
     done
 
     for f in apple-touch-icon.png favicon.ico favicon.png logo-dark.svg logo.svg; do
         curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/$f" -o "src/OpenSpeedTest/assets/images/$f" 2>/dev/null || true
+    done
+
+    mkdir -p src/OpenSpeedTest/assets/images/icons
+    for f in site.webmanifest android-chrome-192x192.png android-chrome-512x512.png apple-touch-icon.png browserconfig.xml favicon-16x16.png favicon-32x32.png favicon.ico; do
+        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/icons/$f" -o "src/OpenSpeedTest/assets/images/icons/$f" 2>/dev/null || true
     done
 
     echo "Rebuilding container..."
@@ -174,13 +179,18 @@ for f in config.js app-2.5.4.js app-2.5.4.min.js geolocation.js darkmode.js; do
     curl -sL "$BASE_URL/src/OpenSpeedTest/assets/js/$f" -o "src/OpenSpeedTest/assets/js/$f"
 done
 
-for f in ozark-overrides.css; do
+for f in app.css darkmode.css ozark-overrides.css; do
     curl -sL "$BASE_URL/src/OpenSpeedTest/assets/css/$f" -o "src/OpenSpeedTest/assets/css/$f"
 done
 
 # Download images
 for f in apple-touch-icon.png favicon.ico favicon.png logo-dark.svg logo.svg; do
     curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/$f" -o "src/OpenSpeedTest/assets/images/$f" 2>/dev/null || true
+done
+
+mkdir -p src/OpenSpeedTest/assets/images/icons
+for f in site.webmanifest android-chrome-192x192.png android-chrome-512x512.png apple-touch-icon.png browserconfig.xml favicon-16x16.png favicon-32x32.png favicon.ico; do
+    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/icons/$f" -o "src/OpenSpeedTest/assets/images/icons/$f" 2>/dev/null || true
 done
 
 # Create .dockerignore
