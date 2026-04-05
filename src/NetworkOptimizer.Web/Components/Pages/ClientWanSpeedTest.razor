@@ -84,7 +84,7 @@
                         @if (_showHttpsWarning)
                         {
                             <div class="alert alert-warning" style="margin-top: 1rem;">
-                                <strong>HTTPS Required:</strong> This server is configured over HTTP. Browsers block requests from public HTTP pages to private network addresses. The external server must use HTTPS, and the reverse proxy must force HTTP/1.1 for accurate results.
+                                <strong>HTTPS Strongly Recommended:</strong> This server is configured over HTTP. Chrome and Edge will block speed test results from posting back due to Private Network Access restrictions. HTTPS with a reverse proxy is strongly recommended.
                             </div>
                         }
                     </div>

@@ -47,6 +47,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<WanDataUsageConfig> WanDataUsageConfigs { get; set; }
     public DbSet<WanDataUsageSnapshot> WanDataUsageSnapshots { get; set; }
     public DbSet<WanSteerTrafficClass> WanSteerTrafficClasses { get; set; }
+    public DbSet<ExternalSpeedTestServer> ExternalSpeedTestServers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -143,6 +144,13 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SystemSettings");
             entity.HasKey(e => e.Key);
+        });
+
+        // ExternalSpeedTestServer configuration
+        modelBuilder.Entity<ExternalSpeedTestServer>(entity =>
+        {
+            entity.ToTable("ExternalSpeedTestServers");
+            entity.HasIndex(e => e.ServerId).IsUnique();
         });
 
         // UniFiConnectionSettings configuration (singleton - only one row)
