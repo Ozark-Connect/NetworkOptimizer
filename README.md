@@ -88,7 +88,7 @@ Network Optimizer handles this automatically. It supports dual-WAN with independ
 
 Test your internet connection speed directly from the server. Measures download, upload, latency, loaded latency (bufferbloat detection), and jitter with full history and per-WAN connection tracking. Results are plotted in time-series charts filterable by connection, so you can compare providers and track performance over time across multi-WAN setups.
 
-Also includes a standalone OpenSpeedTest server you can host on a VPS or remote machine, so you can run WAN speed tests against your own private infrastructure instead of relying on third-party speed test services. If you're that kind of nerd.
+Also includes a standalone OpenSpeedTest server you can host on a VPS or remote machine, so you can run WAN speed tests against your own private infrastructure instead of relying on third-party speed test services. Configure it in Settings and get a ready-to-copy deploy command - see [External WAN Speed Test Server](docker/DEPLOYMENT.md#external-wan-speed-test-server-optional) in the deployment guide. If you're that kind of nerd.
 
 ### LAN Speed Testing
 
