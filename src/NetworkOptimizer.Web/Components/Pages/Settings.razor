@@ -48,18 +48,43 @@
             <div class="form-group">
                 <label class="form-label">Console URL</label>
                 <input type="text" class="form-control" @bind="controllerUrl" placeholder="https://192.168.1.1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                <small class="form-help">UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted Network Server. Use local-only credentials for security.</small>
+                <small class="form-help">UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted Network Server.</small>
             </div>
 
             <div class="form-group">
-                <label class="form-label">Username</label>
-                <input type="text" class="form-control" @bind="controllerUsername" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                <label class="form-label">Authentication Method</label>
+                <div class="auth-method-toggle">
+                    <label class="radio-label">
+                        <input type="radio" name="authMethod" value="password" checked="@(!useApiKeyAuth)" @onchange="() => useApiKeyAuth = false" />
+                        <span>Local Account</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="authMethod" value="apikey" checked="@useApiKeyAuth" @onchange="() => useApiKeyAuth = true" />
+                        <span>API Key</span>
+                    </label>
+                </div>
             </div>
 
-            <div class="form-group">
-                <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="controllerPassword" autocomplete="new-password" placeholder="@(hasControllerPassword ? "Saved – enter new to update" : "Enter password")" data-1p-ignore data-lpignore="true" data-bwignore />
-            </div>
+            @if (!useApiKeyAuth)
+            {
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control" @bind="controllerUsername" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-control" @bind="controllerPassword" autocomplete="new-password" placeholder="@(hasControllerPassword ? "Saved – enter new to update" : "Enter password")" data-1p-ignore data-lpignore="true" data-bwignore />
+                </div>
+            }
+            else
+            {
+                <div class="form-group">
+                    <label class="form-label">Network API Key</label>
+                    <input type="password" class="form-control" @bind="controllerApiKey" autocomplete="new-password" placeholder="@(hasControllerApiKey ? "Saved – enter new to update" : "Enter API key")" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <small class="form-help">No username or password needed. The API key handles all authentication.</small>
+                </div>
+            }
 
             <div class="form-group">
                 <label class="form-label">Site</label>
@@ -143,38 +168,60 @@
                 </div>
             }
 
-            <details class="setup-guide" open="@(!ConnectionService.IsConnected)">
-                <summary>How to Create a UniFi Local Account</summary>
-                <div class="setup-guide-content">
-                    <p>Network Optimizer requires a <strong>Local Access Only</strong> account on your UniFi Console (Controller). Ubiquiti SSO accounts will not work.</p>
+            @if (useApiKeyAuth)
+            {
+                <details class="setup-guide" open="@(!ConnectionService.IsConnected)">
+                    <summary>How to Create a Network API Key</summary>
+                    <div class="setup-guide-content">
+                        <p>API keys provide a simpler connection method - no username or password needed. The key is sent with every request.</p>
+                        <ol>
+                            <li>Open your UniFi Console: <code>https://&lt;gateway-ip&gt;</code></li>
+                            <li>Navigate to <strong>UniFi Network</strong></li>
+                            <li>Go to <strong>Settings</strong> (gear icon)</li>
+                            <li>Click <strong>Integrations</strong> in the sidebar</li>
+                            <li>Click <strong>Create New</strong> under API Keys</li>
+                            <li>Give it a name (e.g., "Network Optimizer")</li>
+                            <li>Copy the generated API key and paste it above</li>
+                        </ol>
+                        <p><strong>Note:</strong> API keys are only available on UniFi OS consoles (UDM, UCG, UDR). Standalone Network Server installations must use Local Account authentication.</p>
+                    </div>
+                </details>
+            }
+            else
+            {
+                <details class="setup-guide" open="@(!ConnectionService.IsConnected)">
+                    <summary>How to Create a UniFi Local Account</summary>
+                    <div class="setup-guide-content">
+                        <p>Network Optimizer requires a <strong>Local Access Only</strong> account on your UniFi Console (Controller). Ubiquiti SSO accounts will not work.</p>
 
-                    <h4>Quick Setup</h4>
-                    <p>For the easiest setup, create a <strong>Local Access Only</strong> account with <strong>Super Admin</strong> role.</p>
+                        <h4>Quick Setup</h4>
+                        <p>For the easiest setup, create a <strong>Local Access Only</strong> account with <strong>Super Admin</strong> role.</p>
 
-                    <h4>Restricted Setup (Recommended)</h4>
-                    <p>For a more secure, least-privilege configuration:</p>
-                    <ol>
-                        <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
-                        <li>Sign in to your Console</li>
-                        <li>Click <strong>Admin &amp; Users</strong> at the bottom of the side menu</li>
-                        <li>Click <strong>Create New</strong> at the top</li>
-                        <li>Select <strong>Create New User</strong></li>
-                        <li>Enter a name and email for this service account</li>
-                        <li>Check <strong>Admin</strong></li>
-                        <li>Check <strong>Restrict to Local Access Only</strong></li>
-                        <li>Uncheck <strong>Use a Predefined Role</strong></li>
-                        <li>Set permissions:
-                            <ul>
-                                <li><strong>Network:</strong> View Only</li>
-                                <li><strong>Protect:</strong> View Only</li>
-                                <li><strong>User &amp; Account Management:</strong> None</li>
-                            </ul>
-                        </li>
-                        <li>Set a secure password and save</li>
-                    </ol>
-                    <p>Use this username and password in the fields above.</p>
-                </div>
-            </details>
+                        <h4>Restricted Setup (Recommended)</h4>
+                        <p>For a more secure, least-privilege configuration:</p>
+                        <ol>
+                            <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
+                            <li>Sign in to your Console</li>
+                            <li>Click <strong>Admin &amp; Users</strong> at the bottom of the side menu</li>
+                            <li>Click <strong>Create New</strong> at the top</li>
+                            <li>Select <strong>Create New User</strong></li>
+                            <li>Enter a name and email for this service account</li>
+                            <li>Check <strong>Admin</strong></li>
+                            <li>Check <strong>Restrict to Local Access Only</strong></li>
+                            <li>Uncheck <strong>Use a Predefined Role</strong></li>
+                            <li>Set permissions:
+                                <ul>
+                                    <li><strong>Network:</strong> View Only</li>
+                                    <li><strong>Protect:</strong> View Only</li>
+                                    <li><strong>User &amp; Account Management:</strong> None</li>
+                                </ul>
+                            </li>
+                            <li>Set a secure password and save</li>
+                        </ol>
+                        <p>Use this username and password in the fields above.</p>
+                    </div>
+                </details>
+            }
         </div>
     </div>
 
@@ -1838,6 +1885,8 @@
     private string controllerUrl = "https://192.168.1.1";
     private string controllerUsername = "";
     private string controllerPassword = "";
+    private string controllerApiKey = "";
+    private bool useApiKeyAuth = false;
     private string controllerSite = "default";
     private bool rememberCredentials = true;
     private bool ignoreControllerSSLErrors = true;
@@ -1896,8 +1945,9 @@
     private string sshMessage = "";
     private string sshMessageClass = "";
 
-    // Password saved status (for placeholder text)
+    // Password/API key saved status (for placeholder text)
     private bool hasControllerPassword = false;
+    private bool hasControllerApiKey = false;
     private bool hasGatewayPassword = false;
     private bool hasSshPassword = false;
 
@@ -2022,15 +2072,17 @@
         {
             controllerUrl = ConnectionService.CurrentConfig.ControllerUrl;
             controllerUsername = ConnectionService.CurrentConfig.Username;
-            // Don't load password - keep it empty for security
+            // Don't load password/API key - keep them empty for security
             controllerSite = ConnectionService.CurrentConfig.Site;
             rememberCredentials = ConnectionService.CurrentConfig.RememberCredentials;
             ignoreControllerSSLErrors = ConnectionService.CurrentConfig.IgnoreControllerSSLErrors;
+            useApiKeyAuth = ConnectionService.CurrentConfig.UseApiKey;
         }
 
-        // Check if controller has saved password
+        // Check if controller has saved credentials
         var connectionSettings = await ConnectionService.GetSettingsAsync();
-        hasControllerPassword = connectionSettings.HasCredentials;
+        hasControllerPassword = !string.IsNullOrEmpty(connectionSettings.Password);
+        hasControllerApiKey = connectionSettings.HasApiKey;
 
         UpdateControllerStatus();
         await LoadGatewaySettings();
@@ -2747,11 +2799,26 @@
 
     private async Task<UniFiConnectionConfig> BuildConfigAsync()
     {
-        // Use newly entered password, or fall back to stored password from database
-        var password = controllerPassword;
-        if (string.IsNullOrEmpty(password))
+        string? apiKey = null;
+        var password = "";
+
+        if (useApiKeyAuth)
         {
-            password = await ConnectionService.GetStoredPasswordAsync() ?? "";
+            // Use newly entered API key, or fall back to stored key from database
+            apiKey = controllerApiKey;
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                apiKey = await ConnectionService.GetStoredApiKeyAsync();
+            }
+        }
+        else
+        {
+            // Use newly entered password, or fall back to stored password from database
+            password = controllerPassword;
+            if (string.IsNullOrEmpty(password))
+            {
+                password = await ConnectionService.GetStoredPasswordAsync() ?? "";
+            }
         }
 
         return new UniFiConnectionConfig
@@ -2759,6 +2826,7 @@
             ControllerUrl = NetworkUtilities.NormalizeControllerUrl(controllerUrl),
             Username = controllerUsername,
             Password = password,
+            ApiKey = apiKey,
             Site = string.IsNullOrWhiteSpace(controllerSite) ? "default" : controllerSite,
             RememberCredentials = rememberCredentials,
             IgnoreControllerSSLErrors = ignoreControllerSSLErrors
@@ -2817,11 +2885,20 @@
             if (success)
             {
                 controllerStatus = "Connected";
-                controllerInfo = ConnectionService.IsUniFiOs ? "UniFi OS" : "Standalone";
+                var authLabel = ConnectionService.IsApiKeyAuth ? "API Key" : (ConnectionService.IsUniFiOs ? "UniFi OS" : "Standalone");
+                controllerInfo = authLabel;
                 controllerMessage = $"Connected and saved! ({controllerInfo})";
                 controllerMessageClass = "success";
-                hasControllerPassword = true;
-                controllerPassword = ""; // Clear the password field
+                if (useApiKeyAuth)
+                {
+                    hasControllerApiKey = true;
+                    controllerApiKey = ""; // Clear the API key field
+                }
+                else
+                {
+                    hasControllerPassword = true;
+                    controllerPassword = ""; // Clear the password field
+                }
             }
             else
             {

@@ -31,6 +31,7 @@ public class UniFiApiClient : IDisposable
     private readonly string _controllerUrl;
     private readonly string _username;
     private readonly string _password;
+    private readonly string? _apiKey;
     private readonly string _site;
     private readonly bool _ignoreSSLErrors;
     private HttpClient? _httpClient;
@@ -61,18 +62,25 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public string? LastApiErrorCode => _lastApiErrorCode;
 
+    /// <summary>
+    /// Whether this client uses API key authentication instead of username/password
+    /// </summary>
+    public bool UseApiKey => !string.IsNullOrEmpty(_apiKey);
+
     public UniFiApiClient(
         ILogger<UniFiApiClient> logger,
         string controllerHost,
         string username,
         string password,
         string site = "default",
-        bool ignoreSSLErrors = true)
+        bool ignoreSSLErrors = true,
+        string? apiKey = null)
     {
         _logger = logger;
         _controllerUrl = controllerHost.StartsWith("https://") ? controllerHost : $"https://{controllerHost}";
         _username = username;
         _password = password;
+        _apiKey = apiKey;
         _site = site;
         _ignoreSSLErrors = ignoreSSLErrors;
 
@@ -116,6 +124,12 @@ public class UniFiApiClient : IDisposable
 
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "NetworkOptimizer.UniFi/1.0");
+
+        // API key auth: set header once, no login/cookies/CSRF needed
+        if (!string.IsNullOrEmpty(_apiKey))
+        {
+            _httpClient.DefaultRequestHeaders.Add("X-API-KEY", _apiKey);
+        }
     }
 
     /// <summary>
@@ -192,6 +206,16 @@ public class UniFiApiClient : IDisposable
             if (_isAuthenticated)
             {
                 _logger.LogDebug("Already authenticated, skipping login");
+                return true;
+            }
+
+            // API key auth: no login needed, just detect controller type
+            if (UseApiKey)
+            {
+                _logger.LogInformation("Using API key authentication with UniFi controller at {Url}", _controllerUrl);
+                _isAuthenticated = true;
+                await DetectControllerTypeAsync(cancellationToken);
+                _logger.LogInformation("API key authentication ready (UniFi OS: {IsUniFiOs})", _isUniFiOs);
                 return true;
             }
 

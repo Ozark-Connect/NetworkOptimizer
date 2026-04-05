@@ -2075,6 +2075,11 @@ select.form-control {
     gap: 0.75rem;
 }
 
+.auth-method-toggle {
+    display: flex;
+    gap: 1.5rem;
+}
+
 /* Progress Bar */
 .progress-bar {
     width: 100%;

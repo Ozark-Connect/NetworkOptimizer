@@ -158,6 +158,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 ControllerUrl = _settings.ControllerUrl ?? "",
                 Username = _settings.Username ?? "",
                 Password = "", // Never expose password
+                ApiKey = _settings.HasApiKey ? "saved" : null, // Signal that key exists without exposing it
                 Site = _settings.Site,
                 RememberCredentials = _settings.RememberCredentials,
                 IgnoreControllerSSLErrors = _settings.IgnoreControllerSSLErrors
@@ -181,6 +182,26 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             try
             {
                 return _credentialProtection.Decrypt(settings.Password);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Get the stored (decrypted) API key for testing connection
+    /// </summary>
+    public async Task<string?> GetStoredApiKeyAsync()
+    {
+        var settings = await GetSettingsAsync();
+        if (!string.IsNullOrEmpty(settings.ApiKey))
+        {
+            try
+            {
+                return _credentialProtection.Decrypt(settings.ApiKey);
             }
             catch
             {
@@ -256,7 +277,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors
+                config.IgnoreControllerSSLErrors,
+                config.ApiKey
             );
 
             // Attempt to authenticate
@@ -294,7 +316,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             else
             {
                 // Use detailed error from API client if available
-                _lastError = _client.LastLoginError ?? "Authentication failed. Check username and password.";
+                var defaultError = config.UseApiKey
+                    ? "Authentication failed. Check that the API key is valid and not expired."
+                    : "Authentication failed. Check username and password.";
+                _lastError = _client.LastLoginError ?? defaultError;
                 _logger.LogWarning("Failed to authenticate with UniFi controller");
                 _client.Dispose();
                 _client = null;
@@ -324,14 +349,26 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         try
         {
-            // Decrypt password
-            var decryptedPassword = _credentialProtection.Decrypt(settings.Password!);
+            // Decrypt credentials
+            string? decryptedPassword = null;
+            string? decryptedApiKey = null;
+
+            if (!string.IsNullOrEmpty(settings.ApiKey))
+            {
+                decryptedApiKey = _credentialProtection.Decrypt(settings.ApiKey);
+            }
+
+            if (!string.IsNullOrEmpty(settings.Password))
+            {
+                decryptedPassword = _credentialProtection.Decrypt(settings.Password);
+            }
 
             var config = new UniFiConnectionConfig
             {
                 ControllerUrl = settings.ControllerUrl!,
-                Username = settings.Username!,
-                Password = decryptedPassword,
+                Username = settings.Username ?? "",
+                Password = decryptedPassword ?? "",
+                ApiKey = decryptedApiKey,
                 Site = settings.Site,
                 RememberCredentials = settings.RememberCredentials,
                 IgnoreControllerSSLErrors = settings.IgnoreControllerSSLErrors
@@ -351,7 +388,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors
+                config.IgnoreControllerSSLErrors,
+                config.ApiKey
             );
 
             var success = await _client.LoginAsync(cts.Token);
@@ -384,13 +422,16 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                     await repository.SaveUniFiConnectionSettingsAsync(dbSettings);
                 }
 
-                _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
+                _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs}, API Key: {UseApiKey})", _client.IsUniFiOs, _client.UseApiKey);
                 return true;
             }
             else
             {
                 // Use detailed error from API client if available
-                _lastError = _client.LastLoginError ?? "Authentication failed. Check username and password.";
+                var defaultError = config.UseApiKey
+                    ? "Authentication failed. Check that the API key is valid and not expired."
+                    : "Authentication failed. Check username and password.";
+                _lastError = _client.LastLoginError ?? defaultError;
                 _client.Dispose();
                 _client = null;
                 return false;
@@ -443,6 +484,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             if (!string.IsNullOrEmpty(config.Password))
             {
                 settings.Password = _credentialProtection.Encrypt(config.Password);
+            }
+
+            // Encrypt API key before saving
+            if (!string.IsNullOrEmpty(config.ApiKey))
+            {
+                settings.ApiKey = _credentialProtection.Encrypt(config.ApiKey);
+            }
+            else if (config.ApiKey == "")
+            {
+                // Explicitly cleared
+                settings.ApiKey = null;
             }
 
             await repository.SaveUniFiConnectionSettingsAsync(settings);
@@ -518,7 +570,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors
+                config.IgnoreControllerSSLErrors,
+                config.ApiKey
             );
 
             var success = await testClient.LoginAsync();
@@ -534,8 +587,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
                 // Get system info for display
                 var sysInfo = await testClient.GetSystemInfoAsync();
+                var authMethod = testClient.UseApiKey ? "API Key" : (testClient.IsUniFiOs ? "UniFi OS" : "Standalone");
                 var info = sysInfo != null
-                    ? $"{sysInfo.Name} v{sysInfo.Version} ({(testClient.IsUniFiOs ? "UniFi OS" : "Standalone")})"
+                    ? $"{sysInfo.Name} v{sysInfo.Version} ({authMethod})"
                     : "Connected successfully";
 
                 return (true, null, info);
@@ -543,7 +597,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             else
             {
                 // Use detailed error from API client if available
-                var error = testClient.LastLoginError ?? "Authentication failed. Check username and password.";
+                var defaultError = config.UseApiKey
+                    ? "Authentication failed. Check that the API key is valid and not expired."
+                    : "Authentication failed. Check username and password.";
+                var error = testClient.LastLoginError ?? defaultError;
                 return (false, error, null);
             }
         }
@@ -580,14 +637,18 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors
+                config.IgnoreControllerSSLErrors,
+                config.ApiKey
             );
 
             var success = await testClient.LoginAsync();
 
             if (!success)
             {
-                var error = testClient.LastLoginError ?? "Authentication failed. Check username and password.";
+                var defaultError = config.UseApiKey
+                    ? "Authentication failed. Check that the API key is valid and not expired."
+                    : "Authentication failed. Check username and password.";
+                var error = testClient.LastLoginError ?? defaultError;
                 return (false, error, new List<UniFiSite>());
             }
 
@@ -644,6 +705,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Whether the current connection uses API key authentication
+    /// </summary>
+    public bool IsApiKeyAuth => _client?.UseApiKey ?? false;
+
+    /// <summary>
     /// Wait for the connection to be established (for use during app startup).
     /// Polls until connected or timeout is reached.
     /// </summary>
@@ -690,6 +756,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         {
             settings.Username = null;
             settings.Password = null;
+            settings.ApiKey = null;
             settings.IsConfigured = false;
             settings.UpdatedAt = DateTime.UtcNow;
             await repository.SaveUniFiConnectionSettingsAsync(settings);
@@ -905,6 +972,7 @@ public class UniFiConnectionConfig
     public string ControllerUrl { get; set; } = "";
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
+    public string? ApiKey { get; set; }
     public string Site { get; set; } = "default";
     public bool RememberCredentials { get; set; } = true;
     /// <summary>
@@ -912,4 +980,7 @@ public class UniFiConnectionConfig
     /// Default is true because UniFi controllers use self-signed certificates.
     /// </summary>
     public bool IgnoreControllerSSLErrors { get; set; } = true;
+
+    /// <summary>Whether this config uses API key authentication</summary>
+    public bool UseApiKey => !string.IsNullOrEmpty(ApiKey);
 }
