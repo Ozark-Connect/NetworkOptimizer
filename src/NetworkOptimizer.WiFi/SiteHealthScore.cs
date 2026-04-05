@@ -109,6 +109,9 @@ public class HealthIssue
     /// <summary>MAC address of affected client, for linking to client details</summary>
     public string? AffectedClientMac { get; set; }
 
+    /// <summary>Deep link URL for this issue (e.g., link to roaming tab with specific edge selected)</summary>
+    public string? LinkUrl { get; set; }
+
     /// <summary>Recommended action</summary>
     public string? Recommendation { get; set; }
 
