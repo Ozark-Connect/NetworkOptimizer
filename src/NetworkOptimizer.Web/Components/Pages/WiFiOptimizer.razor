@@ -830,6 +830,11 @@
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
         }
+        else if (!string.IsNullOrEmpty(EdgeQueryParam) && EdgeQueryParam != _initialEdge)
+        {
+            _activeTab = "roaming";
+            _initialEdge = EdgeQueryParam;
+        }
         else if (TabParam != _lastTabParam && _lastTabParam != null)
         {
             var newTab = ResolveTab(TabParam);
