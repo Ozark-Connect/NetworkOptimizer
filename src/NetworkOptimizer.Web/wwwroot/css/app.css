@@ -517,6 +517,11 @@ a:hover {
     .card-full-width > .card-body {
         padding: 0;
     }
+
+    .settings-container > .card,
+    .audit-container > .card {
+        margin-bottom: 1rem;
+    }
 }
 
 /* Clickable card */
