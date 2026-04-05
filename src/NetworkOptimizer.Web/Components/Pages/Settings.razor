@@ -910,7 +910,7 @@
             @if (extSpeedTestScheme != "https")
             {
                 <div class="alert alert-warning" style="margin-bottom: 1rem;">
-                    <strong>HTTPS Strongly Recommended:</strong> Most browsers (Chrome, Edge, Safari) block speed test results from posting back to Network Optimizer when the external server is on HTTP. This is due to Private Network Access restrictions on non-secure origins reaching private addresses. HTTPS with a reverse proxy is strongly recommended. The reverse proxy must also force HTTP/1.1 for accurate results.
+                    <strong>HTTPS Strongly Recommended:</strong> Chrome and Edge block speed test results from posting back to Network Optimizer when the external server is on HTTP. This is due to Private Network Access restrictions on non-secure origins reaching private addresses. HTTPS with a reverse proxy is strongly recommended. The reverse proxy must also force HTTP/1.1 for accurate results.
                 </div>
             }
 
@@ -987,7 +987,7 @@
                     <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
 
                     <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem;">
-                        HTTPS is strongly recommended - most browsers block results from posting back without it. Setting up a reverse proxy with TLS is a separate step - see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#external-wan-speed-test-server-optional" target="_blank" style="color: var(--info-color);">deployment guide</a> for details.
+                        HTTPS is strongly recommended - most browsers block results from posting back without it. If you use <a href="https://github.com/Ozark-Connect/NetworkOptimizer-Proxy" target="_blank" style="color: var(--info-color);">NetworkOptimizer-Proxy</a>, the WAN speed test route is pre-configured - just uncomment it. Otherwise, see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#external-wan-speed-test-server-optional" target="_blank" style="color: var(--info-color);">deployment guide</a>.
                     </p>
                 </div>
             }
