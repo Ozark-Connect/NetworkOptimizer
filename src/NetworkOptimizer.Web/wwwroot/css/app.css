@@ -6368,7 +6368,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .setup-guide-content {
-    padding: 1rem;
+    padding: 0 1rem 1rem 1rem;
     border-top: 1px solid var(--border-color);
     color: var(--text-secondary);
     font-size: 0.9rem;
