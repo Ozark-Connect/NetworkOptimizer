@@ -333,7 +333,6 @@
 
     // Node positions for topology graph (calculated once)
     private Dictionary<string, (double Left, double Top)> _nodePositions = new();
-    private bool _pendingScrollToEdge;
 
     protected override async Task OnInitializedAsync()
     {
@@ -368,13 +367,14 @@
         if (_pendingScrollToEdge)
         {
             _pendingScrollToEdge = false;
-            // Double-rAF: first waits for browser to paint, second ensures layout is stable
-            // before scrolling. Without this, subsequent StateHasChanged calls snap scroll back.
+            // Use the app's scroll restoration infrastructure - it handles fragment scrolling
+            // and nav bar hiding. The fragment (#roaming-edge-details) is already in the URL.
             await JS.InvokeVoidAsync("eval",
-                "requestAnimationFrame(() => requestAnimationFrame(() => " +
-                "document.getElementById('roaming-edge-details')?.scrollIntoView({behavior:'smooth',block:'start'})))");
+                "window.scrollRestoration?.restoreOrScrollToTop(window.location.pathname + window.location.search)");
         }
     }
+
+    private bool _pendingScrollToEdge;
 
     private void TrySelectInitialEdge()
     {
