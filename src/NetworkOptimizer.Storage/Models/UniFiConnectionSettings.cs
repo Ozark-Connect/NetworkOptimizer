@@ -24,6 +24,11 @@ public class UniFiConnectionSettings
     [MaxLength(500)]
     public string? Password { get; set; }
 
+    /// <summary>Network API key for UniFi controller authentication (encrypted at rest).
+    /// Alternative to username/password. Created in UniFi Network → Integrations.</summary>
+    [MaxLength(500)]
+    public string? ApiKey { get; set; }
+
     /// <summary>UniFi site name (default: "default")</summary>
     [MaxLength(100)]
     public string Site { get; set; } = "default";
@@ -53,8 +58,10 @@ public class UniFiConnectionSettings
     /// <summary>When this configuration was last updated</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-    /// <summary>Check if credentials are configured</summary>
+    /// <summary>Check if credentials are configured (either username/password or API key)</summary>
     public bool HasCredentials => !string.IsNullOrEmpty(ControllerUrl)
-        && !string.IsNullOrEmpty(Username)
-        && !string.IsNullOrEmpty(Password);
+        && (HasApiKey || (!string.IsNullOrEmpty(Username) && !string.IsNullOrEmpty(Password)));
+
+    /// <summary>Whether an API key is configured</summary>
+    public bool HasApiKey => !string.IsNullOrEmpty(ApiKey);
 }

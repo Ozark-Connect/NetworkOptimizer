@@ -2075,6 +2075,11 @@ select.form-control {
     gap: 0.75rem;
 }
 
+.auth-method-toggle {
+    display: flex;
+    gap: 1.5rem;
+}
+
 /* Progress Bar */
 .progress-bar {
     width: 100%;
@@ -6363,7 +6368,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .setup-guide-content {
-    padding: 1rem;
+    padding: 0 1rem 1rem 1rem;
     border-top: 1px solid var(--border-color);
     color: var(--text-secondary);
     font-size: 0.9rem;
