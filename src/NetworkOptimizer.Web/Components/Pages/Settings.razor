@@ -55,11 +55,11 @@
                 <label class="form-label">Authentication Method</label>
                 <div class="auth-method-toggle">
                     <label class="radio-label">
-                        <input type="radio" name="authMethod" value="password" checked="@(!useApiKeyAuth)" @onchange="() => useApiKeyAuth = false" />
+                        <input type="radio" name="authMethod" value="password" checked="@(!useApiKeyAuth)" @onchange="() => SwitchAuthMethod(false)" />
                         <span>Local Account</span>
                     </label>
                     <label class="radio-label">
-                        <input type="radio" name="authMethod" value="apikey" checked="@useApiKeyAuth" @onchange="() => useApiKeyAuth = true" />
+                        <input type="radio" name="authMethod" value="apikey" checked="@useApiKeyAuth" @onchange="() => SwitchAuthMethod(true)" />
                         <span>API Key</span>
                     </label>
                 </div>
@@ -2794,6 +2794,22 @@
         else
         {
             controllerStatus = "Disconnected";
+        }
+    }
+
+    private void SwitchAuthMethod(bool toApiKey)
+    {
+        if (useApiKeyAuth == toApiKey) return;
+        useApiKeyAuth = toApiKey;
+
+        // Clear the field for the method we're switching away from
+        if (toApiKey)
+        {
+            controllerPassword = "";
+        }
+        else
+        {
+            controllerApiKey = "";
         }
     }
 
