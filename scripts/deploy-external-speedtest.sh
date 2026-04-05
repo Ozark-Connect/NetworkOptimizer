@@ -25,6 +25,51 @@ generate_server_id() {
     echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
 }
 
+# --- Download all required files from GitHub ---
+download_files() {
+    local BASE_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$BRANCH"
+
+    mkdir -p docker/openspeedtest
+    mkdir -p src/OpenSpeedTest/assets/{js,css,fonts,images/icons}
+
+    # Docker build files
+    curl -sL "$BASE_URL/docker/openspeedtest/Dockerfile" -o docker/openspeedtest/Dockerfile
+    curl -sL "$BASE_URL/docker/openspeedtest/nginx.conf" -o docker/openspeedtest/nginx.conf
+    curl -sL "$BASE_URL/docker/openspeedtest/entrypoint.sh" -o docker/openspeedtest/entrypoint.sh
+
+    # OpenSpeedTest HTML
+    curl -sL "$BASE_URL/src/OpenSpeedTest/index.html" -o src/OpenSpeedTest/index.html
+
+    # JavaScript
+    for f in config.js app-2.5.4.js app-2.5.4.min.js geolocation.js darkmode.js; do
+        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/js/$f" -o "src/OpenSpeedTest/assets/js/$f"
+    done
+
+    # CSS
+    for f in app.css darkmode.css ozark-overrides.css; do
+        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/css/$f" -o "src/OpenSpeedTest/assets/css/$f"
+    done
+
+    # Fonts
+    for f in roboto-v30-latin-500.woff2 roboto-v30-latin-500.woff roboto-v30-latin-500.ttf roboto-v30-latin-500.eot roboto-v30-latin-500.svg \
+             roboto-v30-latin-regular.woff2 roboto-v30-latin-regular.woff roboto-v30-latin-regular.ttf roboto-v30-latin-regular.eot roboto-v30-latin-regular.svg; do
+        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/fonts/$f" -o "src/OpenSpeedTest/assets/fonts/$f" 2>/dev/null || true
+    done
+
+    # Images
+    for f in app.svg ozark-connect-logo.svg apple-touch-icon.png favicon.ico favicon.png logo-dark.svg logo.svg; do
+        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/$f" -o "src/OpenSpeedTest/assets/images/$f" 2>/dev/null || true
+    done
+
+    # PWA icons
+    for f in site.webmanifest android-chrome-192x192.png android-chrome-512x512.png apple-touch-icon.png \
+             browserconfig.xml favicon-16x16.png favicon-32x32.png favicon.ico \
+             launcher-icon-1x.png launcher-icon-2x.png launcher-icon-3x.png launcher-icon-4x.png \
+             mstile-150x150.png safari-pinned-tab.svg; do
+        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/icons/$f" -o "src/OpenSpeedTest/assets/images/icons/$f" 2>/dev/null || true
+    done
+}
+
 # --- Update mode ---
 if [ "${1}" = "--update" ]; then
     if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
@@ -40,29 +85,7 @@ if [ "${1}" = "--update" ]; then
     echo ""
     echo "Downloading latest files..."
 
-    # Re-download all source files (same list as fresh install)
-    curl -sL "$BASE_URL/docker/openspeedtest/Dockerfile" -o docker/openspeedtest/Dockerfile
-    curl -sL "$BASE_URL/docker/openspeedtest/nginx.conf" -o docker/openspeedtest/nginx.conf
-    curl -sL "$BASE_URL/docker/openspeedtest/entrypoint.sh" -o docker/openspeedtest/entrypoint.sh
-
-    curl -sL "$BASE_URL/src/OpenSpeedTest/index.html" -o src/OpenSpeedTest/index.html
-
-    for f in config.js app-2.5.4.js app-2.5.4.min.js geolocation.js darkmode.js; do
-        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/js/$f" -o "src/OpenSpeedTest/assets/js/$f"
-    done
-
-    for f in app.css darkmode.css ozark-overrides.css; do
-        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/css/$f" -o "src/OpenSpeedTest/assets/css/$f"
-    done
-
-    for f in apple-touch-icon.png favicon.ico favicon.png logo-dark.svg logo.svg; do
-        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/$f" -o "src/OpenSpeedTest/assets/images/$f" 2>/dev/null || true
-    done
-
-    mkdir -p src/OpenSpeedTest/assets/images/icons
-    for f in site.webmanifest android-chrome-192x192.png android-chrome-512x512.png apple-touch-icon.png browserconfig.xml favicon-16x16.png favicon-32x32.png favicon.ico; do
-        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/icons/$f" -o "src/OpenSpeedTest/assets/images/icons/$f" 2>/dev/null || true
-    done
+    download_files
 
     echo "Rebuilding container..."
     docker compose build
@@ -158,40 +181,8 @@ echo ""
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Download required files from GitHub
-BASE_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$BRANCH"
-
 echo "Downloading speed test files..."
-mkdir -p src/OpenSpeedTest/assets/js src/OpenSpeedTest/assets/css src/OpenSpeedTest/assets/images
-mkdir -p docker/openspeedtest
-
-# Core files
-curl -sL "$BASE_URL/docker/openspeedtest/Dockerfile" -o docker/openspeedtest/Dockerfile
-curl -sL "$BASE_URL/docker/openspeedtest/nginx.conf" -o docker/openspeedtest/nginx.conf
-curl -sL "$BASE_URL/docker/openspeedtest/entrypoint.sh" -o docker/openspeedtest/entrypoint.sh
-
-# OpenSpeedTest UI files
-for f in index.html; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/$f" -o "src/OpenSpeedTest/$f"
-done
-
-for f in config.js app-2.5.4.js app-2.5.4.min.js geolocation.js darkmode.js; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/js/$f" -o "src/OpenSpeedTest/assets/js/$f"
-done
-
-for f in app.css darkmode.css ozark-overrides.css; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/css/$f" -o "src/OpenSpeedTest/assets/css/$f"
-done
-
-# Download images
-for f in apple-touch-icon.png favicon.ico favicon.png logo-dark.svg logo.svg; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/$f" -o "src/OpenSpeedTest/assets/images/$f" 2>/dev/null || true
-done
-
-mkdir -p src/OpenSpeedTest/assets/images/icons
-for f in site.webmanifest android-chrome-192x192.png android-chrome-512x512.png apple-touch-icon.png browserconfig.xml favicon-16x16.png favicon-32x32.png favicon.ico; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/icons/$f" -o "src/OpenSpeedTest/assets/images/icons/$f" 2>/dev/null || true
-done
+download_files
 
 # Create .dockerignore
 cat > .dockerignore << 'EOF'
