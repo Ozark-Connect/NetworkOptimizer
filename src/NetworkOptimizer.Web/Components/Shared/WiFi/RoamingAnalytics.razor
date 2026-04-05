@@ -333,6 +333,7 @@
 
     // Node positions for topology graph (calculated once)
     private Dictionary<string, (double Left, double Top)> _nodePositions = new();
+    private bool _pendingScrollToEdge;
 
     protected override async Task OnInitializedAsync()
     {
@@ -352,7 +353,7 @@
             {
                 CalculateStats();
                 CalculateNodePositions();
-                await TrySelectInitialEdge();
+                TrySelectInitialEdge();
             }
         }
         finally
@@ -362,7 +363,17 @@
         }
     }
 
-    private async Task TrySelectInitialEdge()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingScrollToEdge)
+        {
+            _pendingScrollToEdge = false;
+            await JS.InvokeVoidAsync("eval",
+                "document.getElementById('roaming-edge-details')?.scrollIntoView({behavior:'smooth',block:'start'})");
+        }
+    }
+
+    private void TrySelectInitialEdge()
     {
         if (string.IsNullOrEmpty(InitialEdge) || _topology == null) return;
 
@@ -379,10 +390,7 @@
         if (edge != null)
         {
             _selectedEdge = edge;
-            StateHasChanged();
-            await Task.Yield();
-            await JS.InvokeVoidAsync("eval",
-                "document.getElementById('roaming-edge-details')?.scrollIntoView({behavior:'smooth',block:'start'})");
+            _pendingScrollToEdge = true;
         }
 
         // Clear so it doesn't re-trigger on refresh
