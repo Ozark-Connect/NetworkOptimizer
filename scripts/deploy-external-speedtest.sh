@@ -113,10 +113,8 @@ else
 
     # Optimizer URL
     echo "What is the URL of your Network Optimizer instance?"
-    echo "  This is the HTTPS address your browser uses to access Network Optimizer."
-    echo "  It must be HTTPS - browsers block speed test results from being posted"
-    echo "  back to a private network address unless the page is served over HTTPS."
-    echo "  Examples: https://optimizer.example.com, https://192.168.1.100:8042"
+    echo "  This is the address your browser uses to access Network Optimizer."
+    echo "  Examples: https://optimizer.example.com, http://192.168.1.100:8042"
     echo ""
     read -rp "Optimizer URL: " OPTIMIZER_URL < /dev/tty
     if [ -z "$OPTIMIZER_URL" ]; then
