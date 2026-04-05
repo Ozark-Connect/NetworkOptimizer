@@ -421,12 +421,18 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// Ensures we're authenticated, re-authenticating if necessary
+    /// Ensures we're authenticated, re-authenticating if necessary.
+    /// For API key auth, if we've already been marked as unauthenticated (e.g., 401 response),
+    /// re-login won't help since the key is either valid or not - return false immediately.
     /// </summary>
     private async Task<bool> EnsureAuthenticatedAsync(CancellationToken cancellationToken = default)
     {
         if (_isAuthenticated)
             return true;
+
+        // API key auth is stateless - if we got a 401, re-sending the same key won't help
+        if (UseApiKey)
+            return false;
 
         return await LoginAsync(cancellationToken);
     }
@@ -1840,6 +1846,14 @@ public class UniFiApiClient : IDisposable
     {
         if (!_isAuthenticated)
             return true;
+
+        // API key auth is stateless - no session to log out of
+        if (UseApiKey)
+        {
+            _isAuthenticated = false;
+            _logger.LogDebug("API key auth - no logout needed");
+            return true;
+        }
 
         try
         {
