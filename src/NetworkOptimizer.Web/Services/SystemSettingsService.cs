@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -300,28 +301,51 @@ public class SystemSettingsService : ISystemSettingsService
     }
 
     /// <summary>
-    /// Get external speed test server settings
+    /// Get external speed test server settings (from ExternalSpeedTestServers table)
     /// </summary>
     public async Task<ExternalSpeedTestSettings> GetExternalSpeedTestSettingsAsync()
     {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var server = await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
+        if (server == null)
+            return new ExternalSpeedTestSettings();
+
         return new ExternalSpeedTestSettings
         {
-            Host = await GetAsync(SystemSettingKeys.ExternalSpeedTestHost),
-            Port = await GetIntAsync(SystemSettingKeys.ExternalSpeedTestPort, 3005),
-            Scheme = await GetAsync(SystemSettingKeys.ExternalSpeedTestScheme) ?? "http",
-            Name = await GetAsync(SystemSettingKeys.ExternalSpeedTestName) ?? ""
+            Host = server.Host,
+            Port = server.Port,
+            Scheme = server.Scheme,
+            Name = server.Name,
+            ServerId = server.ServerId
         };
     }
 
     /// <summary>
-    /// Save external speed test server settings
+    /// Save external speed test server settings (upsert into ExternalSpeedTestServers table)
     /// </summary>
     public async Task SaveExternalSpeedTestSettingsAsync(ExternalSpeedTestSettings settings)
     {
-        await SetAsync(SystemSettingKeys.ExternalSpeedTestHost, settings.Host);
-        await SetIntAsync(SystemSettingKeys.ExternalSpeedTestPort, settings.Port);
-        await SetAsync(SystemSettingKeys.ExternalSpeedTestScheme, settings.Scheme);
-        await SetAsync(SystemSettingKeys.ExternalSpeedTestName, settings.Name);
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var server = await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
+        if (server == null)
+        {
+            server = new ExternalSpeedTestServer();
+            db.ExternalSpeedTestServers.Add(server);
+        }
+
+        server.Host = settings.Host ?? "";
+        server.Port = settings.Port;
+        server.Scheme = settings.Scheme;
+        server.Name = settings.Name;
+        server.ServerId = ExternalSpeedTestServer.GenerateServerId(settings.Name);
+
+        await db.SaveChangesAsync();
     }
 }
 
@@ -332,8 +356,9 @@ public class ExternalSpeedTestSettings
 {
     public string? Host { get; set; }
     public int Port { get; set; } = 3005;
-    public string Scheme { get; set; } = "http";
+    public string Scheme { get; set; } = "https";
     public string Name { get; set; } = "";
+    public string ServerId { get; set; } = "";
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);
 
