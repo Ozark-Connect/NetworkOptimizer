@@ -480,20 +480,24 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             settings.LastError = null;
             settings.UpdatedAt = DateTime.UtcNow;
 
-            // Encrypt password before saving
-            if (!string.IsNullOrEmpty(config.Password))
+            // Save credentials based on auth method - clear the other method
+            if (config.UseApiKey)
             {
-                settings.Password = _credentialProtection.Encrypt(config.Password);
+                // API key auth: save key, clear username/password
+                if (!string.IsNullOrEmpty(config.ApiKey))
+                {
+                    settings.ApiKey = _credentialProtection.Encrypt(config.ApiKey);
+                }
+                settings.Username = null;
+                settings.Password = null;
             }
-
-            // Encrypt API key before saving
-            if (!string.IsNullOrEmpty(config.ApiKey))
+            else
             {
-                settings.ApiKey = _credentialProtection.Encrypt(config.ApiKey);
-            }
-            else if (config.ApiKey == "")
-            {
-                // Explicitly cleared
+                // Username/password auth: save credentials, clear API key
+                if (!string.IsNullOrEmpty(config.Password))
+                {
+                    settings.Password = _credentialProtection.Encrypt(config.Password);
+                }
                 settings.ApiKey = null;
             }
 

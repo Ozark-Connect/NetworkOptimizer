@@ -56,8 +56,10 @@ public class UniFiRepository : IUniFiRepository
                 existing.ControllerUrl = settings.ControllerUrl;
                 existing.Username = settings.Username;
                 existing.Password = settings.Password;
+                existing.ApiKey = settings.ApiKey;
                 existing.Site = settings.Site;
                 existing.RememberCredentials = settings.RememberCredentials;
+                existing.IgnoreControllerSSLErrors = settings.IgnoreControllerSSLErrors;
                 existing.IsConfigured = settings.IsConfigured;
                 existing.LastConnectedAt = settings.LastConnectedAt;
                 existing.LastError = settings.LastError;
