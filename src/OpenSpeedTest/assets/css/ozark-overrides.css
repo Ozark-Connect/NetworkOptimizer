@@ -183,3 +183,44 @@
     box-shadow: 0 8px 40px rgba(5, 89, 201, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
     transform: translateX(-50%) translateY(-2px);
 }
+
+/* High score celebration banner */
+.high-score-banner {
+    position: fixed;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-120px);
+    padding: 14px 36px;
+    border-radius: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%);
+    border: 1px solid #fbbf24;
+    box-shadow: 0 8px 32px rgba(245, 158, 11, 0.4), 0 0 60px rgba(245, 158, 11, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+    opacity: 0;
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 10001;
+    pointer-events: none;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.high-score-banner.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    animation: highScorePulse 2s ease-in-out 0.5s 2;
+}
+
+.high-score-trophy {
+    font-size: 22px;
+    vertical-align: middle;
+}
+
+@keyframes highScorePulse {
+    0%, 100% { transform: translateX(-50%) translateY(0) scale(1); }
+    50% { transform: translateX(-50%) translateY(0) scale(1.05); }
+}

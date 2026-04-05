@@ -1430,6 +1430,15 @@ window.onload = function() {
         };
       }
     };
+    var showHighScoreBanner = function() {
+      var banner = document.getElementById("high-score-banner");
+      if (!banner) return;
+      banner.innerHTML = '<span class="high-score-trophy">&#127942;</span> New High Score! <span class="high-score-trophy">&#127942;</span>';
+      banner.className = "high-score-banner show";
+      setTimeout(function() {
+        banner.className = "high-score-banner";
+      }, 8000);
+    };
     var ServerConnect = function(auth) {
       var Self = this;
       var xhr = new XMLHttpRequest();
@@ -1469,6 +1478,9 @@ window.onload = function() {
                 if (circleSVG2) {
                   circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", savedResultUrl);
                 }
+              }
+              if (response.isHighScore) {
+                showHighScoreBanner();
               }
             } catch (e) {
               // Response wasn't JSON, use base URL
