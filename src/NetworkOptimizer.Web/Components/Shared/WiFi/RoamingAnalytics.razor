@@ -368,8 +368,11 @@
         if (_pendingScrollToEdge)
         {
             _pendingScrollToEdge = false;
+            // Double-rAF: first waits for browser to paint, second ensures layout is stable
+            // before scrolling. Without this, subsequent StateHasChanged calls snap scroll back.
             await JS.InvokeVoidAsync("eval",
-                "document.getElementById('roaming-edge-details')?.scrollIntoView({behavior:'smooth',block:'start'})");
+                "requestAnimationFrame(() => requestAnimationFrame(() => " +
+                "document.getElementById('roaming-edge-details')?.scrollIntoView({behavior:'smooth',block:'start'})))");
         }
     }
 
