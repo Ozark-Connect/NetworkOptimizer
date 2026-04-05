@@ -54,9 +54,4 @@ public static class SystemSettingKeys
     // Dashboard layout preferences
     public const string DashboardLayout = "ui.dashboard_layout";
 
-    // External speed test server (WAN speed test via remote OpenSpeedTest)
-    public const string ExternalSpeedTestHost = "external_speedtest.host";
-    public const string ExternalSpeedTestPort = "external_speedtest.port";
-    public const string ExternalSpeedTestScheme = "external_speedtest.scheme";
-    public const string ExternalSpeedTestName = "external_speedtest.name";
 }

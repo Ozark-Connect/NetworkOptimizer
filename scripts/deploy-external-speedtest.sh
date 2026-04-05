@@ -6,8 +6,8 @@
 #   Fresh install (interactive):
 #     ./deploy-external-speedtest.sh
 #
-#   Fresh install (non-interactive):
-#     ./deploy-external-speedtest.sh <optimizer-url> <server-name> [port]
+#   Fresh install (from Settings-generated command):
+#     ./deploy-external-speedtest.sh <optimizer-url> <server-id> [port]
 #
 #   Update existing installation:
 #     ./deploy-external-speedtest.sh --update
@@ -20,6 +20,44 @@ INSTALL_DIR="/opt/netopt-speed-test"
 BRANCH="${BRANCH:-main}"
 GITHUB_REPO="Ozark-Connect/NetworkOptimizer"
 
+# --- Slug generation (must match C# ExternalSpeedTestServer.GenerateServerId) ---
+generate_server_id() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+# --- Download all required files from GitHub via tarball ---
+# Uses the GitHub API to download a tarball of the repo, then extracts only
+# the files needed for the speed test container. No file list to maintain.
+download_files() {
+    local TARBALL_URL="https://github.com/$GITHUB_REPO/archive/refs/heads/$BRANCH.tar.gz"
+    local TEMP_TAR=$(mktemp)
+    local TEMP_DIR=$(mktemp -d)
+
+    curl -sL "$TARBALL_URL" -o "$TEMP_TAR"
+
+    # Extract only the directories we need
+    # Tarball root is NetworkOptimizer-<branch>/
+    local STRIP=1  # strip the root directory
+    # Extract only the directories we need
+    # --wildcards is needed on GNU tar (Linux), but errors on BSD tar (macOS)
+    if tar --version 2>&1 | grep -q GNU; then
+        tar -xzf "$TEMP_TAR" -C "$TEMP_DIR" --strip-components=$STRIP --wildcards \
+            "*/src/OpenSpeedTest/" \
+            "*/docker/openspeedtest/"
+    else
+        tar -xzf "$TEMP_TAR" -C "$TEMP_DIR" --strip-components=$STRIP \
+            "*/src/OpenSpeedTest/" \
+            "*/docker/openspeedtest/"
+    fi
+
+    # Copy into install directory
+    mkdir -p docker/openspeedtest src/OpenSpeedTest
+    cp -r "$TEMP_DIR/docker/openspeedtest/"* docker/openspeedtest/
+    cp -r "$TEMP_DIR/src/OpenSpeedTest/"* src/OpenSpeedTest/
+
+    rm -rf "$TEMP_TAR" "$TEMP_DIR"
+}
+
 # --- Update mode ---
 if [ "${1}" = "--update" ]; then
     if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
@@ -29,30 +67,12 @@ if [ "${1}" = "--update" ]; then
     fi
 
     cd "$INSTALL_DIR"
-    BASE_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$BRANCH"
 
     echo "=== Updating External Speed Test Server ==="
     echo ""
     echo "Downloading latest files..."
 
-    # Re-download all source files (same list as fresh install)
-    curl -sL "$BASE_URL/docker/openspeedtest/Dockerfile" -o docker/openspeedtest/Dockerfile
-    curl -sL "$BASE_URL/docker/openspeedtest/nginx.conf" -o docker/openspeedtest/nginx.conf
-    curl -sL "$BASE_URL/docker/openspeedtest/entrypoint.sh" -o docker/openspeedtest/entrypoint.sh
-
-    curl -sL "$BASE_URL/src/OpenSpeedTest/index.html" -o src/OpenSpeedTest/index.html
-
-    for f in config.js app-2.5.4.js app-2.5.4.min.js geolocation.js darkmode.js; do
-        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/js/$f" -o "src/OpenSpeedTest/assets/js/$f"
-    done
-
-    for f in ozark-overrides.css; do
-        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/css/$f" -o "src/OpenSpeedTest/assets/css/$f"
-    done
-
-    for f in apple-touch-icon.png favicon.ico favicon.png logo-dark.svg logo.svg; do
-        curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/$f" -o "src/OpenSpeedTest/assets/images/$f" 2>/dev/null || true
-    done
+    download_files
 
     echo "Rebuilding container..."
     docker compose build
@@ -65,10 +85,21 @@ fi
 
 # --- Fresh install ---
 
-# If args provided, use them (non-interactive / backward compat)
+# Check Docker first
+if ! command -v docker &> /dev/null; then
+    echo "Error: Docker is not installed"
+    exit 1
+fi
+
+if ! docker compose version &> /dev/null; then
+    echo "Error: Docker Compose is not installed"
+    exit 1
+fi
+
+# If args provided, use them (non-interactive / Settings-generated command)
 if [ -n "$1" ]; then
     OPTIMIZER_URL="$1"
-    SERVER_NAME="${2:?Usage: $0 <optimizer-url> <server-name> [port]}"
+    SERVER_ID="${2:-external}"
     PORT="${3:-3005}"
 else
     # Interactive mode
@@ -81,10 +112,8 @@ else
 
     # Optimizer URL
     echo "What is the URL of your Network Optimizer instance?"
-    echo "  This is the HTTPS address your browser uses to access Network Optimizer."
-    echo "  It must be HTTPS - browsers block speed test results from being posted"
-    echo "  back to a private network address unless the page is served over HTTPS."
-    echo "  Examples: https://optimizer.example.com, https://192.168.1.100:8042"
+    echo "  This is the address your browser uses to access Network Optimizer."
+    echo "  Examples: https://optimizer.example.com, http://192.168.1.100:8042"
     echo ""
     read -rp "Optimizer URL: " OPTIMIZER_URL < /dev/tty
     if [ -z "$OPTIMIZER_URL" ]; then
@@ -94,15 +123,27 @@ else
 
     echo ""
 
-    # Server name
-    echo "Give this speed test server a name to identify it in Network Optimizer."
-    echo "  Use something short that describes where this server is located."
-    echo "  Examples: vps-chicago, aws-east, hetzner-eu"
+    # Server ID
+    echo "If you've already configured this server in Network Optimizer Settings,"
+    echo "enter the Server ID shown there. Otherwise, enter a friendly name and"
+    echo "we'll generate the ID for you."
     echo ""
-    read -rp "Server name: " SERVER_NAME < /dev/tty
-    if [ -z "$SERVER_NAME" ]; then
-        echo "Error: Server name is required."
+    read -rp "Server ID or name (e.g. vps-chicago or VPS Chicago): " SERVER_INPUT < /dev/tty
+    if [ -z "$SERVER_INPUT" ]; then
+        echo "Error: Server ID or name is required."
         exit 1
+    fi
+
+    # Check if it looks like a slug already (lowercase, hyphens, numbers only) or a display name
+    if echo "$SERVER_INPUT" | grep -qE '^[a-z0-9][a-z0-9-]*[a-z0-9]$'; then
+        SERVER_ID="$SERVER_INPUT"
+    else
+        SERVER_ID=$(generate_server_id "$SERVER_INPUT")
+        echo ""
+        echo "  Generated Server ID: $SERVER_ID"
+        echo ""
+        echo "  Important: When you configure this server in Network Optimizer Settings,"
+        echo "  use the name \"$SERVER_INPUT\" so the Server IDs match."
     fi
 
     echo ""
@@ -114,20 +155,9 @@ else
     echo ""
 fi
 
-# Check Docker
-if ! command -v docker &> /dev/null; then
-    echo "Error: Docker is not installed"
-    exit 1
-fi
-
-if ! docker compose version &> /dev/null; then
-    echo "Error: Docker Compose is not installed"
-    exit 1
-fi
-
 echo "=== Network Optimizer - External Speed Test Server ==="
 echo "Optimizer URL: $OPTIMIZER_URL"
-echo "Server Name:   $SERVER_NAME"
+echo "Server ID:     $SERVER_ID"
 echo "Port:          $PORT"
 echo "Install Dir:   $INSTALL_DIR"
 echo ""
@@ -136,35 +166,8 @@ echo ""
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Download required files from GitHub
-BASE_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$BRANCH"
-
 echo "Downloading speed test files..."
-mkdir -p src/OpenSpeedTest/assets/js src/OpenSpeedTest/assets/css src/OpenSpeedTest/assets/images
-mkdir -p docker/openspeedtest
-
-# Core files
-curl -sL "$BASE_URL/docker/openspeedtest/Dockerfile" -o docker/openspeedtest/Dockerfile
-curl -sL "$BASE_URL/docker/openspeedtest/nginx.conf" -o docker/openspeedtest/nginx.conf
-curl -sL "$BASE_URL/docker/openspeedtest/entrypoint.sh" -o docker/openspeedtest/entrypoint.sh
-
-# OpenSpeedTest UI files (download all from the assets)
-for f in index.html; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/$f" -o "src/OpenSpeedTest/$f"
-done
-
-for f in config.js app-2.5.4.js app-2.5.4.min.js geolocation.js darkmode.js; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/js/$f" -o "src/OpenSpeedTest/assets/js/$f"
-done
-
-for f in ozark-overrides.css; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/css/$f" -o "src/OpenSpeedTest/assets/css/$f"
-done
-
-# Download all images (favicon, logo, etc.)
-for f in apple-touch-icon.png favicon.ico favicon.png logo-dark.svg logo.svg; do
-    curl -sL "$BASE_URL/src/OpenSpeedTest/assets/images/$f" -o "src/OpenSpeedTest/assets/images/$f" 2>/dev/null || true
-done
+download_files
 
 # Create .dockerignore
 cat > .dockerignore << 'EOF'
@@ -190,7 +193,7 @@ services:
     environment:
       - TZ=\${TZ:-UTC}
       - REVERSE_PROXIED_HOST_NAME=$(echo "$OPTIMIZER_URL" | sed 's|https\?://||' | sed 's|/.*||')
-      - EXTERNAL_SERVER_ID=${SERVER_NAME}
+      - EXTERNAL_SERVER_ID=${SERVER_ID}
 COMPOSE_EOF
 
 echo "Building and starting speed test server..."
@@ -199,20 +202,19 @@ docker compose up -d
 
 echo ""
 echo "=== Deployment Complete ==="
-echo "Speed test URL: http://$(hostname -I | awk '{print $1}'):$PORT"
+echo "Speed test URL: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):$PORT"
 echo ""
-echo "IMPORTANT: HTTPS is required for results to post back to Network Optimizer."
-echo "Browsers block requests from public HTTP pages to private network addresses."
-echo "The reverse proxy must also force HTTP/1.1 (HTTP/2 interferes with speed test accuracy)."
-echo ""
-echo "Recommended: Traefik or Caddy with HTTP/1.1 and TLS."
+echo "IMPORTANT: HTTPS is strongly recommended. Chrome and Edge block speed test"
+echo "results from posting back when the page is served over HTTP (Private Network"
+echo "Access). Firefox and Safari don't currently enforce this, but HTTPS is still"
+echo "recommended. Set up a reverse proxy with TLS and HTTP/1.1."
 echo "See DEPLOYMENT.md for setup instructions."
 echo ""
 echo "Then configure Network Optimizer Settings -> External Speed Test Server:"
+echo "  - Name: (use the same name you entered here so the Server IDs match)"
 echo "  - Host: speedtest.yourdomain.com"
 echo "  - Port: 443"
 echo "  - Scheme: HTTPS"
-echo "  - Name: $SERVER_NAME"
 echo ""
 echo "To update in the future, run:"
 echo "  curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPO/main/scripts/deploy-external-speedtest.sh | bash -s -- --update"
