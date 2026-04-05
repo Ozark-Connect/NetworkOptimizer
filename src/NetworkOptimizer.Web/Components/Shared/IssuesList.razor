@@ -41,6 +41,10 @@
                                         <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(firstIssue.AffectedClientMac)" class="issue-client-link">@firstIssue.AffectedEntity</a>
                                     }
                                 }
+                                else if (!string.IsNullOrEmpty(firstIssue.LinkUrl))
+                                {
+                                    <a href="@firstIssue.LinkUrl" class="issue-client-link">@firstIssue.AffectedEntity</a>
+                                }
                                 else
                                 {
                                     @firstIssue.AffectedEntity
@@ -98,6 +102,10 @@
                                                     {
                                                         <span class="context-item"><strong>Affected:</strong> <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(issue.AffectedClientMac)" class="issue-client-link">@issue.AffectedEntity</a></span>
                                                     }
+                                                }
+                                                else if (!string.IsNullOrEmpty(issue.LinkUrl))
+                                                {
+                                                    <span class="context-item"><strong>Affected:</strong> <a href="@issue.LinkUrl" class="issue-client-link">@issue.AffectedEntity</a></span>
                                                 }
                                                 else
                                                 {
