@@ -31,6 +31,7 @@ public class UniFiApiClient : IDisposable
     private readonly string _controllerUrl;
     private readonly string _username;
     private readonly string _password;
+    private readonly string? _apiKey;
     private readonly string _site;
     private readonly bool _ignoreSSLErrors;
     private HttpClient? _httpClient;
@@ -61,18 +62,25 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public string? LastApiErrorCode => _lastApiErrorCode;
 
+    /// <summary>
+    /// Whether this client uses API key authentication instead of username/password
+    /// </summary>
+    public bool UseApiKey => !string.IsNullOrEmpty(_apiKey);
+
     public UniFiApiClient(
         ILogger<UniFiApiClient> logger,
         string controllerHost,
         string username,
         string password,
         string site = "default",
-        bool ignoreSSLErrors = true)
+        bool ignoreSSLErrors = true,
+        string? apiKey = null)
     {
         _logger = logger;
         _controllerUrl = controllerHost.StartsWith("https://") ? controllerHost : $"https://{controllerHost}";
         _username = username;
         _password = password;
+        _apiKey = apiKey;
         _site = site;
         _ignoreSSLErrors = ignoreSSLErrors;
 
@@ -116,6 +124,12 @@ public class UniFiApiClient : IDisposable
 
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "NetworkOptimizer.UniFi/1.0");
+
+        // API key auth: set header once, no login/cookies/CSRF needed
+        if (!string.IsNullOrEmpty(_apiKey))
+        {
+            _httpClient.DefaultRequestHeaders.Add("X-API-KEY", _apiKey);
+        }
     }
 
     /// <summary>
@@ -193,6 +207,38 @@ public class UniFiApiClient : IDisposable
             {
                 _logger.LogDebug("Already authenticated, skipping login");
                 return true;
+            }
+
+            // API key auth: validate by making a test API call instead of logging in
+            if (UseApiKey)
+            {
+                _logger.LogInformation("Using API key authentication with UniFi controller at {Url}", _controllerUrl);
+
+                // Validate the API key by hitting the sites endpoint
+                try
+                {
+                    var validateResponse = await _httpClient!.GetAsync($"{_controllerUrl}/proxy/network/api/self/sites", cancellationToken);
+
+                    if (!validateResponse.IsSuccessStatusCode)
+                    {
+                        _lastLoginError = validateResponse.StatusCode == HttpStatusCode.Unauthorized || validateResponse.StatusCode == HttpStatusCode.Forbidden
+                            ? "Invalid API key. Check that it was copied correctly and has not been revoked."
+                            : $"API key validation failed with status {(int)validateResponse.StatusCode}.";
+                        _logger.LogWarning("API key validation failed: {StatusCode}", validateResponse.StatusCode);
+                        return false;
+                    }
+
+                    _isAuthenticated = true;
+                    await DetectControllerTypeAsync(cancellationToken);
+                    _logger.LogInformation("API key authentication validated (UniFi OS: {IsUniFiOs})", _isUniFiOs);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _lastLoginError = ParseExceptionError(ex);
+                    _logger.LogError(ex, "Exception validating API key");
+                    return false;
+                }
             }
 
             _logger.LogInformation("Authenticating with UniFi controller at {Url}", _controllerUrl);
@@ -397,12 +443,18 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// Ensures we're authenticated, re-authenticating if necessary
+    /// Ensures we're authenticated, re-authenticating if necessary.
+    /// For API key auth, if we've already been marked as unauthenticated (e.g., 401 response),
+    /// re-login won't help since the key is either valid or not - return false immediately.
     /// </summary>
     private async Task<bool> EnsureAuthenticatedAsync(CancellationToken cancellationToken = default)
     {
         if (_isAuthenticated)
             return true;
+
+        // API key auth is stateless - if we got a 401, re-sending the same key won't help
+        if (UseApiKey)
+            return false;
 
         return await LoginAsync(cancellationToken);
     }
@@ -1817,6 +1869,14 @@ public class UniFiApiClient : IDisposable
         if (!_isAuthenticated)
             return true;
 
+        // API key auth is stateless - no session to log out of
+        if (UseApiKey)
+        {
+            _isAuthenticated = false;
+            _logger.LogDebug("API key auth - no logout needed");
+            return true;
+        }
+
         try
         {
             _logger.LogDebug("Logging out from UniFi controller");
@@ -1863,6 +1923,12 @@ public class UniFiApiClient : IDisposable
             // Make a minimal site-specific call to verify the site exists
             var url = BuildApiPath("stat/sysinfo");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                return (false, "Authentication failed. Check your credentials or API key.");
+            }
+
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
             // Parse the response to check for API-level errors
