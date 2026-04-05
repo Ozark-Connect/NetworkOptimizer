@@ -86,7 +86,7 @@ else
     echo "  back to a private network address unless the page is served over HTTPS."
     echo "  Examples: https://optimizer.example.com, https://192.168.1.100:8042"
     echo ""
-    read -rp "Optimizer URL: " OPTIMIZER_URL
+    read -rp "Optimizer URL: " OPTIMIZER_URL < /dev/tty
     if [ -z "$OPTIMIZER_URL" ]; then
         echo "Error: Optimizer URL is required."
         exit 1
@@ -99,7 +99,7 @@ else
     echo "  Use something short that describes where this server is located."
     echo "  Examples: vps-chicago, aws-east, hetzner-eu"
     echo ""
-    read -rp "Server name: " SERVER_NAME
+    read -rp "Server name: " SERVER_NAME < /dev/tty
     if [ -z "$SERVER_NAME" ]; then
         echo "Error: Server name is required."
         exit 1
@@ -108,7 +108,7 @@ else
     echo ""
 
     # Port
-    read -rp "Port [3005]: " PORT
+    read -rp "Port [3005]: " PORT < /dev/tty
     PORT="${PORT:-3005}"
 
     echo ""
