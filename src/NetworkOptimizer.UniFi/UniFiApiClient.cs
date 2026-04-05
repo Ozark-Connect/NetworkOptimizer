@@ -209,14 +209,36 @@ public class UniFiApiClient : IDisposable
                 return true;
             }
 
-            // API key auth: no login needed, just detect controller type
+            // API key auth: validate by making a test API call instead of logging in
             if (UseApiKey)
             {
                 _logger.LogInformation("Using API key authentication with UniFi controller at {Url}", _controllerUrl);
-                _isAuthenticated = true;
-                await DetectControllerTypeAsync(cancellationToken);
-                _logger.LogInformation("API key authentication ready (UniFi OS: {IsUniFiOs})", _isUniFiOs);
-                return true;
+
+                // Validate the API key by hitting the sites endpoint
+                try
+                {
+                    var validateResponse = await _httpClient!.GetAsync($"{_controllerUrl}/proxy/network/api/self/sites", cancellationToken);
+
+                    if (!validateResponse.IsSuccessStatusCode)
+                    {
+                        _lastLoginError = validateResponse.StatusCode == HttpStatusCode.Unauthorized || validateResponse.StatusCode == HttpStatusCode.Forbidden
+                            ? "Invalid API key. Check that it was copied correctly and has not been revoked."
+                            : $"API key validation failed with status {(int)validateResponse.StatusCode}.";
+                        _logger.LogWarning("API key validation failed: {StatusCode}", validateResponse.StatusCode);
+                        return false;
+                    }
+
+                    _isAuthenticated = true;
+                    await DetectControllerTypeAsync(cancellationToken);
+                    _logger.LogInformation("API key authentication validated (UniFi OS: {IsUniFiOs})", _isUniFiOs);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _lastLoginError = ParseExceptionError(ex);
+                    _logger.LogError(ex, "Exception validating API key");
+                    return false;
+                }
             }
 
             _logger.LogInformation("Authenticating with UniFi controller at {Url}", _controllerUrl);
@@ -1901,6 +1923,12 @@ public class UniFiApiClient : IDisposable
             // Make a minimal site-specific call to verify the site exists
             var url = BuildApiPath("stat/sysinfo");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                return (false, "Authentication failed. Check your credentials or API key.");
+            }
+
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
             // Parse the response to check for API-level errors
