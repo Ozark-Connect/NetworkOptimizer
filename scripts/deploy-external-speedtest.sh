@@ -38,7 +38,7 @@ download_files() {
     # Extract only the directories we need
     # Tarball root is NetworkOptimizer-<branch>/
     local STRIP=1  # strip the root directory
-    tar -xzf "$TEMP_TAR" -C "$TEMP_DIR" --strip-components=$STRIP \
+    tar -xzf "$TEMP_TAR" -C "$TEMP_DIR" --strip-components=$STRIP --wildcards \
         "*/src/OpenSpeedTest/" \
         "*/docker/openspeedtest/"
 
