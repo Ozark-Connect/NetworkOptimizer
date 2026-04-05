@@ -67,7 +67,6 @@ if [ "${1}" = "--update" ]; then
     fi
 
     cd "$INSTALL_DIR"
-    BASE_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$BRANCH"
 
     echo "=== Updating External Speed Test Server ==="
     echo ""
