@@ -981,17 +981,14 @@
                 <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--bg-tertiary);">
                     <h3 style="font-size: 1rem; margin-bottom: 0.75rem;">Deploy to Remote Server</h3>
                     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 0.75rem;">Run this command on your remote server (VPS) to deploy the speed test container:</p>
-                    <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @extSpeedTestServerId @extSpeedTestPort</pre>
+                    <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @extSpeedTestServerId</pre>
 
                     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 1rem; margin-bottom: 0.75rem;">To update an existing installation:</p>
                     <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
 
-                    @if (extSpeedTestScheme != "https")
-                    {
-                        <p style="color: var(--warning-color); font-size: 0.8125rem; margin-top: 0.75rem;">
-                            Note: HTTPS is required for results to post back. Set up a reverse proxy with TLS before testing.
-                        </p>
-                    }
+                    <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem;">
+                        HTTPS is required for results to post back. Setting up a reverse proxy with TLS is a separate step - see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#external-wan-speed-test-server-optional" target="_blank" style="color: var(--info-color);">deployment guide</a> for details.
+                    </p>
                 </div>
             }
         </div>
