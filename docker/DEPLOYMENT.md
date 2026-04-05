@@ -1087,9 +1087,14 @@ Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let
 
 **Why HTTPS?** Modern browsers enforce [Private Network Access](https://developer.chrome.com/blog/private-network-access-update) rules. The speed test page is served from a public IP, but the browser (on your LAN) posts results back to Network Optimizer (a private IP). Browsers block this unless the page origin is HTTPS (a secure context).
 
-**Quick deploy** (run on the remote server):
+**Quick deploy** (run on the remote server - the script will walk you through the setup):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- https://optimizer.example.com my-server-name 3005
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash
+```
+
+**Updating** an existing installation (re-downloads files and rebuilds the container):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update
 ```
 
 Or manually:
