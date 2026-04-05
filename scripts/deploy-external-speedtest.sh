@@ -38,9 +38,17 @@ download_files() {
     # Extract only the directories we need
     # Tarball root is NetworkOptimizer-<branch>/
     local STRIP=1  # strip the root directory
-    tar -xzf "$TEMP_TAR" -C "$TEMP_DIR" --strip-components=$STRIP --wildcards \
-        "*/src/OpenSpeedTest/" \
-        "*/docker/openspeedtest/"
+    # Extract only the directories we need
+    # --wildcards is needed on GNU tar (Linux), but errors on BSD tar (macOS)
+    if tar --version 2>&1 | grep -q GNU; then
+        tar -xzf "$TEMP_TAR" -C "$TEMP_DIR" --strip-components=$STRIP --wildcards \
+            "*/src/OpenSpeedTest/" \
+            "*/docker/openspeedtest/"
+    else
+        tar -xzf "$TEMP_TAR" -C "$TEMP_DIR" --strip-components=$STRIP \
+            "*/src/OpenSpeedTest/" \
+            "*/docker/openspeedtest/"
+    fi
 
     # Copy into install directory
     mkdir -p docker/openspeedtest src/OpenSpeedTest
