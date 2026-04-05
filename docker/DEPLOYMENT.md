@@ -1083,9 +1083,9 @@ Deploy an OpenSpeedTest instance to a remote server (VPS, cloud VM, etc.) to let
 **Requirements:**
 - A remote server with Docker (any cloud VPS works)
 - Port 3005 (or your chosen port) open on the remote server
-- **HTTPS on the external server** (required - see note below)
+- **HTTPS on the external server** (strongly recommended - see note below)
 
-**Why HTTPS?** Modern browsers enforce [Private Network Access](https://developer.chrome.com/blog/private-network-access-update) rules. The speed test page is served from a public IP, but the browser (on your LAN) posts results back to Network Optimizer (a private IP). Browsers block this unless the page origin is HTTPS (a secure context).
+**Why HTTPS?** Most browsers (Chrome, Edge, Safari) enforce [Private Network Access](https://developer.chrome.com/blog/private-network-access-update) rules. The speed test page is served from a public IP, and the browser posts results back to Network Optimizer on your LAN (a private IP). These browsers block this unless the page origin is HTTPS (a secure context). Some browsers (e.g., Firefox) do not currently enforce this restriction.
 
 **Setup:**
 
