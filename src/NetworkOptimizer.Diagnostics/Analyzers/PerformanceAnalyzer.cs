@@ -91,11 +91,11 @@ public class PerformanceAnalyzer
             {
                 Title = "Hardware Acceleration Disabled",
                 Description = "Hardware Acceleration is disabled on your gateway. " +
-                    "This means all traffic is processed by the CPU instead of being offloaded to dedicated hardware, " +
-                    "which can reduce throughput and increase latency under load.",
+                    "This means all traffic is processed by the CPU instead of using the kernel's fast forwarding path (SFE), " +
+                    "which can significantly reduce throughput and increase CPU load even under light traffic.",
                 Recommendation = "Enable Hardware Acceleration in UniFi Devices > [your gateway] > Settings > Services. " +
                     "Some features like Smart Queues may auto-disable it, but newer firmware versions allow re-enabling it.",
-                Severity = PerformanceSeverity.Info,
+                Severity = PerformanceSeverity.Recommendation,
                 Category = PerformanceCategory.Performance,
                 DeviceName = gateway.Name
             });
