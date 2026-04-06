@@ -74,7 +74,7 @@ public class PerformanceAnalyzerTests
 
         result.Should().HaveCount(1);
         result[0].Title.Should().Be("Hardware Acceleration Disabled");
-        result[0].Severity.Should().Be(PerformanceSeverity.Info);
+        result[0].Severity.Should().Be(PerformanceSeverity.Recommendation);
         result[0].Category.Should().Be(PerformanceCategory.Performance);
         result[0].DeviceName.Should().Be("Test Gateway");
     }
