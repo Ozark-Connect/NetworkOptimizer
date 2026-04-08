@@ -282,6 +282,11 @@ For commercial licensing inquiries, contact tj@ozarkconnect.net.
 - Issues: [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues)
 - Documentation: See component READMEs in `src/` and `docker/`
 
+## Other Projects
+
+- [UniFi Lightshow](https://github.com/Ozark-Connect/unifi-lightshow) — Custom RGB light show controller for UniFi Etherlighting LEDs. Turn your switch rack into a spatial light canvas with SignalRGB integration, seasonal effects, and multi-switch support.
+- [UNVR NAS Backup](https://github.com/Ozark-Connect/unvr-nas-backup) — Automated Protect camera backup from UniFi NVR to NAS storage.
+
 ---
 
 <sub>Network Optimizer for UniFi is an independent project by Ozark Connect and is not affiliated with, endorsed by, or sponsored by Ubiquiti, Inc. Ubiquiti, UniFi, UDM, and Cloud Key are trademarks or registered trademarks of Ubiquiti, Inc. All other trademarks are the property of their respective owners.</sub>
