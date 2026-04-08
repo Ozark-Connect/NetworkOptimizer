@@ -699,6 +699,7 @@ if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
     quarter=$(( current_min / 15 ))
     weight=$(( quarter * 25 ))
     baseline_speed=$(( (baseline_speed * (100 - weight) + next_baseline_speed * weight) / 100 ))
+    if [ ""$baseline_speed"" -lt 5 ]; then baseline_speed=5; fi
 fi
 
 if [ -n ""$baseline_speed"" ]; then
@@ -751,6 +752,7 @@ if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
     quarter=$(( current_min / 15 ))
     weight=$(( quarter * 25 ))
     baseline_speed=$(( (baseline_speed * (100 - weight) + next_baseline_speed * weight) / 100 ))
+    if [ ""$baseline_speed"" -lt 5 ]; then baseline_speed=5; fi
 fi
 
 if [ -n ""$baseline_speed"" ]; then

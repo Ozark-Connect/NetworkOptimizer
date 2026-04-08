@@ -381,7 +381,7 @@ public class ConnectionProfile
                 if (congestionSeverity != 1.0)
                     multiplier = 1.0 - (1.0 - multiplier) * congestionSeverity;
 
-                var speed = (int)(multiplier * NominalDownloadMbps);
+                var speed = Math.Max(5, (int)(multiplier * NominalDownloadMbps));
                 baseline[key] = speed.ToString();
             }
         }

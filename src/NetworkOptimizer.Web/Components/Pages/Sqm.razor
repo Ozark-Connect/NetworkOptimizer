@@ -3199,6 +3199,8 @@
                         rate = Math.Min(withOverhead, cap);
                     }
 
+                    rate = Math.Max(5, rate);
+
                     if (rate < minRate) minRate = rate;
                     if (rate > maxRate) maxRate = rate;
                 }
