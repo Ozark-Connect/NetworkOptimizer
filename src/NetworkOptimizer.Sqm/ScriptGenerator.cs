@@ -675,7 +675,7 @@ tune_tc_performance() {
         var withinRatio = $"{(int)(_config.BlendingWeightWithin * 100)}/{(int)((1.0 - _config.BlendingWeightWithin) * 100)}";
         var belowRatio = $"{(int)(_config.BlendingWeightBelow * 100)}/{(int)((1.0 - _config.BlendingWeightBelow) * 100)}";
 
-        return $@"# Baseline blending (with half-hour interpolation)
+        return $@"# Baseline blending (with quarter-hour interpolation)
 current_day=$(date +%u)
 current_day=$((current_day - 1))
 current_hour=$(date +%H | sed 's/^0//')
@@ -694,9 +694,11 @@ next_key=""${{next_day}}_${{next_hour}}""
 baseline_speed=${{BASELINE[$lookup_key]}}
 next_baseline_speed=${{BASELINE[$next_key]}}
 
-# Interpolate between current and next hour based on minutes
+# Interpolate at 15-minute breakpoints: :00=0%, :15=25%, :30=50%, :45=75%
 if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
-    baseline_speed=$(echo ""scale=0; ($baseline_speed * (60 - $current_min) + $next_baseline_speed * $current_min) / 60"" | bc)
+    quarter=$(( current_min / 15 ))
+    weight=$(( quarter * 25 ))
+    baseline_speed=$(( (baseline_speed * (100 - weight) + next_baseline_speed * weight) / 100 ))
 fi
 
 if [ -n ""$baseline_speed"" ]; then
@@ -725,7 +727,7 @@ fi";
         var measuredWeight = Inv(1.0 - _config.BlendingWeightWithin);
         var overheadMultiplier = Inv(_config.OverheadMultiplier);
 
-        return $@"# Baseline blending for ping (with half-hour interpolation)
+        return $@"# Baseline blending for ping (with quarter-hour interpolation)
 current_day=$(date +%u)
 current_day=$((current_day - 1))
 current_hour=$(date +%H | sed 's/^0//')
@@ -744,9 +746,11 @@ next_key=""${{next_day}}_${{next_hour}}""
 baseline_speed=${{BASELINE[$lookup_key]}}
 next_baseline_speed=${{BASELINE[$next_key]}}
 
-# Interpolate between current and next hour based on minutes
+# Interpolate at 15-minute breakpoints: :00=0%, :15=25%, :30=50%, :45=75%
 if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
-    baseline_speed=$(echo ""scale=0; ($baseline_speed * (60 - $current_min) + $next_baseline_speed * $current_min) / 60"" | bc)
+    quarter=$(( current_min / 15 ))
+    weight=$(( quarter * 25 ))
+    baseline_speed=$(( (baseline_speed * (100 - weight) + next_baseline_speed * weight) / 100 ))
 fi
 
 if [ -n ""$baseline_speed"" ]; then
