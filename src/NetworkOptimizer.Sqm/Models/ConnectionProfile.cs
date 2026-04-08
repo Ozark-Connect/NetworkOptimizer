@@ -486,10 +486,10 @@ public class ConnectionProfile
             },
 
             // GPON: shared splitter means noticeable congestion at peak hours.
-            // Smooth curve: 1.00 overnight - 0.99 morning - 0.97 workday - 0.975/0.985 afternoon relief (commute gap) - 0.965 streaming peak - taper back up
-            //  Hour:  0      1     2     3     4     5     6     7     8     9    10    11    12    13    14    15      16     17     18    19    20    21    22    23
+            // Smooth curve: 1.00 overnight - 0.99 morning - 0.97 workday - 0.975/0.985/0.9825 afternoon relief (commute gap) - 0.965 streaming peak - taper back up
+            //  Hour:  0      1     2     3     4     5     6     7     8     9    10    11    12    13    14    15      16     17       18    19    20    21    22    23
             ConnectionType.Gpon => CreateUniformWeekPattern(new double[]
-                { 0.995, 1.00, 1.00, 1.00, 1.00, 1.00, 0.99, 0.99, 0.98, 0.975, 0.97, 0.97, 0.97, 0.97, 0.97, 0.975, 0.985, 0.985, 0.965, 0.965, 0.965, 0.965, 0.975, 0.985 }),
+                { 0.995, 1.00, 1.00, 1.00, 1.00, 1.00, 0.99, 0.99, 0.98, 0.975, 0.97, 0.97, 0.97, 0.97, 0.97, 0.975, 0.985, 0.9825, 0.965, 0.965, 0.965, 0.965, 0.975, 0.985 }),
 
             // XGS-PON: 10G headroom, minimal congestion even at peak.
             // Compressed version of GPON curve: 1.00 overnight - 0.995 - 0.985 workday - 0.9875/0.99 afternoon relief (commute gap) - 0.98 streaming peak
