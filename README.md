@@ -284,8 +284,8 @@ For commercial licensing inquiries, contact tj@ozarkconnect.net.
 
 ## Other Projects
 
-- [UniFi Lightshow](https://github.com/Ozark-Connect/unifi-lightshow) — Custom RGB light show controller for UniFi Etherlighting LEDs. Turn your switch rack into a spatial light canvas with SignalRGB integration, seasonal effects, and multi-switch support.
-- [UNVR NAS Backup](https://github.com/Ozark-Connect/unvr-nas-backup) — Automated Protect camera backup from UniFi NVR to NAS storage.
+- [UniFi Lightshow](https://github.com/Ozark-Connect/unifi-lightshow) - Custom RGB light show controller for UniFi Etherlighting LEDs. Turn your switch rack into a spatial light canvas with SignalRGB integration, seasonal effects, and multi-switch support.
+- [UNVR NAS Backup](https://github.com/Ozark-Connect/unvr-nas-backup) - Automated Protect camera backup from UniFi NVR to NAS storage.
 
 ---
 
