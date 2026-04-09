@@ -675,13 +675,32 @@ tune_tc_performance() {
         var withinRatio = $"{(int)(_config.BlendingWeightWithin * 100)}/{(int)((1.0 - _config.BlendingWeightWithin) * 100)}";
         var belowRatio = $"{(int)(_config.BlendingWeightBelow * 100)}/{(int)((1.0 - _config.BlendingWeightBelow) * 100)}";
 
-        return $@"# Baseline blending
+        return $@"# Baseline blending (with quarter-hour interpolation)
 current_day=$(date +%u)
 current_day=$((current_day - 1))
 current_hour=$(date +%H | sed 's/^0//')
+current_min=$(date +%M | sed 's/^0//')
 lookup_key=""${{current_day}}_${{current_hour}}""
 
+# Next hour lookup (wraps at midnight to next day)
+next_hour=$(( (current_hour + 1) % 24 ))
+if [ ""$next_hour"" -eq 0 ]; then
+    next_day=$(( (current_day + 1) % 7 ))
+else
+    next_day=$current_day
+fi
+next_key=""${{next_day}}_${{next_hour}}""
+
 baseline_speed=${{BASELINE[$lookup_key]}}
+next_baseline_speed=${{BASELINE[$next_key]}}
+
+# Interpolate at 15-minute breakpoints: :00=0%, :15=25%, :30=50%, :45=75%
+if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
+    quarter=$(( current_min / 15 ))
+    weight=$(( quarter * 25 ))
+    baseline_speed=$(( (baseline_speed * (100 - weight) + next_baseline_speed * weight) / 100 ))
+    if [ ""$baseline_speed"" -lt 5 ]; then baseline_speed=5; fi
+fi
 
 if [ -n ""$baseline_speed"" ]; then
     threshold=$(echo ""scale=0; $baseline_speed * 0.9 / 1"" | bc)
@@ -709,13 +728,32 @@ fi";
         var measuredWeight = Inv(1.0 - _config.BlendingWeightWithin);
         var overheadMultiplier = Inv(_config.OverheadMultiplier);
 
-        return $@"# Baseline blending for ping
+        return $@"# Baseline blending for ping (with quarter-hour interpolation)
 current_day=$(date +%u)
 current_day=$((current_day - 1))
 current_hour=$(date +%H | sed 's/^0//')
+current_min=$(date +%M | sed 's/^0//')
 lookup_key=""${{current_day}}_${{current_hour}}""
 
+# Next hour lookup (wraps at midnight to next day)
+next_hour=$(( (current_hour + 1) % 24 ))
+if [ ""$next_hour"" -eq 0 ]; then
+    next_day=$(( (current_day + 1) % 7 ))
+else
+    next_day=$current_day
+fi
+next_key=""${{next_day}}_${{next_hour}}""
+
 baseline_speed=${{BASELINE[$lookup_key]}}
+next_baseline_speed=${{BASELINE[$next_key]}}
+
+# Interpolate at 15-minute breakpoints: :00=0%, :15=25%, :30=50%, :45=75%
+if [ -n ""$baseline_speed"" ] && [ -n ""$next_baseline_speed"" ]; then
+    quarter=$(( current_min / 15 ))
+    weight=$(( quarter * 25 ))
+    baseline_speed=$(( (baseline_speed * (100 - weight) + next_baseline_speed * weight) / 100 ))
+    if [ ""$baseline_speed"" -lt 5 ]; then baseline_speed=5; fi
+fi
 
 if [ -n ""$baseline_speed"" ]; then
     baseline_with_overhead=$(echo ""scale=0; $baseline_speed * {overheadMultiplier} / 1"" | bc)
