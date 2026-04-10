@@ -1069,6 +1069,11 @@ WantedBy=multi-user.target
         sb.AppendLine();
         sb.AppendLine("mkdir -p \"$SQM_MONITOR_DIR\"");
         sb.AppendLine();
+        sb.AppendLine("# Install netcat if not available (busybox nc lacks -q flag)");
+        sb.AppendLine("if ! command -v nc > /dev/null 2>&1 || nc -h 2>&1 | grep -q BusyBox; then");
+        sb.AppendLine("    apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq netcat-openbsd > /dev/null 2>&1");
+        sb.AppendLine("fi");
+        sb.AppendLine();
         sb.AppendLine("# Create the SQM monitor handler script");
         sb.AppendLine("cat > \"$SQM_MONITOR_DIR/sqm-monitor.sh\" << 'HANDLER_EOF'");
         sb.AppendLine("#!/bin/sh");
@@ -1297,7 +1302,7 @@ WantedBy=multi-user.target
         sb.AppendLine("        echo \"Access-Control-Allow-Origin: *\"");
         sb.AppendLine("        echo \"\"");
         sb.AppendLine("        \"$SCRIPT_DIR/sqm-monitor.sh\"");
-        sb.AppendLine("    } | busybox nc -l -p \"$PORT\" > /dev/null 2>&1");
+        sb.AppendLine("    } | nc -l -p \"$PORT\" -q 1 > /dev/null 2>&1");
         sb.AppendLine("    sleep 0.1");
         sb.AppendLine("done");
         sb.AppendLine("SERVER_EOF");
