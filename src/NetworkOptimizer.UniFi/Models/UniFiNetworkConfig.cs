@@ -22,6 +22,30 @@ public class WanProviderCapabilities
 }
 
 /// <summary>
+/// JSON converter that handles bool values that may come as strings ("true"/"false") instead of native booleans.
+/// UniFi OS Server returns some boolean fields as strings.
+/// </summary>
+public class FlexibleBoolConverter : JsonConverter<bool>
+{
+    public override bool Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.True => true,
+            JsonTokenType.False => false,
+            JsonTokenType.String => bool.TryParse(reader.GetString(), out var value) && value,
+            JsonTokenType.Number => reader.GetInt32() != 0,
+            _ => false
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, bool value, JsonSerializerOptions options)
+    {
+        writer.WriteBooleanValue(value);
+    }
+}
+
+/// <summary>
 /// JSON converter that handles int values that may come as strings, empty strings, or null.
 /// UniFi API sometimes returns VLAN IDs as strings or empty strings instead of numbers.
 /// </summary>
@@ -67,12 +91,15 @@ public class UniFiNetworkConfig
     public string Purpose { get; set; } = string.Empty; // "corporate", "guest", "wan", "vlan-only", "remote-user-vpn"
 
     [JsonPropertyName("enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool Enabled { get; set; } = true;
 
     [JsonPropertyName("is_nat")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool IsNat { get; set; }
 
     [JsonPropertyName("vlan_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool VlanEnabled { get; set; }
 
     [JsonPropertyName("vlan")]
@@ -81,6 +108,7 @@ public class UniFiNetworkConfig
 
     // IP configuration
     [JsonPropertyName("dhcpd_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool DhcpdEnabled { get; set; }
 
     [JsonPropertyName("dhcpd_start")]
@@ -93,6 +121,7 @@ public class UniFiNetworkConfig
     public int DhcpdLeasetime { get; set; }
 
     [JsonPropertyName("dhcpd_dns_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool DhcpdDnsEnabled { get; set; }
 
     [JsonPropertyName("dhcpd_dns_1")]
@@ -108,12 +137,14 @@ public class UniFiNetworkConfig
     public string? DhcpdDns4 { get; set; }
 
     [JsonPropertyName("dhcpd_gateway_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool DhcpdGatewayEnabled { get; set; }
 
     [JsonPropertyName("dhcpd_gateway")]
     public string? DhcpdGateway { get; set; }
 
     [JsonPropertyName("dhcpd_time_offset_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool DhcpdTimeOffsetEnabled { get; set; }
 
     [JsonPropertyName("dhcpd_time_offset")]
@@ -138,6 +169,7 @@ public class UniFiNetworkConfig
     public string? Ipv6PdStop { get; set; }
 
     [JsonPropertyName("ipv6_ra_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool Ipv6RaEnabled { get; set; }
 
     [JsonPropertyName("ipv6_ra_priority")]
@@ -207,6 +239,7 @@ public class UniFiNetworkConfig
     public int? WanEgressQos { get; set; }
 
     [JsonPropertyName("wan_smartq_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool WanSmartqEnabled { get; set; }
 
     [JsonPropertyName("wan_smartq_up_rate")]
@@ -264,13 +297,16 @@ public class UniFiNetworkConfig
 
     // Multicast DNS
     [JsonPropertyName("mdns_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool MdnsEnabled { get; set; }
 
     [JsonPropertyName("upnp_lan_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool UpnpLanEnabled { get; set; }
 
     // IGMP
     [JsonPropertyName("igmp_snooping")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool IgmpSnooping { get; set; }
 
     // Network group
@@ -279,6 +315,7 @@ public class UniFiNetworkConfig
 
     // Internet access
     [JsonPropertyName("internet_access_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool InternetAccessEnabled { get; set; }
 
     // Auto scaling
@@ -290,10 +327,12 @@ public class UniFiNetworkConfig
     public List<string>? Schedule { get; set; }
 
     [JsonPropertyName("schedule_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool ScheduleEnabled { get; set; }
 
     // Content filtering
     [JsonPropertyName("contentfilter_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool ContentfilterEnabled { get; set; }
 
     /// <summary>

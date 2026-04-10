@@ -1297,7 +1297,7 @@ WantedBy=multi-user.target
         sb.AppendLine("        echo \"Access-Control-Allow-Origin: *\"");
         sb.AppendLine("        echo \"\"");
         sb.AppendLine("        \"$SCRIPT_DIR/sqm-monitor.sh\"");
-        sb.AppendLine("    } | nc -l -p \"$PORT\" -q 1 > /dev/null 2>&1");
+        sb.AppendLine("    } | busybox nc -l -p \"$PORT\" -w 1 > /dev/null 2>&1");
         sb.AppendLine("    sleep 0.1");
         sb.AppendLine("done");
         sb.AppendLine("SERVER_EOF");
