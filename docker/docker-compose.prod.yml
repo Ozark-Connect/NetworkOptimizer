@@ -49,6 +49,19 @@ services:
     restart: unless-stopped
     ports:
       - "${OPENSPEEDTEST_PORT:-3005}:3000"
+    sysctls:
+      # Raise TCP autotuning ceiling so long-RTT single-stream speedtests are not rwnd-bound.
+      # Container has its own netns; without this the ceiling is the 6MB kernel default,
+      # which caps single-stream throughput at ~rwnd/RTT (e.g. ~225 Mbps at 100ms RTT).
+      net.ipv4.tcp_rmem: "4096 131072 33554432"
+      net.ipv4.tcp_wmem: "4096 65536 33554432"
+      # BBR paces on bandwidth estimates instead of halving cwnd on every drop, so it
+      # represents real path capacity on paths with shallow policer bursts (common on
+      # consumer ISPs) — which is exactly what a speedtest should be measuring.
+      # Cubic on such paths reports artificially low numbers that reflect policer drops,
+      # not link capacity. Requires bbr kernel module loaded on the host.
+      net.ipv4.tcp_congestion_control: "bbr"
+      net.ipv4.tcp_mtu_probing: "1"
     environment:
       - TZ=${TZ:-America/Chicago}
       # For URL construction and host enforcement redirect
