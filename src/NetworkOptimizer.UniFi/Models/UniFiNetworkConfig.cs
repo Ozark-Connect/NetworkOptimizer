@@ -118,7 +118,8 @@ public class UniFiNetworkConfig
     public string? DhcpdStop { get; set; }
 
     [JsonPropertyName("dhcpd_leasetime")]
-    public int DhcpdLeasetime { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? DhcpdLeasetime { get; set; }
 
     [JsonPropertyName("dhcpd_dns_enabled")]
     [JsonConverter(typeof(FlexibleBoolConverter))]
@@ -148,7 +149,8 @@ public class UniFiNetworkConfig
     public bool DhcpdTimeOffsetEnabled { get; set; }
 
     [JsonPropertyName("dhcpd_time_offset")]
-    public int DhcpdTimeOffset { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? DhcpdTimeOffset { get; set; }
 
     [JsonPropertyName("ip_subnet")]
     public string? IpSubnet { get; set; }
@@ -176,10 +178,12 @@ public class UniFiNetworkConfig
     public string? Ipv6RaPriority { get; set; }
 
     [JsonPropertyName("ipv6_ra_valid_lifetime")]
-    public int Ipv6RaValidLifetime { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Ipv6RaValidLifetime { get; set; }
 
     [JsonPropertyName("ipv6_ra_preferred_lifetime")]
-    public int Ipv6RaPreferredLifetime { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Ipv6RaPreferredLifetime { get; set; }
 
     // WAN configuration
     [JsonPropertyName("wan_networkgroup")]
@@ -211,6 +215,7 @@ public class UniFiNetworkConfig
     /// WAN load balance weight (for weighted load balancing)
     /// </summary>
     [JsonPropertyName("wan_load_balance_weight")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? WanLoadBalanceWeight { get; set; }
 
     [JsonPropertyName("wan_ip")]
@@ -280,6 +285,7 @@ public class UniFiNetworkConfig
     public string? OpenvpnRemoteHost { get; set; }
 
     [JsonPropertyName("openvpn_remote_port")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? OpenvpnRemotePort { get; set; }
 
     // Domain configuration
