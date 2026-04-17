@@ -1625,6 +1625,8 @@
     [Parameter] public EventCallback<int> OnSignalTimeRangeChanged { get; set; }
     /// <summary>External signal time filter in hours (syncs slider position from parent)</summary>
     [Parameter] public int? SignalTimeFilterHours { get; set; }
+    /// <summary>Initial heatmap/signal band ("2.4", "5", or "6"). Applied once when non-null and the user hasn't picked a band manually.</summary>
+    [Parameter] public string? InitialBand { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
@@ -1699,6 +1701,7 @@
     // TODO: Replace with per-circuit scoped service when app supports multiple users.
     // Static field works for single-user but is shared across all Blazor circuits.
     private static string _savedHeatmapBand = "5";
+    private bool _userSelectedBand;
 
     protected override void OnInitialized()
     {
@@ -1714,6 +1717,21 @@
             var targetIndex = FindClosestSignalBreakpointIndex(SignalTimeFilterHours.Value);
             if (targetIndex != _signalSliderValue)
                 _signalSliderValue = targetIndex;
+        }
+
+        // Auto-select band from the parent (e.g. the viewed client's connected band) until
+        // the user overrides it via the dropdown. Only applies for recognized values.
+        if (!_userSelectedBand && !string.IsNullOrEmpty(InitialBand)
+            && (InitialBand == "2.4" || InitialBand == "5" || InitialBand == "6")
+            && InitialBand != _heatmapBand)
+        {
+            _heatmapBand = InitialBand;
+            if (_mapInitialized)
+            {
+                await UpdateApMarkers();
+                if (_showSignalData) await UpdateSignalDataMarkers();
+                else if (_showHeatmap) await ComputeHeatmap();
+            }
         }
 
         // Auto-update signal data markers when either data source changes
@@ -3298,6 +3316,7 @@
 
     private async Task OnBandChanged(ChangeEventArgs e)
     {
+        _userSelectedBand = true;
         _heatmapBand = e.Value?.ToString() ?? "5";
         _savedHeatmapBand = _heatmapBand;
         await UpdateApMarkers();
