@@ -62,9 +62,11 @@ services:
       net.ipv4.tcp_rmem: "4096 131072 33554432"
       net.ipv4.tcp_wmem: "4096 65536 33554432"
       net.ipv4.tcp_mtu_probing: "1"
-      # tcp_congestion_control is set in entrypoint.sh with graceful fallback to the
-      # host default if the bbr module is not loaded. Setting it here would fail
-      # container start on kernels without bbr.
+      # tcp_congestion_control is intentionally not set here — it hard-fails
+      # container start on kernels without the bbr module loaded (Synology, QNAP,
+      # some Proxmox/LXC setups) and compose sysctls are all-or-nothing. The
+      # entrypoint reports CC state and tells the operator how to enable bbr on
+      # the host if desired.
     environment:
       - TZ=${TZ:-America/Chicago}
       # For URL construction and host enforcement redirect
