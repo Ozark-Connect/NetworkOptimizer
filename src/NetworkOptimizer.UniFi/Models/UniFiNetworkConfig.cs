@@ -9,16 +9,18 @@ namespace NetworkOptimizer.UniFi.Models;
 public class WanProviderCapabilities
 {
     [JsonPropertyName("upload_kilobits_per_second")]
-    public int UploadKilobitsPerSecond { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? UploadKilobitsPerSecond { get; set; }
 
     [JsonPropertyName("download_kilobits_per_second")]
-    public int DownloadKilobitsPerSecond { get; set; }
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? DownloadKilobitsPerSecond { get; set; }
 
     /// <summary>Upload speed in Mbps</summary>
-    public int UploadMbps => UploadKilobitsPerSecond / 1000;
+    public int? UploadMbps => UploadKilobitsPerSecond / 1000;
 
     /// <summary>Download speed in Mbps</summary>
-    public int DownloadMbps => DownloadKilobitsPerSecond / 1000;
+    public int? DownloadMbps => DownloadKilobitsPerSecond / 1000;
 }
 
 /// <summary>
