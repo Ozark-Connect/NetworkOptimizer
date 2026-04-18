@@ -229,6 +229,30 @@ public class ScriptGeneratorTests
     }
 
     [Fact]
+    public void GenerateAllScripts_SpeedtestProbeRate_IsAboveLineRate()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Test WAN",
+            Interface = "eth6",
+            MaxDownloadSpeed = 1013,
+            MinDownloadSpeed = 868,
+            AbsoluteMaxDownloadSpeed = 1032,
+            PingHost = "8.8.8.8",
+            WanLinkSpeedMbps = 1000
+        };
+
+        var generator = new ScriptGenerator(config);
+        var bootScript = generator.GenerateAllScripts(new Dictionary<string, string>()).Values.First();
+        var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
+
+        // Probe rate = 1.05 * max(AbsoluteMax, LinkSpeed) = 1.05 * max(1032, 1000) = 1083
+        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1083\"", speedtest);
+        // Initial TC set uses probe rate, not ABSOLUTE_MAX_DOWNLOAD_SPEED
+        Assert.Contains("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE", speedtest);
+    }
+
+    [Fact]
     public void GenerateAllScripts_WhenLinkSpeedUnknown_EmitsZeroAndSkipsClamp()
     {
         var config = new SqmConfiguration

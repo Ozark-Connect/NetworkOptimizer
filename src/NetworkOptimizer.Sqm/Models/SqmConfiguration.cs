@@ -65,6 +65,14 @@ public class SqmConfiguration
     public int? WanLinkSpeedMbps { get; set; }
 
     /// <summary>
+    /// Rate to set on TC during the speedtest probe so the measurement runs unshaped.
+    /// 5% above the larger of AbsoluteMax or physical link speed - safely above anything
+    /// the connection can actually deliver, so TC never constrains the test.
+    /// </summary>
+    public int SpeedtestProbeRateMbps =>
+        Math.Max(100, (int)(Math.Max(AbsoluteMaxDownloadSpeed, WanLinkSpeedMbps ?? 0) * 1.05));
+
+    /// <summary>
     /// Overhead multiplier for speedtest results (1.05 = 5% overhead)
     /// </summary>
     public double OverheadMultiplier { get; set; } = 1.05;

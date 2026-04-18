@@ -232,6 +232,7 @@ public class ScriptGenerator
         sb.AppendLine($"IFB_DEVICE=\"ifb{_config.Interface}\"");
         sb.AppendLine($"MAX_DOWNLOAD_SPEED=\"{_config.MaxDownloadSpeed}\"");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
+        sb.AppendLine($"SPEEDTEST_PROBE_RATE=\"{_config.SpeedtestProbeRateMbps}\"");
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
@@ -277,9 +278,9 @@ public class ScriptGenerator
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
 
-        // Set absolute max before speedtest for clean, unlimited test
-        sb.AppendLine("# Set SQM to absolute max before speedtest for accurate measurement");
-        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $ABSOLUTE_MAX_DOWNLOAD_SPEED");
+        // Set probe rate slightly above line rate before speedtest so TC never engages
+        sb.AppendLine("# Set SQM to probe rate (~5% above line rate) before speedtest for truly unshaped measurement");
+        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
         sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");

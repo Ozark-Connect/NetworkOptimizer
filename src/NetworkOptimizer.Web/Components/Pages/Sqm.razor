@@ -554,8 +554,8 @@
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Absolute Max</span>
-                        <span class="param-value">@wan1Config.AbsoluteMax</span>
+                        <span class="param-label">Speedtest Probe Rate <span class="tooltip-icon tooltip-icon-sm" data-tooltip="TC rate set briefly during the speedtest so the measurement runs unshaped. Set well above physical line rate to ensure TC does not engage.">?</span></span>
+                        <span class="param-value">@wan1Config.SpeedtestProbeRate</span>
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
@@ -720,8 +720,8 @@
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Absolute Max</span>
-                        <span class="param-value">@wan2Config.AbsoluteMax</span>
+                        <span class="param-label">Speedtest Probe Rate <span class="tooltip-icon tooltip-icon-sm" data-tooltip="TC rate set briefly during the speedtest so the measurement runs unshaped. Set well above physical line rate to ensure TC does not engage.">?</span></span>
+                        <span class="param-value">@wan2Config.SpeedtestProbeRate</span>
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
@@ -2092,18 +2092,21 @@
         }
         config.DefaultLatencyThreshold = profile.LatencyThreshold;
 
-        // Clamp display values to the physical link ceiling (with HTB headroom) so the
-        // "Latency Adjust Range" and "Absolute Max" shown to the user reflect what shaping
-        // will actually do. The SqmConfiguration sent to ScriptGenerator uses uncapped
-        // profile values plus WanLinkSpeedMbps and lets the bash scripts apply the same
-        // final clamp - keep the 0.98 in sync with LINK_SPEED_HEADROOM in ScriptGenerator.cs.
+        // Clamp the Latency Adjust Range display to the physical link ceiling (with HTB
+        // headroom) so the shown floor/ceiling reflects actual shaping behavior. AbsoluteMax
+        // stays uncapped - it's the profile-derived basis for the speedtest probe rate.
+        // Keep 0.98 in sync with LINK_SPEED_HEADROOM in ScriptGenerator.cs.
         if (config.WanLinkSpeedMbps is > 0)
         {
             var linkCeiling = (int)(config.WanLinkSpeedMbps.Value * 0.98);
             config.MaxSpeed = Math.Min(config.MaxSpeed, linkCeiling);
             config.MinSpeed = Math.Min(config.MinSpeed, linkCeiling);
-            config.AbsoluteMax = Math.Min(config.AbsoluteMax, linkCeiling);
         }
+
+        // Speedtest probe rate: 5% above the larger of AbsoluteMax or link speed, ensuring
+        // TC never engages during the speedtest probe. Matches SqmConfiguration.SpeedtestProbeRateMbps.
+        var probeBasis = Math.Max(config.AbsoluteMax, config.WanLinkSpeedMbps ?? 0);
+        config.SpeedtestProbeRate = Math.Max(100, (int)(probeBasis * 1.05));
     }
 
     private static string GetLatencyClass(double latencyMs, double baselineMs)
@@ -3164,6 +3167,7 @@
         public int MaxSpeed { get; set; }
         public int MinSpeed { get; set; }
         public int AbsoluteMax { get; set; }
+        public int SpeedtestProbeRate { get; set; }
         public double Overhead { get; set; }
         public double BaselineLatency { get; set; }
         public double LatencyThreshold { get; set; }
