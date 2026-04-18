@@ -23,6 +23,9 @@ src/cfspeedtest/cfspeedtest*
 docker/data/
 docker/logs/
 
+# Per-host compose overrides (local customizations not checked in)
+docker/docker-compose.override.yml
+
 # Secrets
 *.env
 !*.env.example
