@@ -2092,13 +2092,9 @@
         }
         config.DefaultLatencyThreshold = profile.LatencyThreshold;
 
-        // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
-        if (config.WanLinkSpeedMbps is > 0)
-        {
-            config.MaxSpeed = Math.Min(config.MaxSpeed, config.WanLinkSpeedMbps.Value);
-            config.MinSpeed = Math.Min(config.MinSpeed, config.WanLinkSpeedMbps.Value);
-            config.AbsoluteMax = Math.Min(config.AbsoluteMax, config.WanLinkSpeedMbps.Value);
-        }
+        // Link speed is applied as a final ceiling (with HTB headroom) in GetCongestionRange
+        // and in the deployed scripts, not as a pre-clamp on Max/Min/AbsoluteMax. Pre-clamping
+        // here caused the safety cap to double-discount against the link speed.
     }
 
     private static string GetLatencyClass(double latencyMs, double baselineMs)
@@ -2580,11 +2576,15 @@
                     w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
                 if (wanInfo?.SmartqDownRateMbps == null) continue;
 
-                // Use the already-capped AbsoluteMax (accounts for WAN link speed)
-                if (wanInfo.SmartqDownRateMbps < wanConfig.config.AbsoluteMax)
+                // Effective max shaping rate = min(AbsoluteMax, physical link speed). Smart Queues
+                // must allow at least this rate; we never shape above physical line rate.
+                var effectiveMax = wanConfig.config.WanLinkSpeedMbps is > 0
+                    ? Math.Min(wanConfig.config.AbsoluteMax, wanConfig.config.WanLinkSpeedMbps.Value)
+                    : wanConfig.config.AbsoluteMax;
+                if (wanInfo.SmartqDownRateMbps < effectiveMax)
                 {
                     statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
-                        $"but Adaptive SQM needs up to {wanConfig.config.AbsoluteMax} Mbps. " +
+                        $"but Adaptive SQM needs up to {effectiveMax} Mbps. " +
                         $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
                     statusSuccess = false;
                     isDeploying = false;
@@ -3161,6 +3161,7 @@
         public double DefaultLatencyThreshold { get; set; }
 
         // Congestion schedule range (effective shaping rates from baseline-proportional safety cap)
+        // Keep this formula in sync with the bash clamp in ScriptGenerator.cs.
         public (int Min, int Max) GetCongestionRange()
         {
             var profile = new ConnectionProfile
@@ -3172,6 +3173,13 @@
             double absoluteMax = profile.AbsoluteMaxDownloadMbps;
             double safetyCap = profile.SafetyCapPercent;
             bool isFiber = ConnectionType is ConnectionType.Gpon or ConnectionType.XgsPon;
+
+            // Physical link speed ceiling (HTB headroom below line rate). Must match
+            // LINK_SPEED_HEADROOM in ScriptGenerator.cs.
+            const double linkSpeedHeadroom = 0.98;
+            double? linkCeiling = WanLinkSpeedMbps is > 0
+                ? WanLinkSpeedMbps.Value * linkSpeedHeadroom
+                : null;
 
             double minRate = double.MaxValue;
             double maxRate = double.MinValue;
@@ -3198,6 +3206,9 @@
                         var cap = absoluteMax * safetyCap;
                         rate = Math.Min(withOverhead, cap);
                     }
+
+                    if (linkCeiling is { } ceiling && rate > ceiling)
+                        rate = ceiling;
 
                     rate = Math.Max(5, rate);
 

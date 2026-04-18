@@ -237,6 +237,10 @@ public class ScriptGenerator
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
+        // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
+        // headroom below physical line rate so HTB can shape without buffering at the NIC.
+        sb.AppendLine($"WAN_LINK_SPEED_MBPS=\"{_config.WanLinkSpeedMbps ?? 0}\"");
+        sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -318,6 +322,16 @@ public class ScriptGenerator
         sb.AppendLine("download_speed_mbps=$((download_speed_mbps > max_adjusted_rate ? max_adjusted_rate : download_speed_mbps))");
         sb.AppendLine();
 
+        // Apply physical link speed ceiling (with HTB headroom) as final clamp
+        sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
+        sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
+        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
+        sb.AppendLine("    if [ \"$download_speed_mbps\" -gt \"$link_ceiling\" ]; then");
+        sb.AppendLine("        download_speed_mbps=$link_ceiling");
+        sb.AppendLine("    fi");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         // Save result and apply
         sb.AppendLine("# Save result for ping script");
         sb.AppendLine("echo \"Measured download speed: $download_speed_mbps Mbps\" > \"$RESULT_FILE\"");
@@ -368,6 +382,10 @@ public class ScriptGenerator
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
+        // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
+        // headroom below physical line rate so HTB can shape without buffering at the NIC.
+        sb.AppendLine($"WAN_LINK_SPEED_MBPS=\"{_config.WanLinkSpeedMbps ?? 0}\"");
+        sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -447,6 +465,19 @@ public class ScriptGenerator
         }
         sb.AppendLine("if (( $(echo \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\" | bc) )); then");
         sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(echo \"scale=0; $max_adjusted_rate / 1\" | bc)");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
+        // Physical link speed ceiling (with HTB headroom) as final clamp on the schedule cap
+        sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
+        sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
+        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
+        sb.AppendLine("    if (( $(echo \"$max_adjusted_rate > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("        max_adjusted_rate=$link_ceiling");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    if (( $(echo \"$MAX_DOWNLOAD_SPEED > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("        MAX_DOWNLOAD_SPEED=$link_ceiling");
+        sb.AppendLine("    fi");
         sb.AppendLine("fi");
         sb.AppendLine();
 
