@@ -2,6 +2,30 @@
 # Ozark Connect Speed Test - Entrypoint
 # Injects runtime configuration into config.js
 
+# Report TCP congestion control state. We can't set it from inside the container
+# (/proc/sys is mounted read-only except for sysctls explicitly declared in the
+# compose sysctls: block, and we can't put tcp_congestion_control there because it
+# hard-fails container start on kernels without bbr — Synology, QNAP, some Proxmox
+# setups). The container inherits whatever the host's default CC is, so we just
+# surface the state and point users at the fix if bbr is available but not active.
+CC_FILE="/proc/sys/net/ipv4/tcp_congestion_control"
+AVAIL_FILE="/proc/sys/net/ipv4/tcp_available_congestion_control"
+if [ -r "$CC_FILE" ]; then
+    CURRENT_CC=$(cat "$CC_FILE")
+    AVAIL_CC=$(cat "$AVAIL_FILE" 2>/dev/null || echo "unknown")
+    echo "TCP congestion control: $CURRENT_CC (available: $AVAIL_CC)"
+    case " $AVAIL_CC " in
+        *" bbr "*)
+            if [ "$CURRENT_CC" != "bbr" ]; then
+                echo "NOTE: bbr is loaded on the host but not the default. For best speedtest accuracy on shallow-policer WAN paths, set it as default on the host: sysctl -w net.ipv4.tcp_congestion_control=bbr"
+            fi
+            ;;
+        *)
+            echo "NOTE: bbr kernel module is not loaded on the host. For best speedtest accuracy on shallow-policer WAN paths, load it on the host: modprobe tcp_bbr (and persist via /etc/modules-load.d/bbr.conf)"
+            ;;
+    esac
+fi
+
 # API endpoint path (single source of truth)
 API_PATH="/api/public/speedtest/results"
 
