@@ -2,6 +2,19 @@
 # Ozark Connect Speed Test - Entrypoint
 # Injects runtime configuration into config.js
 
+# Try to enable BBR congestion control. Falls back silently to the host default
+# (usually cubic) if the bbr kernel module isn't loaded. BBR gives more accurate
+# speedtest numbers on paths with shallow ISP policer bursts, but we can't require
+# it — many appliance kernels (Synology, QNAP, some Proxmox setups) don't ship it.
+CC_FILE="/proc/sys/net/ipv4/tcp_congestion_control"
+if [ -w "$CC_FILE" ]; then
+    if echo bbr > "$CC_FILE" 2>/dev/null; then
+        echo "TCP congestion control: bbr"
+    else
+        echo "TCP congestion control: $(cat "$CC_FILE") (bbr not available on host kernel)"
+    fi
+fi
+
 # API endpoint path (single source of truth)
 API_PATH="/api/public/speedtest/results"
 
