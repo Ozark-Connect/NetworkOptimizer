@@ -2092,9 +2092,18 @@
         }
         config.DefaultLatencyThreshold = profile.LatencyThreshold;
 
-        // Link speed is applied as a final ceiling (with HTB headroom) in GetCongestionRange
-        // and in the deployed scripts, not as a pre-clamp on Max/Min/AbsoluteMax. Pre-clamping
-        // here caused the safety cap to double-discount against the link speed.
+        // Clamp display values to the physical link ceiling (with HTB headroom) so the
+        // "Latency Adjust Range" and "Absolute Max" shown to the user reflect what shaping
+        // will actually do. The SqmConfiguration sent to ScriptGenerator uses uncapped
+        // profile values plus WanLinkSpeedMbps and lets the bash scripts apply the same
+        // final clamp - keep the 0.98 in sync with LINK_SPEED_HEADROOM in ScriptGenerator.cs.
+        if (config.WanLinkSpeedMbps is > 0)
+        {
+            var linkCeiling = (int)(config.WanLinkSpeedMbps.Value * 0.98);
+            config.MaxSpeed = Math.Min(config.MaxSpeed, linkCeiling);
+            config.MinSpeed = Math.Min(config.MinSpeed, linkCeiling);
+            config.AbsoluteMax = Math.Min(config.AbsoluteMax, linkCeiling);
+        }
     }
 
     private static string GetLatencyClass(double latencyMs, double baselineMs)
