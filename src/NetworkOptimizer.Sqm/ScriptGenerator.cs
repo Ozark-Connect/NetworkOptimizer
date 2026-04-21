@@ -572,16 +572,10 @@ public class ScriptGenerator
     /// </summary>
     private string GetTcUpdateFunction()
     {
-        return @"# Calculate burst size scaled to rate (prevents frame drops at high speeds)
-# Config E testing showed 5KB is optimal at gig speeds: eliminates downstream drop_overmemory
-# without the bufferbloat regression seen at 8KB+ (which feeds fq_codel faster than it can react)
-# Scale: 5 bytes per Mbps, floor 1500b (stock), cap 5000b
+        return @"# Burst size: use stock 1500b. Scaled burst testing showed it feeds fq_codel
+# faster than it can react at gig speeds, causing bufferbloat regression.
 calc_burst() {
-    local rate_mbps=$1
-    local burst=$((rate_mbps * 5))
-    [ ""$burst"" -lt 1500 ] && burst=1500
-    [ ""$burst"" -gt 5000 ] && burst=5000
-    echo ""$burst""
+    echo ""1500""
 }
 
 # Calculate fq_codel memory_limit scaled to rate (prevents drop_overmemory at high speeds)
