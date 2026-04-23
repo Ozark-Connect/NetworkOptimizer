@@ -2590,10 +2590,12 @@
 
                 // Effective max shaping rate = min(AbsoluteMax, physical link speed). Smart Queues
                 // must allow at least this rate; we never shape above physical line rate.
+                // Allow 1 Mbps tolerance: UniFi Network EA/RC has a bug where Smart Queues
+                // breaks unless the rate is set to interface speed minus 1 (e.g. 999 on 1 GbE).
                 var effectiveMax = wanConfig.config.WanLinkSpeedMbps is > 0
                     ? Math.Min(wanConfig.config.AbsoluteMax, wanConfig.config.WanLinkSpeedMbps.Value)
                     : wanConfig.config.AbsoluteMax;
-                if (wanInfo.SmartqDownRateMbps < effectiveMax)
+                if (wanInfo.SmartqDownRateMbps < effectiveMax - 1)
                 {
                     statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
                         $"but Adaptive SQM needs up to {effectiveMax} Mbps. " +
