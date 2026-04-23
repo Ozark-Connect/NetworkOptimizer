@@ -58,6 +58,21 @@ public class SqmConfiguration
     public int AbsoluteMaxDownloadSpeed { get; set; } = 280;
 
     /// <summary>
+    /// Physical WAN link speed in Mbps (e.g., 1000 for 1GbE, 10000 for 10GbE).
+    /// Used as a final ceiling in the shaping scripts (with HTB headroom) to prevent
+    /// shaping above physical line rate. Null when unknown.
+    /// </summary>
+    public int? WanLinkSpeedMbps { get; set; }
+
+    /// <summary>
+    /// Rate to set on TC during the speedtest probe so the measurement runs unshaped.
+    /// 5% above the larger of AbsoluteMax or physical link speed - safely above anything
+    /// the connection can actually deliver, so TC never constrains the test.
+    /// </summary>
+    public int SpeedtestProbeRateMbps =>
+        Math.Max(100, (int)(Math.Max(AbsoluteMaxDownloadSpeed, WanLinkSpeedMbps ?? 0) * 1.05));
+
+    /// <summary>
     /// Overhead multiplier for speedtest results (1.05 = 5% overhead)
     /// </summary>
     public double OverheadMultiplier { get; set; } = 1.05;
@@ -199,13 +214,11 @@ public class SqmConfiguration
         LatencyDecrease = profile.LatencyDecrease;
         LatencyIncrease = profile.LatencyIncrease;
 
-        // Cap at physical WAN link speed if known (e.g., 1000 for 1GbE)
-        if (wanLinkSpeedMbps is > 0)
-        {
-            MaxDownloadSpeed = Math.Min(MaxDownloadSpeed, wanLinkSpeedMbps.Value);
-            MinDownloadSpeed = Math.Min(MinDownloadSpeed, wanLinkSpeedMbps.Value);
-            AbsoluteMaxDownloadSpeed = Math.Min(AbsoluteMaxDownloadSpeed, wanLinkSpeedMbps.Value);
-        }
+        // Store link speed; the scripts apply it as a final ceiling (with HTB headroom)
+        // rather than pre-clamping AbsoluteMax. Pre-clamping here caused the safety cap to
+        // double-discount against the link speed, producing rates well below what a
+        // connection with nominal just under line rate could actually shape safely.
+        WanLinkSpeedMbps = wanLinkSpeedMbps is > 0 ? wanLinkSpeedMbps : null;
 
         // Apply blending ratios
         var (withinWeight, _) = profile.GetBlendingRatios(withinThreshold: true);

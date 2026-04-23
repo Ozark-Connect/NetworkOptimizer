@@ -232,11 +232,16 @@ public class ScriptGenerator
         sb.AppendLine($"IFB_DEVICE=\"ifb{_config.Interface}\"");
         sb.AppendLine($"MAX_DOWNLOAD_SPEED=\"{_config.MaxDownloadSpeed}\"");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
+        sb.AppendLine($"SPEEDTEST_PROBE_RATE=\"{_config.SpeedtestProbeRateMbps}\"");
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"UPLOAD_SPEED=\"{_config.NominalUploadSpeed}\"");
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
+        // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
+        // headroom below physical line rate so HTB can shape without buffering at the NIC.
+        sb.AppendLine($"WAN_LINK_SPEED_MBPS=\"{_config.WanLinkSpeedMbps ?? 0}\"");
+        sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -273,9 +278,9 @@ public class ScriptGenerator
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
 
-        // Set absolute max before speedtest for clean, unlimited test
-        sb.AppendLine("# Set SQM to absolute max before speedtest for accurate measurement");
-        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $ABSOLUTE_MAX_DOWNLOAD_SPEED");
+        // Set probe rate slightly above line rate before speedtest so TC never engages
+        sb.AppendLine("# Set SQM to probe rate (~5% above line rate) before speedtest for truly unshaped measurement");
+        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");
         sb.AppendLine("    update_all_tc_classes $INTERFACE $UPLOAD_SPEED");
@@ -316,6 +321,16 @@ public class ScriptGenerator
         sb.AppendLine("# Apply safety cap");
         sb.AppendLine("max_adjusted_rate=$(echo \"$MAX_DOWNLOAD_SPEED * $SAFETY_CAP / 1\" | bc)");
         sb.AppendLine("download_speed_mbps=$((download_speed_mbps > max_adjusted_rate ? max_adjusted_rate : download_speed_mbps))");
+        sb.AppendLine();
+
+        // Apply physical link speed ceiling (with HTB headroom) as final clamp
+        sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
+        sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
+        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
+        sb.AppendLine("    if [ \"$download_speed_mbps\" -gt \"$link_ceiling\" ]; then");
+        sb.AppendLine("        download_speed_mbps=$link_ceiling");
+        sb.AppendLine("    fi");
+        sb.AppendLine("fi");
         sb.AppendLine();
 
         // Save result and apply
@@ -368,6 +383,10 @@ public class ScriptGenerator
         sb.AppendLine($"SHAPE_UPLOAD={(_config.ShapeUpload ? "1" : "0")}");
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
+        // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
+        // headroom below physical line rate so HTB can shape without buffering at the NIC.
+        sb.AppendLine($"WAN_LINK_SPEED_MBPS=\"{_config.WanLinkSpeedMbps ?? 0}\"");
+        sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -447,6 +466,19 @@ public class ScriptGenerator
         }
         sb.AppendLine("if (( $(echo \"$MAX_DOWNLOAD_SPEED > $max_adjusted_rate\" | bc) )); then");
         sb.AppendLine("    MAX_DOWNLOAD_SPEED=$(echo \"scale=0; $max_adjusted_rate / 1\" | bc)");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
+        // Physical link speed ceiling (with HTB headroom) as final clamp on the schedule cap
+        sb.AppendLine("# Apply physical link speed ceiling (HTB headroom below line rate)");
+        sb.AppendLine("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]; then");
+        sb.AppendLine("    link_ceiling=$(echo \"scale=0; $WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM / 1\" | bc)");
+        sb.AppendLine("    if (( $(echo \"$max_adjusted_rate > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("        max_adjusted_rate=$link_ceiling");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    if (( $(echo \"$MAX_DOWNLOAD_SPEED > $link_ceiling\" | bc) )); then");
+        sb.AppendLine("        MAX_DOWNLOAD_SPEED=$link_ceiling");
+        sb.AppendLine("    fi");
         sb.AppendLine("fi");
         sb.AppendLine();
 
@@ -540,16 +572,16 @@ public class ScriptGenerator
     /// </summary>
     private string GetTcUpdateFunction()
     {
-        return @"# Calculate burst size scaled to rate (prevents frame drops at high speeds)
-# Config E testing showed 5KB is optimal at gig speeds: eliminates downstream drop_overmemory
-# without the bufferbloat regression seen at 8KB+ (which feeds fq_codel faster than it can react)
-# Scale: 5 bytes per Mbps, floor 1500b (stock), cap 5000b
+        return @"# Burst size tuning history:
+# Config E testing showed 5KB burst eliminates downstream drop_overmemory for bulk
+# flows at gig speeds, but 8KB+ creates bursty HTB send patterns (dump at wire rate,
+# pause for token refill) that increase queue depth variance in fq_codel - shows up
+# as latency jitter under load even though fq_codel is working correctly.
+# Whether higher burst helps depends on ISP policing/shaping - some ISPs police with
+# token bucket and penalize bursts above stock, others are fine with 5KB.
+# Reverted to stock 1500b pending per-connection configurability.
 calc_burst() {
-    local rate_mbps=$1
-    local burst=$((rate_mbps * 5))
-    [ ""$burst"" -lt 1500 ] && burst=1500
-    [ ""$burst"" -gt 5000 ] && burst=5000
-    echo ""$burst""
+    echo ""1500""
 }
 
 # Calculate fq_codel memory_limit scaled to rate (prevents drop_overmemory at high speeds)
