@@ -198,6 +198,87 @@ public class ScriptGeneratorTests
         Assert.Contains($"IFB_DEVICE=\"{expectedIfb}\"", bootScript);
     }
 
+    [Fact]
+    public void GenerateAllScripts_WhenLinkSpeedSet_EmbedsLinkCeilingClampInBothScripts()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Test WAN",
+            Interface = "eth6",
+            MaxDownloadSpeed = 1013,
+            MinDownloadSpeed = 868,
+            AbsoluteMaxDownloadSpeed = 1032,
+            SafetyCapPercent = 0.95,
+            PingHost = "8.8.8.8",
+            WanLinkSpeedMbps = 1000
+        };
+
+        var generator = new ScriptGenerator(config);
+        var baseline = new Dictionary<string, string> { ["0_12"] = "940" };
+        var bootScript = generator.GenerateAllScripts(baseline).Values.First();
+
+        var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
+        var ping = ExtractHeredocSection(bootScript, "PING_EOF");
+
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"1000\"", speedtest);
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"1000\"", ping);
+        Assert.Contains("LINK_SPEED_HEADROOM=\"0.98\"", speedtest);
+        Assert.Contains("LINK_SPEED_HEADROOM=\"0.98\"", ping);
+        Assert.Contains("$WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM", speedtest);
+        Assert.Contains("$WAN_LINK_SPEED_MBPS * $LINK_SPEED_HEADROOM", ping);
+    }
+
+    [Fact]
+    public void GenerateAllScripts_SpeedtestProbeRate_IsAboveLineRate()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Test WAN",
+            Interface = "eth6",
+            MaxDownloadSpeed = 1013,
+            MinDownloadSpeed = 868,
+            AbsoluteMaxDownloadSpeed = 1032,
+            PingHost = "8.8.8.8",
+            WanLinkSpeedMbps = 1000
+        };
+
+        var generator = new ScriptGenerator(config);
+        var bootScript = generator.GenerateAllScripts(new Dictionary<string, string>()).Values.First();
+        var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
+
+        // Probe rate = 1.05 * max(AbsoluteMax, LinkSpeed) = 1.05 * max(1032, 1000) = 1083
+        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1083\"", speedtest);
+        // Initial TC set uses probe rate, not ABSOLUTE_MAX_DOWNLOAD_SPEED
+        Assert.Contains("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE", speedtest);
+    }
+
+    [Fact]
+    public void GenerateAllScripts_WhenLinkSpeedUnknown_EmitsZeroAndSkipsClamp()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Test WAN",
+            Interface = "eth6",
+            MaxDownloadSpeed = 1013,
+            MinDownloadSpeed = 868,
+            AbsoluteMaxDownloadSpeed = 1032,
+            PingHost = "8.8.8.8",
+            WanLinkSpeedMbps = null
+        };
+
+        var generator = new ScriptGenerator(config);
+        var bootScript = generator.GenerateAllScripts(new Dictionary<string, string>()).Values.First();
+
+        var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
+        var ping = ExtractHeredocSection(bootScript, "PING_EOF");
+
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"0\"", speedtest);
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"0\"", ping);
+        // Guard ensures clamp only runs when link speed is known
+        Assert.Contains("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]", speedtest);
+        Assert.Contains("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]", ping);
+    }
+
     /// <summary>
     /// Extracts the content between heredoc delimiters (e.g., between 'SPEEDTEST_EOF' markers).
     /// </summary>
