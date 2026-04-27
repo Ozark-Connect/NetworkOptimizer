@@ -98,6 +98,14 @@
                 <div class="header-title-row">
                     <h2 class="card-title">Test History</h2>
                     <div class="header-actions">
+                        @if (!string.IsNullOrEmpty(_deviceFilter))
+                        {
+                            <div class="device-filter-pill">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                <span>Filtering to <strong>@_deviceFilterName</strong></span>
+                                <button class="device-filter-clear" @onclick="ClearDeviceFilter" type="button">×</button>
+                            </div>
+                        }
                         <button class="btn btn-sm btn-secondary" @onclick="LoadResults" disabled="@_loading">
                             @if (_loading)
                             {
@@ -119,7 +127,7 @@
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Time</th>
+                                    <th class="col-time">Time</th>
                                     <th>Device</th>
                                     <th class="hide-mobile">
                                         <span class="tooltip-wrapper tooltip-bottom">
@@ -155,15 +163,24 @@
                                         @onclick="@(() => ToggleExpand(result.Id))">
                                         <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                         <td>
+                                            @{
+                                                var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
+                                            }
                                             @if (!string.IsNullOrEmpty(result.DeviceName))
                                             {
                                                 <span>@result.DeviceName</span>
+                                                <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceName ?? result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                                </button>
                                                 <br />
                                                 <code class="text-muted">@result.DeviceHost</code>
                                             }
                                             else
                                             {
                                                 <code>@result.DeviceHost</code>
+                                                <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                                </button>
                                             }
                                         </td>
                                         <td class="hide-mobile">
@@ -226,9 +243,9 @@
                     @if (_totalPages > 1)
                     {
                         <div class="pagination">
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
-                            <span class="pagination-info">Page @_page of @_totalPages (@_results.Count total)</span>
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next</button>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
+                            <span class="pagination-info">Page @_page of @_totalPages (@_filteredResults.Count@(string.IsNullOrEmpty(_deviceFilter) ? " total" : $" of {_results.Count}"))</span>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
                         </div>
                     }
                 }
@@ -412,6 +429,76 @@
         flex-wrap: wrap;
         gap: 0.5rem;
     }
+
+    .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .device-filter-btn {
+        color: var(--text-muted);
+        margin-left: 4px;
+        vertical-align: middle;
+        opacity: 0;
+        transition: opacity 0.15s, color 0.15s;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .device-filter-btn.active {
+        opacity: 1;
+        color: var(--primary-color);
+    }
+
+    .history-row-clickable:hover .device-filter-btn {
+        opacity: 1;
+    }
+
+    .device-filter-btn:hover {
+        color: var(--primary-color);
+    }
+
+    .device-filter-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.25rem 0.5rem;
+        background: rgba(5, 89, 201, 0.15);
+        border: 1px solid rgba(5, 89, 201, 0.3);
+        border-radius: 999px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+
+    .device-filter-pill svg {
+        flex-shrink: 0;
+        color: var(--primary-color);
+    }
+
+    .device-filter-clear {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.125rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 0.125rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .device-filter-clear:hover {
+        color: var(--text-primary);
+        background: rgba(255, 255, 255, 0.1);
+    }
 </style>
 
 @code {
@@ -426,8 +513,16 @@
     private const int PageSize = 20;
     private System.Threading.Timer? _pollTimer;
 
-    private int _totalPages => Math.Max(1, (int)Math.Ceiling(_results.Count / (double)PageSize));
-    private IEnumerable<Iperf3Result> _pagedResults => _results.Skip((_page - 1) * PageSize).Take(PageSize);
+    // Device filter (set by clicking filter icon on a row)
+    private string _deviceFilter = "";
+    private string _deviceFilterName = "";
+
+    private List<Iperf3Result> _filteredResults => string.IsNullOrEmpty(_deviceFilter)
+        ? _results
+        : _results.Where(r => string.Equals(r.DeviceHost, _deviceFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private int _totalPages => Math.Max(1, (int)Math.Ceiling(_filteredResults.Count / (double)PageSize));
+    private IEnumerable<Iperf3Result> _pagedResults => _filteredResults.Skip((_page - 1) * PageSize).Take(PageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -498,6 +593,32 @@
     {
         await ClientSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
         await LoadResults();
+    }
+
+    private void ToggleDeviceFilter(string host, string displayName)
+    {
+        if (string.Equals(_deviceFilter, host, StringComparison.OrdinalIgnoreCase))
+        {
+            _deviceFilter = "";
+            _deviceFilterName = "";
+        }
+        else
+        {
+            _deviceFilter = host;
+            _deviceFilterName = displayName;
+        }
+        _page = 1;
+        _expandedId = 0;
+        StateHasChanged();
+    }
+
+    private void ClearDeviceFilter()
+    {
+        _deviceFilter = "";
+        _deviceFilterName = "";
+        _page = 1;
+        _expandedId = 0;
+        StateHasChanged();
     }
 
     public void Dispose()

@@ -1663,6 +1663,11 @@ a.stat-card-link:active {
     font-size: 0.8125rem;
 }
 
+.data-table .col-time {
+    width: 125px;
+    white-space: nowrap;
+}
+
 .data-table tr:not(.history-details-row):hover {
     background: var(--bg-hover);
 }
@@ -4519,6 +4524,10 @@ select.form-control {
         padding: 0.75rem 0.4rem;
     }
 
+    .data-table .col-time {
+        width: auto;
+    }
+
     td .btn {
         margin: 0 auto;
     }
@@ -5353,6 +5362,11 @@ a.path-hop.hop-clickable:hover {
 .pagination-info {
     color: var(--text-secondary);
     font-size: 0.875rem;
+}
+
+.pag-arrow {
+    position: relative;
+    top: -1px;
 }
 
 /* ============================================

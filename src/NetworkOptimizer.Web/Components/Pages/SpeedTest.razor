@@ -722,6 +722,14 @@
                                            OnSearch="OnTableFilterChanged"
                                            ShowStatus="true"
                                            ResultCount="filteredHistory.Count" />
+                    @if (!string.IsNullOrEmpty(deviceFilter))
+                    {
+                        <div class="device-filter-pill">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                            <span>Filtering to <strong>@deviceFilterName</strong></span>
+                            <button class="device-filter-clear" @onclick="ClearDeviceFilter" type="button">×</button>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -732,7 +740,7 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Time</th>
+                            <th class="col-time">Time</th>
                             <th>Device</th>
                             <th class="hide-mobile">
                                 <span class="tooltip-wrapper tooltip-bottom">
@@ -779,10 +787,14 @@
                                 <td>
                                     @{
                                         var showDashLink = result.IsLocalLanClient();
+                                        var isDeviceFiltered = string.Equals(deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                     }
                                     @if (!string.IsNullOrEmpty(result.DeviceName))
                                     {
                                         <span>@result.DeviceName</span>
+                                        <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceName ?? result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                        </button>
                                         @if (showDashLink)
                                         {
                                             <a href="/client-dashboard?ip=@result.DeviceHost&tab=speed&range=30d" class="client-dashboard-link"
@@ -794,6 +806,9 @@
                                     else
                                     {
                                         <code>@result.DeviceHost</code>
+                                        <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                        </button>
                                         @if (showDashLink)
                                         {
                                             <a href="/client-dashboard?ip=@result.DeviceHost&tab=speed&range=30d" class="client-dashboard-link"
@@ -870,11 +885,11 @@
                 @if (historyTotalPages > 1)
                 {
                     <div class="pagination" id="history-pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">← Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
                         <span class="pagination-info">
-                            Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) ? " total" : $" of {testHistory.Count}"))
+                            Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) && string.IsNullOrEmpty(deviceFilter) ? " total" : $" of {testHistory.Count}"))
                         </span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next →</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
                     </div>
                 }
             }
@@ -895,7 +910,7 @@
     </div>
 
     <!-- Test Locations Map -->
-    <SpeedTestMap Results="testHistory"
+    <SpeedTestMap Results="mapResults"
                   OnRefresh="LoadHistory"
                   OnResultClick="ScrollToResult"
                   ApMarkers="apMapMarkers"
@@ -1193,6 +1208,10 @@
     }
 
     .history-search-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
         padding-top: 0.5rem;
         border-top: 1px solid var(--border-color);
     }
@@ -1203,20 +1222,77 @@
         }
     }
 
-    .client-dashboard-link {
+    .client-dashboard-link,
+    .device-filter-btn {
         color: var(--text-muted);
         margin-left: 4px;
         vertical-align: middle;
         opacity: 0;
-        transition: opacity 0.15s;
+        transition: opacity 0.15s, color 0.15s;
     }
 
-    .history-row-clickable:hover .client-dashboard-link {
+    .client-dashboard-link {
+        margin-left: 8px;
+    }
+
+    .device-filter-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .device-filter-btn.active {
+        opacity: 1;
+        color: var(--primary-color);
+    }
+
+    .history-row-clickable:hover .client-dashboard-link,
+    .history-row-clickable:hover .device-filter-btn {
         opacity: 1;
     }
 
-    .client-dashboard-link:hover {
+    .client-dashboard-link:hover,
+    .device-filter-btn:hover {
         color: var(--primary-color);
+    }
+
+    .device-filter-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.25rem 0.5rem;
+        background: rgba(5, 89, 201, 0.15);
+        border: 1px solid rgba(5, 89, 201, 0.3);
+        border-radius: 999px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+
+    .device-filter-pill svg {
+        flex-shrink: 0;
+        color: var(--primary-color);
+    }
+
+    .device-filter-clear {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.125rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 0.125rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .device-filter-clear:hover {
+        color: var(--text-primary);
+        background: rgba(255, 255, 255, 0.1);
     }
 </style>
 
@@ -1231,11 +1307,12 @@
     private List<DeviceSshConfiguration> devices = new();
     private DeviceSshConfiguration editingDevice = new() { DeviceType = DeviceType.Server, Enabled = true };
     private List<Iperf3Result> testHistory = new();
+    private List<Iperf3Result> mapResults = new();
     private List<ApMapMarker> apMapMarkers = new();
     private Iperf3Result? currentResult;
     private bool sshConfigured = false;
 
-    // Pagination (uses filteredHistory which respects the map's search filter)
+    // Pagination
     private int historyPage = 1;
     private int historyPageSize = 10;
     private int historyTotalPages => (int)Math.Ceiling(filteredHistory.Count / (double)historyPageSize);
@@ -1271,10 +1348,23 @@
     // Search filter for table (uses shared SpeedTestFilterHelper for consistency with repository)
     private string historySearchFilter = "";
 
-    // Filtered history based on search filter
-    private List<Iperf3Result> filteredHistory => string.IsNullOrEmpty(historySearchFilter)
-        ? testHistory
-        : testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
+    // Device filter (set by clicking filter icon on a row)
+    private string deviceFilter = "";
+    private string deviceFilterName = "";
+
+    // Filtered history based on search filter and device filter
+    private List<Iperf3Result> filteredHistory
+    {
+        get
+        {
+            IEnumerable<Iperf3Result> results = testHistory;
+            if (!string.IsNullOrEmpty(deviceFilter))
+                results = results.Where(r => string.Equals(r.DeviceHost, deviceFilter, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(historySearchFilter))
+                results = results.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant()));
+            return results.ToList();
+        }
+    }
 
     // Path analysis for historical results (calculated on demand)
     private Dictionary<int, PathAnalysisResult?> historyPathAnalysis = new();
@@ -1478,15 +1568,27 @@
     private async Task HandleSpeedTestTimeRangeChanged(int hours)
     {
         _speedTestTimeRangeHours = hours;
-        testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: hours);
+        UpdateMapResults();
         StateHasChanged();
+    }
+
+    private void UpdateMapResults()
+    {
+        if (_speedTestTimeRangeHours <= 0)
+        {
+            mapResults = testHistory;
+            return;
+        }
+        var cutoff = DateTime.UtcNow.AddHours(-_speedTestTimeRangeHours);
+        mapResults = testHistory.Where(r => r.TestTime >= cutoff).ToList();
     }
 
     private async Task LoadHistory()
     {
         try
         {
-            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: _speedTestTimeRangeHours);
+            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: 0);
+            UpdateMapResults();
             historyPage = 1; // Reset to first page when loading fresh data
 
             // Only set currentResult on initial page load (when it's null)
@@ -2161,8 +2263,34 @@
     /// </summary>
     private void OnTableFilterChanged(string filter)
     {
-        historyPage = 1; // Reset to first page on filter change
-        expandedHistoryId = null; // Collapse any expanded row
+        historyPage = 1;
+        expandedHistoryId = null;
+        StateHasChanged();
+    }
+
+    private void ToggleDeviceFilter(string host, string displayName)
+    {
+        if (string.Equals(deviceFilter, host, StringComparison.OrdinalIgnoreCase))
+        {
+            deviceFilter = "";
+            deviceFilterName = "";
+        }
+        else
+        {
+            deviceFilter = host;
+            deviceFilterName = displayName;
+        }
+        historyPage = 1;
+        expandedHistoryId = null;
+        StateHasChanged();
+    }
+
+    private void ClearDeviceFilter()
+    {
+        deviceFilter = "";
+        deviceFilterName = "";
+        historyPage = 1;
+        expandedHistoryId = null;
         StateHasChanged();
     }
 
