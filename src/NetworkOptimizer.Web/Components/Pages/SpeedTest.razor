@@ -912,7 +912,7 @@
     </div>
 
     <!-- Test Locations Map -->
-    <SpeedTestMap Results="testHistory"
+    <SpeedTestMap Results="mapResults"
                   OnRefresh="LoadHistory"
                   OnResultClick="ScrollToResult"
                   ApMarkers="apMapMarkers"
@@ -1309,11 +1309,12 @@
     private List<DeviceSshConfiguration> devices = new();
     private DeviceSshConfiguration editingDevice = new() { DeviceType = DeviceType.Server, Enabled = true };
     private List<Iperf3Result> testHistory = new();
+    private List<Iperf3Result> mapResults = new();
     private List<ApMapMarker> apMapMarkers = new();
     private Iperf3Result? currentResult;
     private bool sshConfigured = false;
 
-    // Pagination (uses filteredHistory which respects the map's search filter)
+    // Pagination
     private int historyPage = 1;
     private int historyPageSize = 10;
     private int historyTotalPages => (int)Math.Ceiling(filteredHistory.Count / (double)historyPageSize);
@@ -1569,15 +1570,27 @@
     private async Task HandleSpeedTestTimeRangeChanged(int hours)
     {
         _speedTestTimeRangeHours = hours;
-        testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: hours);
+        UpdateMapResults();
         StateHasChanged();
+    }
+
+    private void UpdateMapResults()
+    {
+        if (_speedTestTimeRangeHours <= 0)
+        {
+            mapResults = testHistory;
+            return;
+        }
+        var cutoff = DateTime.UtcNow.AddHours(-_speedTestTimeRangeHours);
+        mapResults = testHistory.Where(r => r.TestTime >= cutoff).ToList();
     }
 
     private async Task LoadHistory()
     {
         try
         {
-            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: _speedTestTimeRangeHours);
+            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0, hours: 0);
+            UpdateMapResults();
             historyPage = 1; // Reset to first page when loading fresh data
 
             // Only set currentResult on initial page load (when it's null)
