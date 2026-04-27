@@ -372,7 +372,7 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Time</th>
+                                <th class="col-time">Time</th>
                                 @if (_wanSeries.Count > 1)
                                 {
                                     <th>WAN</th>
@@ -541,11 +541,11 @@
                 @if (_historyTotalPages > 1)
                 {
                     <div class="pagination" id="wan-history-pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangePage(-1)">← Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
                         <span class="pagination-info">
                             Page @_historyPage of @_historyTotalPages (@_filteredHistory.Count total)
                         </span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= _historyTotalPages)" @onclick="() => ChangePage(1)">Next →</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= _historyTotalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
                     </div>
                 }
             }
