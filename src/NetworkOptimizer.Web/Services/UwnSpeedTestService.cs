@@ -231,7 +231,31 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             if (_connectionService.IsConnected)
             {
                 var networks = await _connectionService.GetNetworksAsync();
-                wanNetworks = networks.Where(n => n.IsWan && n.Enabled).ToList();
+
+                // Use device-level WAN interface detection to determine which WANs
+                // are actually active on the gateway. The network config's "enabled"
+                // field is unreliable - UniFi reports disabled WANs as enabled=true.
+                HashSet<string>? activeWanGroups = null;
+                using (var scope = _scopeFactory.CreateScope())
+                {
+                    var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
+                    var activeWans = await sqmService.GetWanInterfacesFromControllerAsync();
+                    if (activeWans.Count > 0)
+                    {
+                        activeWanGroups = new HashSet<string>(
+                            activeWans.Where(w => !string.IsNullOrEmpty(w.NetworkGroup))
+                                .Select(w => w.NetworkGroup!),
+                            StringComparer.OrdinalIgnoreCase);
+                    }
+                    else
+                    {
+                        Logger.LogWarning("No active WAN interfaces detected on gateway - falling back to network config filter");
+                    }
+                }
+
+                wanNetworks = networks.Where(n => n.IsWan && n.Enabled
+                    && (activeWanGroups == null || activeWanGroups.Contains(n.WanNetworkgroup ?? "WAN")))
+                    .ToList();
                 isMultiWan = wanNetworks.Count > 1;
             }
 
@@ -248,61 +272,30 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                 }
                 else
                 {
-                    // Fallback without conntrack
-                    if (wanNetworks!.Count == 2)
-                    {
-                        // If measured speed exceeds any single WAN's configured speed,
-                        // it must be using both connections
-                        var maxSingleDown = wanNetworks.Max(n => n.WanDownloadMbps ?? 0);
-                        var maxSingleUp = wanNetworks.Max(n => n.WanUploadMbps ?? 0);
+                    // Fallback: if measured speed exceeds 125% of any single WAN's
+                    // configured speed, assume multiple WANs are bonded. The 25% margin
+                    // accounts for ISP overprovisioning and burst headroom.
+                    var maxSingleDown = wanNetworks!.Max(n => n.WanDownloadMbps ?? 0);
+                    var maxSingleUp = wanNetworks.Max(n => n.WanUploadMbps ?? 0);
+                    const double fudgeFactor = 1.25;
 
-                        if (downloadMbps > maxSingleDown || uploadMbps > maxSingleUp)
-                        {
-                            // Speed exceeds any single WAN - must be both
-                            var groups = wanNetworks
-                                .Select(n => n.WanNetworkgroup ?? "WAN")
-                                .Distinct().OrderBy(g => g);
-                            result.WanNetworkGroup = string.Join("+", groups);
-                            var names = wanNetworks
-                                .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
-                                .Distinct().OrderBy(n => n);
-                            result.WanName = string.Join(" + ", names);
-                        }
-                        else
-                        {
-                            // Speed fits within a single WAN - use best-match by WAN IP
-                            var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
-                                finalWanIp ?? "", downloadMbps, uploadMbps, cancellationToken);
-                            result.WanNetworkGroup = wanGroup;
-                            result.WanName = wanName;
-                        }
+                    if (downloadMbps > maxSingleDown * fudgeFactor || uploadMbps > maxSingleUp * fudgeFactor)
+                    {
+                        var groups = wanNetworks
+                            .Select(n => n.WanNetworkgroup ?? "WAN")
+                            .Distinct().OrderBy(g => g);
+                        result.WanNetworkGroup = string.Join("+", groups);
+                        var names = wanNetworks
+                            .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
+                            .Distinct().OrderBy(n => n);
+                        result.WanName = string.Join(" + ", names);
                     }
                     else
                     {
-                        // 3+ WANs: same heuristic - check if speed exceeds any single WAN
-                        var maxSingleDown = wanNetworks.Max(n => n.WanDownloadMbps ?? 0);
-                        var maxSingleUp = wanNetworks.Max(n => n.WanUploadMbps ?? 0);
-
-                        if (downloadMbps > maxSingleDown || uploadMbps > maxSingleUp)
-                        {
-                            // Speed exceeds any single WAN - assume all
-                            var groups = wanNetworks
-                                .Select(n => n.WanNetworkgroup ?? "WAN")
-                                .Distinct().OrderBy(g => g);
-                            result.WanNetworkGroup = string.Join("+", groups);
-                            var names = wanNetworks
-                                .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
-                                .Distinct().OrderBy(n => n);
-                            result.WanName = string.Join(" + ", names);
-                        }
-                        else
-                        {
-                            // Speed fits within a single WAN - try IP matching
-                            var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
-                                finalWanIp ?? "", downloadMbps, uploadMbps, cancellationToken);
-                            result.WanNetworkGroup = wanGroup;
-                            result.WanName = wanName;
-                        }
+                        var (wanGroup, wanName) = await PathAnalyzer.IdentifyWanConnectionAsync(
+                            finalWanIp ?? "", downloadMbps, uploadMbps, cancellationToken);
+                        result.WanNetworkGroup = wanGroup;
+                        result.WanName = wanName;
                     }
                 }
             }
@@ -364,7 +357,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             List<string> wanIfaceNames;
             using (var scope = _scopeFactory.CreateScope())
             {
-                var sqmService = scope.ServiceProvider.GetRequiredService<SqmService>();
+                var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
                 var wanInterfaces = await sqmService.GetWanInterfacesFromControllerAsync();
                 if (wanInterfaces.Count == 0)
                     return null;
