@@ -787,8 +787,6 @@
                                 <td>
                                     @{
                                         var showDashLink = result.IsLocalLanClient();
-                                    }
-                                    @{
                                         var isDeviceFiltered = string.Equals(deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                     }
                                     @if (!string.IsNullOrEmpty(result.DeviceName))
