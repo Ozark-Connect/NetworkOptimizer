@@ -196,6 +196,14 @@
                                            OnSearch="OnFilterChanged"
                                            ShowStatus="true"
                                            ResultCount="filteredHistory.Count" />
+                    @if (!string.IsNullOrEmpty(deviceFilter))
+                    {
+                        <div class="device-filter-pill">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                            <span>Filtering to <strong>@deviceFilterName</strong></span>
+                            <button class="device-filter-clear" @onclick="ClearDeviceFilter" type="button">×</button>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -256,6 +264,9 @@
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
                                                 </a>
                                             }
+                                            <button class="device-filter-btn" @onclick="() => SetDeviceFilter(result.DeviceHost, result.DeviceName ?? result.DeviceHost)" @onclick:stopPropagation data-tooltip="Filter to this device">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                            </button>
                                             <br />
                                             <code class="text-muted">@result.DeviceHost</code>
                                         }
@@ -269,6 +280,9 @@
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
                                                 </a>
                                             }
+                                            <button class="device-filter-btn" @onclick="() => SetDeviceFilter(result.DeviceHost, result.DeviceHost)" @onclick:stopPropagation data-tooltip="Filter to this device">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                            </button>
                                         }
                                     </td>
                                     <td>
@@ -340,7 +354,7 @@
                 {
                     <div class="pagination" id="history-pagination">
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
-                        <span class="pagination-info">Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) ? " total" : $" of {testHistory.Count}"))</span>
+                        <span class="pagination-info">Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) && string.IsNullOrEmpty(deviceFilter) ? " total" : $" of {testHistory.Count}"))</span>
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next</button>
                     </div>
                 }
@@ -649,7 +663,8 @@
         background: var(--bg-tertiary);
     }
 
-    .client-dashboard-link {
+    .client-dashboard-link,
+    .device-filter-btn {
         color: var(--text-muted);
         margin-left: 4px;
         vertical-align: middle;
@@ -657,12 +672,59 @@
         transition: opacity 0.15s;
     }
 
-    .history-row-clickable:hover .client-dashboard-link {
+    .device-filter-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .history-row-clickable:hover .client-dashboard-link,
+    .history-row-clickable:hover .device-filter-btn {
         opacity: 1;
     }
 
-    .client-dashboard-link:hover {
+    .client-dashboard-link:hover,
+    .device-filter-btn:hover {
         color: var(--primary-color);
+    }
+
+    .device-filter-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.25rem 0.5rem;
+        background: rgba(5, 89, 201, 0.15);
+        border: 1px solid rgba(5, 89, 201, 0.3);
+        border-radius: 999px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+
+    .device-filter-pill svg {
+        flex-shrink: 0;
+        color: var(--primary-color);
+    }
+
+    .device-filter-clear {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.125rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 0.125rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .device-filter-clear:hover {
+        color: var(--text-primary);
+        background: rgba(255, 255, 255, 0.1);
     }
 
     .history-row-expanded {
@@ -685,6 +747,10 @@
     }
 
     .history-search-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
         padding-top: 0.5rem;
         border-top: 1px solid var(--border-color);
     }
@@ -715,10 +781,23 @@
     // Search filter (uses shared SpeedTestFilterHelper for consistency with repository)
     private string historySearchFilter = "";
 
-    // Filtered results based on search filter
-    private List<Iperf3Result> filteredHistory => string.IsNullOrEmpty(historySearchFilter)
-        ? testHistory
-        : testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
+    // Device filter (set by clicking filter icon on a row)
+    private string deviceFilter = "";
+    private string deviceFilterName = "";
+
+    // Filtered results based on search filter and device filter
+    private List<Iperf3Result> filteredHistory
+    {
+        get
+        {
+            IEnumerable<Iperf3Result> results = testHistory;
+            if (!string.IsNullOrEmpty(deviceFilter))
+                results = results.Where(r => string.Equals(r.DeviceHost, deviceFilter, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(historySearchFilter))
+                results = results.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant()));
+            return results.ToList();
+        }
+    }
 
     // Pagination
     private int historyPage = 1;
@@ -992,6 +1071,24 @@
 
     private void OnFilterChanged(string filter)
     {
+        historyPage = 1;
+        expandedHistoryId = null;
+        StateHasChanged();
+    }
+
+    private void SetDeviceFilter(string host, string displayName)
+    {
+        deviceFilter = host;
+        deviceFilterName = displayName;
+        historyPage = 1;
+        expandedHistoryId = null;
+        StateHasChanged();
+    }
+
+    private void ClearDeviceFilter()
+    {
+        deviceFilter = "";
+        deviceFilterName = "";
         historyPage = 1;
         expandedHistoryId = null;
         StateHasChanged();
