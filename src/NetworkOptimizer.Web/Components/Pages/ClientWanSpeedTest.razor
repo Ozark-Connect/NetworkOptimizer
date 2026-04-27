@@ -163,10 +163,13 @@
                                         @onclick="@(() => ToggleExpand(result.Id))">
                                         <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                         <td>
+                                            @{
+                                                var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
+                                            }
                                             @if (!string.IsNullOrEmpty(result.DeviceName))
                                             {
                                                 <span>@result.DeviceName</span>
-                                                <button class="device-filter-btn" @onclick="() => SetDeviceFilter(result.DeviceHost, result.DeviceName ?? result.DeviceHost)" @onclick:stopPropagation data-tooltip="Filter to this device">
+                                                <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceName ?? result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                                                 </button>
                                                 <br />
@@ -175,7 +178,7 @@
                                             else
                                             {
                                                 <code>@result.DeviceHost</code>
-                                                <button class="device-filter-btn" @onclick="() => SetDeviceFilter(result.DeviceHost, result.DeviceHost)" @onclick:stopPropagation data-tooltip="Filter to this device">
+                                                <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                                                 </button>
                                             }
@@ -240,9 +243,9 @@
                     @if (_totalPages > 1)
                     {
                         <div class="pagination">
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
                             <span class="pagination-info">Page @_page of @_totalPages (@_filteredResults.Count@(string.IsNullOrEmpty(_deviceFilter) ? " total" : $" of {_results.Count}"))</span>
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next</button>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
                         </div>
                     }
                 }
@@ -439,12 +442,17 @@
         margin-left: 4px;
         vertical-align: middle;
         opacity: 0;
-        transition: opacity 0.15s;
+        transition: opacity 0.15s, color 0.15s;
         background: none;
         border: none;
         cursor: pointer;
         padding: 0;
         line-height: 1;
+    }
+
+    .device-filter-btn.active {
+        opacity: 1;
+        color: var(--primary-color);
     }
 
     .history-row-clickable:hover .device-filter-btn {
@@ -587,10 +595,18 @@
         await LoadResults();
     }
 
-    private void SetDeviceFilter(string host, string displayName)
+    private void ToggleDeviceFilter(string host, string displayName)
     {
-        _deviceFilter = host;
-        _deviceFilterName = displayName;
+        if (string.Equals(_deviceFilter, host, StringComparison.OrdinalIgnoreCase))
+        {
+            _deviceFilter = "";
+            _deviceFilterName = "";
+        }
+        else
+        {
+            _deviceFilter = host;
+            _deviceFilterName = displayName;
+        }
         _page = 1;
         _expandedId = 0;
         StateHasChanged();

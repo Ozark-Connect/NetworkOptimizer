@@ -5355,6 +5355,11 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.875rem;
 }
 
+.pag-arrow {
+    position: relative;
+    top: -1px;
+}
+
 /* ============================================
    Result Summary (compact link to full result)
    ============================================ */
