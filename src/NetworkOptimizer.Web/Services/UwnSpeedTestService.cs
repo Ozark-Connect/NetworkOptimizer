@@ -238,7 +238,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                 HashSet<string>? activeWanGroups = null;
                 using (var scope = _scopeFactory.CreateScope())
                 {
-                    var sqmService = scope.ServiceProvider.GetRequiredService<SqmService>();
+                    var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
                     var activeWans = await sqmService.GetWanInterfacesFromControllerAsync();
                     if (activeWans.Count > 0)
                     {
@@ -357,7 +357,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             List<string> wanIfaceNames;
             using (var scope = _scopeFactory.CreateScope())
             {
-                var sqmService = scope.ServiceProvider.GetRequiredService<SqmService>();
+                var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
                 var wanInterfaces = await sqmService.GetWanInterfacesFromControllerAsync();
                 if (wanInterfaces.Count == 0)
                     return null;
