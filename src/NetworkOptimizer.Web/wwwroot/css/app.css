@@ -1663,6 +1663,11 @@ a.stat-card-link:active {
     font-size: 0.8125rem;
 }
 
+.data-table .col-time {
+    width: 110px;
+    white-space: nowrap;
+}
+
 .data-table tr:not(.history-details-row):hover {
     background: var(--bg-hover);
 }
