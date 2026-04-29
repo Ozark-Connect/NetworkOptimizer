@@ -2268,6 +2268,7 @@
 
         // Reset all interface-dependent fields to defaults for the new WAN
         config.WanLinkSpeedMbps = wanInfo.LinkSpeedMbps;
+        config.LinkSpeedOverrideMbps = null;
         config.Name = wanInfo.Name;
         config.ConnectionType = ConnectionType.DocsisCable;
         config.NominalDownload = 300;
