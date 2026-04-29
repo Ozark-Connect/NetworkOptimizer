@@ -2592,33 +2592,31 @@
                 await ScrollDeploymentLog();
             }
 
-            // Validate Smart Queue download rates are high enough for Adaptive SQM
-            foreach (var wanConfig in new[] { (config: wan1Config, ready: wan1Config.Enabled), (config: wan2Config, ready: wan2Config.Enabled) })
-            {
-                if (!wanConfig.ready) continue;
-
-                var wanInfo = wanInterfaces.FirstOrDefault(w =>
-                    w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
-                if (wanInfo?.SmartqDownRateMbps == null) continue;
-
-                // Effective max shaping rate = min(AbsoluteMax, physical link speed). Smart Queues
-                // must allow at least this rate; we never shape above physical line rate.
-                // Allow 1 Mbps tolerance: UniFi Network EA/RC has a bug where Smart Queues
-                // breaks unless the rate is set to interface speed minus 1 (e.g. 999 on 1 GbE).
-                var effectiveMax = wanConfig.config.EffectiveLinkSpeedMbps is > 0
-                    ? Math.Min(wanConfig.config.AbsoluteMax, wanConfig.config.EffectiveLinkSpeedMbps.Value)
-                    : wanConfig.config.AbsoluteMax;
-                if (wanInfo.SmartqDownRateMbps < effectiveMax - 1)
-                {
-                    statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
-                        $"but Adaptive SQM needs up to {effectiveMax} Mbps. " +
-                        $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
-                    statusSuccess = false;
-                    isDeploying = false;
-                    StateHasChanged();
-                    return;
-                }
-            }
+            // Smart Queue download rate validation - commented out because UniFi Network
+            // never clobbers our TC config once Adaptive SQM takes over. The rate shown in
+            // the UniFi UI becomes irrelevant after our scripts replace the qdiscs.
+            // foreach (var wanConfig in new[] { (config: wan1Config, ready: wan1Config.Enabled), (config: wan2Config, ready: wan2Config.Enabled) })
+            // {
+            //     if (!wanConfig.ready) continue;
+            //
+            //     var wanInfo = wanInterfaces.FirstOrDefault(w =>
+            //         w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
+            //     if (wanInfo?.SmartqDownRateMbps == null) continue;
+            //
+            //     var effectiveMax = wanConfig.config.EffectiveLinkSpeedMbps is > 0
+            //         ? Math.Min(wanConfig.config.AbsoluteMax, wanConfig.config.EffectiveLinkSpeedMbps.Value)
+            //         : wanConfig.config.AbsoluteMax;
+            //     if (wanInfo.SmartqDownRateMbps < effectiveMax - 1)
+            //     {
+            //         statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
+            //             $"but Adaptive SQM needs up to {effectiveMax} Mbps. " +
+            //             $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
+            //         statusSuccess = false;
+            //         isDeploying = false;
+            //         StateHasChanged();
+            //         return;
+            //     }
+            // }
 
             // Validate IFB device settle time - Smart Queues needs ~45s after enabling for the IFB device to initialize
             foreach (var wanConfig in new[] { wan1Config, wan2Config })
