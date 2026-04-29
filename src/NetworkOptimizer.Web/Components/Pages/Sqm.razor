@@ -564,10 +564,6 @@
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
-                        <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
-                    </div>
-                    <div class="param">
                         <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan1Config.BaselineLatency" min="1" max="500" step="1" />
                         <span class="param-unit">ms</span>
@@ -576,6 +572,10 @@
                         <span class="param-label">Latency Threshold <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Ping deviation from baseline that triggers a rate adjustment. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan1Config.LatencyThreshold" min="0.5" max="50" step="0.5" />
                         <span class="param-unit">ms</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
+                        <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                 </div>
             </div>
@@ -735,10 +735,6 @@
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
-                        <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
-                    </div>
-                    <div class="param">
                         <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan2Config.BaselineLatency" min="1" max="500" step="1" />
                         <span class="param-unit">ms</span>
@@ -747,6 +743,10 @@
                         <span class="param-label">Latency Threshold <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Ping deviation from baseline that triggers a rate adjustment. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan2Config.LatencyThreshold" min="0.5" max="50" step="0.5" />
                         <span class="param-unit">ms</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
+                        <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                 </div>
             </div>
