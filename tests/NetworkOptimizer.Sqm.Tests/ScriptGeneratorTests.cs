@@ -279,6 +279,68 @@ public class ScriptGeneratorTests
         Assert.Contains("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]", ping);
     }
 
+    [Fact]
+    public void GenerateAllScripts_OverriddenLinkSpeed_UsesOverrideInScripts()
+    {
+        // Simulates a 2.5G SFP that reports as 1G - user overrides to 2500
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Test WAN",
+            Interface = "eth6",
+            MaxDownloadSpeed = 1013,
+            MinDownloadSpeed = 868,
+            AbsoluteMaxDownloadSpeed = 1032,
+            PingHost = "8.8.8.8",
+            WanLinkSpeedMbps = 2500
+        };
+
+        var generator = new ScriptGenerator(config);
+        var bootScript = generator.GenerateAllScripts(new Dictionary<string, string>()).Values.First();
+
+        var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
+        var ping = ExtractHeredocSection(bootScript, "PING_EOF");
+
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"2500\"", speedtest);
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"2500\"", ping);
+        // Probe rate = 1.05 * max(1032, 2500) = 2625
+        Assert.Contains("SPEEDTEST_PROBE_RATE=\"2625\"", speedtest);
+    }
+
+    [Fact]
+    public void ApplyProfileSettings_WithLinkSpeedOverride_StoresOverriddenValue()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionType = ConnectionType.Gpon,
+            NominalDownloadSpeed = 965,
+            NominalUploadSpeed = 50,
+            Interface = "eth6"
+        };
+
+        // Apply with overridden speed (2500 instead of detected 1000)
+        config.ApplyProfileSettings(wanLinkSpeedMbps: 2500);
+
+        Assert.Equal(2500, config.WanLinkSpeedMbps);
+        // Probe rate should be above 2500, not 1000
+        Assert.True(config.SpeedtestProbeRateMbps > 2500);
+    }
+
+    [Fact]
+    public void ApplyProfileSettings_WithNullLinkSpeed_LeavesLinkSpeedNull()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionType = ConnectionType.Gpon,
+            NominalDownloadSpeed = 965,
+            NominalUploadSpeed = 50,
+            Interface = "eth6"
+        };
+
+        config.ApplyProfileSettings(wanLinkSpeedMbps: null);
+
+        Assert.Null(config.WanLinkSpeedMbps);
+    }
+
     /// <summary>
     /// Extracts the content between heredoc delimiters (e.g., between 'SPEEDTEST_EOF' markers).
     /// </summary>
