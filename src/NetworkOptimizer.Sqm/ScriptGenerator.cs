@@ -278,8 +278,8 @@ public class ScriptGenerator
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
 
-        // Set probe rate slightly above line rate before speedtest so TC never engages
-        sb.AppendLine("# Set SQM to probe rate (~5% above line rate) before speedtest for truly unshaped measurement");
+        // Set probe rate slightly above max shaping rate before speedtest so TC never engages
+        sb.AppendLine("# Set SQM to probe rate (3% above max shaping rate) before speedtest for unshaped measurement");
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE");
         sb.AppendLine("# Upstream: shape rate if enabled, otherwise just tune performance params");
         sb.AppendLine("if [ \"$SHAPE_UPLOAD\" = \"1\" ]; then");

@@ -2116,10 +2116,9 @@
             config.MinSpeed = Math.Min(config.MinSpeed, linkCeiling);
         }
 
-        // Speedtest probe rate: 5% above the larger of AbsoluteMax or link speed, ensuring
-        // TC never engages during the speedtest probe. Matches SqmConfiguration.SpeedtestProbeRateMbps.
-        var probeBasis = Math.Max(config.AbsoluteMax, config.EffectiveLinkSpeedMbps ?? 0);
-        config.SpeedtestProbeRate = Math.Max(100, (int)(probeBasis * 1.05));
+        // Speedtest probe rate: 3% above MaxSpeed (the highest shaping rate).
+        // Matches SqmConfiguration.SpeedtestProbeRateMbps.
+        config.SpeedtestProbeRate = Math.Max(100, (int)(config.MaxSpeed * 1.03));
     }
 
     private static string GetLatencyClass(double latencyMs, double baselineMs)

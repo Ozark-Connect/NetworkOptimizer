@@ -246,8 +246,8 @@ public class ScriptGeneratorTests
         var bootScript = generator.GenerateAllScripts(new Dictionary<string, string>()).Values.First();
         var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
 
-        // Probe rate = 1.05 * max(AbsoluteMax, LinkSpeed) = 1.05 * max(1032, 1000) = 1083
-        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1083\"", speedtest);
+        // Probe rate = MaxDownloadSpeed * 1.03 = 1013 * 1.03 = 1043
+        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1043\"", speedtest);
         // Initial TC set uses probe rate, not ABSOLUTE_MAX_DOWNLOAD_SPEED
         Assert.Contains("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE", speedtest);
     }
@@ -302,8 +302,8 @@ public class ScriptGeneratorTests
 
         Assert.Contains("WAN_LINK_SPEED_MBPS=\"2500\"", speedtest);
         Assert.Contains("WAN_LINK_SPEED_MBPS=\"2500\"", ping);
-        // Probe rate = 1.05 * max(1032, 2500) = 2625
-        Assert.Contains("SPEEDTEST_PROBE_RATE=\"2625\"", speedtest);
+        // Probe rate = MaxDownloadSpeed * 1.03 = 1013 * 1.03 = 1043
+        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1043\"", speedtest);
     }
 
     [Fact]
@@ -321,8 +321,9 @@ public class ScriptGeneratorTests
         config.ApplyProfileSettings(wanLinkSpeedMbps: 2500);
 
         Assert.Equal(2500, config.WanLinkSpeedMbps);
-        // Probe rate should be above 2500, not 1000
-        Assert.True(config.SpeedtestProbeRateMbps > 2500);
+        // Probe rate = MaxDownloadSpeed * 1.025, just above the shaping ceiling
+        Assert.True(config.SpeedtestProbeRateMbps > config.MaxDownloadSpeed);
+        Assert.True(config.SpeedtestProbeRateMbps <= (int)(config.MaxDownloadSpeed * 1.04));
     }
 
     [Fact]
