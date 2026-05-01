@@ -575,7 +575,11 @@ public class ScriptGenerator
         return @"# 5KB burst eliminates downstream drop_overmemory for bulk flows at gig speeds.
 # 8KB+ creates bursty HTB send patterns that increase queue depth variance in fq_codel.
 calc_burst() {
-    echo ""5120""
+    local rate_mbps=$1
+    local burst=$((rate_mbps * 5))
+    [ ""$burst"" -lt 1500 ] && burst=1500
+    [ ""$burst"" -gt 5000 ] && burst=5000
+    echo ""$burst""
 }
 
 # Calculate fq_codel memory_limit scaled to rate (prevents drop_overmemory at high speeds)
