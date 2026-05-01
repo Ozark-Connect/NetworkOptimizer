@@ -572,16 +572,10 @@ public class ScriptGenerator
     /// </summary>
     private string GetTcUpdateFunction()
     {
-        return @"# Burst size tuning history:
-# Config E testing showed 5KB burst eliminates downstream drop_overmemory for bulk
-# flows at gig speeds, but 8KB+ creates bursty HTB send patterns (dump at wire rate,
-# pause for token refill) that increase queue depth variance in fq_codel - shows up
-# as latency jitter under load even though fq_codel is working correctly.
-# Whether higher burst helps depends on ISP policing/shaping - some ISPs police with
-# token bucket and penalize bursts above stock, others are fine with 5KB.
-# Reverted to stock 1500b pending per-connection configurability.
+        return @"# 5KB burst eliminates downstream drop_overmemory for bulk flows at gig speeds.
+# 8KB+ creates bursty HTB send patterns that increase queue depth variance in fq_codel.
 calc_burst() {
-    echo ""1500""
+    echo ""5120""
 }
 
 # Calculate fq_codel memory_limit scaled to rate (prevents drop_overmemory at high speeds)
