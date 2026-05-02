@@ -246,8 +246,8 @@ public class ScriptGeneratorTests
         var bootScript = generator.GenerateAllScripts(new Dictionary<string, string>()).Values.First();
         var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
 
-        // Probe rate = 1.05 * max(AbsoluteMax, LinkSpeed) = 1.05 * max(1032, 1000) = 1083
-        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1083\"", speedtest);
+        // Probe rate = MaxDownloadSpeed * 1.03 = 1013 * 1.03 = 1043
+        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1043\"", speedtest);
         // Initial TC set uses probe rate, not ABSOLUTE_MAX_DOWNLOAD_SPEED
         Assert.Contains("update_all_tc_classes $IFB_DEVICE $SPEEDTEST_PROBE_RATE", speedtest);
     }
@@ -277,6 +277,69 @@ public class ScriptGeneratorTests
         // Guard ensures clamp only runs when link speed is known
         Assert.Contains("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]", speedtest);
         Assert.Contains("if [ \"$WAN_LINK_SPEED_MBPS\" -gt 0 ]", ping);
+    }
+
+    [Fact]
+    public void GenerateAllScripts_OverriddenLinkSpeed_UsesOverrideInScripts()
+    {
+        // Simulates a 2.5G SFP that reports as 1G - user overrides to 2500
+        var config = new SqmConfiguration
+        {
+            ConnectionName = "Test WAN",
+            Interface = "eth6",
+            MaxDownloadSpeed = 1013,
+            MinDownloadSpeed = 868,
+            AbsoluteMaxDownloadSpeed = 1032,
+            PingHost = "8.8.8.8",
+            WanLinkSpeedMbps = 2500
+        };
+
+        var generator = new ScriptGenerator(config);
+        var bootScript = generator.GenerateAllScripts(new Dictionary<string, string>()).Values.First();
+
+        var speedtest = ExtractHeredocSection(bootScript, "SPEEDTEST_EOF");
+        var ping = ExtractHeredocSection(bootScript, "PING_EOF");
+
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"2500\"", speedtest);
+        Assert.Contains("WAN_LINK_SPEED_MBPS=\"2500\"", ping);
+        // Probe rate = MaxDownloadSpeed * 1.03 = 1013 * 1.03 = 1043
+        Assert.Contains("SPEEDTEST_PROBE_RATE=\"1043\"", speedtest);
+    }
+
+    [Fact]
+    public void ApplyProfileSettings_WithLinkSpeedOverride_StoresOverriddenValue()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionType = ConnectionType.Gpon,
+            NominalDownloadSpeed = 965,
+            NominalUploadSpeed = 50,
+            Interface = "eth6"
+        };
+
+        // Apply with overridden speed (2500 instead of detected 1000)
+        config.ApplyProfileSettings(wanLinkSpeedMbps: 2500);
+
+        Assert.Equal(2500, config.WanLinkSpeedMbps);
+        // Probe rate = MaxDownloadSpeed * 1.025, just above the shaping ceiling
+        Assert.True(config.SpeedtestProbeRateMbps > config.MaxDownloadSpeed);
+        Assert.True(config.SpeedtestProbeRateMbps <= (int)(config.MaxDownloadSpeed * 1.04));
+    }
+
+    [Fact]
+    public void ApplyProfileSettings_WithNullLinkSpeed_LeavesLinkSpeedNull()
+    {
+        var config = new SqmConfiguration
+        {
+            ConnectionType = ConnectionType.Gpon,
+            NominalDownloadSpeed = 965,
+            NominalUploadSpeed = 50,
+            Interface = "eth6"
+        };
+
+        config.ApplyProfileSettings(wanLinkSpeedMbps: null);
+
+        Assert.Null(config.WanLinkSpeedMbps);
     }
 
     /// <summary>
