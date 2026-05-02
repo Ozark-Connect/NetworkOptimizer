@@ -499,7 +499,7 @@ public class WanSteerDeploymentService
     internal static Dictionary<string, (string FWMark, string RouteTable)> ParseIpRules(string output)
     {
         var map = new Dictionary<string, (string FWMark, string RouteTable)>();
-        var regex = new Regex(@"fwmark\s+(0x[0-9a-f]+)/0x7e0000\s+lookup\s+(\d+\.(eth\d+|ppp\d+))");
+        var regex = new Regex(@"fwmark\s+(0x[0-9a-f]+)/0x7e0000\s+lookup\s+(\d+\.([a-z][a-z0-9]*(?:\.\d+)?))");
 
         foreach (var line in output.Split('\n'))
         {
