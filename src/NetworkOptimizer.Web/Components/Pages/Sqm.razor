@@ -549,6 +549,11 @@
                 <h4>Calculated SQM Parameters</h4>
                 <div class="params-grid">
                     <div class="param">
+                        <span class="param-label">WAN Link Speed <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Auto-detected from your gateway's WAN port. Override if your SFP supports a higher speed than reported (e.g., 2.5 G SFP reporting as 1 G). Used as the shaping ceiling with 2% HTB headroom.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan1Config.LinkSpeedOverrideMbps" @bind:after="() => UpdateCalculatedSpeeds(wan1Config, resetLatency: false)" min="100" max="100000" placeholder="@(wan1Config.WanLinkSpeedMbps?.ToString() ?? "unknown")" />
+                        <span class="param-unit">Mbps</span>
+                    </div>
+                    <div class="param">
                         <span class="param-label">Latency Adjust Range <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Floor and ceiling for latency-based rate adjustments. The rate decreases when latency spikes and increases when it normalizes, within this range.">?</span></span>
                         <span class="param-value">@wan1Config.MinSpeed–@wan1Config.MaxSpeed</span>
                         <span class="param-unit">Mbps</span>
@@ -559,10 +564,6 @@
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
-                        <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
-                    </div>
-                    <div class="param">
                         <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan1Config.BaselineLatency" min="1" max="500" step="1" />
                         <span class="param-unit">ms</span>
@@ -571,6 +572,10 @@
                         <span class="param-label">Latency Threshold <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Ping deviation from baseline that triggers a rate adjustment. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan1Config.LatencyThreshold" min="0.5" max="50" step="0.5" />
                         <span class="param-unit">ms</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
+                        <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                 </div>
             </div>
@@ -715,6 +720,11 @@
                 <h4>Calculated SQM Parameters</h4>
                 <div class="params-grid">
                     <div class="param">
+                        <span class="param-label">WAN Link Speed <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Auto-detected from your gateway's WAN port. Override if your SFP supports a higher speed than reported (e.g., 2.5 G SFP reporting as 1 G). Used as the shaping ceiling with 2% HTB headroom.">?</span></span>
+                        <input type="number" class="param-input" @bind="wan2Config.LinkSpeedOverrideMbps" @bind:after="() => UpdateCalculatedSpeeds(wan2Config, resetLatency: false)" min="100" max="100000" placeholder="@(wan2Config.WanLinkSpeedMbps?.ToString() ?? "unknown")" />
+                        <span class="param-unit">Mbps</span>
+                    </div>
+                    <div class="param">
                         <span class="param-label">Latency Adjust Range <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Floor and ceiling for latency-based rate adjustments. The rate decreases when latency spikes and increases when it normalizes, within this range.">?</span></span>
                         <span class="param-value">@wan2Config.MinSpeed–@wan2Config.MaxSpeed</span>
                         <span class="param-unit">Mbps</span>
@@ -725,10 +735,6 @@
                         <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
-                        <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
-                    </div>
-                    <div class="param">
                         <span class="param-label">Baseline Latency <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Unloaded ping to your target host. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan2Config.BaselineLatency" min="1" max="500" step="1" />
                         <span class="param-unit">ms</span>
@@ -737,6 +743,10 @@
                         <span class="param-label">Latency Threshold <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Ping deviation from baseline that triggers a rate adjustment. Auto-calculated from connection type, but you can override it.">?</span></span>
                         <input type="number" class="param-input" @bind="wan2Config.LatencyThreshold" min="0.5" max="50" step="0.5" />
                         <span class="param-unit">ms</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Speed Margin <span class="tooltip-icon" data-tooltip="How aggressively SQM must shape traffic to eliminate bufferbloat. Lower = more aggressive shaping needed.">?</span></span>
+                        <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                 </div>
             </div>
@@ -1860,6 +1870,7 @@
                     var matchingWan = wanInterfaces.FirstOrDefault(w =>
                         w.Interface.Equals(saved.Interface, StringComparison.OrdinalIgnoreCase));
                     config.WanLinkSpeedMbps = matchingWan?.LinkSpeedMbps;
+                    config.LinkSpeedOverrideMbps = saved.LinkSpeedOverrideMbps;
 
                     UpdateCalculatedSpeeds(config);
 
@@ -1915,6 +1926,7 @@
                     LatencyThresholdMs = Math.Abs(wan1Config.LatencyThreshold - wan1Config.DefaultLatencyThreshold) > 0.01
                         ? wan1Config.LatencyThreshold : null,
                     CongestionSeverity = wan1Config.CongestionSeverity,
+                    LinkSpeedOverrideMbps = wan1Config.LinkSpeedOverrideMbps,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
                     SpeedtestEveningHour = wan1Config.EveningHour,
@@ -1942,6 +1954,7 @@
                     LatencyThresholdMs = Math.Abs(wan2Config.LatencyThreshold - wan2Config.DefaultLatencyThreshold) > 0.01
                         ? wan2Config.LatencyThreshold : null,
                     CongestionSeverity = wan2Config.CongestionSeverity,
+                    LinkSpeedOverrideMbps = wan2Config.LinkSpeedOverrideMbps,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
                     SpeedtestEveningHour = wan2Config.EveningHour,
@@ -2096,17 +2109,16 @@
         // headroom) so the shown floor/ceiling reflects actual shaping behavior. AbsoluteMax
         // stays uncapped - it's the profile-derived basis for the speedtest probe rate.
         // Keep 0.98 in sync with LINK_SPEED_HEADROOM in ScriptGenerator.cs.
-        if (config.WanLinkSpeedMbps is > 0)
+        if (config.EffectiveLinkSpeedMbps is > 0)
         {
-            var linkCeiling = (int)(config.WanLinkSpeedMbps.Value * 0.98);
+            var linkCeiling = (int)(config.EffectiveLinkSpeedMbps.Value * 0.98);
             config.MaxSpeed = Math.Min(config.MaxSpeed, linkCeiling);
             config.MinSpeed = Math.Min(config.MinSpeed, linkCeiling);
         }
 
-        // Speedtest probe rate: 5% above the larger of AbsoluteMax or link speed, ensuring
-        // TC never engages during the speedtest probe. Matches SqmConfiguration.SpeedtestProbeRateMbps.
-        var probeBasis = Math.Max(config.AbsoluteMax, config.WanLinkSpeedMbps ?? 0);
-        config.SpeedtestProbeRate = Math.Max(100, (int)(probeBasis * 1.05));
+        // Speedtest probe rate: 3% above MaxSpeed (the highest shaping rate).
+        // Matches SqmConfiguration.SpeedtestProbeRateMbps.
+        config.SpeedtestProbeRate = Math.Max(100, (int)(config.MaxSpeed * 1.03));
     }
 
     private static string GetLatencyClass(double latencyMs, double baselineMs)
@@ -2255,6 +2267,7 @@
 
         // Reset all interface-dependent fields to defaults for the new WAN
         config.WanLinkSpeedMbps = wanInfo.LinkSpeedMbps;
+        config.LinkSpeedOverrideMbps = null;
         config.Name = wanInfo.Name;
         config.ConnectionType = ConnectionType.DocsisCable;
         config.NominalDownload = 300;
@@ -2579,33 +2592,31 @@
                 await ScrollDeploymentLog();
             }
 
-            // Validate Smart Queue download rates are high enough for Adaptive SQM
-            foreach (var wanConfig in new[] { (config: wan1Config, ready: wan1Config.Enabled), (config: wan2Config, ready: wan2Config.Enabled) })
-            {
-                if (!wanConfig.ready) continue;
-
-                var wanInfo = wanInterfaces.FirstOrDefault(w =>
-                    w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
-                if (wanInfo?.SmartqDownRateMbps == null) continue;
-
-                // Effective max shaping rate = min(AbsoluteMax, physical link speed). Smart Queues
-                // must allow at least this rate; we never shape above physical line rate.
-                // Allow 1 Mbps tolerance: UniFi Network EA/RC has a bug where Smart Queues
-                // breaks unless the rate is set to interface speed minus 1 (e.g. 999 on 1 GbE).
-                var effectiveMax = wanConfig.config.WanLinkSpeedMbps is > 0
-                    ? Math.Min(wanConfig.config.AbsoluteMax, wanConfig.config.WanLinkSpeedMbps.Value)
-                    : wanConfig.config.AbsoluteMax;
-                if (wanInfo.SmartqDownRateMbps < effectiveMax - 1)
-                {
-                    statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
-                        $"but Adaptive SQM needs up to {effectiveMax} Mbps. " +
-                        $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
-                    statusSuccess = false;
-                    isDeploying = false;
-                    StateHasChanged();
-                    return;
-                }
-            }
+            // Smart Queue download rate validation - commented out because UniFi Network
+            // never clobbers our TC config once Adaptive SQM takes over. The rate shown in
+            // the UniFi UI becomes irrelevant after our scripts replace the qdiscs.
+            // foreach (var wanConfig in new[] { (config: wan1Config, ready: wan1Config.Enabled), (config: wan2Config, ready: wan2Config.Enabled) })
+            // {
+            //     if (!wanConfig.ready) continue;
+            //
+            //     var wanInfo = wanInterfaces.FirstOrDefault(w =>
+            //         w.Interface.Equals(wanConfig.config.Interface, StringComparison.OrdinalIgnoreCase));
+            //     if (wanInfo?.SmartqDownRateMbps == null) continue;
+            //
+            //     var effectiveMax = wanConfig.config.EffectiveLinkSpeedMbps is > 0
+            //         ? Math.Min(wanConfig.config.AbsoluteMax, wanConfig.config.EffectiveLinkSpeedMbps.Value)
+            //         : wanConfig.config.AbsoluteMax;
+            //     if (wanInfo.SmartqDownRateMbps < effectiveMax - 1)
+            //     {
+            //         statusMessage = $"Smart Queue download rate for {wanConfig.config.Name} is {wanInfo.SmartqDownRateMbps} Mbps, " +
+            //             $"but Adaptive SQM needs up to {effectiveMax} Mbps. " +
+            //             $"Increase the rate in UniFi Network > Settings > Internet > {wanInfo.Name} > Advanced > Smart Queues.";
+            //         statusSuccess = false;
+            //         isDeploying = false;
+            //         StateHasChanged();
+            //         return;
+            //     }
+            // }
 
             // Validate IFB device settle time - Smart Queues needs ~45s after enabling for the IFB device to initialize
             foreach (var wanConfig in new[] { wan1Config, wan2Config })
@@ -3053,7 +3064,7 @@
             }
         };
 
-        config.ApplyProfileSettings(model.WanLinkSpeedMbps);
+        config.ApplyProfileSettings(model.EffectiveLinkSpeedMbps);
 
         // Restore user overrides (ApplyProfileSettings recalculates both)
         config.BaselineLatency = model.BaselineLatency;
@@ -3165,6 +3176,12 @@
         // Physical WAN port link speed (null if unknown, e.g., GRE tunnels)
         public int? WanLinkSpeedMbps { get; set; }
 
+        // User override for link speed (e.g., 2500 for a 2.5G SFP that reports as 1G)
+        public int? LinkSpeedOverrideMbps { get; set; }
+
+        // Effective link speed: override wins over auto-detected
+        public int? EffectiveLinkSpeedMbps => LinkSpeedOverrideMbps ?? WanLinkSpeedMbps;
+
         // Calculated values
         public int MaxSpeed { get; set; }
         public int MinSpeed { get; set; }
@@ -3192,8 +3209,8 @@
             // Physical link speed ceiling (HTB headroom below line rate). Must match
             // LINK_SPEED_HEADROOM in ScriptGenerator.cs.
             const double linkSpeedHeadroom = 0.98;
-            double? linkCeiling = WanLinkSpeedMbps is > 0
-                ? WanLinkSpeedMbps.Value * linkSpeedHeadroom
+            double? linkCeiling = EffectiveLinkSpeedMbps is > 0
+                ? EffectiveLinkSpeedMbps.Value * linkSpeedHeadroom
                 : null;
 
             double minRate = double.MaxValue;
@@ -3243,7 +3260,7 @@
         public WanConfigSnapshot ToSnapshot() => new(
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
-            BaselineLatency, LatencyThreshold, CongestionSeverity);
+            BaselineLatency, LatencyThreshold, CongestionSeverity, LinkSpeedOverrideMbps);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -3263,7 +3280,8 @@
                    EveningMinute != snapshot.EveningMinute ||
                    Math.Abs(BaselineLatency - snapshot.BaselineLatency) > 0.01 ||
                    Math.Abs(LatencyThreshold - snapshot.LatencyThreshold) > 0.01 ||
-                   Math.Abs(CongestionSeverity - snapshot.CongestionSeverity) > 0.001;
+                   Math.Abs(CongestionSeverity - snapshot.CongestionSeverity) > 0.001 ||
+                   LinkSpeedOverrideMbps != snapshot.LinkSpeedOverrideMbps;
         }
     }
 
@@ -3272,7 +3290,8 @@
         bool Enabled, string Name, string Interface, ConnectionType ConnectionType,
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
-        double BaselineLatency, double LatencyThreshold, double CongestionSeverity);
+        double BaselineLatency, double LatencyThreshold, double CongestionSeverity,
+        int? LinkSpeedOverrideMbps);
 
     public void Dispose()
     {

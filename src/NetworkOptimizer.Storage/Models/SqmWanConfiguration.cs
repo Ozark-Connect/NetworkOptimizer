@@ -64,6 +64,9 @@ public class SqmWanConfiguration
     /// <summary>Congestion severity multiplier (0.9-1.1, default 1.0). Scales the magnitude of schedule dips.</summary>
     public double CongestionSeverity { get; set; } = 1.0;
 
+    /// <summary>User-overridden WAN link speed in Mbps. Null = use auto-detected value from gateway port.</summary>
+    public int? LinkSpeedOverrideMbps { get; set; }
+
     /// <summary>When this configuration was created</summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
