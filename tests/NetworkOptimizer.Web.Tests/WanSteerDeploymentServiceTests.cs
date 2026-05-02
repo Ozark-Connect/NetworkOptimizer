@@ -70,6 +70,51 @@ public class WanSteerDeploymentServiceTests
         }
 
         [Fact]
+        public void Parses_vlan_tagged_interface()
+        {
+            var output = "32508:	from all fwmark 0x1a0000/0x7e0000 lookup 201.eth6.228\n";
+
+            var result = WanSteerDeploymentService.ParseIpRules(output);
+
+            result.Should().ContainKey("eth6.228");
+            result["eth6.228"].FWMark.Should().Be("0x1a0000");
+            result["eth6.228"].RouteTable.Should().Be("201.eth6.228");
+        }
+
+        [Fact]
+        public void Parses_gre_interface()
+        {
+            var output = "32510:	from all fwmark 0x6e0000/0x7e0000 lookup 180.gre1\n";
+
+            var result = WanSteerDeploymentService.ParseIpRules(output);
+
+            result.Should().ContainKey("gre1");
+            result["gre1"].FWMark.Should().Be("0x6e0000");
+            result["gre1"].RouteTable.Should().Be("180.gre1");
+        }
+
+        [Fact]
+        public void Parses_real_gateway_output_with_mixed_interfaces()
+        {
+            var output = string.Join("\n",
+                "0:	from all lookup local",
+                "32504:	from all fwmark 0x1c0000/0x7e0000 lookup 202.eth0",
+                "32506:	from all fwmark 0x720000/0x7e0000 lookup 182.eth1",
+                "32508:	from all fwmark 0x1a0000/0x7e0000 lookup 201.eth6.228",
+                "32510:	from all fwmark 0x6e0000/0x7e0000 lookup 180.gre1",
+                "32766:	from all lookup main",
+                "32767:	from all lookup default");
+
+            var result = WanSteerDeploymentService.ParseIpRules(output);
+
+            result.Should().HaveCount(4);
+            result.Should().ContainKey("eth0");
+            result.Should().ContainKey("eth1");
+            result.Should().ContainKey("eth6.228");
+            result.Should().ContainKey("gre1");
+        }
+
+        [Fact]
         public void Ignores_non_matching_fwmark_masks()
         {
             // Different mask than 0x7e0000 - should not match
