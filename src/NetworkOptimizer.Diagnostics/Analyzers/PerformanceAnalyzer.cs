@@ -558,7 +558,7 @@ public class PerformanceAnalyzer
         var fcOffProfileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (portProfiles != null)
         {
-            var fcOffProfiles = portProfiles.Where(p => p.FlowControlEnabled == false).ToList();
+            var fcOffProfiles = portProfiles.Where(p => !p.FlowControlEnabled).ToList();
             if (fcOffProfiles.Count > 0)
             {
                 _logger?.LogDebug("Found {Count} port profiles with Flow Control disabled", fcOffProfiles.Count);
@@ -596,7 +596,7 @@ public class PerformanceAnalyzer
             var affectedPorts = new List<string>();
             foreach (var port in device.PortTable)
             {
-                if (!port.Up || port.IsUplink)
+                if (!port.Up)
                     continue;
 
                 bool portFcOff;
@@ -606,7 +606,7 @@ public class PerformanceAnalyzer
                     profilesById.TryGetValue(port.PortConfId, out var profile))
                 {
                     // Port has a profile - check the profile's FC setting
-                    portFcOff = profile.FlowControlEnabled == false;
+                    portFcOff = !profile.FlowControlEnabled;
                     profileName = profile.Name;
                 }
                 else

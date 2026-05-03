@@ -1047,19 +1047,19 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_ProfileWithFcNull_NoIssue()
+    public void CheckFlowControl_GlobalOn_ProfileWithFcDefault_FlagsProfile()
     {
         var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
         var settings = CreateSettings(flowCtrlEnabled: true);
         var profiles = new List<UniFiPortProfile>
         {
-            new() { Id = "profile1", Name = "Default Profile", FlowControlEnabled = null }
+            new() { Id = "profile1", Name = "Default Profile" }
         };
 
         var result = _analyzer.CheckFlowControl(
             devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
 
-        result.Should().NotContain(i => i.Title.Contains("Profile"));
+        result.Should().Contain(i => i.Title.Contains("Profile") && i.Title.Contains("Default Profile"));
     }
 
     [Fact]
@@ -1151,7 +1151,7 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_UplinkPortWithFcOff_SkipsUplink()
+    public void CheckFlowControl_GlobalOn_UplinkPortWithFcOff_FlagsUplink()
     {
         var device = CreateSwitch("switch1", "Switch 1");
         device.PortTable = new List<SwitchPort>
@@ -1164,7 +1164,7 @@ public class PerformanceAnalyzerTests
             new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
             new List<UniFiClientResponse>(), settings, null);
 
-        result.Should().NotContain(i => i.Title.Contains("Overridden"));
+        result.Should().Contain(i => i.Title.Contains("Overridden"));
     }
 
     [Fact]
