@@ -114,7 +114,7 @@ public class UniFiProtectDeviceResponse
     private static readonly string[] ExcludePatterns =
     [
         "AI Key", "SuperLink", "Gateway", "NVR", "UNVR", "Cloud Key",
-        "Sensor", "Chime", "Bridge", "Hub"
+        "Sensor", "Chime", "Bridge", "Hub", "UNAS"
     ];
 
     /// <summary>
