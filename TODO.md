@@ -6,6 +6,7 @@
 - ✅ ~~Direction-aware bottleneck calculation~~ (done - `GetDirectionalEfficiency()` in PathAnalysisResult, separate TX/RX bottleneck in NetworkPathAnalyzer)
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
+- **Consistent wireless bottleneck attribution across test types:** LAN client speed tests show the bottleneck relative to the AP (e.g., "[AP] Back Yard (wireless)") while WAN client speed tests show it relative to the client (e.g., "[Phone] TJ iPhone (wireless)"). This is because WAN client paths reverse hops and swap ingress/egress, which flips the perspective. The wireless link is the same physical connection - both descriptions are technically correct but inconsistent. Investigate unifying to always name the AP side, since that's what users can control. Relevant code: `CalculateWanClientPathAsync` hop reversal/swap and `CalculateBottleneck` wireless link attribution.
 
 ### ✅ ~~Scheduled LAN Speed Test~~ (done - Alerts & Scheduling feature)
 

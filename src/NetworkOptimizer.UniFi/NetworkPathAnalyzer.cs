@@ -809,6 +809,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
                 }
 
+                // Ingress/egress ports belong to the upstream device
+                if (!string.IsNullOrEmpty(currentMac) && deviceDict.TryGetValue(currentMac, out var uplinkDev))
+                {
+                    deviceHop.IngressPortDeviceName = uplinkDev.Name;
+                    deviceHop.EgressPortDeviceName = uplinkDev.Name;
+                }
+
                 hops.Add(deviceHop);
             }
 
@@ -882,6 +889,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                             hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                         }
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+
+                        // Egress port is on the upstream device
+                        if (deviceDict.TryGetValue(device.UplinkMac, out var egressOwner))
+                            hop.EgressPortDeviceName = egressOwner.Name;
                     }
                 }
 
@@ -1044,6 +1055,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     // Just swap the port numbers/names for display order consistency
                     (hop.IngressPort, hop.EgressPort) = (hop.EgressPort, hop.IngressPort);
                     (hop.IngressPortName, hop.EgressPortName) = (hop.EgressPortName, hop.IngressPortName);
+                    (hop.IngressPortDeviceName, hop.EgressPortDeviceName) = (hop.EgressPortDeviceName, hop.IngressPortDeviceName);
                 }
                 else
                 {
@@ -1053,6 +1065,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     (hop.IngressSpeedMbps, hop.EgressSpeedMbps) = (hop.EgressSpeedMbps, hop.IngressSpeedMbps);
                     (hop.IsWirelessIngress, hop.IsWirelessEgress) = (hop.IsWirelessEgress, hop.IsWirelessIngress);
                     (hop.WirelessIngressBand, hop.WirelessEgressBand) = (hop.WirelessEgressBand, hop.WirelessIngressBand);
+                    (hop.IngressPortDeviceName, hop.EgressPortDeviceName) = (hop.EgressPortDeviceName, hop.IngressPortDeviceName);
                 }
             }
 
@@ -1731,6 +1744,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
             }
 
+            // Ingress/egress ports belong to the upstream device, not this target device
+            if (!string.IsNullOrEmpty(currentMac) && deviceDict.TryGetValue(currentMac, out var uplinkDevice))
+            {
+                deviceHop.IngressPortDeviceName = uplinkDevice.Name;
+                deviceHop.EgressPortDeviceName = uplinkDevice.Name;
+            }
+
             hops.Add(deviceHop);
         }
         else if (targetClient != null)
@@ -2086,6 +2106,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                             hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.Mac, device.LocalUplinkPort);
                         }
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+
+                        // Egress port is on the upstream device
+                        if (deviceDict.TryGetValue(device.UplinkMac, out var egressOwner))
+                            hop.EgressPortDeviceName = egressOwner.Name;
                     }
                 }
 
@@ -2785,11 +2809,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         int maxSpeed = 0;
         NetworkHop? bottleneckHop = null;
         string? bottleneckPort = null;
+        string? bottleneckPortDeviceName = null;
         bool isBottleneckMeshBackhaul = false;
         bool isBottleneckClientWifi = false;
 
-        foreach (var hop in path.Hops)
+        for (int i = 0; i < path.Hops.Count; i++)
         {
+            var hop = path.Hops[i];
+
             // Check ingress - skip for WAN/VPN hops where Ingress represents download speed,
             // not a physical port. The UI bottleneck check uses EgressSpeedMbps consistently
             // (matching "to device" direction), so we only feed Egress into the min calculation
@@ -2808,6 +2835,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     minSpeed = hop.IngressSpeedMbps;
                     bottleneckHop = hop;
                     bottleneckPort = GetPortDescription(hop.IngressPortName, hop.IngressPort, hop.IsWirelessIngress);
+                    bottleneckPortDeviceName = hop.IngressPortDeviceName;
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessIngress &&
                         hop.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
@@ -2825,10 +2853,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
                     // If this hop's egress feeds into a WirelessClient, it's a Wi-Fi link
-                    var hopIdx = path.Hops.IndexOf(hop);
-                    var nextIsWireless = hopIdx >= 0 && hopIdx + 1 < path.Hops.Count
-                        && path.Hops[hopIdx + 1].Type == HopType.WirelessClient;
+                    var nextIsWireless = i + 1 < path.Hops.Count
+                        && path.Hops[i + 1].Type == HopType.WirelessClient;
                     bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress || nextIsWireless);
+                    // TODO: Wireless bottleneck names the client on WAN paths but the AP on LAN paths
+                    // due to hop reversal in CalculateWanClientPathAsync. See TODO.md.
+                    bottleneckPortDeviceName = hop.EgressPortDeviceName;
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessEgress &&
                         hop.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
@@ -2856,20 +2886,23 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Only set description if there's a real bottleneck
             if (path.HasRealBottleneck)
             {
+                // Use the device that owns the port if known, otherwise the hop's own device
+                var deviceName = bottleneckPortDeviceName ?? bottleneckHop.DeviceName;
+
                 // Skip redundant port info when device name matches port (e.g., "WAN (WAN)")
-                var portSuffix = bottleneckPort?.Equals(bottleneckHop.DeviceName, StringComparison.OrdinalIgnoreCase) == true
+                var portSuffix = bottleneckPort?.Equals(deviceName, StringComparison.OrdinalIgnoreCase) == true
                     ? ""
                     : $" ({bottleneckPort})";
 
                 if (minSpeed < 1000)
                 {
-                    path.BottleneckDescription = $"{minSpeed} Mbps link at {bottleneckHop.DeviceName}{portSuffix}";
+                    path.BottleneckDescription = $"{minSpeed} Mbps link at {deviceName}{portSuffix}";
                 }
                 else
                 {
                     var gbps = minSpeed / 1000.0;
                     var gbpsStr = gbps % 1 == 0 ? $"{(int)gbps}" : $"{gbps:F1}";
-                    path.BottleneckDescription = $"{gbpsStr} Gbps link at {bottleneckHop.DeviceName}{portSuffix}";
+                    path.BottleneckDescription = $"{gbpsStr} Gbps link at {deviceName}{portSuffix}";
                 }
             }
         }

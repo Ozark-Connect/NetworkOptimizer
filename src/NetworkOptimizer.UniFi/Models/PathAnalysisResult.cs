@@ -87,15 +87,18 @@ public class PathAnalysisResult
             return;
         }
 
-        // AP tests are CPU-limited; anything above ~4.4 Gbps is considered good
-        const double ApGoodSpeedThreshold = 4400;
-        bool apPerformingWell = Path.TargetIsAccessPoint &&
-            (MeasuredFromDeviceMbps >= ApGoodSpeedThreshold || MeasuredToDeviceMbps >= ApGoodSpeedThreshold);
-
-        if (Path.TargetIsAccessPoint && apPerformingWell)
+        // AP/cellular modem tests are CPU-limited; if best direction is 25%+ below line rate,
+        // the device CPU is the bottleneck, not the network
+        bool isDeviceTarget = Path.TargetIsAccessPoint || Path.TargetIsCellularModem;
+        if (isDeviceTarget && Path.TheoreticalMaxMbps > 0)
         {
-            Insights.Add("AP speed test - results limited by AP CPU, not network");
-            return;
+            var bestMeasured = Math.Max(MeasuredFromDeviceMbps, MeasuredToDeviceMbps);
+            if (bestMeasured < Path.TheoreticalMaxMbps * 0.75)
+            {
+                var deviceType = Path.TargetIsAccessPoint ? "AP" : "device";
+                Insights.Add($"{deviceType} speed test - results limited by {deviceType} CPU, not network");
+                return;
+            }
         }
 
         // Wireless connection warning (client->AP or AP->AP, not AP->Switch)

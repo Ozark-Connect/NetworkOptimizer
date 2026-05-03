@@ -53,6 +53,9 @@ public class NetworkHop
     /// <summary>Link speed on ingress port (Mbps)</summary>
     public int IngressSpeedMbps { get; set; }
 
+    /// <summary>Device that owns the ingress port (null = this device)</summary>
+    public string? IngressPortDeviceName { get; set; }
+
     /// <summary>Port number where traffic exits this device</summary>
     public int? EgressPort { get; set; }
 
@@ -61,6 +64,9 @@ public class NetworkHop
 
     /// <summary>Link speed on egress port (Mbps)</summary>
     public int EgressSpeedMbps { get; set; }
+
+    /// <summary>Device that owns the egress port (null = this device)</summary>
+    public string? EgressPortDeviceName { get; set; }
 
     /// <summary>Whether this hop contains the path bottleneck</summary>
     public bool IsBottleneck { get; set; }
