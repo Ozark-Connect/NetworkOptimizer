@@ -1047,19 +1047,19 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_ProfileWithFcDefault_FlagsProfile()
+    public void CheckFlowControl_GlobalOn_ProfileWithFcNull_NoIssue()
     {
         var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
         var settings = CreateSettings(flowCtrlEnabled: true);
         var profiles = new List<UniFiPortProfile>
         {
-            new() { Id = "profile1", Name = "Default Profile" }
+            new() { Id = "profile1", Name = "Default Profile", FlowControlEnabled = null }
         };
 
         var result = _analyzer.CheckFlowControl(
             devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
 
-        result.Should().Contain(i => i.Title.Contains("Profile") && i.Title.Contains("Default Profile"));
+        result.Should().NotContain(i => i.Title.Contains("Profile"));
     }
 
     [Fact]
@@ -1128,26 +1128,26 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_PortHasProfile_UsesProfileFcNotPortFc()
+    public void CheckFlowControl_GlobalOn_PortFcOff_ProfileFcNull_StillFlags()
     {
         var device = CreateSwitch("switch1", "Switch 1");
         device.PortTable = new List<SwitchPort>
         {
-            // Port's direct FC is false, but profile says true - profile wins
+            // Port FC is off, profile doesn't set FC (null) - port's value flags it
             new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false,
                      FlowControlEnabled = false, PortConfId = "profile1" }
         };
         var settings = CreateSettings(flowCtrlEnabled: true);
         var profiles = new List<UniFiPortProfile>
         {
-            new() { Id = "profile1", Name = "FC On Profile", FlowControlEnabled = true }
+            new() { Id = "profile1", Name = "Some Profile", FlowControlEnabled = null }
         };
 
         var result = _analyzer.CheckFlowControl(
             new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
             new List<UniFiClientResponse>(), settings, profiles);
 
-        result.Should().NotContain(i => i.Title.Contains("Overridden"));
+        result.Should().Contain(i => i.Title.Contains("Overridden"));
     }
 
     [Fact]

@@ -559,7 +559,7 @@ public class PerformanceAnalyzer
         if (portProfiles != null)
         {
             var fcOffProfiles = portProfiles
-                .Where(p => !p.FlowControlEnabled && p.Forward != "disabled")
+                .Where(p => p.FlowControlEnabled == false && p.Forward != "disabled")
                 .ToList();
             if (fcOffProfiles.Count > 0)
             {
@@ -609,12 +609,16 @@ public class PerformanceAnalyzer
                 {
                     if (profile.Forward == "disabled")
                         continue;
-                    portFcOff = !profile.FlowControlEnabled;
+
+                    // Profile takes precedence when it explicitly sets FC;
+                    // fall back to port's own field when profile doesn't set it
+                    portFcOff = profile.FlowControlEnabled.HasValue
+                        ? profile.FlowControlEnabled == false
+                        : port.FlowControlEnabled == false;
                     profileName = profile.Name;
                 }
                 else
                 {
-                    // No profile - check the port's direct flow_control_enabled field
                     portFcOff = port.FlowControlEnabled == false;
                 }
 
