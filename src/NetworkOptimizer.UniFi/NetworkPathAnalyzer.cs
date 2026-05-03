@@ -2856,6 +2856,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     var nextIsWireless = i + 1 < path.Hops.Count
                         && path.Hops[i + 1].Type == HopType.WirelessClient;
                     bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress || nextIsWireless);
+                    // TODO: Wireless bottleneck names the client on WAN paths but the AP on LAN paths
+                    // due to hop reversal in CalculateWanClientPathAsync. See TODO.md.
                     bottleneckPortDeviceName = hop.EgressPortDeviceName;
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessEgress &&
