@@ -240,6 +240,26 @@ public class NetworkUtilitiesTests
     }
 
     [Theory]
+    [InlineData("fd12:3456:789a::1", true)]   // IPv6 ULA (fd00::/8)
+    [InlineData("fd00::1", true)]              // IPv6 ULA minimum
+    [InlineData("fdff:ffff:ffff::1", true)]    // IPv6 ULA maximum
+    [InlineData("fc00::1", true)]              // IPv6 ULA (fc00::/8, reserved but valid)
+    [InlineData("fe80::1", true)]              // IPv6 link-local
+    [InlineData("::1", true)]                  // IPv6 loopback
+    public void IsPrivateIpAddress_PrivateIpv6_ReturnsTrue(string ip, bool expected)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("2001:db8::1")]    // IPv6 documentation range
+    [InlineData("2607:f8b0::1")]   // IPv6 Google
+    public void IsPrivateIpAddress_PublicIpv6_ReturnsFalse(string ip)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().BeFalse();
+    }
+
+    [Theory]
     [InlineData("1.1.1.1")]       // Cloudflare
     [InlineData("8.8.8.8")]       // Google
     [InlineData("9.9.9.9")]       // Quad9
