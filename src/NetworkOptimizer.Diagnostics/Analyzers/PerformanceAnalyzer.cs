@@ -555,7 +555,6 @@ public class PerformanceAnalyzer
             ?? new Dictionary<string, UniFiPortProfile>(StringComparer.OrdinalIgnoreCase);
 
         // Find profiles with FC explicitly disabled
-        var fcOffProfileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (portProfiles != null)
         {
             var fcOffProfiles = portProfiles
@@ -567,7 +566,6 @@ public class PerformanceAnalyzer
 
                 foreach (var profile in fcOffProfiles)
                 {
-                    fcOffProfileIds.Add(profile.Id);
                     var profileName = HtmlEncode(profile.Name);
                     issues.Add(new PerformanceIssue
                     {
@@ -646,7 +644,7 @@ public class PerformanceAnalyzer
                     DeviceName = device.Name
                 });
 
-                _logger?.LogDebug("Device {Name}: {Count} ports with FC overridden by profile: {Ports}",
+                _logger?.LogDebug("Device {Name}: {Count} ports with FC disabled: {Ports}",
                     device.Name, affectedPorts.Count, portList);
             }
         }
