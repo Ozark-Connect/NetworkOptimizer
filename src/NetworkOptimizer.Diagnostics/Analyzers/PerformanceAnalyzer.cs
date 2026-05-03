@@ -43,7 +43,8 @@ public class PerformanceAnalyzer
         JsonDocument? qosRulesData,
         JsonDocument? wanEnrichedData = null,
         bool runPerformanceChecks = true,
-        bool runCellularChecks = true)
+        bool runCellularChecks = true,
+        List<UniFiPortProfile>? portProfiles = null)
     {
         var issues = new List<PerformanceIssue>();
 
@@ -51,7 +52,7 @@ public class PerformanceAnalyzer
         {
             issues.AddRange(CheckHardwareAcceleration(devices, settingsData));
             issues.AddRange(CheckJumboFrames(devices, settingsData));
-            issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData));
+            issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData, portProfiles));
         }
 
         if (runCellularChecks)
@@ -260,7 +261,8 @@ public class PerformanceAnalyzer
         List<UniFiDeviceResponse> devices,
         List<UniFiNetworkConfig> networks,
         List<UniFiClientResponse> clients,
-        JsonDocument? settingsData)
+        JsonDocument? settingsData,
+        List<UniFiPortProfile>? portProfiles = null)
     {
         var issues = new List<PerformanceIssue>();
         var settings = GlobalSwitchSettings.FromSettingsJson(settingsData);
@@ -312,6 +314,9 @@ public class PerformanceAnalyzer
                     });
                 }
             }
+
+            // Check port profiles and per-port overrides
+            issues.AddRange(CheckFlowControlPortProfiles(devices, portProfiles, settings));
         }
         else
         {
@@ -528,6 +533,98 @@ public class PerformanceAnalyzer
                 Category = PerformanceCategory.CellularDataSavings,
                 DeviceName = gateway.Name
             });
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// When global Flow Control is ON, check for port profiles and individual switch ports
+    /// that have Flow Control explicitly disabled - creating inconsistency with the global setting.
+    /// </summary>
+    [VendorSpecific("UniFi", "Reads FlowControlEnabled from port profiles and portconf_id from switch port_table")]
+    internal List<PerformanceIssue> CheckFlowControlPortProfiles(
+        List<UniFiDeviceResponse> devices,
+        List<UniFiPortProfile>? portProfiles,
+        GlobalSwitchSettings? settings)
+    {
+        var issues = new List<PerformanceIssue>();
+        if (portProfiles == null || portProfiles.Count == 0)
+            return issues;
+
+        var profilesById = portProfiles.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+
+        // Find profiles with FC explicitly disabled
+        var fcOffProfiles = portProfiles
+            .Where(p => p.FlowControlEnabled == false)
+            .ToList();
+
+        if (fcOffProfiles.Count == 0)
+            return issues;
+
+        _logger?.LogDebug("Found {Count} port profiles with Flow Control disabled", fcOffProfiles.Count);
+        var fcOffProfileIds = fcOffProfiles.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Flag each profile with FC off
+        foreach (var profile in fcOffProfiles)
+        {
+            var profileName = HtmlEncode(profile.Name);
+            issues.Add(new PerformanceIssue
+            {
+                Title = $"Flow Control Disabled in Profile \"{profile.Name}\"",
+                Description = $"Flow Control is enabled globally, but the Ethernet Port Profile " +
+                    $"\"{profile.Name}\" has Flow Control disabled. Any port assigned to this profile " +
+                    "will not use Flow Control, overriding the global setting.",
+                Recommendation = $"Enable Flow Control in the \"{profileName}\" port profile, or remove the " +
+                    "Flow Control override so it inherits the global setting.",
+                Severity = PerformanceSeverity.Info,
+                Category = PerformanceCategory.Performance
+            });
+        }
+
+        // Find ports on each switch assigned to FC-off profiles
+        foreach (var device in devices)
+        {
+            if (device.PortTable == null || device.DeviceType == DeviceType.Gateway)
+                continue;
+
+            // Only check devices where FC would otherwise be on
+            bool deviceFcOn = settings?.GetEffectiveFlowControl(device) ?? false;
+            if (!deviceFcOn)
+                continue;
+
+            var affectedPorts = new List<string>();
+            foreach (var port in device.PortTable)
+            {
+                if (!port.Up || port.IsUplink || string.IsNullOrEmpty(port.PortConfId))
+                    continue;
+
+                if (fcOffProfileIds.Contains(port.PortConfId) &&
+                    profilesById.TryGetValue(port.PortConfId, out var profile))
+                {
+                    affectedPorts.Add($"{port.Name} (\"{profile.Name}\")");
+                }
+            }
+
+            if (affectedPorts.Count > 0)
+            {
+                var deviceName = HtmlEncode(device.Name);
+                var portList = string.Join(", ", affectedPorts);
+                issues.Add(new PerformanceIssue
+                {
+                    Title = $"Flow Control Overridden on {device.Name}",
+                    Description = $"Flow Control is enabled globally, but {affectedPorts.Count} active " +
+                        $"port(s) on {device.Name} have it disabled via their port profile: {portList}.",
+                    Recommendation = $"Update the port profile(s) to enable Flow Control, or assign " +
+                        $"a different profile to these ports on {deviceName}.",
+                    Severity = PerformanceSeverity.Info,
+                    Category = PerformanceCategory.Performance,
+                    DeviceName = device.Name
+                });
+
+                _logger?.LogDebug("Device {Name}: {Count} ports with FC overridden by profile: {Ports}",
+                    device.Name, affectedPorts.Count, portList);
+            }
         }
 
         return issues;

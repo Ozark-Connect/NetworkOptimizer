@@ -189,7 +189,8 @@ public class DiagnosticsEngine
                 result.PerformanceIssues = _performanceAnalyzer.Analyze(
                     deviceList, networkList, clientList, settingsData, qosRulesData, wanEnrichedData,
                     runPerformanceChecks: options.RunPerformanceAnalyzer,
-                    runCellularChecks: options.RunCellularDataSavings);
+                    runCellularChecks: options.RunCellularDataSavings,
+                    portProfiles: profileList);
                 result.CellularWanDetected = _performanceAnalyzer.CellularWanDetected;
                 _logger?.LogDebug("Performance Analyzer found {Count} issues", result.PerformanceIssues.Count);
             }
