@@ -166,13 +166,14 @@ public class PathAnalysisResultTests
     [Fact]
     public void GenerateInsights_ApTestPerformingWell_NotesLimitedByCpu()
     {
-        // Arrange - AP test above 4400 Mbps threshold
+        // Arrange - AP on 10G link, measuring 4500 Mbps (below 75% of 10G = CPU-bound)
         var result = new PathAnalysisResult
         {
             Path = new NetworkPath
             {
                 TargetIsAccessPoint = true,
-                RealisticMaxMbps = 10000
+                TheoreticalMaxMbps = 10000,
+                RealisticMaxMbps = 9400
             },
             MeasuredFromDeviceMbps = 4500,
             MeasuredToDeviceMbps = 4500
