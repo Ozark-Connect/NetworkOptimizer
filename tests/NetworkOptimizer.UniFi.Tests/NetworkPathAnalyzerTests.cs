@@ -375,13 +375,13 @@ public class NetworkPathAnalyzerTests
     [Fact]
     public void GenerateInsights_APTarget_PerformingWell_AddsAPInsight()
     {
-        // Arrange
-        var path = NetworkTestData.CreateWiredClientPath();
+        // Arrange - AP on 10G link, measuring 4500 Mbps (below 75% of 10G = CPU-bound)
+        var path = NetworkTestData.CreateWiredClientPath(linkSpeedMbps: 10000);
         path.TargetIsAccessPoint = true;
         var result = new PathAnalysisResult
         {
             Path = path,
-            MeasuredFromDeviceMbps = 4500, // Above 4400 Mbps threshold
+            MeasuredFromDeviceMbps = 4500,
             MeasuredToDeviceMbps = 4500
         };
         result.CalculateEfficiency();
