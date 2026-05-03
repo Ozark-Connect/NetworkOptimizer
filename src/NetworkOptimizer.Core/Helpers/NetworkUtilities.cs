@@ -309,6 +309,15 @@ public static class NetworkUtilities
         if (ip.IsIPv6LinkLocal || IPAddress.IsLoopback(ip))
             return true;
 
+        // IPv6 Unique Local Address (fc00::/7, primarily fd00::/8 in practice)
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var v6Bytes = ip.GetAddressBytes();
+            if ((v6Bytes[0] & 0xFE) == 0xFC)
+                return true;
+            return false;
+        }
+
         // Only do byte checks for IPv4
         if (ip.AddressFamily != AddressFamily.InterNetwork)
             return false;
