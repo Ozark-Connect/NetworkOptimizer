@@ -71,6 +71,9 @@ public class UniFiPortProfile
     [JsonPropertyName("excluded_networkconf_ids")]
     public List<string>? ExcludedNetworkConfIds { get; set; }
 
+    [JsonPropertyName("flow_control_enabled")]
+    public bool? FlowControlEnabled { get; set; }
+
     [JsonPropertyName("stormctrl_bcast_enabled")]
     public bool StormCtrlBcastEnabled { get; set; }
 

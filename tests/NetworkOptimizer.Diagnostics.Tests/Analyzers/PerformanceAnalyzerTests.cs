@@ -1012,6 +1012,232 @@ public class PerformanceAnalyzerTests
         result.Should().BeEmpty();
     }
 
+    [Fact]
+    public void CheckFlowControl_GlobalOn_ProfileWithFcOff_FlagsProfile()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "Custom Profile", FlowControlEnabled = false }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
+
+        result.Should().Contain(i => i.Title.Contains("Profile") && i.Title.Contains("Custom Profile"));
+        var profileIssue = result.First(i => i.Title.Contains("Profile"));
+        profileIssue.Severity.Should().Be(PerformanceSeverity.Info);
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_ProfileWithFcOn_NoIssue()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "Good Profile", FlowControlEnabled = true }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
+
+        result.Should().NotContain(i => i.Title.Contains("Profile"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_ProfileWithFcNull_NoIssue()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "Default Profile", FlowControlEnabled = null }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
+
+        result.Should().NotContain(i => i.Title.Contains("Profile"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOff_ProfileWithFcOff_NoProfileIssue()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: false);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "Custom Profile", FlowControlEnabled = false }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
+
+        result.Should().NotContain(i => i.Title.Contains("Profile"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_PortWithFcOffProfile_FlagsDevice()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false, PortConfId = "profile1" },
+            new() { PortIdx = 2, Name = "Port 2", Up = true, IsUplink = false, PortConfId = "profile2" }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "No FC Profile", FlowControlEnabled = false },
+            new() { Id = "profile2", Name = "Good Profile", FlowControlEnabled = true }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, profiles);
+
+        var deviceIssue = result.FirstOrDefault(i => i.Title.Contains("Overridden"));
+        deviceIssue.Should().NotBeNull();
+        deviceIssue!.Description.Should().Contain("Port 1");
+        deviceIssue.Description.Should().NotContain("Port 2");
+        deviceIssue.Description.Should().Contain("1 port");
+        deviceIssue.DeviceName.Should().Be("Switch 1");
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_PortFcOffDirect_NoProfile_FlagsDevice()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false, FlowControlEnabled = false },
+            new() { PortIdx = 2, Name = "Port 2", Up = true, IsUplink = false, FlowControlEnabled = true }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, null);
+
+        var deviceIssue = result.FirstOrDefault(i => i.Title.Contains("Overridden"));
+        deviceIssue.Should().NotBeNull();
+        deviceIssue!.Description.Should().Contain("Port 1");
+        deviceIssue.Description.Should().NotContain("Port 2");
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_PortFcOff_ProfileFcNull_StillFlags()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.PortTable = new List<SwitchPort>
+        {
+            // Port FC is off, profile doesn't set FC (null) - port's value flags it
+            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false,
+                     FlowControlEnabled = false, PortConfId = "profile1" }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "Some Profile", FlowControlEnabled = null }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, profiles);
+
+        result.Should().Contain(i => i.Title.Contains("Overridden"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_UplinkPortWithFcOff_FlagsUplink()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Uplink", Up = true, IsUplink = true, FlowControlEnabled = false }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, null);
+
+        result.Should().Contain(i => i.Title.Contains("Overridden"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_DownPortWithFcOff_StillFlags()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Port 1", Up = false, IsUplink = false, FlowControlEnabled = false }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, null);
+
+        result.Should().Contain(i => i.Title.Contains("Overridden"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_ExcludedDeviceFcOff_SkipsPortCheck()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.Mac = "aa:bb:cc:00:00:01";
+        device.FlowControlEnabled = false;
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false, FlowControlEnabled = false }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, null);
+
+        // Device-level mismatch IS flagged, but port-level is not
+        // because the device itself already has FC off
+        result.Should().NotContain(i => i.Title.Contains("Overridden"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_NoProfiles_NoProfileIssues()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, null);
+
+        result.Should().NotContain(i => i.Title.Contains("Profile") || i.Title.Contains("Overridden"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_MultipleProfilesFcOff_FlagsEach()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "Profile A", FlowControlEnabled = false },
+            new() { Id = "profile2", Name = "Profile B", FlowControlEnabled = false },
+            new() { Id = "profile3", Name = "Profile C", FlowControlEnabled = true }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
+
+        var profileIssues = result.Where(i => i.Title.Contains("Profile")).ToList();
+        profileIssues.Should().HaveCount(2);
+        profileIssues.Should().Contain(i => i.Title.Contains("Profile A"));
+        profileIssues.Should().Contain(i => i.Title.Contains("Profile B"));
+    }
+
     #endregion
 
     #region CountHighSpeedAccessPorts

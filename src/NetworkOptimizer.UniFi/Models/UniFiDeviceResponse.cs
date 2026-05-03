@@ -475,6 +475,9 @@ public class SwitchPort
     [JsonPropertyName("native_networkconf_id")]
     public string? NativeNetworkConfId { get; set; }
 
+    [JsonPropertyName("flow_control_enabled")]
+    public bool? FlowControlEnabled { get; set; }
+
     /// <summary>
     /// Port profile ID if a port profile is assigned to this port.
     /// When set, the port profile settings override the port's direct settings.
