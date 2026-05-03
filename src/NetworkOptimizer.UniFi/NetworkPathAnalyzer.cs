@@ -2787,7 +2787,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? bottleneckPort = null;
         bool isBottleneckMeshBackhaul = false;
         bool isBottleneckClientWifi = false;
+        // When bottleneck is on ingress, the port belongs to the upstream device, not the current hop.
+        // Track the upstream device name so the description says "port 3 of Switch-X" not "port 3 of AP-Y".
+        string? bottleneckDeviceNameOverride = null;
 
+        NetworkHop? previousHop = null;
         foreach (var hop in path.Hops)
         {
             // Check ingress - skip for WAN/VPN hops where Ingress represents download speed,
@@ -2808,6 +2812,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     minSpeed = hop.IngressSpeedMbps;
                     bottleneckHop = hop;
                     bottleneckPort = GetPortDescription(hop.IngressPortName, hop.IngressPort, hop.IsWirelessIngress);
+                    bottleneckDeviceNameOverride = previousHop?.DeviceName;
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessIngress &&
                         hop.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
@@ -2824,6 +2829,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 {
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
+                    bottleneckDeviceNameOverride = null;
                     // If this hop's egress feeds into a WirelessClient, it's a Wi-Fi link
                     var hopIdx = path.Hops.IndexOf(hop);
                     var nextIsWireless = hopIdx >= 0 && hopIdx + 1 < path.Hops.Count
@@ -2835,6 +2841,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     isBottleneckClientWifi = hop.IsWirelessEgress && !isBottleneckMeshBackhaul;
                 }
             }
+
+            previousHop = hop;
         }
 
         if (minSpeed == int.MaxValue)
@@ -2856,20 +2864,23 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Only set description if there's a real bottleneck
             if (path.HasRealBottleneck)
             {
+                // Use upstream device name when bottleneck is on ingress (the port belongs to the upstream device)
+                var deviceName = bottleneckDeviceNameOverride ?? bottleneckHop.DeviceName;
+
                 // Skip redundant port info when device name matches port (e.g., "WAN (WAN)")
-                var portSuffix = bottleneckPort?.Equals(bottleneckHop.DeviceName, StringComparison.OrdinalIgnoreCase) == true
+                var portSuffix = bottleneckPort?.Equals(deviceName, StringComparison.OrdinalIgnoreCase) == true
                     ? ""
                     : $" ({bottleneckPort})";
 
                 if (minSpeed < 1000)
                 {
-                    path.BottleneckDescription = $"{minSpeed} Mbps link at {bottleneckHop.DeviceName}{portSuffix}";
+                    path.BottleneckDescription = $"{minSpeed} Mbps link at {deviceName}{portSuffix}";
                 }
                 else
                 {
                     var gbps = minSpeed / 1000.0;
                     var gbpsStr = gbps % 1 == 0 ? $"{(int)gbps}" : $"{gbps:F1}";
-                    path.BottleneckDescription = $"{gbpsStr} Gbps link at {bottleneckHop.DeviceName}{portSuffix}";
+                    path.BottleneckDescription = $"{gbpsStr} Gbps link at {deviceName}{portSuffix}";
                 }
             }
         }
