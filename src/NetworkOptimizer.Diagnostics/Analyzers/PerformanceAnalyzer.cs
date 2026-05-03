@@ -575,8 +575,8 @@ public class PerformanceAnalyzer
                         Description = $"Flow Control is enabled globally, but the Ethernet Port Profile " +
                             $"\"{profile.Name}\" has Flow Control disabled. Any port assigned to this profile " +
                             "will not use Flow Control, overriding the global setting.",
-                        Recommendation = $"Enable Flow Control in the \"{profileName}\" port profile, or remove the " +
-                            "Flow Control override so it inherits the global setting.",
+                        Recommendation = $"If this isn't intentional, enable Flow Control in the " +
+                            $"\"{profileName}\" port profile or remove the override so it inherits the global setting.",
                         Severity = PerformanceSeverity.Info,
                         Category = PerformanceCategory.Performance
                     });
@@ -639,8 +639,8 @@ public class PerformanceAnalyzer
                     Title = $"Flow Control Overridden on {device.Name}",
                     Description = $"Flow Control is enabled globally, but {affectedPorts.Count} " +
                         $"port(s) on {device.Name} have it disabled: {portList}.",
-                    Recommendation = $"Update the port profile(s) to enable Flow Control, or assign " +
-                        $"a different profile to these ports on {deviceName}.",
+                    Recommendation = $"If this isn't intentional, enable Flow Control on these ports " +
+                        $"in UniFi Devices > {deviceName} > Port Manager.",
                     Severity = PerformanceSeverity.Info,
                     Category = PerformanceCategory.Performance,
                     DeviceName = device.Name
