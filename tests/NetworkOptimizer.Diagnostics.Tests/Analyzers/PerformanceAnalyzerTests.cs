@@ -1107,17 +1107,40 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_UplinkPortWithFcOffProfile_SkipsUplink()
+    public void CheckFlowControl_GlobalOn_PortFcOffDirect_NoProfile_FlagsDevice()
     {
         var device = CreateSwitch("switch1", "Switch 1");
         device.PortTable = new List<SwitchPort>
         {
-            new() { PortIdx = 1, Name = "Uplink", Up = true, IsUplink = true, PortConfId = "profile1" }
+            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false, FlowControlEnabled = false },
+            new() { PortIdx = 2, Name = "Port 2", Up = true, IsUplink = false, FlowControlEnabled = true }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, null);
+
+        var deviceIssue = result.FirstOrDefault(i => i.Title.Contains("Overridden"));
+        deviceIssue.Should().NotBeNull();
+        deviceIssue!.Description.Should().Contain("Port 1");
+        deviceIssue.Description.Should().NotContain("Port 2");
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_PortHasProfile_UsesProfileFcNotPortFc()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.PortTable = new List<SwitchPort>
+        {
+            // Port's direct FC is false, but profile says true - profile wins
+            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false,
+                     FlowControlEnabled = false, PortConfId = "profile1" }
         };
         var settings = CreateSettings(flowCtrlEnabled: true);
         var profiles = new List<UniFiPortProfile>
         {
-            new() { Id = "profile1", Name = "No FC Profile", FlowControlEnabled = false }
+            new() { Id = "profile1", Name = "FC On Profile", FlowControlEnabled = true }
         };
 
         var result = _analyzer.CheckFlowControl(
@@ -1128,47 +1151,56 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_DownPortWithFcOffProfile_SkipsDownPort()
+    public void CheckFlowControl_GlobalOn_UplinkPortWithFcOff_SkipsUplink()
     {
         var device = CreateSwitch("switch1", "Switch 1");
         device.PortTable = new List<SwitchPort>
         {
-            new() { PortIdx = 1, Name = "Port 1", Up = false, IsUplink = false, PortConfId = "profile1" }
+            new() { PortIdx = 1, Name = "Uplink", Up = true, IsUplink = true, FlowControlEnabled = false }
         };
         var settings = CreateSettings(flowCtrlEnabled: true);
-        var profiles = new List<UniFiPortProfile>
-        {
-            new() { Id = "profile1", Name = "No FC Profile", FlowControlEnabled = false }
-        };
 
         var result = _analyzer.CheckFlowControl(
             new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
-            new List<UniFiClientResponse>(), settings, profiles);
+            new List<UniFiClientResponse>(), settings, null);
 
         result.Should().NotContain(i => i.Title.Contains("Overridden"));
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_ExcludedDeviceFcOff_SkipsPortProfileCheck()
+    public void CheckFlowControl_GlobalOn_DownPortWithFcOff_SkipsDownPort()
+    {
+        var device = CreateSwitch("switch1", "Switch 1");
+        device.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Port 1", Up = false, IsUplink = false, FlowControlEnabled = false }
+        };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
+            new List<UniFiClientResponse>(), settings, null);
+
+        result.Should().NotContain(i => i.Title.Contains("Overridden"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_ExcludedDeviceFcOff_SkipsPortCheck()
     {
         var device = CreateSwitch("switch1", "Switch 1");
         device.Mac = "aa:bb:cc:00:00:01";
         device.FlowControlEnabled = false;
         device.PortTable = new List<SwitchPort>
         {
-            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false, PortConfId = "profile1" }
+            new() { PortIdx = 1, Name = "Port 1", Up = true, IsUplink = false, FlowControlEnabled = false }
         };
         var settings = CreateSettings(flowCtrlEnabled: true, exclusions: new[] { "aa:bb:cc:00:00:01" });
-        var profiles = new List<UniFiPortProfile>
-        {
-            new() { Id = "profile1", Name = "No FC Profile", FlowControlEnabled = false }
-        };
 
         var result = _analyzer.CheckFlowControl(
             new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
-            new List<UniFiClientResponse>(), settings, profiles);
+            new List<UniFiClientResponse>(), settings, null);
 
-        // Device-level mismatch IS flagged, but port-level override is not
+        // Device-level mismatch IS flagged, but port-level is not
         // because the device itself already has FC off
         result.Should().NotContain(i => i.Title.Contains("Overridden"));
     }

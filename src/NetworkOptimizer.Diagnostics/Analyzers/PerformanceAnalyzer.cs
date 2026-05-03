@@ -542,47 +542,47 @@ public class PerformanceAnalyzer
     /// When global Flow Control is ON, check for port profiles and individual switch ports
     /// that have Flow Control explicitly disabled - creating inconsistency with the global setting.
     /// </summary>
-    [VendorSpecific("UniFi", "Reads FlowControlEnabled from port profiles and portconf_id from switch port_table")]
+    [VendorSpecific("UniFi", "Reads FlowControlEnabled from port profiles and flow_control_enabled from switch port_table")]
     internal List<PerformanceIssue> CheckFlowControlPortProfiles(
         List<UniFiDeviceResponse> devices,
         List<UniFiPortProfile>? portProfiles,
         GlobalSwitchSettings? settings)
     {
         var issues = new List<PerformanceIssue>();
-        if (portProfiles == null || portProfiles.Count == 0)
-            return issues;
 
-        var profilesById = portProfiles.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+        // Build profile lookup if available
+        var profilesById = portProfiles?.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, UniFiPortProfile>(StringComparer.OrdinalIgnoreCase);
 
         // Find profiles with FC explicitly disabled
-        var fcOffProfiles = portProfiles
-            .Where(p => p.FlowControlEnabled == false)
-            .ToList();
-
-        if (fcOffProfiles.Count == 0)
-            return issues;
-
-        _logger?.LogDebug("Found {Count} port profiles with Flow Control disabled", fcOffProfiles.Count);
-        var fcOffProfileIds = fcOffProfiles.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        // Flag each profile with FC off
-        foreach (var profile in fcOffProfiles)
+        var fcOffProfileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (portProfiles != null)
         {
-            var profileName = HtmlEncode(profile.Name);
-            issues.Add(new PerformanceIssue
+            var fcOffProfiles = portProfiles.Where(p => p.FlowControlEnabled == false).ToList();
+            if (fcOffProfiles.Count > 0)
             {
-                Title = $"Flow Control Disabled in Profile \"{profile.Name}\"",
-                Description = $"Flow Control is enabled globally, but the Ethernet Port Profile " +
-                    $"\"{profile.Name}\" has Flow Control disabled. Any port assigned to this profile " +
-                    "will not use Flow Control, overriding the global setting.",
-                Recommendation = $"Enable Flow Control in the \"{profileName}\" port profile, or remove the " +
-                    "Flow Control override so it inherits the global setting.",
-                Severity = PerformanceSeverity.Info,
-                Category = PerformanceCategory.Performance
-            });
+                _logger?.LogDebug("Found {Count} port profiles with Flow Control disabled", fcOffProfiles.Count);
+
+                foreach (var profile in fcOffProfiles)
+                {
+                    fcOffProfileIds.Add(profile.Id);
+                    var profileName = HtmlEncode(profile.Name);
+                    issues.Add(new PerformanceIssue
+                    {
+                        Title = $"Flow Control Disabled in Profile \"{profile.Name}\"",
+                        Description = $"Flow Control is enabled globally, but the Ethernet Port Profile " +
+                            $"\"{profile.Name}\" has Flow Control disabled. Any port assigned to this profile " +
+                            "will not use Flow Control, overriding the global setting.",
+                        Recommendation = $"Enable Flow Control in the \"{profileName}\" port profile, or remove the " +
+                            "Flow Control override so it inherits the global setting.",
+                        Severity = PerformanceSeverity.Info,
+                        Category = PerformanceCategory.Performance
+                    });
+                }
+            }
         }
 
-        // Find ports on each switch assigned to FC-off profiles
+        // Find ports on each switch with FC off (via port_table field or profile override)
         foreach (var device in devices)
         {
             if (device.PortTable == null || device.DeviceType == DeviceType.Gateway)
@@ -596,13 +596,30 @@ public class PerformanceAnalyzer
             var affectedPorts = new List<string>();
             foreach (var port in device.PortTable)
             {
-                if (!port.Up || port.IsUplink || string.IsNullOrEmpty(port.PortConfId))
+                if (!port.Up || port.IsUplink)
                     continue;
 
-                if (fcOffProfileIds.Contains(port.PortConfId) &&
+                bool portFcOff;
+                string? profileName = null;
+
+                if (!string.IsNullOrEmpty(port.PortConfId) &&
                     profilesById.TryGetValue(port.PortConfId, out var profile))
                 {
-                    affectedPorts.Add($"{port.Name} (\"{profile.Name}\")");
+                    // Port has a profile - check the profile's FC setting
+                    portFcOff = profile.FlowControlEnabled == false;
+                    profileName = profile.Name;
+                }
+                else
+                {
+                    // No profile - check the port's direct flow_control_enabled field
+                    portFcOff = port.FlowControlEnabled == false;
+                }
+
+                if (portFcOff)
+                {
+                    affectedPorts.Add(profileName != null
+                        ? $"{port.Name} (\"{profileName}\")"
+                        : port.Name);
                 }
             }
 
@@ -614,7 +631,7 @@ public class PerformanceAnalyzer
                 {
                     Title = $"Flow Control Overridden on {device.Name}",
                     Description = $"Flow Control is enabled globally, but {affectedPorts.Count} active " +
-                        $"port(s) on {device.Name} have it disabled via their port profile: {portList}.",
+                        $"port(s) on {device.Name} have it disabled: {portList}.",
                     Recommendation = $"Update the port profile(s) to enable Flow Control, or assign " +
                         $"a different profile to these ports on {deviceName}.",
                     Severity = PerformanceSeverity.Info,
