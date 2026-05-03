@@ -1102,7 +1102,7 @@ public class PerformanceAnalyzerTests
         deviceIssue.Should().NotBeNull();
         deviceIssue!.Description.Should().Contain("Port 1");
         deviceIssue.Description.Should().NotContain("Port 2");
-        deviceIssue.Description.Should().Contain("1 active port");
+        deviceIssue.Description.Should().Contain("1 port");
         deviceIssue.DeviceName.Should().Be("Switch 1");
     }
 
@@ -1168,7 +1168,7 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
-    public void CheckFlowControl_GlobalOn_DownPortWithFcOff_SkipsDownPort()
+    public void CheckFlowControl_GlobalOn_DownPortWithFcOff_StillFlags()
     {
         var device = CreateSwitch("switch1", "Switch 1");
         device.PortTable = new List<SwitchPort>
@@ -1181,7 +1181,7 @@ public class PerformanceAnalyzerTests
             new List<UniFiDeviceResponse> { device }, CreateWanNetwork(500),
             new List<UniFiClientResponse>(), settings, null);
 
-        result.Should().NotContain(i => i.Title.Contains("Overridden"));
+        result.Should().Contain(i => i.Title.Contains("Overridden"));
     }
 
     [Fact]

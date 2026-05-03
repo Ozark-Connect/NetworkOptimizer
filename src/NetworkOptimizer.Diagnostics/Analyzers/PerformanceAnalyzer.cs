@@ -558,7 +558,9 @@ public class PerformanceAnalyzer
         var fcOffProfileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (portProfiles != null)
         {
-            var fcOffProfiles = portProfiles.Where(p => !p.FlowControlEnabled).ToList();
+            var fcOffProfiles = portProfiles
+                .Where(p => !p.FlowControlEnabled && p.Forward != "disabled")
+                .ToList();
             if (fcOffProfiles.Count > 0)
             {
                 _logger?.LogDebug("Found {Count} port profiles with Flow Control disabled", fcOffProfiles.Count);
@@ -596,7 +598,7 @@ public class PerformanceAnalyzer
             var affectedPorts = new List<string>();
             foreach (var port in device.PortTable)
             {
-                if (!port.Up)
+                if (port.Forward == "disabled")
                     continue;
 
                 bool portFcOff;
@@ -605,7 +607,8 @@ public class PerformanceAnalyzer
                 if (!string.IsNullOrEmpty(port.PortConfId) &&
                     profilesById.TryGetValue(port.PortConfId, out var profile))
                 {
-                    // Port has a profile - check the profile's FC setting
+                    if (profile.Forward == "disabled")
+                        continue;
                     portFcOff = !profile.FlowControlEnabled;
                     profileName = profile.Name;
                 }
@@ -630,7 +633,7 @@ public class PerformanceAnalyzer
                 issues.Add(new PerformanceIssue
                 {
                     Title = $"Flow Control Overridden on {device.Name}",
-                    Description = $"Flow Control is enabled globally, but {affectedPorts.Count} active " +
+                    Description = $"Flow Control is enabled globally, but {affectedPorts.Count} " +
                         $"port(s) on {device.Name} have it disabled: {portList}.",
                     Recommendation = $"Update the port profile(s) to enable Flow Control, or assign " +
                         $"a different profile to these ports on {deviceName}.",
