@@ -2788,12 +2788,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         bool isBottleneckMeshBackhaul = false;
         bool isBottleneckClientWifi = false;
         // When bottleneck is on ingress, the port belongs to the upstream device, not the current hop.
-        // Track the upstream device name so the description says "port 3 of Switch-X" not "port 3 of AP-Y".
-        string? bottleneckDeviceNameOverride = null;
+        // Track which hop index had the ingress bottleneck so we can look up the adjacent device.
+        int bottleneckIngressHopIdx = -1;
 
-        NetworkHop? previousHop = null;
-        foreach (var hop in path.Hops)
+        for (int i = 0; i < path.Hops.Count; i++)
         {
+            var hop = path.Hops[i];
+
             // Check ingress - skip for WAN/VPN hops where Ingress represents download speed,
             // not a physical port. The UI bottleneck check uses EgressSpeedMbps consistently
             // (matching "to device" direction), so we only feed Egress into the min calculation
@@ -2812,7 +2813,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     minSpeed = hop.IngressSpeedMbps;
                     bottleneckHop = hop;
                     bottleneckPort = GetPortDescription(hop.IngressPortName, hop.IngressPort, hop.IsWirelessIngress);
-                    bottleneckDeviceNameOverride = previousHop?.DeviceName;
+                    bottleneckIngressHopIdx = i;
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessIngress &&
                         hop.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
@@ -2829,11 +2830,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 {
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
-                    bottleneckDeviceNameOverride = null;
+                    bottleneckIngressHopIdx = -1;
                     // If this hop's egress feeds into a WirelessClient, it's a Wi-Fi link
-                    var hopIdx = path.Hops.IndexOf(hop);
-                    var nextIsWireless = hopIdx >= 0 && hopIdx + 1 < path.Hops.Count
-                        && path.Hops[hopIdx + 1].Type == HopType.WirelessClient;
+                    var nextIsWireless = i + 1 < path.Hops.Count
+                        && path.Hops[i + 1].Type == HopType.WirelessClient;
                     bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress || nextIsWireless);
                     // Determine wireless type: mesh backhaul vs client Wi-Fi
                     isBottleneckMeshBackhaul = hop.IsWirelessEgress &&
@@ -2841,8 +2841,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     isBottleneckClientWifi = hop.IsWirelessEgress && !isBottleneckMeshBackhaul;
                 }
             }
-
-            previousHop = hop;
         }
 
         if (minSpeed == int.MaxValue)
@@ -2864,8 +2862,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Only set description if there's a real bottleneck
             if (path.HasRealBottleneck)
             {
-                // Use upstream device name when bottleneck is on ingress (the port belongs to the upstream device)
-                var deviceName = bottleneckDeviceNameOverride ?? bottleneckHop.DeviceName;
+                // When bottleneck is on ingress, the port belongs to the upstream device.
+                // Hops are ordered target→source, so the upstream device is the next hop.
+                string? upstreamName = null;
+                if (bottleneckIngressHopIdx >= 0 && bottleneckIngressHopIdx + 1 < path.Hops.Count)
+                    upstreamName = path.Hops[bottleneckIngressHopIdx + 1].DeviceName;
+                var deviceName = upstreamName ?? bottleneckHop.DeviceName;
 
                 // Skip redundant port info when device name matches port (e.g., "WAN (WAN)")
                 var portSuffix = bottleneckPort?.Equals(deviceName, StringComparison.OrdinalIgnoreCase) == true
