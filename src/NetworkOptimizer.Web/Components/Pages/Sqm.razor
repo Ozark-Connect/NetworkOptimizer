@@ -638,11 +638,8 @@
                     </div>
                     <small class="form-hint">Daily speedtest time (24h format)</small>
                 </div>
-            </div>
-
-            <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">Boot Delay <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds to wait after gateway boot before running the first speedtest. Useful for connections that take time to stabilize (Starlink, cellular). Leave blank for default (5 seconds).">?</span></label>
+                    <label class="form-label">Boot Delay <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds to wait after gateway boot before running the first speedtest. Useful for connections that take time to stabilize (Starlink, cellular, GPON/XGS-PON SFP ONTs). Leave blank for default (5 seconds).">?</span></label>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <input type="number" class="form-control" style="max-width: 100px;"
                                min="0" max="600"
@@ -823,11 +820,8 @@
                     </div>
                     <small class="form-hint">Staggered from WAN1 to avoid conflicts</small>
                 </div>
-            </div>
-
-            <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">Boot Delay <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds to wait after gateway boot before running the first speedtest. When both WANs are enabled, defaults to 50 seconds to stagger after WAN1. Leave blank for default.">?</span></label>
+                    <label class="form-label">Boot Delay <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds to wait after gateway boot before running the first speedtest. Useful for connections that take time to stabilize (Starlink, cellular, GPON/XGS-PON SFP ONTs). When both WANs are enabled, defaults to 50 seconds to stagger after WAN1.">?</span></label>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <input type="number" class="form-control" style="max-width: 100px;"
                                min="0" max="600"
