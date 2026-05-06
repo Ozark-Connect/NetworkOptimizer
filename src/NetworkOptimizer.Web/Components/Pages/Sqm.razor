@@ -638,6 +638,17 @@
                     </div>
                     <small class="form-hint">Daily speedtest time (24h format)</small>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">Speedtest Boot Delay <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds to wait after gateway boot before running the first speedtest. Useful for connections that take time to stabilize (Starlink, cellular, GPON/XGS-PON SFP ONTs). Leave blank for default (5 seconds).">?</span></label>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="number" class="form-control" style="max-width: 100px;"
+                               min="0" max="600"
+                               placeholder="5"
+                               value="@wan1Config.BootDelaySeconds"
+                               @onchange="@(e => wan1Config.BootDelaySeconds = ParseNullableInt(e.Value?.ToString(), 0, 600))" />
+                        <span class="form-hint" style="margin: 0;">seconds</span>
+                    </div>
+                </div>
             </div>
                 </div>
             </div>
@@ -808,6 +819,17 @@
                                @onchange="@(e => wan2Config.EveningMinute = ParseTimeValue(e.Value?.ToString(), 0, 59))" />
                     </div>
                     <small class="form-hint">Staggered from WAN1 to avoid conflicts</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Speedtest Boot Delay <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds to wait after gateway boot before running the first speedtest. Useful for connections that take time to stabilize (Starlink, cellular, GPON/XGS-PON SFP ONTs). When both WANs are enabled, defaults to 50 seconds to stagger after WAN1.">?</span></label>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="number" class="form-control" style="max-width: 100px;"
+                               min="0" max="600"
+                               placeholder="@(wan1Config.Enabled ? "50" : "5")"
+                               value="@wan2Config.BootDelaySeconds"
+                               @onchange="@(e => wan2Config.BootDelaySeconds = ParseNullableInt(e.Value?.ToString(), 0, 600))" />
+                        <span class="form-hint" style="margin: 0;">seconds</span>
+                    </div>
                 </div>
             </div>
                 </div>
@@ -1423,6 +1445,10 @@
     }
 
     @@media (max-width: 768px) {
+        .form-row {
+            gap: 0;
+        }
+
         .adjustment-buttons {
             justify-content: center;
         }
@@ -1871,6 +1897,7 @@
                         w.Interface.Equals(saved.Interface, StringComparison.OrdinalIgnoreCase));
                     config.WanLinkSpeedMbps = matchingWan?.LinkSpeedMbps;
                     config.LinkSpeedOverrideMbps = saved.LinkSpeedOverrideMbps;
+                    config.BootDelaySeconds = saved.BootDelaySeconds;
 
                     UpdateCalculatedSpeeds(config);
 
@@ -1927,6 +1954,7 @@
                         ? wan1Config.LatencyThreshold : null,
                     CongestionSeverity = wan1Config.CongestionSeverity,
                     LinkSpeedOverrideMbps = wan1Config.LinkSpeedOverrideMbps,
+                    BootDelaySeconds = wan1Config.BootDelaySeconds,
                     SpeedtestMorningHour = wan1Config.MorningHour,
                     SpeedtestMorningMinute = wan1Config.MorningMinute,
                     SpeedtestEveningHour = wan1Config.EveningHour,
@@ -1955,6 +1983,7 @@
                         ? wan2Config.LatencyThreshold : null,
                     CongestionSeverity = wan2Config.CongestionSeverity,
                     LinkSpeedOverrideMbps = wan2Config.LinkSpeedOverrideMbps,
+                    BootDelaySeconds = wan2Config.BootDelaySeconds,
                     SpeedtestMorningHour = wan2Config.MorningHour,
                     SpeedtestMorningMinute = wan2Config.MorningMinute,
                     SpeedtestEveningHour = wan2Config.EveningHour,
@@ -2159,6 +2188,7 @@
         wan1Config.MorningMinute = 0;
         wan1Config.EveningHour = 19;
         wan1Config.EveningMinute = 0;
+        wan1Config.BootDelaySeconds = null;
         UpdateCalculatedSpeeds(wan1Config);
 
         // Reset WAN2 to defaults
@@ -2174,6 +2204,7 @@
         wan2Config.MorningMinute = 0;
         wan2Config.EveningHour = 18;
         wan2Config.EveningMinute = 0;
+        wan2Config.BootDelaySeconds = null;
         UpdateCalculatedSpeeds(wan2Config);
     }
 
@@ -2655,14 +2686,15 @@
             deploymentSteps.Add("WAN configurations saved");
             await ScrollDeploymentLog();
 
-            // Deploy first WAN (initial speedtest immediately)
+            // Deploy first WAN
             if (wan1Config.Enabled)
             {
+                var wan1Delay = wan1Config.BootDelaySeconds ?? 5;
                 deploymentSteps.Add($"Deploying SQM for {wan1Config.Name} ({wan1Config.Interface})...");
                 await ScrollDeploymentLog();
 
                 var config = CreateSqmConfiguration(wan1Config);
-                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 5);
+                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: wan1Delay);
 
                 // Always add steps (includes output on failure)
                 deploymentSteps.AddRange(result.Steps);
@@ -2673,7 +2705,7 @@
                     {
                         deploymentWarnings.AddRange(result.Warnings);
                     }
-                    deploymentSteps.Add($"{wan1Config.Name} deployed successfully (speedtest in 5s)");
+                    deploymentSteps.Add($"{wan1Config.Name} deployed successfully (speedtest in {wan1Delay}s)");
                 }
                 else
                 {
@@ -2681,14 +2713,13 @@
                 }
             }
 
-            // Deploy second WAN (stagger speedtest only if first WAN is also deployed)
+            // Deploy second WAN (stagger speedtest only if first WAN is also deployed and no custom delay set)
             if (wan2Config.Enabled)
             {
+                var wan2Delay = wan2Config.BootDelaySeconds ?? (wan1Config.Enabled ? 50 : 5);
                 deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
                 await ScrollDeploymentLog();
 
-                // If WAN1 is also deployed, stagger the speedtest; otherwise this is the only WAN
-                var wan2Delay = wan1Config.Enabled ? 50 : 5;
                 var config = CreateSqmConfiguration(wan2Config);
                 var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: wan2Delay);
 
@@ -3090,6 +3121,16 @@
         return min;
     }
 
+    private int? ParseNullableInt(string? value, int min, int max)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (int.TryParse(value, out int result))
+        {
+            return Math.Clamp(result, min, max);
+        }
+        return null;
+    }
+
     private async Task<(string? Host, int Port)> GetGatewayConnectionAsync()
     {
         try
@@ -3172,6 +3213,9 @@
         public int MorningMinute { get; set; } = 0;
         public int EveningHour { get; set; } = 18;
         public int EveningMinute { get; set; } = 30;
+
+        // Delay before first speedtest after deploy/boot (null = use default)
+        public int? BootDelaySeconds { get; set; }
 
         // Physical WAN port link speed (null if unknown, e.g., GRE tunnels)
         public int? WanLinkSpeedMbps { get; set; }
@@ -3260,7 +3304,8 @@
         public WanConfigSnapshot ToSnapshot() => new(
             Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
             PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute,
-            BaselineLatency, LatencyThreshold, CongestionSeverity, LinkSpeedOverrideMbps);
+            BaselineLatency, LatencyThreshold, CongestionSeverity, LinkSpeedOverrideMbps,
+            BootDelaySeconds);
 
         // Check if current config differs from a snapshot
         public bool DiffersFrom(WanConfigSnapshot? snapshot)
@@ -3281,7 +3326,8 @@
                    Math.Abs(BaselineLatency - snapshot.BaselineLatency) > 0.01 ||
                    Math.Abs(LatencyThreshold - snapshot.LatencyThreshold) > 0.01 ||
                    Math.Abs(CongestionSeverity - snapshot.CongestionSeverity) > 0.001 ||
-                   LinkSpeedOverrideMbps != snapshot.LinkSpeedOverrideMbps;
+                   LinkSpeedOverrideMbps != snapshot.LinkSpeedOverrideMbps ||
+                   BootDelaySeconds != snapshot.BootDelaySeconds;
         }
     }
 
@@ -3291,7 +3337,7 @@
         int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
         int MorningHour, int MorningMinute, int EveningHour, int EveningMinute,
         double BaselineLatency, double LatencyThreshold, double CongestionSeverity,
-        int? LinkSpeedOverrideMbps);
+        int? LinkSpeedOverrideMbps, int? BootDelaySeconds);
 
     public void Dispose()
     {

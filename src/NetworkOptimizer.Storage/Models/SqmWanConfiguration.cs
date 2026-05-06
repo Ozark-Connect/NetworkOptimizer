@@ -67,6 +67,9 @@ public class SqmWanConfiguration
     /// <summary>User-overridden WAN link speed in Mbps. Null = use auto-detected value from gateway port.</summary>
     public int? LinkSpeedOverrideMbps { get; set; }
 
+    /// <summary>Delay in seconds before running the first speedtest after deploy/boot. Null = use default (5s solo, staggered for dual-WAN).</summary>
+    public int? BootDelaySeconds { get; set; }
+
     /// <summary>When this configuration was created</summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
