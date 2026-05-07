@@ -75,7 +75,7 @@ public class PerfTweaksDeploymentService
                 $"echo '---JOURNALD_BOOT_SCRIPT---'; test -f {OnBootDir}/10-journald-volatile.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---JOURNALD_STORAGE---'; grep '^Storage=' /etc/systemd/journald.conf 2>/dev/null | cut -d= -f2 || echo 'N/A'; " +
                 "echo '---JOURNALD_FWD---'; grep '^ForwardToSyslog=' /etc/systemd/journald.conf 2>/dev/null | cut -d= -f2 || echo 'N/A'; " +
-                "echo '---SYSLOG_EMMC_ROUTES---'; grep -rch '^log ' /etc/syslog-ng/conf.d/*.conf 2>/dev/null | awk '{s+=$1}END{print s+0}'; " +
+                "echo '---SYSLOG_EMMC_ROUTES---'; DESTS=$(grep -rh '^destination .* file(\"/var/log' /etc/syslog-ng/conf.d/*.conf 2>/dev/null | grep -v '/var/log/ulog' | sed -n 's/^destination \\([^ ]*\\) .*/\\1/p'); F=0; for d in $DESTS; do F=$((F+$(grep -rc \"^log.*destination($d)\" /etc/syslog-ng/conf.d/*.conf 2>/dev/null | cut -d: -f2 | awk '{s+=$1}END{print s+0}'))); done; echo $F; " +
                 "echo '---THREAT_LOG_ROUTE---'; grep -c '^log.*d_idsips_threat' /etc/syslog-ng/conf.d/threat_log.conf 2>/dev/null || echo '0'; " +
                 // SFP SGMII+
                 $"echo '---SFP_BOOT_SCRIPT---'; test -f {OnBootDir}/20-sfp-sgmiiplus.sh && echo 'exists' || echo 'missing'; " +
