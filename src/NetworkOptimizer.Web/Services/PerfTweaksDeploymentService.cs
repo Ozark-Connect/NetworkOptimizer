@@ -534,7 +534,8 @@ public class PerfTweaksDeploymentService
                 var resetB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(resetScript));
                 removeCmd = $"rm -f {OnBootDir}/{scriptName}; " +
                     $"echo '{resetB64}' | base64 -d | python3 2>/dev/null; " +
-                    "systemctl restart uhwd 2>/dev/null; echo 'removed'";
+                    "systemctl restart uhwd 2>/dev/null; " +
+                    "rm -f /var/log/fan-control-tuning.log; echo 'removed'";
             }
             else if (tweakId == "mongodb-ssd")
             {
