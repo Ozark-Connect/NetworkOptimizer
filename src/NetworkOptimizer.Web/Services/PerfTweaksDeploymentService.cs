@@ -113,10 +113,11 @@ public class PerfTweaksDeploymentService
             status.SsdAvailable = ssdVolume != "none" && !string.IsNullOrEmpty(ssdVolume);
             status.SsdMountPath = status.SsdAvailable ? ssdVolume : null;
 
-            // Fan control
+            // Fan control (gate on boot script OR log file existing - covers manual deploys)
             var fanStatus = new TweakDeploymentStatus { Id = "fan-control" };
             fanStatus.BootScriptDeployed = GetSection(sections, "FAN_BOOT_SCRIPT").Contains("exists");
-            if (fanStatus.BootScriptDeployed)
+            var fanLogExists = !GetSection(sections, "FAN_LOG").Contains("no log");
+            if (fanStatus.BootScriptDeployed || fanLogExists)
             {
                 fanStatus.IsActive = true;
                 var pwm = GetSection(sections, "FAN_PWM").Trim();
@@ -133,7 +134,7 @@ public class PerfTweaksDeploymentService
             }
             status.Tweaks["fan-control"] = fanStatus;
 
-            // MongoDB SSD
+            // MongoDB SSD (gate on boot script OR bind mount active - covers manual deploys)
             var mongoStatus = new TweakDeploymentStatus { Id = "mongodb-ssd" };
             mongoStatus.BootScriptDeployed = GetSection(sections, "MONGO_BOOT_SCRIPT").Contains("exists");
             var mongoMounted = GetSection(sections, "MONGO_MOUNTPOINT").Contains("mounted");
@@ -223,17 +224,34 @@ public class PerfTweaksDeploymentService
             }
             status.Tweaks["sfp-sgmiiplus"] = sfpStatus;
 
-            // Load manually-deployed state from DB
+            // Load manually-deployed state from DB and adjust health checks
             await using var db = await _dbFactory.CreateDbContextAsync();
             var manualTweaks = await db.PerfTweakSettings.ToListAsync();
             foreach (var manual in manualTweaks.Where(m => m.IsManuallyDeployed))
             {
-                if (status.Tweaks.TryGetValue(manual.TweakId, out var tweak))
+                if (!status.Tweaks.TryGetValue(manual.TweakId, out var tweak))
                 {
-                    tweak.IsManuallyDeployed = true;
-                    if (!tweak.BootScriptDeployed && !tweak.IsActive)
+                    tweak = new TweakDeploymentStatus { Id = manual.TweakId };
+                    status.Tweaks[manual.TweakId] = tweak;
+                }
+
+                tweak.IsManuallyDeployed = true;
+                if (!tweak.BootScriptDeployed && !tweak.IsActive)
+                    tweak.IsActive = true;
+
+                // For manual deploys, downgrade file-existence checks from Error to Ok -
+                // the user may have their own scripts with different names/paths
+                for (int i = 0; i < tweak.HealthChecks.Count; i++)
+                {
+                    var hc = tweak.HealthChecks[i];
+                    if (hc.Status == HealthCheckStatus.Error &&
+                        (hc.Label == "Module File" || hc.Label == "Boot Script"))
                     {
-                        tweak.IsActive = true;
+                        tweak.HealthChecks[i] = hc with
+                        {
+                            Value = hc.Value + " (OK for manual deploy)",
+                            Status = HealthCheckStatus.Ok
+                        };
                     }
                 }
             }
