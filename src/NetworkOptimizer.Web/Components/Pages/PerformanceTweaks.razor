@@ -531,7 +531,7 @@
             {
                 Id = "sfp-sgmiiplus",
                 Title = "SFP+ 2.5 G SGMII+ Patch",
-                Description = "Loads a kernel module that forces the 2nd SFP+ port (eth6) from SGMII 1 G to SGMII+ 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion. Requires the pre-compiled kernel module on the gateway.",
+                Description = "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion. Requires the pre-compiled kernel module on the gateway.",
                 BootScript = "20-sfp-sgmiiplus.sh"
             }
         };
