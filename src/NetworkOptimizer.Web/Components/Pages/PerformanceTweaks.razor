@@ -204,6 +204,14 @@
                         </div>
                     }
 
+                    <!-- MongoDB SSD gate: requires SSD volume -->
+                    @if (def.Id == "mongodb-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SsdAvailable != true)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                            <strong>No SSD volume detected.</strong> This tweak requires an internal NVMe SSD mounted at <code>/volume1</code> or <code>/volume/&lt;uuid&gt;/</code>. Make sure your gateway has an SSD installed and mounted.
+                        </div>
+                    }
+
                     <!-- SFP-specific gate -->
                     @if (def.Id == "sfp-sgmiiplus" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpModuleAlreadyLoaded == true)
                     {
@@ -217,7 +225,7 @@
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
                         {
                             <button class="btn btn-primary btn-sm"
-                                    disabled="@(_status?.UdmBootInstalled != true || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true))"
+                                    disabled="@(_status?.UdmBootInstalled != true || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
                                     @onclick="() => DeployTweak(def.Id)"
                                     data-tooltip="@(_status?.UdmBootInstalled != true ? "Install UDM Boot first" : "")">
                                 @if (_deployingTweakId == def.Id)

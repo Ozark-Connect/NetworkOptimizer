@@ -60,6 +60,8 @@ public class PerfTweaksDeploymentService
                 "echo '---FAN_RPM---'; cat /sys/class/hwmon/hwmon0/fan1_input 2>/dev/null || echo 'N/A'; " +
                 "echo '---FAN_LOG---'; tail -3 /var/log/fan-control-tuning.log 2>/dev/null || echo 'no log'; " +
                 "echo '---UHWD_STATUS---'; systemctl is-active uhwd 2>/dev/null || echo 'inactive'; " +
+                // SSD availability (for MongoDB SSD tweak gating)
+                "echo '---SSD_VOLUME---'; (mountpoint -q /volume1 2>/dev/null && echo '/volume1') || (for d in /volume/*/; do [ -d \"$d\" ] && mountpoint -q \"${d%/}\" 2>/dev/null && echo \"${d%/}\" && break; done) || echo 'none'; " +
                 // MongoDB SSD
                 $"echo '---MONGO_BOOT_SCRIPT---'; test -f {OnBootDir}/06-mongodb-ssd-offload.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---MONGO_MOUNTPOINT---'; mountpoint -q /data/unifi/data/db 2>/dev/null && echo 'mounted' || echo 'not-mounted'; " +
@@ -102,6 +104,11 @@ public class PerfTweaksDeploymentService
             status.IsSupportedGateway = modelLower is "ucg-fiber" or "ucgf" or "ucgfiber"
                 or "uxg-fiber" or "uxgfiber"
                 or "ucg-max" or "ucgmax";
+
+            // SSD availability
+            var ssdVolume = GetSection(sections, "SSD_VOLUME").Trim();
+            status.SsdAvailable = ssdVolume != "none" && !string.IsNullOrEmpty(ssdVolume);
+            status.SsdMountPath = status.SsdAvailable ? ssdVolume : null;
 
             // Fan control
             var fanStatus = new TweakDeploymentStatus { Id = "fan-control" };
@@ -513,6 +520,8 @@ public class PerfTweaksStatus
     public bool UdmBootEnabled { get; set; }
     public string? GatewayModel { get; set; }
     public bool IsSupportedGateway { get; set; }
+    public bool SsdAvailable { get; set; }
+    public string? SsdMountPath { get; set; }
     public bool SfpModuleAlreadyLoaded { get; set; }
     public string? Error { get; set; }
     public Dictionary<string, TweakDeploymentStatus> Tweaks { get; set; } = new();
