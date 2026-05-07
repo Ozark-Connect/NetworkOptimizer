@@ -48,6 +48,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<WanDataUsageSnapshot> WanDataUsageSnapshots { get; set; }
     public DbSet<WanSteerTrafficClass> WanSteerTrafficClasses { get; set; }
     public DbSet<ExternalSpeedTestServer> ExternalSpeedTestServers { get; set; }
+    public DbSet<PerfTweakSetting> PerfTweakSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -151,6 +152,13 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("ExternalSpeedTestServers");
             entity.HasIndex(e => e.ServerId).IsUnique();
+        });
+
+        // PerfTweakSetting configuration (tracks manually-deployed tweaks)
+        modelBuilder.Entity<PerfTweakSetting>(entity =>
+        {
+            entity.ToTable("PerfTweakSettings");
+            entity.HasIndex(e => e.TweakId).IsUnique();
         });
 
         // UniFiConnectionSettings configuration (singleton - only one row)

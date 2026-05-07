@@ -632,11 +632,16 @@ public static class UniFiProductDatabase
         if (string.IsNullOrEmpty(shortname))
             return "Unknown";
 
-        // Try legacy shortname alias lookup
+        // Try legacy shortname alias lookup (case-insensitive)
         if (LegacyShortnameAliases.TryGetValue(shortname, out var name))
             return name;
 
-        // Return original if not found
+        // ubnt-device-info model_short can return hyphenated forms (e.g. UXG-FIBER)
+        // while aliases store condensed forms (e.g. UXGFIBER). Try without hyphens.
+        var condensed = shortname.Replace("-", "");
+        if (condensed != shortname && LegacyShortnameAliases.TryGetValue(condensed, out var condensedName))
+            return condensedName;
+
         return shortname;
     }
 

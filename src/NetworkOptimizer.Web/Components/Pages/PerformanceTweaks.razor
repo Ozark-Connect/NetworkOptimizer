@@ -1,0 +1,968 @@
+@page "/perf-tweaks"
+@implements IDisposable
+@inject UniFiConnectionService ConnectionService
+@inject IGatewaySshService GatewaySshService
+@inject PerfTweaksDeploymentService DeployService
+@inject ILogger<PerformanceTweaks> Logger
+@inject PullToRefreshState PtrState
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services.Ssh
+
+<PageTitle>Performance Tweaks - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Performance Tweaks</h1>
+    <p class="page-description">Deploy and manage hardware-level performance optimizations for your UCG-Fiber, UXG-Fiber, or UCG-Max gateway. These tweaks address eMMC write pressure, thermal management, and SFP+ link speed - all persistent across reboots via udm-boot. We have more tweaks in testing that we'll be bringing over soon, and we're always looking for ideas.</p>
+</div>
+
+@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized && !string.IsNullOrEmpty(ConnectionService.LastError))
+{
+    <div class="connection-banner connection-error">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                <strong>UniFi Connection Error</strong>
+                <span>@ConnectionService.LastError</span>
+            </div>
+            <a href="/settings" class="btn btn-primary">Check Settings</a>
+        </div>
+    </div>
+}
+
+<div class="pt-container">
+    <!-- Deployment Status -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Deployment Status</h2>
+            @if (!_isLoading)
+            {
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus">Refresh</button>
+            }
+        </div>
+        <div class="card-body">
+            <div class="deployment-status-content" style="min-height: 90px;">
+                @if (_isLoading)
+                {
+                    <div class="loading-container">
+                        <span class="spinner"></span>
+                        <span>Checking deployment status...</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="pt-status-metrics">
+                        <div class="metric">
+                            <div class="metric-label">Gateway Connection</div>
+                            <div class="metric-value">
+                                <span class="status-indicator @(_gatewayConnected ? "status-active" : "status-inactive")"></span>
+                                @(_gatewayConnected ? "Connected" : "Not Connected")
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">UDM Boot</div>
+                            <div class="metric-value">
+                                <span class="status-indicator @(_status?.UdmBootInstalled == true ? "status-active" : "status-inactive")"></span>
+                                @if (_status?.UdmBootInstalled == true)
+                                {
+                                    <span>@(_status.UdmBootEnabled ? "Enabled" : "Installed")</span>
+                                }
+                                else
+                                {
+                                    <span>Not Installed</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Gateway Model</div>
+                            <div class="metric-value">
+                                @if (_gatewayConnected && !string.IsNullOrEmpty(_status?.GatewayModel))
+                                {
+                                    @if (_status.IsSupportedGateway)
+                                    {
+                                        <span class="status-indicator status-active"></span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-indicator status-danger"></span>
+                                    }
+                                    <span>@_status.GatewayModel</span>
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Firmware</div>
+                            <div class="metric-value">
+                                @if (!string.IsNullOrEmpty(_status?.FirmwareVersion))
+                                {
+                                    <span class="status-indicator @(_status.FirmwareSupported ? "status-active" : "status-danger")"></span>
+                                    <span>@_status.FirmwareVersion</span>
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Active Tweaks</div>
+                            <div class="metric-value">@_activeTweakCount / @_compatibleTweaks.Count</div>
+                        </div>
+                    </div>
+
+                    @if (_gatewayConnected && _status?.FirmwareSupported == false && !string.IsNullOrEmpty(_status?.FirmwareVersion))
+                    {
+                        <div class="alert alert-danger" style="margin-top: 1rem;">
+                            <strong>Unsupported Firmware:</strong> Performance tweaks are currently tested and supported up to UniFi OS 5.1.10. Your gateway is running @_status.FirmwareVersion. Deploying new tweaks is disabled until we validate compatibility with this version. Existing tweaks will continue to run.
+                        </div>
+                    }
+
+                    @if (!_gatewayConfigured)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>Gateway SSH not configured.</strong>
+                            Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using Performance Tweaks.
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(_status?.Error))
+                    {
+                        <div class="alert alert-danger alert-with-tooltip" style="margin-top: 1rem;">
+                            <span class="alert-text"><strong>Connection Error:</strong> @_status.Error</span>
+                            <SshTroubleshootingTooltip Context="gateway" />
+                        </div>
+                    }
+                    else if (_gatewayConnected && _status?.IsSupportedGateway == false)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>Unsupported Gateway:</strong> Performance Tweaks are designed for UCG-Fiber, UXG-Fiber, and UCG-Max gateways. Your gateway (@(_status.GatewayModel ?? "unknown")) is not supported.
+                        </div>
+                    }
+
+                    @if (_gatewayConnected && _status?.UdmBootInstalled != true)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>UDM Boot Required:</strong> Performance tweaks use boot scripts in <code>/data/on_boot.d/</code> that require udm-boot to persist across reboots.
+                            <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
+                                @if (_isInstallingUdmBoot)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                    <span>Installing...</span>
+                                }
+                                else
+                                {
+                                    <span>Install UDM Boot</span>
+                                }
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Firmware Notes -->
+    @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true && _activeTweakCount > 0)
+    {
+        <div class="card">
+            <div class="card-header" style="cursor: pointer;" @onclick="() => _showFirmwareNotes = !_showFirmwareNotes">
+                <h2 class="card-title">Firmware Upgrade Notes</h2>
+                <span class="pt-collapse-icon">@(_showFirmwareNotes ? "−" : "+")</span>
+            </div>
+            @if (_showFirmwareNotes)
+            {
+                <div class="card-body">
+                    <div class="pt-firmware-table">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Scenario</th>
+                                    <th>Impact</th>
+                                    <th>Action Required</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>UniFi Network Upgrade</td>
+                                    <td>No impact</td>
+                                    <td>None - everything is preserved</td>
+                                </tr>
+                                <tr>
+                                    <td>UniFi OS Upgrade</td>
+                                    <td>Boot scripts survive and reapply all tweaks on next boot</td>
+                                    <td>Verify udm-boot is still enabled: <code>systemctl status udm-boot</code></td>
+                                </tr>
+                                <tr>
+                                    <td>Factory Reset</td>
+                                    <td><strong>Boot scripts and SSD data may be wiped</strong></td>
+                                    <td><strong>Reinstall udm-boot and redeploy all tweaks</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_removeMessage))
+    {
+        <div class="alert alert-warning">
+            @_removeMessage
+        </div>
+    }
+
+    <!-- Tweak Cards -->
+    @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true)
+    {
+        @foreach (var def in _tweakDefs.Where(d => d.IsCompatibleWith(_status?.GatewayModel)))
+        {
+            var tweakStatus = _status?.Tweaks.GetValueOrDefault(def.Id);
+            var effectiveStatus = GetEffectiveStatus(tweakStatus);
+
+            <div class="card pt-tweak-card">
+                <div class="card-header">
+                    <div class="pt-tweak-header">
+                        <h2 class="card-title">@def.Title</h2>
+                        @if (effectiveStatus == TweakDisplayStatus.Active)
+                        {
+                            <span class="pt-status-badge pt-status-active">Active</span>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Manual)
+                        {
+                            <span class="pt-status-badge pt-status-manual">Manual</span>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Detected)
+                        {
+                            <span class="pt-status-badge pt-status-detected">Detected</span>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Issue)
+                        {
+                            <span class="pt-status-badge pt-status-issue">Issue</span>
+                        }
+                        else
+                        {
+                            <span class="pt-status-badge pt-status-inactive">Not Deployed</span>
+                        }
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="pt-tweak-description">@def.Description</p>
+                    @if (!string.IsNullOrEmpty(def.ExtraNote))
+                    {
+                        <p class="pt-tweak-description" style="font-style: italic;">@def.ExtraNote</p>
+                    }
+
+                    <!-- Health Check Results -->
+                    @if (tweakStatus != null && tweakStatus.HealthChecks.Any())
+                    {
+                        <div class="pt-health-section">
+                            <div class="pt-health-grid">
+                                @foreach (var check in tweakStatus.HealthChecks)
+                                {
+                                    <div class="pt-health-item">
+                                        <span class="status-indicator @GetHealthClass(check.Status)"></span>
+                                        <span class="pt-health-label">@check.Label</span>
+                                        <span class="pt-health-value">@check.Value</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (effectiveStatus == TweakDisplayStatus.Issue && !string.IsNullOrEmpty(tweakStatus?.IssueDescription))
+                    {
+                        <div class="alert alert-danger" style="margin-top: 0.75rem;">
+                            @tweakStatus.IssueDescription
+                        </div>
+                    }
+
+                    <!-- MongoDB SSD gate: requires SSD volume -->
+                    @if (def.Id == "mongodb-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SsdAvailable != true)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                            <strong>No SSD volume detected.</strong> This tweak requires an internal NVMe SSD mounted at <code>/volume1</code> or <code>/volume/&lt;uuid&gt;/</code>. Make sure your gateway has an SSD installed and mounted.
+                        </div>
+                    }
+                    else if (def.Id == "mongodb-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SsdAvailable == true)
+                    {
+                        <div class="alert alert-info" style="margin-top: 0.75rem;">
+                            <strong>Note:</strong> First-run deployment will briefly stop UniFi Network while migrating MongoDB data to SSD. It will restart automatically once the migration completes.
+                        </div>
+                    }
+
+                    <!-- SFP qca-ssdk gate -->
+                    @if (def.Id == "sfp-sgmiiplus" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpQcaSsdkMissing == true)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                            <strong>Missing dependency:</strong> The <code>qca-ssdk</code> kernel module is not loaded on this gateway. It is required for the SFP SGMII+ patch to function.
+                        </div>
+                    }
+
+                    <!-- SFP-specific gate -->
+                    @if (def.Id == "sfp-sgmiiplus" && (effectiveStatus == TweakDisplayStatus.NotDeployed || effectiveStatus == TweakDisplayStatus.Detected) && _status?.SfpModuleAlreadyLoaded == true)
+                    {
+                        <div class="alert alert-info" style="margin-top: 0.75rem;">
+                            <strong>Module already loaded.</strong> The SFP SGMII+ kernel module is already active on this gateway. Use "Mark as Manually Deployed" to enable monitoring without redeploying.
+                        </div>
+                    }
+
+                    <!-- Action Buttons -->
+                    <div class="pt-actions">
+                        @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
+                        {
+                            <button class="btn btn-primary btn-sm"
+                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus" && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
+                                    @onclick="() => ShowDeployConfirmation(def.Id)"
+                                    data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : null)">
+                                @if (_deployingTweakId == def.Id)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                    <span>Deploying...</span>
+                                }
+                                else
+                                {
+                                    <span>Deploy</span>
+                                }
+                            </button>
+                            <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
+                                Mark as Manually Deployed
+                            </button>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Active)
+                        {
+                            @if (tweakStatus?.ScriptOutdated == true)
+                            {
+                                <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id)">
+                                    @if (_deployingTweakId == def.Id)
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <span>Updating...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Update</span>
+                                    }
+                                </button>
+                            }
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
+                            </button>
+                            @if (tweakStatus?.IsManuallyDeployed != true)
+                            {
+                                <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                    @if (_removingTweakId == def.Id)
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <span>Removing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Remove</span>
+                                    }
+                                </button>
+                            }
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Manual)
+                        {
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(def.Id)">
+                                Unmark Manual
+                            </button>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Detected)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
+                                Mark as Manually Deployed
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
+                            </button>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Issue)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id)">
+                                @if (_deployingTweakId == def.Id)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                    <span>Redeploying...</span>
+                                }
+                                else
+                                {
+                                    <span>Redeploy</span>
+                                }
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
+                                Remove
+                            </button>
+                        }
+                    </div>
+
+                    <!-- Deployment Progress -->
+                    @if (_deployingTweakId == def.Id && _deploySteps.Any())
+                    {
+                        <div class="pt-deploy-progress">
+                            @foreach (var step in _deploySteps)
+                            {
+                                <div>@step</div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<!-- Deploy Confirmation Modal -->
+@if (_showDeployConfirm)
+{
+    <div class="pt-modal-overlay" @onclick="CancelDeploy">
+        <div class="pt-modal" @onclick:stopPropagation="true">
+            <div class="pt-modal-header">
+                <h3>Confirm Deployment</h3>
+            </div>
+            <div class="pt-modal-body">
+                <p>Before deploying, please confirm the following:</p>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmBackup" />
+                    <span>I have created a <strong>full backup</strong> (OS + Network) in my UniFi Console</span>
+                </label>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmBackupDownloaded" />
+                    <span>I have <strong>downloaded a copy</strong> of that backup to a separate device</span>
+                </label>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmWarranty" />
+                    <span>I understand these are <strong>community-developed tweaks</strong>, not supported by Ubiquiti, and may affect my warranty or support eligibility</span>
+                </label>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmRisk" />
+                    <span>I understand that while these tweaks have been tested across multiple gateways and sites, <strong>some risk remains</strong>, particularly with newer firmware versions</span>
+                </label>
+            </div>
+            <div class="pt-modal-footer">
+                <button class="btn btn-secondary btn-sm" @onclick="CancelDeploy">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="ConfirmDeploy" disabled="@(!_allConfirmed)">
+                    Confirm Deploy
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .pt-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    /* Status metrics grid */
+    .pt-status-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+    }
+
+    .pt-status-metrics .metric {
+        text-align: center;
+        padding: 1.25rem;
+        background: var(--bg-primary);
+        border-radius: 0.5rem;
+    }
+
+    .pt-status-metrics .metric-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+
+    .pt-status-metrics .metric-value {
+        font-size: 1rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .pt-status-metrics .status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    .pt-status-metrics .status-active {
+        background: var(--success-color);
+    }
+
+    .pt-status-metrics .status-inactive {
+        background: var(--danger-color);
+    }
+
+    .pt-health-item .status-warning {
+        background: var(--warning-color);
+    }
+
+    /* Tweak cards */
+    .pt-tweak-card .card-body {
+        padding-top: 0.75rem;
+    }
+
+    .pt-tweak-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .pt-tweak-description {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        line-height: 1.5;
+        margin: 0 0 1rem 0;
+    }
+
+    /* Status badges */
+    .pt-status-badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.2rem 0.6rem;
+        border-radius: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+    }
+
+    .pt-status-active {
+        background: rgba(36, 188, 112, 0.15);
+        color: var(--success-color);
+    }
+
+    .pt-status-manual {
+        background: rgba(71, 151, 255, 0.15);
+        color: var(--info-color);
+    }
+
+    .pt-status-detected {
+        background: rgba(249, 115, 22, 0.15);
+        color: var(--accent-color);
+    }
+
+    .pt-status-issue {
+        background: rgba(238, 99, 104, 0.15);
+        color: var(--danger-color);
+    }
+
+    .pt-status-inactive {
+        background: rgba(100, 116, 139, 0.15);
+        color: var(--text-muted);
+    }
+
+    /* Health checks */
+    .pt-health-section {
+        background: var(--bg-primary);
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .pt-health-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .pt-health-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .pt-health-item .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        flex-shrink: 0;
+    }
+
+    .pt-health-label {
+        color: var(--text-secondary);
+        min-width: 180px;
+    }
+
+    .pt-health-value {
+        color: var(--text-primary);
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.8rem;
+    }
+
+    /* Action buttons */
+    .pt-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+    }
+
+    /* Deploy progress */
+    .pt-deploy-progress {
+        margin-top: 0.75rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-primary);
+        border-radius: 0.5rem;
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
+    .pt-deploy-progress div {
+        padding: 0.15rem 0;
+    }
+
+    /* Firmware notes */
+    .pt-collapse-icon {
+        font-size: 1.2rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+        user-select: none;
+    }
+
+    .pt-firmware-table table {
+        font-size: 0.85rem;
+    }
+
+    .pt-firmware-table td strong {
+        color: var(--warning-color);
+    }
+
+    /* Deploy confirmation modal */
+    .pt-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 1rem;
+    }
+
+    .pt-modal {
+        background: var(--bg-secondary);
+        border-radius: 0.75rem;
+        max-width: 540px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    .pt-modal-header {
+        padding: 1.25rem 1.5rem 0;
+    }
+
+    .pt-modal-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: var(--text-primary);
+    }
+
+    .pt-modal-body {
+        padding: 1rem 1.5rem;
+    }
+
+    .pt-modal-body > p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin: 0 0 1rem 0;
+    }
+
+    .pt-confirm-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.6rem 0;
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        line-height: 1.4;
+    }
+
+    .pt-confirm-item input[type="checkbox"] {
+        margin-top: 0.15rem;
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        accent-color: var(--primary-color);
+    }
+
+    .pt-modal-footer {
+        padding: 0.75rem 1.5rem 1.25rem;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+
+    @@media (max-width: 768px) {
+        .pt-status-metrics {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .pt-health-label {
+            min-width: 130px;
+        }
+
+        .pt-actions {
+            flex-direction: column;
+        }
+
+        .pt-actions .btn {
+            width: 100%;
+        }
+    }
+</style>
+
+@code {
+    private bool _isLoading = true;
+    private bool _gatewayConfigured;
+    private bool _gatewayConnected;
+    private bool _isInstallingUdmBoot;
+    private bool _showFirmwareNotes;
+    private string? _deployingTweakId;
+    private string? _removingTweakId;
+    private string? _removeMessage;
+    private bool _showDeployConfirm;
+    private string? _pendingDeployTweakId;
+    private bool _confirmBackup;
+    private bool _confirmBackupDownloaded;
+    private bool _confirmWarranty;
+    private bool _confirmRisk;
+    private bool _allConfirmed => _confirmBackup && _confirmBackupDownloaded && _confirmWarranty && _confirmRisk;
+    private bool _canDeploy => _status?.UdmBootInstalled == true && _status?.FirmwareSupported == true;
+    private List<string> _deploySteps = new();
+    private PerfTweaksStatus? _status;
+
+    private List<TweakDefinition> _compatibleTweaks => _tweakDefs
+        .Where(d => d.IsCompatibleWith(_status?.GatewayModel)).ToList();
+
+    private int _activeTweakCount => _status?.Tweaks.Values
+        .Count(t => (t.IsActive || t.IsManuallyDeployed)
+            && _compatibleTweaks.Any(d => d.Id == t.Id)) ?? 0;
+
+    private static readonly List<TweakDefinition> _tweakDefs = new()
+    {
+        new("fan-control", "Fan Control Tuning",
+            "Tunes the gateway's PID fan controller to engage cooling earlier, keeping CPU and switch thermals well below throttle thresholds. Uses the existing uhwd controller - no background process, no extra eMMC writes. Lowers setpoints for CPU (100 C to 65 C), HDD (68 C to 55 C), 10G switch (109 C to 85 C), and SFP+ PHY (103 C to 90 C).",
+            ExtraNote: "These setpoints strike a good balance between thermals and fan noise - more conservative than most community fan control scripts, which tend to keep temps excessively low. If you'd like different setpoints, open an issue on GitHub and we'll be happy to add configurability.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
+        new("mongodb-ssd", "MongoDB on SSD",
+            "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. MongoDB's periodic bulk deletions hammer the eMMC flash controller, triggering garbage collection stalls that cause packet loss on CPU-attached ports. Moving the database to NVMe eliminates the I/O bottleneck entirely and improves the responsiveness of the UniFi Network app. Includes daily SSD backups with weekly eMMC failover copies.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "ucg-max", "ucgmax" }),
+        new("journald-volatile", "Logging Offload",
+            "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
+        new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch",
+            "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion.",
+            ExtraNote: "If you need 1st SFP+ port (Port 6 / eth5) support, open an issue on GitHub and we'll work on it.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" })
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        PtrState.RefreshCallback = () => LoadStatusAsync();
+        PtrState.NotifyStateChanged = StateHasChanged;
+        await LoadStatusAsync();
+    }
+
+    private async Task LoadStatusAsync()
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var settings = await GatewaySshService.GetSettingsAsync();
+            _gatewayConfigured = settings?.Enabled == true && !string.IsNullOrEmpty(settings.Host);
+
+            if (!_gatewayConfigured)
+            {
+                _gatewayConnected = false;
+                _isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            _status = await DeployService.CheckAllStatusAsync();
+            _gatewayConnected = _status.Error == null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load performance tweaks status");
+            _gatewayConnected = false;
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshStatus()
+    {
+        await LoadStatusAsync();
+    }
+
+    private async Task InstallUdmBoot()
+    {
+        _isInstallingUdmBoot = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await DeployService.InstallUdmBootAsync();
+            if (result.success)
+                await LoadStatusAsync();
+        }
+        finally
+        {
+            _isInstallingUdmBoot = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowDeployConfirmation(string tweakId)
+    {
+        _pendingDeployTweakId = tweakId;
+        _confirmBackup = false;
+        _confirmBackupDownloaded = false;
+        _confirmWarranty = false;
+        _confirmRisk = false;
+        _showDeployConfirm = true;
+    }
+
+    private async Task ConfirmDeploy()
+    {
+        if (!_allConfirmed || !_canDeploy) return;
+        _showDeployConfirm = false;
+        if (_pendingDeployTweakId != null)
+            await DeployTweak(_pendingDeployTweakId);
+        _pendingDeployTweakId = null;
+    }
+
+    private void CancelDeploy()
+    {
+        _showDeployConfirm = false;
+        _pendingDeployTweakId = null;
+    }
+
+    private async Task DeployTweak(string tweakId)
+    {
+        _deployingTweakId = tweakId;
+        _deploySteps.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var progress = new Progress<string>(step =>
+            {
+                _deploySteps.Add(step);
+                InvokeAsync(StateHasChanged);
+            });
+
+            var result = await DeployService.DeployTweakAsync(tweakId, progress);
+
+            if (result.success)
+                await LoadStatusAsync();
+        }
+        finally
+        {
+            _deployingTweakId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveTweak(string tweakId)
+    {
+        _removingTweakId = tweakId;
+        _removeMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await DeployService.RemoveTweakAsync(tweakId, _status);
+            if (result.success && result.message != "Removed")
+                _removeMessage = result.message;
+            await LoadStatusAsync();
+        }
+        finally
+        {
+            _removingTweakId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task MarkAsManual(string tweakId)
+    {
+        await DeployService.SetManuallyDeployedAsync(tweakId, true);
+        await LoadStatusAsync();
+    }
+
+    private async Task UnmarkManual(string tweakId)
+    {
+        await DeployService.SetManuallyDeployedAsync(tweakId, false);
+        await LoadStatusAsync();
+    }
+
+    private TweakDisplayStatus GetEffectiveStatus(TweakDeploymentStatus? status)
+    {
+        if (status == null) return TweakDisplayStatus.NotDeployed;
+        if (status.IsManuallyDeployed) return TweakDisplayStatus.Manual;
+        if (status.IsActive && string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Active;
+        if (status.IsActive && !string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Issue;
+        if (status.BootScriptDeployed && !status.IsActive) return TweakDisplayStatus.Issue;
+        if (status.RuntimeDetected && !status.BootScriptDeployed) return TweakDisplayStatus.Detected;
+        return TweakDisplayStatus.NotDeployed;
+    }
+
+    private string GetHealthClass(HealthCheckStatus status) => status switch
+    {
+        HealthCheckStatus.Ok => "status-active",
+        HealthCheckStatus.Warning => "status-warning",
+        HealthCheckStatus.Error => "status-danger",
+        _ => "status-inactive"
+    };
+
+    public void Dispose()
+    {
+        // PullToRefreshState is scoped - no cleanup needed
+    }
+
+    private enum TweakDisplayStatus { NotDeployed, Active, Manual, Detected, Issue }
+
+    private record TweakDefinition(string Id, string Title, string Description, string? ExtraNote = null, string[]? CompatibleModels = null)
+    {
+        public bool IsCompatibleWith(string? model)
+        {
+            if (CompatibleModels == null || model == null) return true;
+            return CompatibleModels.Contains(model.ToLowerInvariant());
+        }
+    }
+}

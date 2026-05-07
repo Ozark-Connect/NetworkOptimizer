@@ -28,6 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Resources\PerfTweaks\*.sh" />
+    <EmbeddedResource Include="Resources\PerfTweaks\*.ko" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Blazor-ApexCharts" Version="6.1.1-ozarkconnect.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.7" />
