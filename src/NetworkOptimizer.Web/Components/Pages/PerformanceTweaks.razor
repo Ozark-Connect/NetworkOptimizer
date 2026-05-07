@@ -774,7 +774,7 @@
             ExtraNote: "These setpoints strike a good balance between thermals and fan noise - more conservative than most community fan control scripts, which tend to keep temps excessively low. If you'd like different setpoints, open an issue on GitHub and we'll be happy to add configurability.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
         new("mongodb-ssd", "MongoDB on SSD",
-            "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. Eliminates the root cause of eMMC garbage collection stalls that trigger packet loss on CPU-attached ports during bulk record deletions. Includes daily SSD backups with weekly eMMC failover copies.",
+            "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. MongoDB's periodic bulk deletions hammer the eMMC flash controller, triggering garbage collection stalls that cause packet loss on CPU-attached ports. Moving the database to NVMe eliminates the I/O bottleneck entirely and improves the responsiveness of the UniFi Network app. Includes daily SSD backups with weekly eMMC failover copies.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "ucg-max", "ucgmax" }),
         new("journald-volatile", "Logging Offload",
             "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
