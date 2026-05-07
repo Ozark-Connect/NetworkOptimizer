@@ -169,10 +169,20 @@ stop_mongod_and_unifi() {
     return 0
 }
 
-# Check if SSD copy exists
+# Check if SSD copy exists and is current
 if [ -f "$SSD_DB_DIR/WiredTiger" ]; then
-    log "SSD copy found. Setting up bind mount."
-    NEEDS_MIGRATION=false
+    # Compare timestamps: if eMMC data is newer than SSD, the SSD copy is stale
+    # (e.g., after a removal that copied SSD back to eMMC, then ran on eMMC for a while).
+    # Re-migrate to pick up the newer eMMC data.
+    EMMC_TS=$(stat -c %Y "$EMMC_DB_DIR/WiredTiger" 2>/dev/null || echo 0)
+    SSD_TS=$(stat -c %Y "$SSD_DB_DIR/WiredTiger" 2>/dev/null || echo 0)
+    if [ "$EMMC_TS" -gt "$SSD_TS" ]; then
+        log "SSD copy is stale (eMMC is newer). Will re-migrate."
+        NEEDS_MIGRATION=true
+    else
+        log "SSD copy found and current. Setting up bind mount."
+        NEEDS_MIGRATION=false
+    fi
 else
     log "No SSD copy found. Will perform initial migration."
     NEEDS_MIGRATION=true
