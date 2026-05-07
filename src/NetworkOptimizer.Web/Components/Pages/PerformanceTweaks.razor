@@ -157,46 +157,29 @@
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Component</th>
-                                    <th>UniFi Network Upgrade</th>
-                                    <th>UniFi OS Upgrade</th>
-                                    <th>Factory Reset</th>
+                                    <th>Scenario</th>
+                                    <th>Impact</th>
+                                    <th>Action Required</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr>
-                                    <td>udm-boot service</td>
-                                    <td>Preserved</td>
-                                    <td><strong>Verify</strong></td>
-                                    <td><strong>Reinstall</strong></td>
+                                    <td>UniFi Network Upgrade</td>
+                                    <td>No impact</td>
+                                    <td>None - everything is preserved</td>
                                 </tr>
                                 <tr>
-                                    <td>Boot scripts (<code>/data/on_boot.d/</code>)</td>
-                                    <td>Preserved</td>
-                                    <td>Preserved</td>
-                                    <td><strong>Wiped</strong></td>
+                                    <td>UniFi OS Upgrade</td>
+                                    <td>Boot scripts survive and reapply all tweaks on next boot</td>
+                                    <td>Verify udm-boot is still enabled: <code>systemctl status udm-boot</code></td>
                                 </tr>
                                 <tr>
-                                    <td>journald / syslog-ng config</td>
-                                    <td>Preserved</td>
-                                    <td><strong>Reset to stock</strong></td>
-                                    <td><strong>Reset</strong></td>
-                                </tr>
-                                <tr>
-                                    <td>SSD data (MongoDB)</td>
-                                    <td>Preserved</td>
-                                    <td>Preserved</td>
-                                    <td><strong>May be wiped</strong></td>
-                                </tr>
-                                <tr>
-                                    <td>Fan PID setpoints</td>
-                                    <td>Until uhwd restart</td>
-                                    <td><strong>Reset</strong></td>
-                                    <td><strong>Reset</strong></td>
+                                    <td>Factory Reset</td>
+                                    <td><strong>Boot scripts and SSD data may be wiped</strong></td>
+                                    <td><strong>Reinstall udm-boot and redeploy all tweaks</strong></td>
                                 </tr>
                             </tbody>
                         </table>
-                        <p class="pt-firmware-note">Boot scripts reapply all config changes on every boot, so UniFi OS upgrades are handled automatically. After a <strong>factory reset</strong>, you'll need to reinstall udm-boot and redeploy your tweaks. Always verify <code>systemctl status udm-boot</code> after major firmware updates.</p>
                     </div>
                 </div>
             }
