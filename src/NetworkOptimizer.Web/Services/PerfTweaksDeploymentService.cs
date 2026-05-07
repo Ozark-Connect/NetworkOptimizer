@@ -19,6 +19,7 @@ public class PerfTweaksDeploymentService
     private const string OnBootDir = "/data/on_boot.d";
     private const string PerfTweaksDir = "/data/perf-tweaks";
     private const string SfpModuleDir = "/data/sfp-sgmiiplus";
+    private static readonly Version MaxSupportedFirmware = new(5, 1, 10);
 
     private static readonly Dictionary<string, string> BootScriptFiles = new()
     {
@@ -70,8 +71,9 @@ public class PerfTweaksDeploymentService
                 // UDM boot
                 "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
                 "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
-                // Gateway model
+                // Gateway model and firmware
                 "echo '---GATEWAY_MODEL---'; ubnt-device-info model_short 2>/dev/null || (grep -i '^shortname=' /proc/ubnthal/system.info 2>/dev/null | cut -d= -f2-) || echo 'unknown'; echo; " +
+                "echo '---FIRMWARE_VERSION---'; ubnt-device-info firmware 2>/dev/null || (grep -i '^version=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '\"') || echo 'unknown'; echo; " +
                 // Boot script hashes (for version checking)
                 $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 10-journald-volatile.sh 20-sfp-sgmiiplus.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
                 // Fan control
@@ -129,6 +131,14 @@ public class PerfTweaksDeploymentService
             status.IsSupportedGateway = modelLower is "ucg-fiber" or "ucgf" or "ucgfiber"
                 or "uxg-fiber" or "uxgfiber"
                 or "ucg-max" or "ucgmax";
+
+            // Firmware version
+            var fwRaw = GetSection(sections, "FIRMWARE_VERSION").Trim();
+            status.FirmwareVersion = fwRaw;
+            if (Version.TryParse(fwRaw, out var fwVersion))
+                status.FirmwareSupported = fwVersion <= MaxSupportedFirmware;
+            else
+                status.FirmwareSupported = false;
 
             // SSD availability
             var ssdVolume = GetSection(sections, "SSD_VOLUME").Trim();
@@ -668,6 +678,8 @@ public class PerfTweaksStatus
     public bool UdmBootEnabled { get; set; }
     public string? GatewayModel { get; set; }
     public bool IsSupportedGateway { get; set; }
+    public string? FirmwareVersion { get; set; }
+    public bool FirmwareSupported { get; set; }
     public bool SsdAvailable { get; set; }
     public string? SsdMountPath { get; set; }
     public bool SfpModuleAlreadyLoaded { get; set; }

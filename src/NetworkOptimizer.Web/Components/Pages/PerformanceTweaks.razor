@@ -94,10 +94,31 @@
                             </div>
                         </div>
                         <div class="metric">
+                            <div class="metric-label">Firmware</div>
+                            <div class="metric-value">
+                                @if (!string.IsNullOrEmpty(_status?.FirmwareVersion))
+                                {
+                                    <span class="status-indicator @(_status.FirmwareSupported ? "status-active" : "status-danger")"></span>
+                                    <span>@_status.FirmwareVersion</span>
+                                }
+                                else
+                                {
+                                    <span>-</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="metric">
                             <div class="metric-label">Active Tweaks</div>
                             <div class="metric-value">@_activeTweakCount / @_compatibleTweaks.Count</div>
                         </div>
                     </div>
+
+                    @if (_gatewayConnected && _status?.FirmwareSupported == false && !string.IsNullOrEmpty(_status?.FirmwareVersion))
+                    {
+                        <div class="alert alert-danger" style="margin-top: 1rem;">
+                            <strong>Unsupported Firmware:</strong> Performance tweaks are currently tested and supported up to UniFi OS 5.1.10. Your gateway is running @_status.FirmwareVersion. Deploying new tweaks is disabled until we validate compatibility with this version. Existing tweaks will continue to run.
+                        </div>
+                    }
 
                     @if (!_gatewayConfigured)
                     {
@@ -286,9 +307,9 @@
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
                         {
                             <button class="btn btn-primary btn-sm"
-                                    disabled="@(_status?.UdmBootInstalled != true || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
-                                    @onclick="() => DeployTweak(def.Id)"
-                                    data-tooltip="@(_status?.UdmBootInstalled != true ? "Install UDM Boot first" : "")">
+                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
+                                    @onclick="() => ShowDeployConfirmation(def.Id)"
+                                    data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : "")">
                                 @if (_deployingTweakId == def.Id)
                                 {
                                     <span class="spinner spinner-sm"></span>
@@ -307,7 +328,7 @@
                         {
                             @if (tweakStatus?.ScriptOutdated == true)
                             {
-                                <button class="btn btn-sm btn-primary" @onclick="() => DeployTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
+                                <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id)">
                                     @if (_deployingTweakId == def.Id)
                                     {
                                         <span class="spinner spinner-sm"></span>
@@ -349,7 +370,7 @@
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Issue)
                         {
-                            <button class="btn btn-sm btn-primary" @onclick="() => DeployTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
+                            <button class="btn btn-sm btn-primary" @onclick="() => ShowDeployConfirmation(def.Id)" disabled="@(_deployingTweakId == def.Id)">
                                 @if (_deployingTweakId == def.Id)
                                 {
                                     <span class="spinner spinner-sm"></span>
@@ -384,6 +405,47 @@
         }
     }
 </div>
+
+<!-- Deploy Confirmation Modal -->
+@if (_showDeployConfirm)
+{
+    <div class="pt-modal-overlay" @onclick="CancelDeploy">
+        <div class="pt-modal" @onclick:stopPropagation="true">
+            <div class="pt-modal-header">
+                <h3>Confirm Deployment</h3>
+            </div>
+            <div class="pt-modal-body">
+                <p>Before deploying, please confirm the following:</p>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmBackup" />
+                    <span>I have created a <strong>full backup</strong> (OS + Network) in my UniFi Console</span>
+                </label>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmBackupDownloaded" />
+                    <span>I have <strong>downloaded a copy</strong> of that backup to a separate device</span>
+                </label>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmWarranty" />
+                    <span>I understand these are <strong>community-developed tweaks</strong>, not supported by Ubiquiti, and may affect my warranty or support eligibility</span>
+                </label>
+
+                <label class="pt-confirm-item">
+                    <input type="checkbox" @bind="_confirmRisk" />
+                    <span>I understand that while these tweaks have been tested across multiple gateways and sites, <strong>some risk remains</strong>, particularly with newer firmware versions</span>
+                </label>
+            </div>
+            <div class="pt-modal-footer">
+                <button class="btn btn-secondary btn-sm" @onclick="CancelDeploy">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="ConfirmDeploy" disabled="@(!_allConfirmed)">
+                    Confirm Deploy
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 <style>
     .pt-container {
@@ -434,6 +496,10 @@
 
     .pt-status-metrics .status-inactive {
         background: var(--danger-color);
+    }
+
+    .pt-health-item .status-warning {
+        background: var(--warning-color);
     }
 
     /* Tweak cards */
@@ -578,6 +644,75 @@
         margin: 0.75rem 0 0 0;
     }
 
+    /* Deploy confirmation modal */
+    .pt-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 1rem;
+    }
+
+    .pt-modal {
+        background: var(--bg-secondary);
+        border-radius: 0.75rem;
+        max-width: 540px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    .pt-modal-header {
+        padding: 1.25rem 1.5rem 0;
+    }
+
+    .pt-modal-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: var(--text-primary);
+    }
+
+    .pt-modal-body {
+        padding: 1rem 1.5rem;
+    }
+
+    .pt-modal-body > p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin: 0 0 1rem 0;
+    }
+
+    .pt-confirm-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.6rem 0;
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        line-height: 1.4;
+    }
+
+    .pt-confirm-item input[type="checkbox"] {
+        margin-top: 0.15rem;
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        accent-color: var(--primary-color);
+    }
+
+    .pt-modal-footer {
+        padding: 0.75rem 1.5rem 1.25rem;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+
     @@media (max-width: 768px) {
         .pt-status-metrics {
             grid-template-columns: repeat(2, 1fr);
@@ -604,6 +739,14 @@
     private bool _isInstallingUdmBoot;
     private bool _showFirmwareNotes;
     private string? _deployingTweakId;
+    private bool _showDeployConfirm;
+    private string? _pendingDeployTweakId;
+    private bool _confirmBackup;
+    private bool _confirmBackupDownloaded;
+    private bool _confirmWarranty;
+    private bool _confirmRisk;
+    private bool _allConfirmed => _confirmBackup && _confirmBackupDownloaded && _confirmWarranty && _confirmRisk;
+    private bool _canDeploy => _status?.UdmBootInstalled == true && _status?.FirmwareSupported == true;
     private List<string> _deploySteps = new();
     private PerfTweaksStatus? _status;
 
@@ -626,7 +769,7 @@
             "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
         new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch",
-            "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion. Requires the pre-compiled kernel module on the gateway.",
+            "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion.",
             ExtraNote: "If you need 1st SFP+ port (Port 6 / eth5) support, open an issue on GitHub and we'll work on it.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" })
     };
@@ -692,6 +835,30 @@
             _isInstallingUdmBoot = false;
             StateHasChanged();
         }
+    }
+
+    private void ShowDeployConfirmation(string tweakId)
+    {
+        _pendingDeployTweakId = tweakId;
+        _confirmBackup = false;
+        _confirmBackupDownloaded = false;
+        _confirmWarranty = false;
+        _confirmRisk = false;
+        _showDeployConfirm = true;
+    }
+
+    private async Task ConfirmDeploy()
+    {
+        _showDeployConfirm = false;
+        if (_pendingDeployTweakId != null)
+            await DeployTweak(_pendingDeployTweakId);
+        _pendingDeployTweakId = null;
+    }
+
+    private void CancelDeploy()
+    {
+        _showDeployConfirm = false;
+        _pendingDeployTweakId = null;
     }
 
     private async Task DeployTweak(string tweakId)
