@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
@@ -28,6 +29,22 @@ public class PerfTweaksDeploymentService
         ["sfp-sgmiiplus"] = "20-sfp-sgmiiplus.sh"
     };
 
+    private static readonly Lazy<Dictionary<string, string>> ExpectedHashes = new(() =>
+    {
+        var hashes = new Dictionary<string, string>();
+        foreach (var (tweakId, fileName) in BootScriptFiles)
+        {
+            var content = ReadEmbeddedResource(fileName);
+            if (content != null)
+            {
+                var normalized = content.Replace("\r\n", "\n");
+                var hash = Convert.ToHexStringLower(MD5.HashData(Encoding.UTF8.GetBytes(normalized)));
+                hashes[fileName] = hash;
+            }
+        }
+        return hashes;
+    });
+
     public PerfTweaksDeploymentService(
         ILogger<PerfTweaksDeploymentService> logger,
         IGatewaySshService gatewaySsh,
@@ -55,6 +72,8 @@ public class PerfTweaksDeploymentService
                 "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
                 // Gateway model
                 "echo '---GATEWAY_MODEL---'; ubnt-device-info model_short 2>/dev/null || (grep -i '^shortname=' /proc/ubnthal/system.info 2>/dev/null | cut -d= -f2-) || echo 'unknown'; echo; " +
+                // Boot script hashes (for version checking)
+                $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 10-journald-volatile.sh 20-sfp-sgmiiplus.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
                 // Fan control
                 $"echo '---FAN_BOOT_SCRIPT---'; test -f {OnBootDir}/15-fan-control-tuning.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---FAN_PWM---'; cat /sys/class/hwmon/hwmon0/pwm1 2>/dev/null || echo 'N/A'; " +
@@ -249,6 +268,34 @@ public class PerfTweaksDeploymentService
                 }
             }
             status.Tweaks["sfp-sgmiiplus"] = sfpStatus;
+
+            // Check boot script versions against our embedded copies
+            var remoteHashes = new Dictionary<string, string>();
+            var hashesRaw = GetSection(sections, "SCRIPT_HASHES").Trim();
+            foreach (var line in hashesRaw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = line.Trim().Split(':');
+                if (parts.Length == 2)
+                    remoteHashes[parts[0]] = parts[1];
+            }
+
+            foreach (var (tweakId, tweak) in status.Tweaks)
+            {
+                if (!tweak.BootScriptDeployed) continue;
+
+                var scriptName = BootScriptFiles.GetValueOrDefault(tweakId);
+                if (scriptName == null) continue;
+
+                if (remoteHashes.TryGetValue(scriptName, out var remoteHash) &&
+                    ExpectedHashes.Value.TryGetValue(scriptName, out var expectedHash))
+                {
+                    if (remoteHash != expectedHash)
+                    {
+                        tweak.ScriptOutdated = true;
+                        tweak.HealthChecks.Add(new("Boot Script", "Update available", HealthCheckStatus.Warning));
+                    }
+                }
+            }
 
             // Load manually-deployed state from DB and adjust health checks
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -636,6 +683,7 @@ public class TweakDeploymentStatus
     public bool RuntimeDetected { get; set; }
     public bool IsActive { get; set; }
     public bool IsManuallyDeployed { get; set; }
+    public bool ScriptOutdated { get; set; }
     public string? IssueDescription { get; set; }
     public List<HealthCheckResult> HealthChecks { get; set; } = new();
 }
