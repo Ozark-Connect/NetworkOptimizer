@@ -143,6 +143,67 @@
         </div>
     </div>
 
+    <!-- Firmware Notes -->
+    @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true && _activeTweakCount > 0)
+    {
+        <div class="card">
+            <div class="card-header" style="cursor: pointer;" @onclick="() => _showFirmwareNotes = !_showFirmwareNotes">
+                <h2 class="card-title">Firmware Upgrade Notes</h2>
+                <span class="pt-collapse-icon">@(_showFirmwareNotes ? "−" : "+")</span>
+            </div>
+            @if (_showFirmwareNotes)
+            {
+                <div class="card-body">
+                    <div class="pt-firmware-table">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Component</th>
+                                    <th>UniFi Network Upgrade</th>
+                                    <th>UniFi OS Upgrade</th>
+                                    <th>Factory Reset</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>udm-boot service</td>
+                                    <td>Preserved</td>
+                                    <td><strong>Verify</strong></td>
+                                    <td><strong>Reinstall</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Boot scripts (<code>/data/on_boot.d/</code>)</td>
+                                    <td>Preserved</td>
+                                    <td>Preserved</td>
+                                    <td><strong>Wiped</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>journald / syslog-ng config</td>
+                                    <td>Preserved</td>
+                                    <td><strong>Reset to stock</strong></td>
+                                    <td><strong>Reset</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>SSD data (MongoDB)</td>
+                                    <td>Preserved</td>
+                                    <td>Preserved</td>
+                                    <td><strong>May be wiped</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>Fan PID setpoints</td>
+                                    <td>Until uhwd restart</td>
+                                    <td><strong>Reset</strong></td>
+                                    <td><strong>Reset</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p class="pt-firmware-note">Boot scripts reapply all config changes on every boot, so UniFi OS upgrades are handled automatically. After a <strong>factory reset</strong>, you'll need to reinstall udm-boot and redeploy your tweaks. Always verify <code>systemctl status udm-boot</code> after major firmware updates.</p>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
     <!-- Tweak Cards -->
     @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true)
     {
@@ -479,6 +540,29 @@
         padding: 0.15rem 0;
     }
 
+    /* Firmware notes */
+    .pt-collapse-icon {
+        font-size: 1.2rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+        user-select: none;
+    }
+
+    .pt-firmware-table table {
+        font-size: 0.85rem;
+    }
+
+    .pt-firmware-table td strong {
+        color: var(--warning-color);
+    }
+
+    .pt-firmware-note {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.5;
+        margin: 0.75rem 0 0 0;
+    }
+
     @@media (max-width: 768px) {
         .pt-status-metrics {
             grid-template-columns: repeat(2, 1fr);
@@ -503,6 +587,7 @@
     private bool _gatewayConfigured;
     private bool _gatewayConnected;
     private bool _isInstallingUdmBoot;
+    private bool _showFirmwareNotes;
     private string? _deployingTweakId;
     private List<string> _deploySteps = new();
     private PerfTweaksStatus? _status;
