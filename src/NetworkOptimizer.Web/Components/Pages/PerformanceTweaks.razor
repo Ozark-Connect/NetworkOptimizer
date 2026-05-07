@@ -289,7 +289,7 @@
                     else if (def.Id == "mongodb-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SsdAvailable == true)
                     {
                         <div class="alert alert-info" style="margin-top: 0.75rem;">
-                            <strong>Note:</strong> First-run deployment will briefly stop the UniFi Network controller while migrating MongoDB data to SSD. The controller will restart automatically once the migration completes.
+                            <strong>Note:</strong> First-run deployment will briefly stop UniFi Network while migrating MongoDB data to SSD. It will restart automatically once the migration completes.
                         </div>
                     }
 
@@ -316,7 +316,7 @@
                             <button class="btn btn-primary btn-sm"
                                     disabled="@(!_canDeploy || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus" && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
                                     @onclick="() => ShowDeployConfirmation(def.Id)"
-                                    data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : "")">
+                                    data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : null)">
                                 @if (_deployingTweakId == def.Id)
                                 {
                                     <span class="spinner spinner-sm"></span>
