@@ -59,6 +59,7 @@ public class PerfTweaksDeploymentService
                 $"echo '---FAN_BOOT_SCRIPT---'; test -f {OnBootDir}/15-fan-control-tuning.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---FAN_PWM---'; cat /sys/class/hwmon/hwmon0/pwm1 2>/dev/null || echo 'N/A'; " +
                 "echo '---FAN_RPM---'; cat /sys/class/hwmon/hwmon0/fan1_input 2>/dev/null || echo 'N/A'; " +
+                "echo '---FAN_TEMPS---'; t1=$(cat /sys/class/hwmon/hwmon0/temp1_input 2>/dev/null) && echo \"cpu:$((t1/1000))\"; t2=$(cat /sys/class/hwmon/hwmon0/temp2_input 2>/dev/null) && echo \"hdd:$((t2/1000))\"; t3=$(cat /sys/class/hwmon/hwmon0/temp3_input 2>/dev/null) && echo \"switch:$((t3/1000))\"; " +
                 "echo '---FAN_LOG---'; tail -3 /var/log/fan-control-tuning.log 2>/dev/null || echo 'no log'; " +
                 "echo '---UHWD_STATUS---'; systemctl is-active uhwd 2>/dev/null || echo 'inactive'; " +
                 // SSD availability (for MongoDB SSD tweak gating)
@@ -126,6 +127,26 @@ public class PerfTweaksDeploymentService
                 var rpm = GetSection(sections, "FAN_RPM").Trim();
                 var uhwdActive = GetSection(sections, "UHWD_STATUS").Trim() == "active";
                 fanStatus.HealthChecks.Add(new("Fan Speed", rpm != "N/A" ? $"{rpm} RPM (PWM {pwm})" : "N/A", uhwdActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+
+                var tempsRaw = GetSection(sections, "FAN_TEMPS").Trim();
+                if (!string.IsNullOrEmpty(tempsRaw))
+                {
+                    var tempParts = tempsRaw.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    var tempLabels = new Dictionary<string, string> { ["cpu"] = "CPU", ["hdd"] = "HDD/SSD", ["switch"] = "Switch" };
+                    var tempValues = new List<string>();
+                    foreach (var part in tempParts)
+                    {
+                        var kv = part.Trim().Split(':');
+                        if (kv.Length == 2 && int.TryParse(kv[1], out var tempC))
+                        {
+                            var label = tempLabels.GetValueOrDefault(kv[0], kv[0]);
+                            tempValues.Add($"{label}: {tempC} C");
+                        }
+                    }
+                    if (tempValues.Any())
+                        fanStatus.HealthChecks.Add(new("Temperatures", string.Join(", ", tempValues), HealthCheckStatus.Ok));
+                }
+
                 fanStatus.HealthChecks.Add(new("uhwd Service", uhwdActive ? "Running" : "Not running", uhwdActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
 
                 var fanLog = GetSection(sections, "FAN_LOG").Trim();
