@@ -512,8 +512,29 @@ public class PerfTweaksDeploymentService
 
             if (tweakId == "fan-control")
             {
-                // Remove boot script and restart uhwd to revert PID setpoints to defaults
-                removeCmd = $"rm -f {OnBootDir}/{scriptName} && systemctl restart uhwd 2>/dev/null; echo 'removed'";
+                // Remove boot script, restore stock PID setpoints via SDB, restart uhwd.
+                // Just restarting uhwd does NOT clear tuned values from SDB.
+                var resetScript = """
+                    import threading, time
+                    from ustd.statusdb.sdb_client import SDBClient
+                    c = SDBClient()
+                    t = threading.Thread(target=c.run, daemon=True)
+                    t.start()
+                    time.sleep(1)
+                    fan = c.get("config.fan")
+                    pid = fan.get("PID", {})
+                    stock = {"cpu": 100, "hdd": 68, "rtl8372": 109, "rtl8261": 103}
+                    for k, v in stock.items():
+                        if k in pid:
+                            pid[k][0] = v
+                    fan["standby"] = 20
+                    c.update("config.fan", fan)
+                    time.sleep(1)
+                    """;
+                var resetB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(resetScript));
+                removeCmd = $"rm -f {OnBootDir}/{scriptName}; " +
+                    $"echo '{resetB64}' | base64 -d | python3 2>/dev/null; " +
+                    "systemctl restart uhwd 2>/dev/null; echo 'removed'";
             }
             else if (tweakId == "mongodb-ssd")
             {
