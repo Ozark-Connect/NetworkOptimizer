@@ -292,7 +292,7 @@
                     }
 
                     <!-- SFP-specific gate -->
-                    @if (def.Id == "sfp-sgmiiplus" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpModuleAlreadyLoaded == true)
+                    @if (def.Id == "sfp-sgmiiplus" && (effectiveStatus == TweakDisplayStatus.NotDeployed || effectiveStatus == TweakDisplayStatus.Detected) && _status?.SfpModuleAlreadyLoaded == true)
                     {
                         <div class="alert alert-info" style="margin-top: 0.75rem;">
                             <strong>Module already loaded.</strong> The SFP SGMII+ kernel module is already active on this gateway. Use "Mark as Manually Deployed" to enable monitoring without redeploying.
@@ -525,7 +525,7 @@
 
     .pt-health-label {
         color: var(--text-secondary);
-        min-width: 140px;
+        min-width: 180px;
     }
 
     .pt-health-value {
@@ -588,7 +588,7 @@
         }
 
         .pt-health-label {
-            min-width: 100px;
+            min-width: 130px;
         }
 
         .pt-actions {
