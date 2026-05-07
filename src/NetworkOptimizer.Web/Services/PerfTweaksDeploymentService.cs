@@ -500,7 +500,7 @@ public class PerfTweaksDeploymentService
         }
     }
 
-    public async Task<(bool success, string message)> RemoveTweakAsync(string tweakId)
+    public async Task<(bool success, string message)> RemoveTweakAsync(string tweakId, PerfTweaksStatus? status = null)
     {
         try
         {
@@ -512,30 +512,43 @@ public class PerfTweaksDeploymentService
 
             if (tweakId == "fan-control")
             {
-                // Remove boot script, restore stock PID setpoints via SDB, restart uhwd.
-                // Just restarting uhwd does NOT clear tuned values from SDB.
-                var resetScript = """
-                    import threading, time
-                    from ustd.statusdb.sdb_client import SDBClient
-                    c = SDBClient()
-                    t = threading.Thread(target=c.run, daemon=True)
-                    t.start()
-                    time.sleep(1)
-                    fan = c.get("config.fan")
-                    pid = fan.get("PID", {})
-                    stock = {"cpu": 100, "hdd": 68, "rtl8372": 109, "rtl8261": 103}
-                    for k, v in stock.items():
-                        if k in pid:
-                            pid[k][0] = v
-                    fan["standby"] = 20
-                    c.update("config.fan", fan)
-                    time.sleep(1)
-                    """;
-                var resetB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(resetScript));
-                removeCmd = $"rm -f {OnBootDir}/{scriptName}; " +
-                    $"echo '{resetB64}' | base64 -d | python3 2>/dev/null; " +
-                    "systemctl restart uhwd 2>/dev/null; " +
-                    "rm -f /var/log/fan-control-tuning.log; echo 'removed'";
+                // Remove boot script and log file. On UCG-Fiber/UXG-Fiber, restore stock
+                // PID setpoints via SDB (just restarting uhwd does NOT clear them).
+                // On UCG-Max we don't have confirmed stock values, so just remove and
+                // inform the user to reboot.
+                var modelLower = (status?.GatewayModel ?? "").Replace("-", "").ToLowerInvariant();
+                var canResetSdb = modelLower is "ucgfiber" or "uxgfiber";
+
+                if (canResetSdb)
+                {
+                    var resetScript = """
+                        import threading, time
+                        from ustd.statusdb.sdb_client import SDBClient
+                        c = SDBClient()
+                        t = threading.Thread(target=c.run, daemon=True)
+                        t.start()
+                        time.sleep(1)
+                        fan = c.get("config.fan")
+                        pid = fan.get("PID", {})
+                        stock = {"cpu": 100, "hdd": 68, "rtl8372": 109, "rtl8261": 103}
+                        for k, v in stock.items():
+                            if k in pid:
+                                pid[k][0] = v
+                        fan["standby"] = 20
+                        c.update("config.fan", fan)
+                        time.sleep(1)
+                        """;
+                    var resetB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(resetScript));
+                    removeCmd = $"rm -f {OnBootDir}/{scriptName}; " +
+                        $"echo '{resetB64}' | base64 -d | python3 2>/dev/null; " +
+                        "systemctl restart uhwd 2>/dev/null; " +
+                        "rm -f /var/log/fan-control-tuning.log; echo 'removed'";
+                }
+                else
+                {
+                    removeCmd = $"rm -f {OnBootDir}/{scriptName}; " +
+                        "rm -f /var/log/fan-control-tuning.log; echo 'removed_needs_reboot'";
+                }
             }
             else if (tweakId == "mongodb-ssd")
             {
@@ -591,7 +604,10 @@ public class PerfTweaksDeploymentService
                 await db.SaveChangesAsync();
             }
 
-            return (result.output.Contains("removed"), result.output.Contains("removed") ? "Removed" : result.output);
+            var removed = result.output.Contains("removed");
+            if (result.output.Contains("removed_needs_reboot"))
+                return (removed, "Removed. Reboot your gateway to restore stock fan settings.");
+            return (removed, removed ? "Removed" : result.output);
         }
         catch (Exception ex)
         {

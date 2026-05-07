@@ -207,6 +207,13 @@
         </div>
     }
 
+    @if (!string.IsNullOrEmpty(_removeMessage))
+    {
+        <div class="alert alert-warning">
+            @_removeMessage
+        </div>
+    }
+
     <!-- Tweak Cards -->
     @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true)
     {
@@ -732,6 +739,7 @@
     private bool _isInstallingUdmBoot;
     private bool _showFirmwareNotes;
     private string? _deployingTweakId;
+    private string? _removeMessage;
     private bool _showDeployConfirm;
     private string? _pendingDeployTweakId;
     private bool _confirmBackup;
@@ -885,11 +893,14 @@
     private async Task RemoveTweak(string tweakId)
     {
         _deployingTweakId = tweakId;
+        _removeMessage = null;
         StateHasChanged();
 
         try
         {
-            await DeployService.RemoveTweakAsync(tweakId);
+            var result = await DeployService.RemoveTweakAsync(tweakId, _status);
+            if (result.success && result.message != "Removed")
+                _removeMessage = result.message;
             await LoadStatusAsync();
         }
         finally
