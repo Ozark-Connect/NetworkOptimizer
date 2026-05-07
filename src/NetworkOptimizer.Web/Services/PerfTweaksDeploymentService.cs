@@ -552,13 +552,21 @@ public class PerfTweaksDeploymentService
             }
             else if (tweakId == "mongodb-ssd")
             {
-                // Stop services, unmount bind mount, remove boot scripts and backup cron.
-                // On next boot, MongoDB will start from eMMC using whatever data was there
-                // before migration (or the weekly eMMC backup copy if backups were running).
+                // Clean removal: stop MongoDB cleanly (WiredTiger shutdown), copy SSD
+                // data back to eMMC so the next boot has current data, unmount, clean up.
+                // systemctl stop unifi-mongodb.service cascades to stop unifi and does
+                // a clean mongod --shutdown (WiredTiger journal flush).
                 removeCmd =
-                    "systemctl stop unifi-mongodb.service 2>/dev/null; " +
                     "systemctl stop unifi 2>/dev/null; " +
-                    "umount /data/unifi/data/db 2>/dev/null; " +
+                    "systemctl stop unifi-mongodb.service 2>/dev/null; " +
+                    "i=0; while pgrep -x mongod >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done; " +
+                    "if mountpoint -q /data/unifi/data/db 2>/dev/null; then " +
+                    "  SSD_SRC=$(findmnt -no SOURCE /data/unifi/data/db 2>/dev/null); " +
+                    "  umount /data/unifi/data/db; " +
+                    "  if [ -n \"$SSD_SRC\" ] && [ -d \"$SSD_SRC\" ]; then " +
+                    "    cp -a \"$SSD_SRC\"/* /data/unifi/data/db/ 2>/dev/null; " +
+                    "  fi; " +
+                    "fi; " +
                     $"rm -f {OnBootDir}/06-mongodb-ssd-offload.sh; " +
                     $"rm -f {OnBootDir}/07-mongodb-ssd-backup.sh; " +
                     "rm -f /etc/cron.d/mongodb-ssd-backup; " +
