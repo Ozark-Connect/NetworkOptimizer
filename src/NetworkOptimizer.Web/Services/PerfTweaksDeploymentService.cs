@@ -516,8 +516,8 @@ public class PerfTweaksDeploymentService
                 // PID setpoints via SDB (just restarting uhwd does NOT clear them).
                 // On UCG-Max we don't have confirmed stock values, so just remove and
                 // inform the user to reboot.
-                var modelNorm = (status?.GatewayModel ?? "").Replace("-", "").ToLowerInvariant();
-                var canResetSdb = modelNorm is "ucgfiber" or "uxgfiber";
+                var modelLower = (status?.GatewayModel ?? "").Replace("-", "").ToLowerInvariant();
+                var canResetSdb = modelLower is "ucgfiber" or "uxgfiber";
 
                 if (canResetSdb)
                 {
