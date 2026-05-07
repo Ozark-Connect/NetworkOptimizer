@@ -259,24 +259,25 @@ public class PerfTweaksDeploymentService
 
                 if (clockRate != "N/A")
                 {
-                    var clockLabel = clockRate == "312500000" ? "312.5 MHz (2.5 G)" : clockRate == "125000000" ? "125 MHz (1 G)" : $"{clockRate} Hz";
+                    var clockLabel = clockRate == "312500000" ? "312.5 MHz (2.5 Gbps)" : clockRate == "125000000" ? "125 MHz (1 Gbps)" : $"{clockRate} Hz";
                     sfpStatus.HealthChecks.Add(new("Clock Rate", clockLabel, clockRate == "312500000" ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 }
 
                 if (serdesReg != "n/a")
                 {
-                    var regLabel = isSgmiiPlus ? $"{serdesReg} (SGMII+)" : isSgmii ? $"{serdesReg} (SGMII)" : serdesReg;
+                    var regDisplay = FormatHexRegister(serdesReg);
+                    var regLabel = isSgmiiPlus ? $"{regDisplay} (SGMII+)" : isSgmii ? $"{regDisplay} (SGMII)" : regDisplay;
                     sfpStatus.HealthChecks.Add(new("SerDes Register", regLabel, isSgmiiPlus ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 }
 
                 if (ethSpeed != "N/A" && ethSpeed != "Unknown!")
-                    sfpStatus.HealthChecks.Add(new("eth6 Speed", ethSpeed, ethSpeed.Contains("2500") ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
+                    sfpStatus.HealthChecks.Add(new("eth6 Speed", FormatLinkSpeed(ethSpeed), ethSpeed.Contains("2500") ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
                 else if (ethSpeed == "Unknown!")
                     sfpStatus.HealthChecks.Add(new("eth6 Speed", "No link", HealthCheckStatus.Ok));
 
                 if (sfpModuleLoaded && !is25g && clockRate != "N/A")
                 {
-                    sfpStatus.IssueDescription = "Module loaded but clock/register mismatch - link may not be running at 2.5 G.";
+                    sfpStatus.IssueDescription = "Module loaded but clock/register mismatch - link may not be running at 2.5 Gbps.";
                 }
             }
             status.Tweaks["sfp-sgmiiplus"] = sfpStatus;
@@ -486,7 +487,7 @@ public class PerfTweaksDeploymentService
             var clkOk = GetSection(verifySections, "CLK").Trim() == "312500000";
 
             if (modLoaded && clkOk)
-                Report("Verified: Module loaded, uniphy1 at 312.5 MHz (2.5 G).");
+                Report("Verified: Module loaded, uniphy1 at 312.5 MHz (2.5 Gbps).");
             else if (modLoaded)
                 Report("Module loaded but clock rate not at expected value. Check logs.");
             else
@@ -725,6 +726,27 @@ public class PerfTweaksDeploymentService
 
     private static string GetSection(Dictionary<string, string> sections, string key)
         => sections.TryGetValue(key, out var value) ? value : "";
+
+    private static string FormatHexRegister(string raw)
+    {
+        if (string.IsNullOrEmpty(raw) || !raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return raw;
+        var hex = raw[2..].TrimStart('0');
+        if (hex.Length == 0) hex = "0";
+        return "0x" + hex;
+    }
+
+    private static string FormatLinkSpeed(string ethtoolSpeed)
+    {
+        var numeric = ethtoolSpeed.Replace("Mb/s", "").Trim();
+        if (int.TryParse(numeric, out var mbps))
+        {
+            return mbps % 1000 == 0
+                ? $"{mbps / 1000} Gbps"
+                : $"{mbps / 1000.0:0.#} Gbps";
+        }
+        return ethtoolSpeed;
+    }
 }
 
 public class PerfTweaksStatus
