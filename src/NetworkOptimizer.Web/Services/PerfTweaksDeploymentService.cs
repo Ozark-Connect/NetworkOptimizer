@@ -391,7 +391,7 @@ public class PerfTweaksDeploymentService
             }
 
             Report($"Running {scriptName}...");
-            var runResult = await RunCommandAsync($"{OnBootDir}/{scriptName} 2>&1", TimeSpan.FromMinutes(3));
+            var runResult = await RunCommandAsync($"{OnBootDir}/{scriptName} 2>&1", TimeSpan.FromMinutes(5));
             if (!runResult.success)
             {
                 Report($"Warning: Script returned non-zero exit. Output: {runResult.output}");
@@ -605,7 +605,7 @@ public class PerfTweaksDeploymentService
                 removeCmd = $"rm -f {OnBootDir}/{scriptName} && echo 'removed'";
             }
 
-            var result = await RunCommandAsync(removeCmd, TimeSpan.FromMinutes(2));
+            var result = await RunCommandAsync(removeCmd, TimeSpan.FromMinutes(5));
 
             // Clear manual flag
             await using var db = await _dbFactory.CreateDbContextAsync();

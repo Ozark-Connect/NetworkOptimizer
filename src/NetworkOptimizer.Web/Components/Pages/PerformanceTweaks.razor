@@ -352,8 +352,16 @@
                             </button>
                             @if (tweakStatus?.IsManuallyDeployed != true)
                             {
-                                <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
-                                    Remove
+                                <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                    @if (_removingTweakId == def.Id)
+                                    {
+                                        <span class="spinner spinner-sm"></span>
+                                        <span>Removing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Remove</span>
+                                    }
                                 </button>
                             }
                         }
@@ -739,6 +747,7 @@
     private bool _isInstallingUdmBoot;
     private bool _showFirmwareNotes;
     private string? _deployingTweakId;
+    private string? _removingTweakId;
     private string? _removeMessage;
     private bool _showDeployConfirm;
     private string? _pendingDeployTweakId;
@@ -892,7 +901,7 @@
 
     private async Task RemoveTweak(string tweakId)
     {
-        _deployingTweakId = tweakId;
+        _removingTweakId = tweakId;
         _removeMessage = null;
         StateHasChanged();
 
@@ -905,7 +914,7 @@
         }
         finally
         {
-            _deployingTweakId = null;
+            _removingTweakId = null;
             StateHasChanged();
         }
     }
