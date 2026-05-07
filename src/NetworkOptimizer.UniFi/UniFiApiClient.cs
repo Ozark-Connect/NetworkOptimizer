@@ -782,6 +782,25 @@ public class UniFiApiClient : IDisposable
         }
 
         _logger.LogInformation("Found {Count} Protect devices requiring Security VLAN", result.Count);
+
+        if (allDevices.DriveDevices != null)
+        {
+            foreach (var drive in allDevices.DriveDevices)
+            {
+                if (!string.IsNullOrEmpty(drive.Mac))
+                {
+                    result.AddDriveDevice(drive.Mac);
+                    _logger.LogDebug("Found Drive device: {Name} ({Model}) - MAC: {Mac}",
+                        drive.Name, drive.Model, drive.Mac);
+                }
+            }
+
+            if (result.DriveDeviceCount > 0)
+            {
+                _logger.LogInformation("Found {Count} Drive (UNAS) devices excluded from camera detection", result.DriveDeviceCount);
+            }
+        }
+
         return result;
     }
 

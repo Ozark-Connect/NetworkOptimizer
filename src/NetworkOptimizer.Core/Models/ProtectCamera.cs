@@ -158,6 +158,24 @@ public sealed class ProtectCameraCollection
     public IEnumerable<ProtectCamera> GetAll() => _cameras.Values;
 
     /// <summary>
+    /// MACs of known UNAS/Drive devices (from drive_devices in V2 API).
+    /// These share Ubiquiti OUI prefixes with cameras but are NOT cameras.
+    /// </summary>
+    private readonly HashSet<string> _driveDeviceMacs = new(StringComparer.OrdinalIgnoreCase);
+
+    public void AddDriveDevice(string mac)
+    {
+        _driveDeviceMacs.Add(mac.ToLowerInvariant());
+    }
+
+    public bool IsDriveDevice(string? mac)
+    {
+        return !string.IsNullOrEmpty(mac) && _driveDeviceMacs.Contains(mac);
+    }
+
+    public int DriveDeviceCount => _driveDeviceMacs.Count;
+
+    /// <summary>
     /// Create an empty collection
     /// </summary>
     public static ProtectCameraCollection Empty => new();

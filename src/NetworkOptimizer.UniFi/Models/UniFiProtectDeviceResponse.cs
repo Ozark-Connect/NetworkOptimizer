@@ -22,6 +22,9 @@ public class UniFiAllDevicesResponse
 
     [JsonPropertyName("led_devices")]
     public List<UniFiProtectDeviceResponse>? LedDevices { get; set; }
+
+    [JsonPropertyName("drive_devices")]
+    public List<UniFiProtectDeviceResponse>? DriveDevices { get; set; }
 }
 
 /// <summary>
