@@ -560,12 +560,15 @@ public class PerfTweaksDeploymentService
                     "systemctl stop unifi 2>/dev/null; " +
                     "systemctl stop unifi-mongodb.service 2>/dev/null; " +
                     "i=0; while pgrep -x mongod >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done; " +
+                    "SSD_DB=''; " +
+                    "for d in /volume1/unifi-db /volume/*/unifi-db; do " +
+                    "  [ -d \"$d\" ] && [ -f \"$d/WiredTiger\" ] && SSD_DB=\"$d\" && break; " +
+                    "done; " +
                     "if mountpoint -q /data/unifi/data/db 2>/dev/null; then " +
-                    "  SSD_SRC=$(findmnt -no SOURCE /data/unifi/data/db 2>/dev/null); " +
                     "  umount /data/unifi/data/db; " +
-                    "  if [ -n \"$SSD_SRC\" ] && [ -d \"$SSD_SRC\" ]; then " +
-                    "    cp -a \"$SSD_SRC\"/* /data/unifi/data/db/ 2>/dev/null; " +
-                    "  fi; " +
+                    "fi; " +
+                    "if [ -n \"$SSD_DB\" ]; then " +
+                    "  cp -a \"$SSD_DB\"/* /data/unifi/data/db/ 2>/dev/null; " +
                     "fi; " +
                     $"rm -f {OnBootDir}/06-mongodb-ssd-offload.sh; " +
                     $"rm -f {OnBootDir}/07-mongodb-ssd-backup.sh; " +
