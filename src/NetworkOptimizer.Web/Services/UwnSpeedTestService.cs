@@ -276,16 +276,16 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                     // configured speed, assume multiple WANs are bonded. The 25% margin
                     // accounts for ISP overprovisioning and burst headroom.
                     var maxSingleDown = wanNetworks!.Max(n => n.WanDownloadMbps ?? 0);
-                    var maxSingleUp = wanNetworks.Max(n => n.WanUploadMbps ?? 0);
+                    var maxSingleUp = wanNetworks!.Max(n => n.WanUploadMbps ?? 0);
                     const double fudgeFactor = 1.25;
 
                     if (downloadMbps > maxSingleDown * fudgeFactor || uploadMbps > maxSingleUp * fudgeFactor)
                     {
-                        var groups = wanNetworks
+                        var groups = wanNetworks!
                             .Select(n => n.WanNetworkgroup ?? "WAN")
                             .Distinct().OrderBy(g => g);
                         result.WanNetworkGroup = string.Join("+", groups);
-                        var names = wanNetworks
+                        var names = wanNetworks!
                             .Select(n => !string.IsNullOrEmpty(n.Name) ? n.Name : n.WanNetworkgroup ?? "WAN")
                             .Distinct().OrderBy(n => n);
                         result.WanName = string.Join(" + ", names);
