@@ -211,6 +211,20 @@
                             <strong>No SSD volume detected.</strong> This tweak requires an internal NVMe SSD mounted at <code>/volume1</code> or <code>/volume/&lt;uuid&gt;/</code>. Make sure your gateway has an SSD installed and mounted.
                         </div>
                     }
+                    else if (def.Id == "mongodb-ssd" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SsdAvailable == true)
+                    {
+                        <div class="alert alert-info" style="margin-top: 0.75rem;">
+                            <strong>Note:</strong> First-run deployment will briefly stop the UniFi Network controller while migrating MongoDB data to SSD. The controller will restart automatically once the migration completes.
+                        </div>
+                    }
+
+                    <!-- SFP qca-ssdk gate -->
+                    @if (def.Id == "sfp-sgmiiplus" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpQcaSsdkMissing == true)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                            <strong>Missing dependency:</strong> The <code>qca-ssdk</code> kernel module is not loaded on this gateway. It is required for the SFP SGMII+ patch to function.
+                        </div>
+                    }
 
                     <!-- SFP-specific gate -->
                     @if (def.Id == "sfp-sgmiiplus" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpModuleAlreadyLoaded == true)

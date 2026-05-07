@@ -53,7 +53,7 @@ public class PerfTweaksDeploymentService
                 "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
                 "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
                 // Gateway model
-                "echo '---GATEWAY_MODEL---'; ubnt-device-info model_short 2>/dev/null || (grep -i '^shortname=' /proc/ubnthal/system.info 2>/dev/null | cut -d= -f2-) || echo 'unknown'; " +
+                "echo '---GATEWAY_MODEL---'; ubnt-device-info model_short 2>/dev/null || (grep -i '^shortname=' /proc/ubnthal/system.info 2>/dev/null | cut -d= -f2-) || echo 'unknown'; echo; " +
                 // Fan control
                 $"echo '---FAN_BOOT_SCRIPT---'; test -f {OnBootDir}/15-fan-control-tuning.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---FAN_PWM---'; cat /sys/class/hwmon/hwmon0/pwm1 2>/dev/null || echo 'N/A'; " +
@@ -75,9 +75,12 @@ public class PerfTweaksDeploymentService
                 $"echo '---JOURNALD_BOOT_SCRIPT---'; test -f {OnBootDir}/10-journald-volatile.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---JOURNALD_STORAGE---'; grep '^Storage=' /etc/systemd/journald.conf 2>/dev/null | cut -d= -f2 || echo 'N/A'; " +
                 "echo '---JOURNALD_FWD---'; grep '^ForwardToSyslog=' /etc/systemd/journald.conf 2>/dev/null | cut -d= -f2 || echo 'N/A'; " +
+                "echo '---SYSLOG_EMMC_ROUTES---'; grep -rch '^log ' /etc/syslog-ng/conf.d/*.conf 2>/dev/null | awk '{s+=$1}END{print s+0}'; " +
+                "echo '---THREAT_LOG_ROUTE---'; grep -c '^log.*d_idsips_threat' /etc/syslog-ng/conf.d/threat_log.conf 2>/dev/null || echo '0'; " +
                 // SFP SGMII+
                 $"echo '---SFP_BOOT_SCRIPT---'; test -f {OnBootDir}/20-sfp-sgmiiplus.sh && echo 'exists' || echo 'missing'; " +
                 $"echo '---SFP_MODULE_FILE---'; test -f {SfpModuleDir}/force_uniphy1_sgmiiplus.ko && echo 'exists' || echo 'missing'; " +
+                "echo '---SFP_QCA_SSDK---'; lsmod | grep -q qca_ssdk && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_MODULE_LOADED---'; lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SFP_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
                 "echo '---SFP_SERDES_REG---'; busybox devmem 0x07A10218 32 2>/dev/null || echo 'N/A'; " +
@@ -162,9 +165,16 @@ public class PerfTweaksDeploymentService
             var journaldConfigured = storageVal == "volatile" && fwdVal == "no";
             if (journaldStatus.BootScriptDeployed || journaldConfigured)
             {
-                journaldStatus.IsActive = journaldConfigured;
+                var syslogEmmcRoutes = GetSection(sections, "SYSLOG_EMMC_ROUTES").Trim();
+                int.TryParse(syslogEmmcRoutes, out var emmcRouteCount);
+                var threatRouteVal = GetSection(sections, "THREAT_LOG_ROUTE").Trim();
+                int.TryParse(threatRouteVal, out var threatRouteCount);
+
+                journaldStatus.IsActive = journaldConfigured && emmcRouteCount == 0;
                 journaldStatus.HealthChecks.Add(new("journald Storage", storageVal == "volatile" ? "Volatile (RAM)" : $"{storageVal} (eMMC)", storageVal == "volatile" ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 journaldStatus.HealthChecks.Add(new("Syslog Forward", fwdVal == "no" ? "Disabled" : "Enabled", fwdVal == "no" ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
+                journaldStatus.HealthChecks.Add(new("eMMC Log Routes", emmcRouteCount == 0 ? "All disabled" : $"{emmcRouteCount} still active", emmcRouteCount == 0 ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                journaldStatus.HealthChecks.Add(new("IDS/IPS Threat Pipeline", threatRouteCount > 0 ? "Active" : "Not found", threatRouteCount > 0 ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
             }
             status.Tweaks["journald-volatile"] = journaldStatus;
 
@@ -172,11 +182,13 @@ public class PerfTweaksDeploymentService
             var sfpStatus = new TweakDeploymentStatus { Id = "sfp-sgmiiplus" };
             sfpStatus.BootScriptDeployed = GetSection(sections, "SFP_BOOT_SCRIPT").Contains("exists");
             var sfpModuleExists = GetSection(sections, "SFP_MODULE_FILE").Contains("exists");
+            var sfpQcaSsdkLoaded = GetSection(sections, "SFP_QCA_SSDK").Contains("loaded");
             var sfpModuleLoaded = GetSection(sections, "SFP_MODULE_LOADED").Contains("loaded");
             var clockRate = GetSection(sections, "SFP_CLOCK_RATE").Trim();
             var serdesReg = GetSection(sections, "SFP_SERDES_REG").Trim().ToLowerInvariant();
             var ethSpeed = GetSection(sections, "SFP_ETH6_SPEED").Trim();
             status.SfpModuleAlreadyLoaded = sfpModuleLoaded;
+            status.SfpQcaSsdkMissing = !sfpQcaSsdkLoaded;
 
             if (sfpStatus.BootScriptDeployed || sfpModuleLoaded)
             {
@@ -184,6 +196,7 @@ public class PerfTweaksDeploymentService
                 sfpStatus.IsActive = sfpModuleLoaded && is25g;
 
                 sfpStatus.HealthChecks.Add(new("Kernel Module", sfpModuleLoaded ? "Loaded" : "Not loaded", sfpModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                sfpStatus.HealthChecks.Add(new("qca-ssdk", sfpQcaSsdkLoaded ? "Loaded" : "Missing (required)", sfpQcaSsdkLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 sfpStatus.HealthChecks.Add(new("Module File", sfpModuleExists ? $"{SfpModuleDir}/" : "Missing", sfpModuleExists ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
 
                 if (clockRate != "N/A")
@@ -318,11 +331,18 @@ public class PerfTweaksDeploymentService
 
         try
         {
-            // Check if module is already loaded (gate)
-            Report("Checking if SFP module is already loaded...");
-            var checkResult = await RunCommandAsync("lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'");
-            if (checkResult.output.Contains("loaded"))
+            // Check dependencies
+            Report("Checking prerequisites...");
+            var checkResult = await RunCommandAsync(
+                "echo '---MODULE---'; lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
+                "echo '---SSDK---'; lsmod | grep -q qca_ssdk && echo 'loaded' || echo 'not-loaded'");
+            var checkSections = ParseDelimitedOutput(checkResult.output);
+
+            if (GetSection(checkSections, "MODULE").Contains("loaded"))
                 return (false, "SFP module is already loaded. Use 'Mark as Manually Deployed' for monitoring.", steps);
+
+            if (!GetSection(checkSections, "SSDK").Contains("loaded"))
+                return (false, "qca-ssdk kernel module is not loaded. This is a required dependency for the SFP SGMII+ patch.", steps);
 
             // Deploy kernel module
             Report("Deploying kernel module to /data/sfp-sgmiiplus/...");
@@ -382,22 +402,57 @@ public class PerfTweaksDeploymentService
             if (scriptName == null)
                 return (false, $"Unknown tweak: {tweakId}");
 
-            var commands = new List<string> { $"rm -f {OnBootDir}/{scriptName}" };
+            string removeCmd;
 
-            if (tweakId == "sfp-sgmiiplus")
+            if (tweakId == "fan-control")
             {
-                commands.Add("rmmod force_uniphy1_sgmiiplus 2>/dev/null");
-                commands.Add($"rm -rf {SfpModuleDir}");
+                // Remove boot script and restart uhwd to revert PID setpoints to defaults
+                removeCmd = $"rm -f {OnBootDir}/{scriptName} && systemctl restart uhwd 2>/dev/null; echo 'removed'";
             }
             else if (tweakId == "mongodb-ssd")
             {
-                commands.Add($"rm -f {OnBootDir}/07-mongodb-ssd-backup.sh");
-                commands.Add("rm -f /etc/cron.d/mongodb-ssd-backup");
+                // Stop services, unmount bind mount, remove boot scripts and backup cron.
+                // On next boot, MongoDB will start from eMMC using whatever data was there
+                // before migration (or the weekly eMMC backup copy if backups were running).
+                removeCmd =
+                    "systemctl stop unifi-mongodb.service 2>/dev/null; " +
+                    "systemctl stop unifi 2>/dev/null; " +
+                    "umount /data/unifi/data/db 2>/dev/null; " +
+                    $"rm -f {OnBootDir}/06-mongodb-ssd-offload.sh; " +
+                    $"rm -f {OnBootDir}/07-mongodb-ssd-backup.sh; " +
+                    "rm -f /etc/cron.d/mongodb-ssd-backup; " +
+                    "rm -rf /data/unifi-db-ssd; " +
+                    "systemctl start unifi 2>/dev/null; " +
+                    "echo 'removed'";
+            }
+            else if (tweakId == "journald-volatile")
+            {
+                // Restore journald.conf and syslog-ng routes, restart both services.
+                // The overlay changes persist across reboots - just deleting the boot script
+                // does NOT revert them.
+                removeCmd =
+                    $"rm -f {OnBootDir}/{scriptName}; " +
+                    "sed -i 's/^Storage=volatile/Storage=persistent/' /etc/systemd/journald.conf 2>/dev/null; " +
+                    "sed -i 's/^ForwardToSyslog=no/ForwardToSyslog=yes/' /etc/systemd/journald.conf 2>/dev/null; " +
+                    "systemctl restart systemd-journald 2>/dev/null; " +
+                    "sed -i 's/^#log /log /' /etc/syslog-ng/conf.d/*.conf 2>/dev/null; " +
+                    "systemctl restart syslog-ng 2>/dev/null; " +
+                    "echo 'removed'";
+            }
+            else if (tweakId == "sfp-sgmiiplus")
+            {
+                removeCmd =
+                    $"rm -f {OnBootDir}/{scriptName} && " +
+                    "rmmod force_uniphy1_sgmiiplus 2>/dev/null; " +
+                    $"rm -rf {SfpModuleDir}; " +
+                    "echo 'removed'";
+            }
+            else
+            {
+                removeCmd = $"rm -f {OnBootDir}/{scriptName} && echo 'removed'";
             }
 
-            commands.Add("echo 'removed'");
-
-            var result = await RunCommandAsync(string.Join(" && ", commands));
+            var result = await RunCommandAsync(removeCmd, TimeSpan.FromMinutes(2));
 
             // Clear manual flag
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -523,6 +578,7 @@ public class PerfTweaksStatus
     public bool SsdAvailable { get; set; }
     public string? SsdMountPath { get; set; }
     public bool SfpModuleAlreadyLoaded { get; set; }
+    public bool SfpQcaSsdkMissing { get; set; }
     public string? Error { get; set; }
     public Dictionary<string, TweakDeploymentStatus> Tweaks { get; set; } = new();
 }
