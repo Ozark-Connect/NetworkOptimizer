@@ -352,7 +352,7 @@
                             </button>
                             @if (tweakStatus?.IsManuallyDeployed != true)
                             {
-                                <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
                                     @if (_removingTweakId == def.Id)
                                     {
                                         <span class="spinner spinner-sm"></span>
@@ -399,8 +399,16 @@
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
-                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
-                                Remove
+                            <button class="btn btn-sm btn-danger" @onclick="() => ShowRemoveConfirmation(def.Id)" disabled="@(_removingTweakId == def.Id || _deployingTweakId == def.Id)">
+                                @if (_removingTweakId == def.Id)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                    <span>Removing...</span>
+                                }
+                                else
+                                {
+                                    <span>Remove</span>
+                                }
                             </button>
                         }
                     </div>
@@ -456,6 +464,34 @@
                 <button class="btn btn-secondary btn-sm" @onclick="CancelDeploy">Cancel</button>
                 <button class="btn btn-primary btn-sm" @onclick="ConfirmDeploy" disabled="@(!_allConfirmed)">
                     Confirm Deploy
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Remove Confirmation Modal -->
+@if (_showRemoveConfirm && _pendingRemoveTweakId != null)
+{
+    var removeDef = _tweakDefs.FirstOrDefault(d => d.Id == _pendingRemoveTweakId);
+    <div class="pt-modal-overlay" @onclick="CancelRemove">
+        <div class="pt-modal" @onclick:stopPropagation="true">
+            <div class="pt-modal-header">
+                <h3>Confirm Removal</h3>
+            </div>
+            <div class="pt-modal-body">
+                <p>Are you sure you want to remove <strong>@(removeDef?.Title ?? _pendingRemoveTweakId)</strong>? This will delete the boot script and reverse the tweak's changes on your gateway.</p>
+                @if (_pendingRemoveTweakId == "mongodb-ssd")
+                {
+                    <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                        <strong>Note:</strong> Removal will briefly stop UniFi Network while migrating MongoDB data back from SSD to eMMC, then restart it.
+                    </div>
+                }
+            </div>
+            <div class="pt-modal-footer">
+                <button class="btn btn-secondary btn-sm" @onclick="CancelRemove">Cancel</button>
+                <button class="btn btn-danger btn-sm" @onclick="ConfirmRemove">
+                    Confirm Remove
                 </button>
             </div>
         </div>
@@ -755,6 +791,8 @@
     private bool _confirmBackupDownloaded;
     private bool _confirmWarranty;
     private bool _confirmRisk;
+    private bool _showRemoveConfirm;
+    private string? _pendingRemoveTweakId;
     private bool _allConfirmed => _confirmBackup && _confirmBackupDownloaded && _confirmWarranty && _confirmRisk;
     private bool _canDeploy => _status?.UdmBootInstalled == true && _status?.FirmwareSupported == true;
     private List<string> _deploySteps = new();
@@ -871,6 +909,26 @@
     {
         _showDeployConfirm = false;
         _pendingDeployTweakId = null;
+    }
+
+    private void ShowRemoveConfirmation(string tweakId)
+    {
+        _pendingRemoveTweakId = tweakId;
+        _showRemoveConfirm = true;
+    }
+
+    private async Task ConfirmRemove()
+    {
+        _showRemoveConfirm = false;
+        if (_pendingRemoveTweakId != null)
+            await RemoveTweak(_pendingRemoveTweakId);
+        _pendingRemoveTweakId = null;
+    }
+
+    private void CancelRemove()
+    {
+        _showRemoveConfirm = false;
+        _pendingRemoveTweakId = null;
     }
 
     private async Task DeployTweak(string tweakId)

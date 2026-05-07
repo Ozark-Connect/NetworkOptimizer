@@ -4009,6 +4009,11 @@ select.form-control {
     animation: spin 0.8s linear infinite;
 }
 
+.btn .spinner-sm {
+    border-color: rgba(255, 255, 255, 0.4);
+    border-top-color: white;
+}
+
 .status-offline {
     color: var(--danger-color);
 }
