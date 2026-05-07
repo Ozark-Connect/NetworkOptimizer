@@ -327,7 +327,7 @@
                                     <span>Deploy</span>
                                 }
                             </button>
-                            <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)">
+                            <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
                                 Mark as Manually Deployed
                             </button>
                         }
@@ -376,7 +376,7 @@
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Detected)
                         {
-                            <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)">
+                            <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)" disabled="@(_deployingTweakId != null || _removingTweakId != null)">
                                 Mark as Manually Deployed
                             </button>
                             <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
