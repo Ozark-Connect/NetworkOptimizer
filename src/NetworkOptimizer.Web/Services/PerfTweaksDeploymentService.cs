@@ -269,8 +269,10 @@ public class PerfTweaksDeploymentService
                     sfpStatus.HealthChecks.Add(new("SerDes Register", regLabel, isSgmiiPlus ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 }
 
-                if (ethSpeed != "N/A")
+                if (ethSpeed != "N/A" && ethSpeed != "Unknown!")
                     sfpStatus.HealthChecks.Add(new("eth6 Speed", ethSpeed, ethSpeed.Contains("2500") ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
+                else if (ethSpeed == "Unknown!")
+                    sfpStatus.HealthChecks.Add(new("eth6 Speed", "No link", HealthCheckStatus.Ok));
 
                 if (sfpModuleLoaded && !is25g && clockRate != "N/A")
                 {
