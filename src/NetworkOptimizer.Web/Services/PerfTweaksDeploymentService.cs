@@ -208,8 +208,8 @@ public class PerfTweaksDeploymentService
             var sfpStatus = new TweakDeploymentStatus { Id = "sfp-sgmiiplus" };
             sfpStatus.BootScriptDeployed = GetSection(sections, "SFP_BOOT_SCRIPT").Contains("exists");
             var sfpModuleExists = GetSection(sections, "SFP_MODULE_FILE").Contains("exists");
-            var sfpQcaSsdkLoaded = GetSection(sections, "SFP_QCA_SSDK").Contains("loaded");
-            var sfpModuleLoaded = GetSection(sections, "SFP_MODULE_LOADED").Contains("loaded");
+            var sfpQcaSsdkLoaded = GetSection(sections, "SFP_QCA_SSDK").Trim() == "loaded";
+            var sfpModuleLoaded = GetSection(sections, "SFP_MODULE_LOADED").Trim() == "loaded";
             var clockRate = GetSection(sections, "SFP_CLOCK_RATE").Trim();
             var serdesReg = GetSection(sections, "SFP_SERDES_REG").Trim().ToLowerInvariant();
             var ethSpeed = GetSection(sections, "SFP_ETH6_SPEED").Trim();
@@ -224,7 +224,7 @@ public class PerfTweaksDeploymentService
                 var is25g = clockRate == "312500000" && isSgmiiPlus;
                 sfpStatus.IsActive = sfpStatus.BootScriptDeployed && sfpModuleExists && is25g;
 
-                sfpStatus.HealthChecks.Add(new("Kernel Module", sfpModuleLoaded ? "Loaded" : "Not loaded", sfpModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                sfpStatus.HealthChecks.Add(new("SFP Module", sfpModuleLoaded ? "Loaded" : "Not loaded", sfpModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 sfpStatus.HealthChecks.Add(new("qca-ssdk", sfpQcaSsdkLoaded ? "Loaded" : "Missing (required)", sfpQcaSsdkLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 sfpStatus.HealthChecks.Add(new("Module File", sfpModuleExists ? $"{SfpModuleDir}/" : "Missing", sfpModuleExists ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
 
@@ -384,10 +384,10 @@ public class PerfTweaksDeploymentService
                 "echo '---SSDK---'; lsmod | grep -q qca_ssdk && echo 'loaded' || echo 'not-loaded'");
             var checkSections = ParseDelimitedOutput(checkResult.output);
 
-            if (GetSection(checkSections, "MODULE").Contains("loaded"))
+            if (GetSection(checkSections, "MODULE").Trim() == "loaded")
                 return (false, "SFP module is already loaded. Use 'Mark as Manually Deployed' for monitoring.", steps);
 
-            if (!GetSection(checkSections, "SSDK").Contains("loaded"))
+            if (GetSection(checkSections, "SSDK").Trim() != "loaded")
                 return (false, "qca-ssdk kernel module is not loaded. This is a required dependency for the SFP SGMII+ patch.", steps);
 
             // Deploy kernel module
