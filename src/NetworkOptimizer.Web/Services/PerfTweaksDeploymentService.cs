@@ -597,6 +597,7 @@ public class PerfTweaksDeploymentService
                     $"rm -f {OnBootDir}/{scriptName} && " +
                     "rmmod force_uniphy1_sgmiiplus 2>/dev/null; " +
                     $"rm -rf {SfpModuleDir}; " +
+                    "rm -f /var/log/sfp-sgmiiplus.log; " +
                     "echo 'removed'";
             }
             else
