@@ -224,6 +224,10 @@
                         {
                             <span class="pt-status-badge pt-status-manual">Manual</span>
                         }
+                        else if (effectiveStatus == TweakDisplayStatus.Detected)
+                        {
+                            <span class="pt-status-badge pt-status-detected">Detected</span>
+                        }
                         else if (effectiveStatus == TweakDisplayStatus.Issue)
                         {
                             <span class="pt-status-badge pt-status-issue">Issue</span>
@@ -336,6 +340,15 @@
                             </button>
                             <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(def.Id)">
                                 Unmark Manual
+                            </button>
+                        }
+                        else if (effectiveStatus == TweakDisplayStatus.Detected)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => MarkAsManual(def.Id)">
+                                Mark as Manually Deployed
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
                             </button>
                         }
                         else if (effectiveStatus == TweakDisplayStatus.Issue)
@@ -464,6 +477,11 @@
     .pt-status-manual {
         background: rgba(71, 151, 255, 0.15);
         color: var(--info-color);
+    }
+
+    .pt-status-detected {
+        background: rgba(249, 115, 22, 0.15);
+        color: var(--accent-color);
     }
 
     .pt-status-issue {
@@ -742,6 +760,7 @@
         if (status.IsActive && string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Active;
         if (status.IsActive && !string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Issue;
         if (status.BootScriptDeployed && !status.IsActive) return TweakDisplayStatus.Issue;
+        if (status.RuntimeDetected && !status.BootScriptDeployed) return TweakDisplayStatus.Detected;
         return TweakDisplayStatus.NotDeployed;
     }
 
@@ -758,7 +777,7 @@
         // PullToRefreshState is scoped - no cleanup needed
     }
 
-    private enum TweakDisplayStatus { NotDeployed, Active, Manual, Issue }
+    private enum TweakDisplayStatus { NotDeployed, Active, Manual, Detected, Issue }
 
     private record TweakDefinition(string Id, string Title, string Description, string? ExtraNote = null, string[]? CompatibleModels = null)
     {

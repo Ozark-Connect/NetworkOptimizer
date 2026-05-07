@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
 using Microsoft.EntityFrameworkCore;
 
@@ -100,10 +101,10 @@ public class PerfTweaksDeploymentService
             status.UdmBootInstalled = GetSection(sections, "UDM_BOOT_CHECK").Contains("installed");
             status.UdmBootEnabled = GetSection(sections, "UDM_BOOT_ENABLED").Trim() == "enabled";
 
-            // Gateway model
-            var model = GetSection(sections, "GATEWAY_MODEL").Trim();
-            status.GatewayModel = model;
-            var modelLower = model.ToLowerInvariant();
+            // Gateway model - format via product DB for canonical SKU names
+            var rawModel = GetSection(sections, "GATEWAY_MODEL").Trim();
+            status.GatewayModel = UniFiProductDatabase.GetProductNameFromShortname(rawModel);
+            var modelLower = rawModel.ToLowerInvariant();
             status.IsSupportedGateway = modelLower is "ucg-fiber" or "ucgf" or "ucgfiber"
                 or "uxg-fiber" or "uxgfiber"
                 or "ucg-max" or "ucgmax";
@@ -113,13 +114,14 @@ public class PerfTweaksDeploymentService
             status.SsdAvailable = ssdVolume != "none" && !string.IsNullOrEmpty(ssdVolume);
             status.SsdMountPath = status.SsdAvailable ? ssdVolume : null;
 
-            // Fan control (gate on boot script OR log file existing - covers manual deploys)
+            // Fan control
             var fanStatus = new TweakDeploymentStatus { Id = "fan-control" };
             fanStatus.BootScriptDeployed = GetSection(sections, "FAN_BOOT_SCRIPT").Contains("exists");
             var fanLogExists = !GetSection(sections, "FAN_LOG").Contains("no log");
+            fanStatus.RuntimeDetected = fanLogExists;
             if (fanStatus.BootScriptDeployed || fanLogExists)
             {
-                fanStatus.IsActive = true;
+                fanStatus.IsActive = fanStatus.BootScriptDeployed;
                 var pwm = GetSection(sections, "FAN_PWM").Trim();
                 var rpm = GetSection(sections, "FAN_RPM").Trim();
                 var uhwdActive = GetSection(sections, "UHWD_STATUS").Trim() == "active";
@@ -134,13 +136,14 @@ public class PerfTweaksDeploymentService
             }
             status.Tweaks["fan-control"] = fanStatus;
 
-            // MongoDB SSD (gate on boot script OR bind mount active - covers manual deploys)
+            // MongoDB SSD
             var mongoStatus = new TweakDeploymentStatus { Id = "mongodb-ssd" };
             mongoStatus.BootScriptDeployed = GetSection(sections, "MONGO_BOOT_SCRIPT").Contains("exists");
             var mongoMounted = GetSection(sections, "MONGO_MOUNTPOINT").Contains("mounted");
+            mongoStatus.RuntimeDetected = mongoMounted;
             if (mongoStatus.BootScriptDeployed || mongoMounted)
             {
-                mongoStatus.IsActive = mongoMounted;
+                mongoStatus.IsActive = mongoStatus.BootScriptDeployed && mongoMounted;
                 var source = GetSection(sections, "MONGO_FINDMNT").Trim();
                 var mongoActive = GetSection(sections, "MONGO_SERVICE").Trim() == "active";
                 var ssdSize = GetSection(sections, "MONGO_SSD_SIZE").Trim();
@@ -151,7 +154,6 @@ public class PerfTweaksDeploymentService
                 if (ssdSize != "N/A")
                     mongoStatus.HealthChecks.Add(new("SSD Usage", ssdSize, HealthCheckStatus.Ok));
 
-                // Check backup status if MongoDB SSD is deployed
                 var backupDeployed = GetSection(sections, "MONGO_BACKUP_SCRIPT").Contains("exists");
                 var backupCron = GetSection(sections, "MONGO_BACKUP_CRON").Contains("exists");
                 mongoStatus.HealthChecks.Add(new("Backup", backupDeployed && backupCron ? "Active (daily SSD + weekly eMMC)" : "Not configured", backupDeployed ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
@@ -164,6 +166,7 @@ public class PerfTweaksDeploymentService
             var storageVal = GetSection(sections, "JOURNALD_STORAGE").Trim();
             var fwdVal = GetSection(sections, "JOURNALD_FWD").Trim();
             var journaldConfigured = storageVal == "volatile" && fwdVal == "no";
+            journaldStatus.RuntimeDetected = journaldConfigured;
             if (journaldStatus.BootScriptDeployed || journaldConfigured)
             {
                 var syslogEmmcRoutes = GetSection(sections, "SYSLOG_EMMC_ROUTES").Trim();
@@ -171,7 +174,7 @@ public class PerfTweaksDeploymentService
                 var threatRouteVal = GetSection(sections, "THREAT_LOG_ROUTE").Trim();
                 int.TryParse(threatRouteVal, out var threatRouteCount);
 
-                journaldStatus.IsActive = journaldConfigured && emmcRouteCount == 0;
+                journaldStatus.IsActive = journaldStatus.BootScriptDeployed && journaldConfigured && emmcRouteCount == 0;
                 journaldStatus.HealthChecks.Add(new("journald Storage", storageVal == "volatile" ? "Volatile (RAM)" : $"{storageVal} (eMMC)", storageVal == "volatile" ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 journaldStatus.HealthChecks.Add(new("Syslog Forward", fwdVal == "no" ? "Disabled" : "Enabled", fwdVal == "no" ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
                 journaldStatus.HealthChecks.Add(new("eMMC Log Routes", emmcRouteCount == 0 ? "All disabled" : $"{emmcRouteCount} still active", emmcRouteCount == 0 ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
@@ -190,13 +193,14 @@ public class PerfTweaksDeploymentService
             var ethSpeed = GetSection(sections, "SFP_ETH6_SPEED").Trim();
             status.SfpModuleAlreadyLoaded = sfpModuleLoaded;
             status.SfpQcaSsdkMissing = !sfpQcaSsdkLoaded;
+            sfpStatus.RuntimeDetected = sfpModuleLoaded;
 
             if (sfpStatus.BootScriptDeployed || sfpModuleLoaded)
             {
                 var isSgmiiPlus = serdesReg.EndsWith("50");
                 var isSgmii = serdesReg.EndsWith("30");
                 var is25g = clockRate == "312500000" && isSgmiiPlus;
-                sfpStatus.IsActive = sfpModuleLoaded && is25g;
+                sfpStatus.IsActive = sfpStatus.BootScriptDeployed && sfpModuleExists && is25g;
 
                 sfpStatus.HealthChecks.Add(new("Kernel Module", sfpModuleLoaded ? "Loaded" : "Not loaded", sfpModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 sfpStatus.HealthChecks.Add(new("qca-ssdk", sfpQcaSsdkLoaded ? "Loaded" : "Missing (required)", sfpQcaSsdkLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
@@ -607,6 +611,7 @@ public class TweakDeploymentStatus
 {
     public string Id { get; set; } = "";
     public bool BootScriptDeployed { get; set; }
+    public bool RuntimeDetected { get; set; }
     public bool IsActive { get; set; }
     public bool IsManuallyDeployed { get; set; }
     public string? IssueDescription { get; set; }
