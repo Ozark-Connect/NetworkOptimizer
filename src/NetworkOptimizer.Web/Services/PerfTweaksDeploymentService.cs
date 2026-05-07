@@ -59,7 +59,8 @@ public class PerfTweaksDeploymentService
                 $"echo '---FAN_BOOT_SCRIPT---'; test -f {OnBootDir}/15-fan-control-tuning.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---FAN_PWM---'; cat /sys/class/hwmon/hwmon0/pwm1 2>/dev/null || echo 'N/A'; " +
                 "echo '---FAN_RPM---'; cat /sys/class/hwmon/hwmon0/fan1_input 2>/dev/null || echo 'N/A'; " +
-                "echo '---FAN_TEMPS---'; t1=$(cat /sys/class/hwmon/hwmon0/temp1_input 2>/dev/null) && echo \"cpu:$((t1/1000))\"; t2=$(cat /sys/class/hwmon/hwmon0/temp2_input 2>/dev/null) && echo \"hdd:$((t2/1000))\"; t3=$(cat /sys/class/hwmon/hwmon0/temp3_input 2>/dev/null) && echo \"switch:$((t3/1000))\"; " +
+                "echo '---FAN_TEMPS---'; for f in /sys/class/hwmon/hwmon0/temp*_input; do [ -f \"$f\" ] && echo \"$(basename $f .input):$(($(cat $f)/1000))\"; done; " +
+                "echo '---CPU_DIE_TEMP---'; cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -1 | awk '{printf \"%d\", $1/1000}'; echo; " +
                 "echo '---FAN_LOG---'; tail -3 /var/log/fan-control-tuning.log 2>/dev/null || echo 'no log'; " +
                 "echo '---UHWD_STATUS---'; systemctl is-active uhwd 2>/dev/null || echo 'inactive'; " +
                 // SSD availability (for MongoDB SSD tweak gating)
@@ -128,23 +129,23 @@ public class PerfTweaksDeploymentService
                 var uhwdActive = GetSection(sections, "UHWD_STATUS").Trim() == "active";
                 fanStatus.HealthChecks.Add(new("Fan Speed", rpm != "N/A" ? $"{rpm} RPM (PWM {pwm})" : "N/A", uhwdActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
 
+                var cpuDieTemp = GetSection(sections, "CPU_DIE_TEMP").Trim();
+                if (int.TryParse(cpuDieTemp, out var cpuDie))
+                    fanStatus.HealthChecks.Add(new("CPU Die Temp", $"{cpuDie} C", HealthCheckStatus.Ok));
+
                 var tempsRaw = GetSection(sections, "FAN_TEMPS").Trim();
                 if (!string.IsNullOrEmpty(tempsRaw))
                 {
                     var tempParts = tempsRaw.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                    var tempLabels = new Dictionary<string, string> { ["cpu"] = "CPU", ["hdd"] = "HDD/SSD", ["switch"] = "Switch" };
                     var tempValues = new List<string>();
                     foreach (var part in tempParts)
                     {
                         var kv = part.Trim().Split(':');
                         if (kv.Length == 2 && int.TryParse(kv[1], out var tempC))
-                        {
-                            var label = tempLabels.GetValueOrDefault(kv[0], kv[0]);
-                            tempValues.Add($"{label}: {tempC} C");
-                        }
+                            tempValues.Add($"{tempC} C");
                     }
                     if (tempValues.Any())
-                        fanStatus.HealthChecks.Add(new("Temperatures", string.Join(", ", tempValues), HealthCheckStatus.Ok));
+                        fanStatus.HealthChecks.Add(new("Board Temps", string.Join(" / ", tempValues), HealthCheckStatus.Ok));
                 }
 
                 fanStatus.HealthChecks.Add(new("uhwd Service", uhwdActive ? "Running" : "Not running", uhwdActive ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
