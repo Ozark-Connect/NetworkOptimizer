@@ -253,7 +253,7 @@ public class PerfTweaksDeploymentService
                 var is25g = clockRate == "312500000" && isSgmiiPlus;
                 sfpStatus.IsActive = sfpStatus.BootScriptDeployed && sfpModuleExists && is25g;
 
-                sfpStatus.HealthChecks.Add(new("SFP Module", sfpModuleLoaded ? "Loaded" : "Not loaded", sfpModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                sfpStatus.HealthChecks.Add(new("SFP Kernel Module", sfpModuleLoaded ? "Loaded" : "Not loaded", sfpModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 sfpStatus.HealthChecks.Add(new("qca-ssdk", sfpQcaSsdkLoaded ? "Loaded" : "Missing (required)", sfpQcaSsdkLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 sfpStatus.HealthChecks.Add(new("Module File", sfpModuleExists ? $"{SfpModuleDir}/" : "Missing", sfpModuleExists ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
 
