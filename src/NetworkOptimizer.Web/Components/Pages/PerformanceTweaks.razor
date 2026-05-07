@@ -761,6 +761,7 @@
     {
         new("fan-control", "Fan Control Tuning",
             "Tunes the gateway's PID fan controller to engage cooling earlier, keeping CPU and switch thermals well below throttle thresholds. Uses the existing uhwd controller - no background process, no extra eMMC writes. Lowers setpoints for CPU (100 C to 65 C), HDD (68 C to 55 C), 10G switch (109 C to 85 C), and SFP+ PHY (103 C to 90 C).",
+            ExtraNote: "These setpoints strike a good balance between thermals and fan noise - more conservative than most community fan control scripts, which tend to keep temps excessively low. If you'd like different setpoints, open an issue on GitHub and we'll be happy to add configurability.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
         new("mongodb-ssd", "MongoDB on SSD",
             "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. Eliminates the root cause of eMMC garbage collection stalls that trigger packet loss on CPU-attached ports during bulk record deletions. Includes daily SSD backups with weekly eMMC failover copies.",
