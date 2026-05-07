@@ -192,7 +192,9 @@ public class PerfTweaksDeploymentService
 
             if (sfpStatus.BootScriptDeployed || sfpModuleLoaded)
             {
-                var is25g = clockRate == "312500000" && serdesReg.Contains("0x50");
+                var isSgmiiPlus = serdesReg.EndsWith("50");
+                var isSgmii = serdesReg.EndsWith("30");
+                var is25g = clockRate == "312500000" && isSgmiiPlus;
                 sfpStatus.IsActive = sfpModuleLoaded && is25g;
 
                 sfpStatus.HealthChecks.Add(new("Kernel Module", sfpModuleLoaded ? "Loaded" : "Not loaded", sfpModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
@@ -207,14 +209,14 @@ public class PerfTweaksDeploymentService
 
                 if (serdesReg != "n/a")
                 {
-                    var regLabel = serdesReg.Contains("0x50") ? $"{serdesReg} (SGMII+)" : serdesReg.Contains("0x30") ? $"{serdesReg} (SGMII)" : serdesReg;
-                    sfpStatus.HealthChecks.Add(new("SerDes Register", regLabel, serdesReg.Contains("0x50") ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                    var regLabel = isSgmiiPlus ? $"{serdesReg} (SGMII+)" : isSgmii ? $"{serdesReg} (SGMII)" : serdesReg;
+                    sfpStatus.HealthChecks.Add(new("SerDes Register", regLabel, isSgmiiPlus ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
                 }
 
                 if (ethSpeed != "N/A")
                     sfpStatus.HealthChecks.Add(new("eth6 Speed", ethSpeed, ethSpeed.Contains("2500") ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
 
-                if (sfpModuleLoaded && !is25g)
+                if (sfpModuleLoaded && !is25g && clockRate != "N/A")
                 {
                     sfpStatus.IssueDescription = "Module loaded but clock/register mismatch - link may not be running at 2.5 G.";
                 }
