@@ -345,6 +345,7 @@ builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostic
 builder.Services.AddScoped<ISqmService, SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<WanSteerDeploymentService>();
+builder.Services.AddScoped<PerfTweaksDeploymentService>();
 builder.Services.AddScoped<AgentService>();
 
 // Register WiFi Optimizer rules and engine

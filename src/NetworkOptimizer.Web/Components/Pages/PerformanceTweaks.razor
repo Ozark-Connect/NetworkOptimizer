@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
+@inject PerfTweaksDeploymentService DeployService
 @inject ILogger<PerformanceTweaks> Logger
 @inject PullToRefreshState PtrState
 @rendermode InteractiveServer
@@ -61,10 +62,10 @@
                         <div class="metric">
                             <div class="metric-label">UDM Boot</div>
                             <div class="metric-value">
-                                <span class="status-indicator @(_udmBootInstalled ? "status-active" : "status-inactive")"></span>
-                                @if (_udmBootInstalled)
+                                <span class="status-indicator @(_status?.UdmBootInstalled == true ? "status-active" : "status-inactive")"></span>
+                                @if (_status?.UdmBootInstalled == true)
                                 {
-                                    <span>@(_udmBootEnabled ? "Enabled" : "Installed")</span>
+                                    <span>@(_status.UdmBootEnabled ? "Enabled" : "Installed")</span>
                                 }
                                 else
                                 {
@@ -75,9 +76,9 @@
                         <div class="metric">
                             <div class="metric-label">Gateway Model</div>
                             <div class="metric-value">
-                                @if (_gatewayConnected && !string.IsNullOrEmpty(_gatewayModel))
+                                @if (_gatewayConnected && !string.IsNullOrEmpty(_status?.GatewayModel))
                                 {
-                                    @if (_isSupportedGateway)
+                                    @if (_status.IsSupportedGateway)
                                     {
                                         <span class="status-indicator status-active"></span>
                                     }
@@ -85,7 +86,7 @@
                                     {
                                         <span class="status-indicator status-danger"></span>
                                     }
-                                    <span>@_gatewayModel</span>
+                                    <span>@_status.GatewayModel</span>
                                 }
                                 else
                                 {
@@ -95,7 +96,7 @@
                         </div>
                         <div class="metric">
                             <div class="metric-label">Active Tweaks</div>
-                            <div class="metric-value">@_activeTweakCount / @_tweaks.Count</div>
+                            <div class="metric-value">@_activeTweakCount / @_tweakDefs.Count</div>
                         </div>
                     </div>
 
@@ -106,21 +107,21 @@
                             Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using Performance Tweaks.
                         </div>
                     }
-                    else if (!string.IsNullOrEmpty(_connectionError))
+                    else if (!string.IsNullOrEmpty(_status?.Error))
                     {
                         <div class="alert alert-danger alert-with-tooltip" style="margin-top: 1rem;">
-                            <span class="alert-text"><strong>Connection Error:</strong> @_connectionError</span>
+                            <span class="alert-text"><strong>Connection Error:</strong> @_status.Error</span>
                             <SshTroubleshootingTooltip Context="gateway" />
                         </div>
                     }
-                    else if (_gatewayConnected && !_isSupportedGateway)
+                    else if (_gatewayConnected && _status?.IsSupportedGateway == false)
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
-                            <strong>Unsupported Gateway:</strong> Performance Tweaks are designed for UCG-Fiber and UXG-Fiber gateways. Your gateway (@(_gatewayModel ?? "unknown")) is not supported.
+                            <strong>Unsupported Gateway:</strong> Performance Tweaks are designed for UCG-Fiber and UXG-Fiber gateways. Your gateway (@(_status.GatewayModel ?? "unknown")) is not supported.
                         </div>
                     }
 
-                    @if (_gatewayConnected && !_udmBootInstalled)
+                    @if (_gatewayConnected && _status?.UdmBootInstalled != true)
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
                             <strong>UDM Boot Required:</strong> Performance tweaks use boot scripts in <code>/data/on_boot.d/</code> that require udm-boot to persist across reboots.
@@ -143,23 +144,26 @@
     </div>
 
     <!-- Tweak Cards -->
-    @if (!_isLoading && _gatewayConnected && _isSupportedGateway)
+    @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true)
     {
-        @foreach (var tweak in _tweaks)
+        @foreach (var def in _tweakDefs)
         {
+            var tweakStatus = _status?.Tweaks.GetValueOrDefault(def.Id);
+            var effectiveStatus = GetEffectiveStatus(tweakStatus);
+
             <div class="card pt-tweak-card">
                 <div class="card-header">
                     <div class="pt-tweak-header">
-                        <h2 class="card-title">@tweak.Title</h2>
-                        @if (tweak.Status == TweakStatus.Active)
+                        <h2 class="card-title">@def.Title</h2>
+                        @if (effectiveStatus == TweakDisplayStatus.Active)
                         {
                             <span class="pt-status-badge pt-status-active">Active</span>
                         }
-                        else if (tweak.Status == TweakStatus.ManuallyDeployed)
+                        else if (effectiveStatus == TweakDisplayStatus.Manual)
                         {
                             <span class="pt-status-badge pt-status-manual">Manual</span>
                         }
-                        else if (tweak.Status == TweakStatus.Issue)
+                        else if (effectiveStatus == TweakDisplayStatus.Issue)
                         {
                             <span class="pt-status-badge pt-status-issue">Issue</span>
                         }
@@ -170,14 +174,18 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <p class="pt-tweak-description">@tweak.Description</p>
+                    <p class="pt-tweak-description">@def.Description</p>
+                    @if (!string.IsNullOrEmpty(def.ExtraNote))
+                    {
+                        <p class="pt-tweak-description" style="font-style: italic;">@def.ExtraNote</p>
+                    }
 
                     <!-- Health Check Results -->
-                    @if (tweak.Status != TweakStatus.NotDeployed && tweak.HealthChecks.Any())
+                    @if (tweakStatus != null && tweakStatus.HealthChecks.Any())
                     {
                         <div class="pt-health-section">
                             <div class="pt-health-grid">
-                                @foreach (var check in tweak.HealthChecks)
+                                @foreach (var check in tweakStatus.HealthChecks)
                                 {
                                     <div class="pt-health-item">
                                         <span class="status-indicator @GetHealthClass(check.Status)"></span>
@@ -189,15 +197,15 @@
                         </div>
                     }
 
-                    @if (tweak.Status == TweakStatus.Issue && !string.IsNullOrEmpty(tweak.IssueDescription))
+                    @if (effectiveStatus == TweakDisplayStatus.Issue && !string.IsNullOrEmpty(tweakStatus?.IssueDescription))
                     {
                         <div class="alert alert-danger" style="margin-top: 0.75rem;">
-                            @tweak.IssueDescription
+                            @tweakStatus.IssueDescription
                         </div>
                     }
 
                     <!-- SFP-specific gate -->
-                    @if (tweak.Id == "sfp-sgmiiplus" && tweak.Status == TweakStatus.NotDeployed && _sfpAlreadyLoaded)
+                    @if (def.Id == "sfp-sgmiiplus" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpModuleAlreadyLoaded == true)
                     {
                         <div class="alert alert-info" style="margin-top: 0.75rem;">
                             <strong>Module already loaded.</strong> The SFP SGMII+ kernel module is already active on this gateway. Use "Mark as Manually Deployed" to enable monitoring without redeploying.
@@ -206,12 +214,13 @@
 
                     <!-- Action Buttons -->
                     <div class="pt-actions">
-                        @if (tweak.Status == TweakStatus.NotDeployed)
+                        @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
                         {
-                            <button class="btn btn-primary btn-sm" disabled="@(!_udmBootInstalled || tweak.IsDeploying || (tweak.Id == "sfp-sgmiiplus" && _sfpAlreadyLoaded))"
-                                    @onclick="() => DeployTweak(tweak)"
-                                    data-tooltip="@(!_udmBootInstalled ? "Install UDM Boot first" : "")">
-                                @if (tweak.IsDeploying)
+                            <button class="btn btn-primary btn-sm"
+                                    disabled="@(_status?.UdmBootInstalled != true || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true))"
+                                    @onclick="() => DeployTweak(def.Id)"
+                                    data-tooltip="@(_status?.UdmBootInstalled != true ? "Install UDM Boot first" : "")">
+                                @if (_deployingTweakId == def.Id)
                                 {
                                     <span class="spinner spinner-sm"></span>
                                     <span>Deploying...</span>
@@ -221,48 +230,35 @@
                                     <span>Deploy</span>
                                 }
                             </button>
-                            <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(tweak)">
+                            <button class="btn btn-secondary btn-sm" @onclick="() => MarkAsManual(def.Id)">
                                 Mark as Manually Deployed
                             </button>
                         }
-                        else if (tweak.Status == TweakStatus.Active)
+                        else if (effectiveStatus == TweakDisplayStatus.Active)
                         {
-                            <button class="btn btn-sm btn-secondary" @onclick="() => CheckTweakHealth(tweak)" disabled="@tweak.IsChecking">
-                                @if (tweak.IsChecking)
-                                {
-                                    <span class="spinner spinner-sm"></span>
-                                    <span>Checking...</span>
-                                }
-                                else
-                                {
-                                    <span>Check Status</span>
-                                }
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
                             </button>
-                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(tweak)" disabled="@tweak.IsDeploying">
-                                Remove
-                            </button>
+                            @if (tweakStatus?.IsManuallyDeployed != true)
+                            {
+                                <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
+                                    Remove
+                                </button>
+                            }
                         }
-                        else if (tweak.Status == TweakStatus.ManuallyDeployed)
+                        else if (effectiveStatus == TweakDisplayStatus.Manual)
                         {
-                            <button class="btn btn-sm btn-secondary" @onclick="() => CheckTweakHealth(tweak)" disabled="@tweak.IsChecking">
-                                @if (tweak.IsChecking)
-                                {
-                                    <span class="spinner spinner-sm"></span>
-                                    <span>Checking...</span>
-                                }
-                                else
-                                {
-                                    <span>Check Status</span>
-                                }
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
+                                Check Status
                             </button>
-                            <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(tweak)">
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => UnmarkManual(def.Id)">
                                 Unmark Manual
                             </button>
                         }
-                        else if (tweak.Status == TweakStatus.Issue)
+                        else if (effectiveStatus == TweakDisplayStatus.Issue)
                         {
-                            <button class="btn btn-sm btn-primary" @onclick="() => DeployTweak(tweak)" disabled="@tweak.IsDeploying">
-                                @if (tweak.IsDeploying)
+                            <button class="btn btn-sm btn-primary" @onclick="() => DeployTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
+                                @if (_deployingTweakId == def.Id)
                                 {
                                     <span class="spinner spinner-sm"></span>
                                     <span>Redeploying...</span>
@@ -272,20 +268,20 @@
                                     <span>Redeploy</span>
                                 }
                             </button>
-                            <button class="btn btn-sm btn-secondary" @onclick="() => CheckTweakHealth(tweak)" disabled="@tweak.IsChecking">
+                            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@_isLoading">
                                 Check Status
                             </button>
-                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(tweak)" disabled="@tweak.IsDeploying">
+                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveTweak(def.Id)" disabled="@(_deployingTweakId == def.Id)">
                                 Remove
                             </button>
                         }
                     </div>
 
                     <!-- Deployment Progress -->
-                    @if (tweak.IsDeploying && tweak.DeploySteps.Any())
+                    @if (_deployingTweakId == def.Id && _deploySteps.Any())
                     {
                         <div class="pt-deploy-progress">
-                            @foreach (var step in tweak.DeploySteps)
+                            @foreach (var step in _deploySteps)
                             {
                                 <div>@step</div>
                             }
@@ -304,7 +300,7 @@
         gap: 1.5rem;
     }
 
-    /* Status metrics grid - same pattern as SQM/WAN Steering */
+    /* Status metrics grid */
     .pt-status-metrics {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -484,57 +480,32 @@
     private bool _isLoading = true;
     private bool _gatewayConfigured;
     private bool _gatewayConnected;
-    private bool _udmBootInstalled;
-    private bool _udmBootEnabled;
-    private string? _gatewayModel;
-    private bool _isSupportedGateway;
     private bool _isInstallingUdmBoot;
-    private string? _connectionError;
-    private bool _sfpAlreadyLoaded;
-    private List<TweakViewModel> _tweaks = new();
-    private int _activeTweakCount => _tweaks.Count(t => t.Status == TweakStatus.Active || t.Status == TweakStatus.ManuallyDeployed);
+    private string? _deployingTweakId;
+    private List<string> _deploySteps = new();
+    private PerfTweaksStatus? _status;
+
+    private int _activeTweakCount => _status?.Tweaks.Values
+        .Count(t => t.IsActive || t.IsManuallyDeployed) ?? 0;
+
+    private static readonly List<TweakDefinition> _tweakDefs = new()
+    {
+        new("fan-control", "Fan Control Tuning",
+            "Tunes the gateway's PID fan controller to engage cooling earlier, keeping CPU and switch thermals well below throttle thresholds. Uses the existing uhwd controller - no background process, no extra eMMC writes. Lowers setpoints for CPU (100 C to 65 C), HDD (68 C to 55 C), 10G switch (109 C to 85 C), and SFP+ PHY (103 C to 90 C)."),
+        new("mongodb-ssd", "MongoDB on SSD",
+            "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. Eliminates the root cause of eMMC garbage collection stalls that trigger packet loss on CPU-attached ports during bulk record deletions. Includes daily SSD backups with weekly eMMC failover copies."),
+        new("journald-volatile", "Logging Offload",
+            "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl."),
+        new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch",
+            "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion. Requires the pre-compiled kernel module on the gateway.",
+            "If you need 1st SFP+ port (Port 6 / eth5) support, open an issue on GitHub and we'll work on it.")
+    };
 
     protected override async Task OnInitializedAsync()
     {
         PtrState.RefreshCallback = () => LoadStatusAsync();
         PtrState.NotifyStateChanged = StateHasChanged;
-        InitializeTweaks();
         await LoadStatusAsync();
-    }
-
-    private void InitializeTweaks()
-    {
-        _tweaks = new List<TweakViewModel>
-        {
-            new()
-            {
-                Id = "fan-control",
-                Title = "Fan Control Tuning",
-                Description = "Tunes the gateway's PID fan controller to engage cooling earlier, keeping CPU and switch thermals well below throttle thresholds. Uses the existing uhwd controller - no background process, no extra eMMC writes. Lowers setpoints for CPU (100 C to 65 C), HDD (68 C to 55 C), 10G switch (109 C to 85 C), and SFP+ PHY (103 C to 90 C).",
-                BootScript = "15-fan-control-tuning.sh"
-            },
-            new()
-            {
-                Id = "mongodb-ssd",
-                Title = "MongoDB on SSD",
-                Description = "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. Eliminates the root cause of eMMC garbage collection stalls that trigger packet loss on CPU-attached ports during bulk record deletions. Includes optional daily SSD backups with weekly eMMC failover copies.",
-                BootScript = "06-mongodb-ssd-offload.sh"
-            },
-            new()
-            {
-                Id = "journald-volatile",
-                Title = "Logging Offload",
-                Description = "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
-                BootScript = "10-journald-volatile.sh"
-            },
-            new()
-            {
-                Id = "sfp-sgmiiplus",
-                Title = "SFP+ 2.5 G SGMII+ Patch",
-                Description = "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion. Requires the pre-compiled kernel module on the gateway.",
-                BootScript = "20-sfp-sgmiiplus.sh"
-            }
-        };
     }
 
     private async Task LoadStatusAsync()
@@ -551,33 +522,17 @@
             {
                 _gatewayConnected = false;
                 _isLoading = false;
+                StateHasChanged();
                 return;
             }
 
-            // TODO: Replace with real SSH status checks
-            // For prototype, simulate loading delay and show mock data
-            await Task.Delay(800);
-            _gatewayConnected = true;
-            _udmBootInstalled = true;
-            _udmBootEnabled = true;
-            _gatewayModel = "UCG-Fiber";
-            _isSupportedGateway = true;
-            _sfpAlreadyLoaded = false;
-
-            // Mock: fan-control is active, others not deployed
-            _tweaks[0].Status = TweakStatus.Active;
-            _tweaks[0].HealthChecks = new List<HealthCheck>
-            {
-                new("Fan Speed", "~3,810 RPM (PWM 89)", HealthStatus.Ok),
-                new("CPU Setpoint", "65 C (stock: 100 C)", HealthStatus.Ok),
-                new("uhwd Service", "Running", HealthStatus.Ok),
-                new("Boot Script", "15-fan-control-tuning.sh", HealthStatus.Ok)
-            };
+            _status = await DeployService.CheckAllStatusAsync();
+            _gatewayConnected = _status.Error == null;
         }
         catch (Exception ex)
         {
-            _connectionError = ex.Message;
             Logger.LogError(ex, "Failed to load performance tweaks status");
+            _gatewayConnected = false;
         }
         finally
         {
@@ -598,10 +553,9 @@
 
         try
         {
-            // TODO: Wire up SqmDeploymentService.InstallUdmBootAsync() or shared service
-            await Task.Delay(2000);
-            _udmBootInstalled = true;
-            _udmBootEnabled = true;
+            var result = await DeployService.InstallUdmBootAsync();
+            if (result.success)
+                await LoadStatusAsync();
         }
         finally
         {
@@ -610,89 +564,76 @@
         }
     }
 
-    private async Task DeployTweak(TweakViewModel tweak)
+    private async Task DeployTweak(string tweakId)
     {
-        tweak.IsDeploying = true;
-        tweak.DeploySteps.Clear();
+        _deployingTweakId = tweakId;
+        _deploySteps.Clear();
         StateHasChanged();
 
         try
         {
-            // TODO: Real deployment via SSH
-            tweak.DeploySteps.Add($"Deploying {tweak.BootScript}...");
-            StateHasChanged();
-            await Task.Delay(1000);
+            var progress = new Progress<string>(step =>
+            {
+                _deploySteps.Add(step);
+                InvokeAsync(StateHasChanged);
+            });
 
-            tweak.DeploySteps.Add("Copying boot script to /data/on_boot.d/...");
-            StateHasChanged();
-            await Task.Delay(800);
+            var result = await DeployService.DeployTweakAsync(tweakId, progress);
 
-            tweak.DeploySteps.Add("Setting executable permissions...");
-            StateHasChanged();
-            await Task.Delay(500);
-
-            tweak.DeploySteps.Add("Running boot script...");
-            StateHasChanged();
-            await Task.Delay(1500);
-
-            tweak.DeploySteps.Add("Verifying deployment...");
-            StateHasChanged();
-            await Task.Delay(500);
-
-            tweak.DeploySteps.Add("Done.");
-            tweak.Status = TweakStatus.Active;
+            if (result.success)
+                await LoadStatusAsync();
         }
         finally
         {
-            tweak.IsDeploying = false;
+            _deployingTweakId = null;
             StateHasChanged();
         }
     }
 
-    private async Task RemoveTweak(TweakViewModel tweak)
+    private async Task RemoveTweak(string tweakId)
     {
-        // TODO: Real removal via SSH
-        tweak.Status = TweakStatus.NotDeployed;
-        tweak.HealthChecks.Clear();
-        StateHasChanged();
-        await Task.CompletedTask;
-    }
-
-    private async Task CheckTweakHealth(TweakViewModel tweak)
-    {
-        tweak.IsChecking = true;
+        _deployingTweakId = tweakId;
         StateHasChanged();
 
         try
         {
-            // TODO: Real health check via SSH
-            await Task.Delay(1500);
+            await DeployService.RemoveTweakAsync(tweakId);
+            await LoadStatusAsync();
         }
         finally
         {
-            tweak.IsChecking = false;
+            _deployingTweakId = null;
             StateHasChanged();
         }
     }
 
-    private void MarkAsManual(TweakViewModel tweak)
+    private async Task MarkAsManual(string tweakId)
     {
-        tweak.Status = TweakStatus.ManuallyDeployed;
-        StateHasChanged();
+        await DeployService.SetManuallyDeployedAsync(tweakId, true);
+        await LoadStatusAsync();
     }
 
-    private void UnmarkManual(TweakViewModel tweak)
+    private async Task UnmarkManual(string tweakId)
     {
-        tweak.Status = TweakStatus.NotDeployed;
-        tweak.HealthChecks.Clear();
-        StateHasChanged();
+        await DeployService.SetManuallyDeployedAsync(tweakId, false);
+        await LoadStatusAsync();
     }
 
-    private string GetHealthClass(HealthStatus status) => status switch
+    private TweakDisplayStatus GetEffectiveStatus(TweakDeploymentStatus? status)
     {
-        HealthStatus.Ok => "status-active",
-        HealthStatus.Warning => "status-warning",
-        HealthStatus.Error => "status-danger",
+        if (status == null) return TweakDisplayStatus.NotDeployed;
+        if (status.IsManuallyDeployed) return TweakDisplayStatus.Manual;
+        if (status.IsActive && string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Active;
+        if (status.IsActive && !string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Issue;
+        if (status.BootScriptDeployed && !status.IsActive) return TweakDisplayStatus.Issue;
+        return TweakDisplayStatus.NotDeployed;
+    }
+
+    private string GetHealthClass(HealthCheckStatus status) => status switch
+    {
+        HealthCheckStatus.Ok => "status-active",
+        HealthCheckStatus.Warning => "status-warning",
+        HealthCheckStatus.Error => "status-danger",
         _ => "status-inactive"
     };
 
@@ -701,22 +642,7 @@
         // PullToRefreshState is scoped - no cleanup needed
     }
 
-    private enum TweakStatus { NotDeployed, Active, ManuallyDeployed, Issue }
-    private enum HealthStatus { Ok, Warning, Error, Unknown }
+    private enum TweakDisplayStatus { NotDeployed, Active, Manual, Issue }
 
-    private record HealthCheck(string Label, string Value, HealthStatus Status);
-
-    private class TweakViewModel
-    {
-        public string Id { get; set; } = "";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-        public string BootScript { get; set; } = "";
-        public TweakStatus Status { get; set; } = TweakStatus.NotDeployed;
-        public string? IssueDescription { get; set; }
-        public List<HealthCheck> HealthChecks { get; set; } = new();
-        public bool IsDeploying { get; set; }
-        public bool IsChecking { get; set; }
-        public List<string> DeploySteps { get; set; } = new();
-    }
+    private record TweakDefinition(string Id, string Title, string Description, string? ExtraNote = null);
 }
