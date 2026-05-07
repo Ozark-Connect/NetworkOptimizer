@@ -190,7 +190,7 @@ public class PerfTweaksDeploymentService
             // MongoDB SSD
             var mongoStatus = new TweakDeploymentStatus { Id = "mongodb-ssd" };
             mongoStatus.BootScriptDeployed = GetSection(sections, "MONGO_BOOT_SCRIPT").Contains("exists");
-            var mongoMounted = GetSection(sections, "MONGO_MOUNTPOINT").Contains("mounted");
+            var mongoMounted = GetSection(sections, "MONGO_MOUNTPOINT").Trim() == "mounted";
             mongoStatus.RuntimeDetected = mongoMounted;
             if (mongoStatus.BootScriptDeployed || mongoMounted)
             {
@@ -477,12 +477,15 @@ public class PerfTweaksDeploymentService
 
             Report("Verifying...");
             var verifyResult = await RunCommandAsync(
-                "lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
-                "cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'");
+                "echo '---MOD---'; lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
+                "echo '---CLK---'; cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'");
+            var verifySections = ParseDelimitedOutput(verifyResult.output);
+            var modLoaded = GetSection(verifySections, "MOD").Trim() == "loaded";
+            var clkOk = GetSection(verifySections, "CLK").Trim() == "312500000";
 
-            if (verifyResult.output.Contains("loaded") && verifyResult.output.Contains("312500000"))
+            if (modLoaded && clkOk)
                 Report("Verified: Module loaded, uniphy1 at 312.5 MHz (2.5 G).");
-            else if (verifyResult.output.Contains("loaded"))
+            else if (modLoaded)
                 Report("Module loaded but clock rate not at expected value. Check logs.");
             else
                 Report("Warning: Module may not have loaded correctly. Check /var/log/sfp-sgmiiplus.log");

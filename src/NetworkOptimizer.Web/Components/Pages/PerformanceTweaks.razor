@@ -12,7 +12,7 @@
 
 <div class="page-header">
     <h1>Performance Tweaks</h1>
-    <p class="page-description">Deploy and manage hardware-level performance optimizations for your UCG-Fiber / UXG-Fiber gateway. These tweaks address eMMC write pressure, thermal management, and SFP+ link speed - all persistent across reboots via udm-boot. We have more tweaks in testing that we'll be bringing over soon, and we're always looking for ideas.</p>
+    <p class="page-description">Deploy and manage hardware-level performance optimizations for your UCG-Fiber, UXG-Fiber, or UCG-Max gateway. These tweaks address eMMC write pressure, thermal management, and SFP+ link speed - all persistent across reboots via udm-boot. We have more tweaks in testing that we'll be bringing over soon, and we're always looking for ideas.</p>
 </div>
 
 @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized && !string.IsNullOrEmpty(ConnectionService.LastError))
@@ -137,7 +137,7 @@
                     else if (_gatewayConnected && _status?.IsSupportedGateway == false)
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
-                            <strong>Unsupported Gateway:</strong> Performance Tweaks are designed for UCG-Fiber and UXG-Fiber gateways. Your gateway (@(_status.GatewayModel ?? "unknown")) is not supported.
+                            <strong>Unsupported Gateway:</strong> Performance Tweaks are designed for UCG-Fiber, UXG-Fiber, and UCG-Max gateways. Your gateway (@(_status.GatewayModel ?? "unknown")) is not supported.
                         </div>
                     }
 
@@ -307,7 +307,7 @@
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
                         {
                             <button class="btn btn-primary btn-sm"
-                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
+                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus" && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
                                     @onclick="() => ShowDeployConfirmation(def.Id)"
                                     data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : "")">
                                 @if (_deployingTweakId == def.Id)
@@ -637,13 +637,6 @@
         color: var(--warning-color);
     }
 
-    .pt-firmware-note {
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        line-height: 1.5;
-        margin: 0.75rem 0 0 0;
-    }
-
     /* Deploy confirmation modal */
     .pt-modal-overlay {
         position: fixed;
@@ -850,6 +843,7 @@
 
     private async Task ConfirmDeploy()
     {
+        if (!_allConfirmed || !_canDeploy) return;
         _showDeployConfirm = false;
         if (_pendingDeployTweakId != null)
             await DeployTweak(_pendingDeployTweakId);
