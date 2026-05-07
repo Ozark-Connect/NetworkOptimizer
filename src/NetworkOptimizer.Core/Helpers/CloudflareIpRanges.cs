@@ -49,12 +49,17 @@ public static class CloudflareIpRanges
     /// </summary>
     public static readonly string[] AllRanges = [.. IPv4Ranges, .. IPv6Ranges];
 
+    private const int MaxNonCloudflareHosts = 10;
+
     /// <summary>
-    /// Check if a list of IP addresses/CIDRs represents a Cloudflare-only restriction.
-    /// Returns true if every entry in the list is a known Cloudflare range.
+    /// Check if a list of IP addresses/CIDRs represents a Cloudflare-restricted configuration.
+    /// Returns true if the list is primarily Cloudflare ranges, tolerating a small number of
+    /// individual host IPs (e.g., management/home IPs) that people commonly add alongside CF ranges.
+    /// Non-Cloudflare entries must be single hosts (no CIDR or /32 or /128) - large non-CF subnets
+    /// indicate a different restriction strategy, not a Cloudflare list with extras.
     /// </summary>
     /// <param name="addresses">List of IPs or CIDRs from a firewall group or source restriction</param>
-    /// <returns>True if all addresses match known Cloudflare ranges</returns>
+    /// <returns>True if the list is a Cloudflare IP restriction (possibly with a few management IPs)</returns>
     public static bool IsCloudflareOnly(IEnumerable<string>? addresses)
     {
         if (addresses == null)
@@ -64,13 +69,31 @@ public static class CloudflareIpRanges
         if (list.Count == 0)
             return false;
 
+        int cloudflareCount = 0;
+        int nonCloudflareHostCount = 0;
+
         foreach (var address in list)
         {
-            if (!IsCloudflareAddress(address))
+            if (IsCloudflareAddress(address))
+            {
+                cloudflareCount++;
+                continue;
+            }
+
+            var trimmed = address.Trim();
+            bool isSingleHost = !trimmed.Contains('/')
+                || trimmed.EndsWith("/32")
+                || trimmed.EndsWith("/128");
+
+            if (!isSingleHost)
+                return false;
+
+            nonCloudflareHostCount++;
+            if (nonCloudflareHostCount > MaxNonCloudflareHosts)
                 return false;
         }
 
-        return true;
+        return cloudflareCount > 0;
     }
 
     /// <summary>

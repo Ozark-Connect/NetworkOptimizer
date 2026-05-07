@@ -76,6 +76,7 @@ public class CloudflareIpRangesTests
     [Fact]
     public void IsCloudflareOnly_SingleIpNotInCloudflare_ReturnsFalse()
     {
+        // A single non-CF IP with NO CF ranges is not a Cloudflare list
         CloudflareIpRanges.IsCloudflareOnly(["8.8.8.8"]).Should().BeFalse();
     }
 
@@ -91,6 +92,49 @@ public class CloudflareIpRangesTests
     {
         // 104.0.0.0/8 is larger than 104.16.0.0/13 - not fully covered
         CloudflareIpRanges.IsCloudflareOnly(["104.0.0.0/8"]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsCloudflareOnly_CloudflarePlusFewManagementIPs_ReturnsTrue()
+    {
+        // Real-world case: CF ranges plus a few static IPs for friends/family access
+        var list = CloudflareIpRanges.IPv4Ranges.ToList();
+        list.Add("204.228.140.228");
+        list.Add("216.134.237.155");
+        list.Add("70.251.208.5");
+        CloudflareIpRanges.IsCloudflareOnly(list).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsCloudflareOnly_CloudflarePlusSlash32_ReturnsTrue()
+    {
+        var list = new List<string>(CloudflareIpRanges.IPv4Ranges) { "198.51.100.1/32" };
+        CloudflareIpRanges.IsCloudflareOnly(list).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsCloudflareOnly_CloudflarePlusNonCfSubnet_ReturnsFalse()
+    {
+        // A /24 is not a single host - this is a different restriction strategy
+        var list = new List<string>(CloudflareIpRanges.IPv4Ranges) { "203.0.113.0/24" };
+        CloudflareIpRanges.IsCloudflareOnly(list).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsCloudflareOnly_CloudflarePlusTooManyManagementIPs_ReturnsFalse()
+    {
+        var list = CloudflareIpRanges.IPv4Ranges.ToList();
+        for (int i = 1; i <= 11; i++)
+            list.Add($"198.51.100.{i}");
+        CloudflareIpRanges.IsCloudflareOnly(list).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsCloudflareOnly_OnlyManagementIPsNoCf_ReturnsFalse()
+    {
+        // Individual IPs without any CF ranges is not a CF list
+        var list = new[] { "204.228.140.228", "216.134.237.155" };
+        CloudflareIpRanges.IsCloudflareOnly(list).Should().BeFalse();
     }
 
     #endregion

@@ -2710,4 +2710,174 @@ public class DeviceTypeDetectionServiceTests
     }
 
     #endregion
+
+    #region UNAS / Drive Device Tests (Issue #561)
+
+    [Fact]
+    public void DetectDeviceType_UnasWithCameraOui_ClassifiedAsNasWhenDriveDeviceKnown()
+    {
+        // Arrange - UNAS Pro 4 shares OUI A8:9C:6C with Protect cameras
+        var service = new DeviceTypeDetectionService();
+        var cameras = new ProtectCameraCollection();
+        cameras.AddDriveDevice("a8:9c:6c:06:0c:cc");
+        service.SetProtectCameras(cameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "a8:9c:6c:06:0c:cc",
+            Name = "storage-core"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - should be NAS, not Camera
+        result.Category.Should().Be(ClientDeviceCategory.NAS);
+        result.ConfidenceScore.Should().Be(100);
+        result.VendorName.Should().Be("Ubiquiti");
+        result.Metadata!["detection_method"].Should().Be("unifi_network_api");
+    }
+
+    [Fact]
+    public void DetectDeviceType_UnasSecondNic_ClassifiedAsNasWhenDriveDeviceKnown()
+    {
+        // Arrange - UNAS with 10G NIC (second MAC, unnamed)
+        var service = new DeviceTypeDetectionService();
+        var cameras = new ProtectCameraCollection();
+        cameras.AddDriveDevice("a8:9c:6c:06:0c:cd");
+        service.SetProtectCameras(cameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "a8:9c:6c:06:0c:cd",
+            Name = "a8:9c:6c:06:0c:cd"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.NAS);
+        result.ConfidenceScore.Should().Be(100);
+    }
+
+    [Fact]
+    public void DetectFromMac_UnasWithCameraOui_ClassifiedAsNasWhenDriveDeviceKnown()
+    {
+        // Arrange - DetectFromMac is a separate code path used for offline detection
+        var service = new DeviceTypeDetectionService();
+        var cameras = new ProtectCameraCollection();
+        cameras.AddDriveDevice("a8:9c:6c:06:0c:cc");
+        service.SetProtectCameras(cameras);
+
+        // Act
+        var result = service.DetectFromMac("a8:9c:6c:06:0c:cc");
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.NAS);
+        result.ConfidenceScore.Should().Be(100);
+    }
+
+    [Fact]
+    public void DetectDeviceType_ActualProtectCamera_StillDetectedAsCamera()
+    {
+        // Arrange - real camera with same OUI prefix should still be detected
+        var service = new DeviceTypeDetectionService();
+        var cameras = new ProtectCameraCollection();
+        cameras.Add("a8:9c:6c:1e:76:e4", "G4 Bullet", null, isNvr: false);
+        cameras.AddDriveDevice("a8:9c:6c:06:0c:cc");
+        service.SetProtectCameras(cameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "a8:9c:6c:1e:76:e4",
+            Name = "cam-frontdoor"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - camera should still be detected via ProtectCameraCollection
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.ConfidenceScore.Should().Be(100);
+        result.Metadata!["detection_method"].Should().Be("unifi_protect_api");
+    }
+
+    [Fact]
+    public void DetectDeviceType_UnasWithoutDriveData_FallsBackToMacOui()
+    {
+        // Arrange - if drive_devices isn't available, MAC OUI still fires (backward compat)
+        var service = new DeviceTypeDetectionService();
+        // No SetProtectCameras call - simulates API failure or no V2 data
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "a8:9c:6c:06:0c:cc",
+            Name = "storage-core"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - falls back to MAC OUI (Camera) since we have no drive data
+        // This is expected - without the V2 API data, we can't distinguish
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void ProtectCameraCollection_IsDriveDevice_ReturnsTrueForKnownMac()
+    {
+        var collection = new ProtectCameraCollection();
+        collection.AddDriveDevice("a8:9c:6c:06:0c:cc");
+
+        collection.IsDriveDevice("a8:9c:6c:06:0c:cc").Should().BeTrue();
+        collection.IsDriveDevice("A8:9C:6C:06:0C:CC").Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtectCameraCollection_IsDriveDevice_ReturnsFalseForUnknownMac()
+    {
+        var collection = new ProtectCameraCollection();
+        collection.AddDriveDevice("a8:9c:6c:06:0c:cc");
+
+        collection.IsDriveDevice("aa:bb:cc:dd:ee:ff").Should().BeFalse();
+        collection.IsDriveDevice(null).Should().BeFalse();
+        collection.IsDriveDevice("").Should().BeFalse();
+    }
+
+    [Fact]
+    public void ProtectCameraCollection_DriveDeviceCount_ReturnsCorrectCount()
+    {
+        var collection = new ProtectCameraCollection();
+        collection.DriveDeviceCount.Should().Be(0);
+
+        collection.AddDriveDevice("a8:9c:6c:06:0c:cc");
+        collection.AddDriveDevice("a8:9c:6c:06:0c:cd");
+        collection.DriveDeviceCount.Should().Be(2);
+    }
+
+    [Fact]
+    public void DetectDeviceType_DriveDeviceTakesPriorityOverNamePattern()
+    {
+        // Arrange - even if name matches a pattern, drive device detection should win
+        var service = new DeviceTypeDetectionService();
+        var cameras = new ProtectCameraCollection();
+        cameras.AddDriveDevice("a8:9c:6c:06:0c:cc");
+        service.SetProtectCameras(cameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "a8:9c:6c:06:0c:cc",
+            Name = "My Security Camera" // misleading name
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - drive device classification wins
+        result.Category.Should().Be(ClientDeviceCategory.NAS);
+        result.ConfidenceScore.Should().Be(100);
+    }
+
+    #endregion
 }

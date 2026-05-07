@@ -169,6 +169,29 @@ public class DeviceTypeDetectionService
             };
         }
 
+        // Priority -0.5: Known UNAS/Drive devices (from V2 API drive_devices array).
+        // These share Ubiquiti OUI prefixes with cameras but are NAS storage devices.
+        if (_protectCameras != null && !string.IsNullOrEmpty(client?.Mac) &&
+            _protectCameras.IsDriveDevice(client.Mac))
+        {
+            _logger?.LogDebug("[Detection] '{DisplayName}': Known UNAS/Drive device (confirmed by controller API)",
+                displayName);
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.NAS,
+                Source = DetectionSource.UniFiFingerprint,
+                ConfidenceScore = 100,
+                VendorName = "Ubiquiti",
+                ProductName = client.Name,
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["detection_method"] = "unifi_network_api",
+                    ["mac"] = client.Mac
+                }
+            };
+        }
+
         // Priority 0: Check for obvious name keywords that should OVERRIDE fingerprint
         // This handles cases where vendor fingerprint is wrong (e.g., Cync plugs detected as cameras)
         var obviousNameResult = CheckObviousNameOverride(client?.Name, client?.Hostname, client?.Oui);
@@ -1357,6 +1380,25 @@ public class DeviceTypeDetectionService
     {
         if (string.IsNullOrEmpty(macAddress))
             return DeviceDetectionResult.Unknown;
+
+        // Check for known UNAS/Drive devices before any other detection
+        if (_protectCameras != null && _protectCameras.IsDriveDevice(macAddress))
+        {
+            _logger?.LogDebug("[Detection] MAC {Mac}: Known UNAS/Drive device (confirmed by controller API)", macAddress);
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.NAS,
+                Source = DetectionSource.UniFiFingerprint,
+                ConfidenceScore = 100,
+                VendorName = "Ubiquiti",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["detection_method"] = "unifi_network_api",
+                    ["mac"] = macAddress
+                }
+            };
+        }
 
         // First, check if we have this MAC in client history (for fingerprint data)
         if (_clientHistoryByMac != null &&
