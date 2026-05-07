@@ -96,7 +96,7 @@
                         </div>
                         <div class="metric">
                             <div class="metric-label">Active Tweaks</div>
-                            <div class="metric-value">@_activeTweakCount / @_tweakDefs.Count</div>
+                            <div class="metric-value">@_activeTweakCount / @_compatibleTweaks.Count</div>
                         </div>
                     </div>
 
@@ -146,7 +146,7 @@
     <!-- Tweak Cards -->
     @if (!_isLoading && _gatewayConnected && _status?.IsSupportedGateway == true)
     {
-        @foreach (var def in _tweakDefs)
+        @foreach (var def in _tweakDefs.Where(d => d.IsCompatibleWith(_status?.GatewayModel)))
         {
             var tweakStatus = _status?.Tweaks.GetValueOrDefault(def.Id);
             var effectiveStatus = GetEffectiveStatus(tweakStatus);
@@ -493,20 +493,28 @@
     private List<string> _deploySteps = new();
     private PerfTweaksStatus? _status;
 
+    private List<TweakDefinition> _compatibleTweaks => _tweakDefs
+        .Where(d => d.IsCompatibleWith(_status?.GatewayModel)).ToList();
+
     private int _activeTweakCount => _status?.Tweaks.Values
-        .Count(t => t.IsActive || t.IsManuallyDeployed) ?? 0;
+        .Count(t => (t.IsActive || t.IsManuallyDeployed)
+            && _compatibleTweaks.Any(d => d.Id == t.Id)) ?? 0;
 
     private static readonly List<TweakDefinition> _tweakDefs = new()
     {
         new("fan-control", "Fan Control Tuning",
-            "Tunes the gateway's PID fan controller to engage cooling earlier, keeping CPU and switch thermals well below throttle thresholds. Uses the existing uhwd controller - no background process, no extra eMMC writes. Lowers setpoints for CPU (100 C to 65 C), HDD (68 C to 55 C), 10G switch (109 C to 85 C), and SFP+ PHY (103 C to 90 C)."),
+            "Tunes the gateway's PID fan controller to engage cooling earlier, keeping CPU and switch thermals well below throttle thresholds. Uses the existing uhwd controller - no background process, no extra eMMC writes. Lowers setpoints for CPU (100 C to 65 C), HDD (68 C to 55 C), 10G switch (109 C to 85 C), and SFP+ PHY (103 C to 90 C).",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
         new("mongodb-ssd", "MongoDB on SSD",
-            "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. Eliminates the root cause of eMMC garbage collection stalls that trigger packet loss on CPU-attached ports during bulk record deletions. Includes daily SSD backups with weekly eMMC failover copies."),
+            "Bind-mounts the UniFi Network MongoDB database from eMMC to the internal NVMe SSD. Eliminates the root cause of eMMC garbage collection stalls that trigger packet loss on CPU-attached ports during bulk record deletions. Includes daily SSD backups with weekly eMMC failover copies.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "ucg-max", "ucgmax" }),
         new("journald-volatile", "Logging Offload",
-            "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl."),
+            "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
         new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch",
             "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion. Requires the pre-compiled kernel module on the gateway.",
-            "If you need 1st SFP+ port (Port 6 / eth5) support, open an issue on GitHub and we'll work on it.")
+            ExtraNote: "If you need 1st SFP+ port (Port 6 / eth5) support, open an issue on GitHub and we'll work on it.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" })
     };
 
     protected override async Task OnInitializedAsync()
@@ -652,5 +660,12 @@
 
     private enum TweakDisplayStatus { NotDeployed, Active, Manual, Issue }
 
-    private record TweakDefinition(string Id, string Title, string Description, string? ExtraNote = null);
+    private record TweakDefinition(string Id, string Title, string Description, string? ExtraNote = null, string[]? CompatibleModels = null)
+    {
+        public bool IsCompatibleWith(string? model)
+        {
+            if (CompatibleModels == null || model == null) return true;
+            return CompatibleModels.Contains(model.ToLowerInvariant());
+        }
+    }
 }
