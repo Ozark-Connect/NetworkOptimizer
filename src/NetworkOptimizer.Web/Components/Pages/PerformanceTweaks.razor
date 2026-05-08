@@ -309,6 +309,13 @@
                         </div>
                     }
 
+                    @if (def.Id == "sfp-sgmiiplus")
+                    {
+                        <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                            <strong>Compatibility note:</strong> Zyxel PMG3000-D20B support is currently being tested. If you have this module (or another GPON stick that may not negotiate 2.5 G cleanly with the UniFi host), feel free to try the patch, but be prepared to remove it if the link doesn't come up and stabilize.
+                        </div>
+                    }
+
                     <!-- Action Buttons -->
                     <div class="pt-actions">
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
