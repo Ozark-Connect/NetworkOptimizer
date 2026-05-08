@@ -6,6 +6,7 @@
 @inject IGatewaySshService GatewaySshService
 @inject ILogger<WanSteering> Logger
 @inject PullToRefreshState PtrState
+@inject SqmDeploymentService SqmDeploymentService
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services.Ssh
@@ -84,6 +85,20 @@
                         @(_status.BinaryDeployed ? "Deployed" : "Not Deployed")
                     </div>
                 </div>
+                <div class="metric">
+                    <div class="metric-label">UDM Boot</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(_status.UdmBootInstalled ? "status-active" : "status-inactive")"></span>
+                        @if (_status.UdmBootInstalled)
+                        {
+                            <span>@(_status.UdmBootEnabled ? "Enabled" : "Installed")</span>
+                        }
+                        else
+                        {
+                            <span>Not Installed</span>
+                        }
+                    </div>
+                </div>
                 @if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
                 {
                     <div class="metric">
@@ -122,6 +137,23 @@
                 <div class="alert alert-warning" style="margin-top: 1rem;">
                     <strong>WAN Steer binary outdated.</strong>
                     Gateway is running @(_parsedStatus.Version) but the app is @_appVersion. Redeploy to update.
+                </div>
+            }
+            @if (_status.UdmBootInstalled != true)
+            {
+                <div class="alert alert-warning" style="margin-top: 1rem;">
+                    <strong>UDM Boot Required:</strong> WAN Steering uses a boot script in <code>/data/on_boot.d/</code> that requires udm-boot to persist across reboots. Without it, iptables rules will silently stop being applied after a reboot or firmware update.
+                    <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@_isInstallingUdmBoot">
+                        @if (_isInstallingUdmBoot)
+                        {
+                            <span class="spinner spinner-sm"></span>
+                            <span>Installing...</span>
+                        }
+                        else
+                        {
+                            <span>Install UDM Boot</span>
+                        }
+                    </button>
                 </div>
             }
         }
@@ -499,6 +531,7 @@
     private bool _isLoading = true;
     private bool _isDeploying;
     private bool _isDiscovering = true;
+    private bool _isInstallingUdmBoot;
     private bool _gatewayConfigured;
     private string? _deployMessage;
     private bool _deploySuccess;
@@ -619,6 +652,24 @@
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Failed to poll WAN Steering status");
+        }
+    }
+
+    private async Task InstallUdmBoot()
+    {
+        _isInstallingUdmBoot = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await SqmDeploymentService.InstallUdmBootAsync();
+            if (result.success)
+                await RefreshStatusAsync();
+        }
+        finally
+        {
+            _isInstallingUdmBoot = false;
+            StateHasChanged();
         }
     }
 

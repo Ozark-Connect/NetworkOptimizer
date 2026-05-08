@@ -47,6 +47,8 @@ public class WanSteerDeploymentService
         try
         {
             var combinedCommand =
+                "echo '---UDM_BOOT---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
+                "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
                 "echo '---PROCESS---'; pgrep -x wansteer > /dev/null 2>&1 && echo running || echo stopped; " +
                 "echo '---STATUS---'; cat /tmp/wan-steer-status.json 2>/dev/null || echo '{}'; echo; " +
                 "echo '---VERSION---'; /data/wan-steer/wansteer -version 2>/dev/null || echo 'not installed'; " +
@@ -55,6 +57,8 @@ public class WanSteerDeploymentService
             var result = await _gatewaySsh.RunCommandAsync(combinedCommand, TimeSpan.FromSeconds(15));
             var sections = ParseDelimitedOutput(result.output);
 
+            status.UdmBootInstalled = GetSection(sections, "UDM_BOOT").Trim() == "installed";
+            status.UdmBootEnabled = GetSection(sections, "UDM_BOOT_ENABLED").Trim() == "enabled";
             status.IsRunning = result.success && GetSection(sections, "PROCESS").Trim() == "running";
             status.StatusJson = GetSection(sections, "STATUS").Trim();
             if (status.StatusJson == "{}") status.StatusJson = null;
@@ -558,6 +562,8 @@ public class WanSteerDeploymentService
 
 public class WanSteerStatus
 {
+    public bool UdmBootInstalled { get; set; }
+    public bool UdmBootEnabled { get; set; }
     public bool IsRunning { get; set; }
     public string? Version { get; set; }
     public string? StatusJson { get; set; }
