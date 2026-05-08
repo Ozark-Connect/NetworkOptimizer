@@ -558,8 +558,8 @@ public class PerfTweaksDeploymentService
                 Report("Module loaded but clock rate not at expected value. Check logs.");
             else
             {
-                var logFile = BootScriptFiles[tweakId].Replace(".sh", ".log");
-                Report($"Warning: Module may not have loaded correctly. Check /var/log/{logFile}");
+                var logName = tweakId == "sfp-sgmiiplus-port6" ? "sfp-sgmiiplus-eth5" : "sfp-sgmiiplus";
+                Report($"Warning: Module may not have loaded correctly. Check /var/log/{logName}.log");
             }
 
             Report("Done.");
