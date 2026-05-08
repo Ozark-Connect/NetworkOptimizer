@@ -177,20 +177,22 @@ public class SponsorshipService : ISponsorshipService
         var sqmWan1Task = speedTestRepository.GetSqmWanConfigAsync(1);
         var sqmWan2Task = speedTestRepository.GetSqmWanConfigAsync(2);
 
-        // Floor plan feature counts via DbContext
+        // Floor plan feature counts and perf tweaks via DbContext
         Task<int> signalLogCountTask;
         Task<int> placedApCountTask;
         Task<int> plannedApCountTask;
         Task<int> floorCountTask;
+        Task<int> perfTweakCountTask;
         using (var db = await dbFactory.CreateDbContextAsync())
         {
             signalLogCountTask = db.ClientSignalLogs.CountAsync();
             placedApCountTask = db.ApLocations.CountAsync();
             plannedApCountTask = db.PlannedAps.CountAsync();
             floorCountTask = db.FloorPlans.CountAsync();
+            perfTweakCountTask = db.PerfTweakSettings.CountAsync();
 
             await Task.WhenAll(manualAuditCountTask, scheduledAuditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task,
-                signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask);
+                signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask, perfTweakCountTask);
         }
 
         // Manual audits count as 1, scheduled audits count as 0.2 (~2 per workweek), speed tests count as 0.5
@@ -211,6 +213,9 @@ public class SponsorshipService : ISponsorshipService
         {
             count += SqmEnabledBonus;
         }
+
+        // 2 points per deployed performance tweak
+        count += perfTweakCountTask.Result * 2;
 
         return count;
     }

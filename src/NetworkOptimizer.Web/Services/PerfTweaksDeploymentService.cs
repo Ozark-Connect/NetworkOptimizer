@@ -27,6 +27,7 @@ public class PerfTweaksDeploymentService
         ["mongodb-ssd"] = "06-mongodb-ssd-offload.sh",
         ["mongodb-backup"] = "07-mongodb-ssd-backup.sh",
         ["journald-volatile"] = "10-journald-volatile.sh",
+        ["sfp-sgmiiplus-port6"] = "19-sfp-sgmiiplus-eth5.sh",
         ["sfp-sgmiiplus"] = "20-sfp-sgmiiplus.sh"
     };
 
@@ -75,7 +76,7 @@ public class PerfTweaksDeploymentService
                 "echo '---GATEWAY_MODEL---'; ubnt-device-info model_short 2>/dev/null || (grep -i '^shortname=' /proc/ubnthal/system.info 2>/dev/null | cut -d= -f2-) || echo 'unknown'; echo; " +
                 "echo '---FIRMWARE_VERSION---'; ubnt-device-info firmware 2>/dev/null || (grep -i '^version=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '\"') || echo 'unknown'; echo; " +
                 // Boot script hashes (for version checking)
-                $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 10-journald-volatile.sh 20-sfp-sgmiiplus.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
+                $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 10-journald-volatile.sh 19-sfp-sgmiiplus-eth5.sh 20-sfp-sgmiiplus.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
                 // Fan control
                 $"echo '---FAN_BOOT_SCRIPT---'; test -f {OnBootDir}/15-fan-control-tuning.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---FAN_PWM---'; cat /sys/class/hwmon/hwmon0/pwm1 2>/dev/null || echo 'N/A'; " +
@@ -101,7 +102,15 @@ public class PerfTweaksDeploymentService
                 "echo '---JOURNALD_FWD---'; grep '^ForwardToSyslog=' /etc/systemd/journald.conf 2>/dev/null | cut -d= -f2 || echo 'N/A'; " +
                 "echo '---SYSLOG_EMMC_ROUTES---'; DESTS=$(grep -rh '^destination .* file(\"/var/log' /etc/syslog-ng/conf.d/*.conf 2>/dev/null | grep -v '/var/log/ulog' | sed -n 's/^destination \\([^ ]*\\) .*/\\1/p'); F=0; for d in $DESTS; do F=$((F+$(grep -rc \"^log.*destination($d)\" /etc/syslog-ng/conf.d/*.conf 2>/dev/null | cut -d: -f2 | awk '{s+=$1}END{print s+0}'))); done; echo $F; " +
                 "echo '---THREAT_LOG_ROUTE---'; grep -c '^log.*d_idsips_threat' /etc/syslog-ng/conf.d/threat_log.conf 2>/dev/null || echo '0'; " +
-                // SFP SGMII+
+                // SFP SGMII+ Port 6 (eth5 / uniphy2)
+                $"echo '---SFP_PORT6_BOOT_SCRIPT---'; test -f {OnBootDir}/19-sfp-sgmiiplus-eth5.sh && echo 'exists' || echo 'missing'; " +
+                $"echo '---SFP_PORT6_MODULE_FILE---'; test -f {SfpModuleDir}/force_uniphy2_sgmiiplus.ko && echo 'exists' || echo 'missing'; " +
+                "echo '---SFP_PORT6_MODULE_LOADED---'; lsmod | grep -q force_uniphy2_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
+                "echo '---SFP_PORT6_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy2_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
+                "echo '---SFP_PORT6_SERDES_REG---'; busybox devmem 0x07A20218 32 2>/dev/null || echo 'N/A'; " +
+                "echo '---SFP_PORT6_ETH5_SPEED---'; ethtool eth5 2>/dev/null | grep Speed | awk '{print $2}' || echo 'N/A'; " +
+                "echo '---SFP_PORT6_LOG---'; tail -3 /var/log/sfp-sgmiiplus-eth5.log 2>/dev/null || echo 'no log'; " +
+                // SFP SGMII+ Port 7 (eth6 / uniphy1)
                 $"echo '---SFP_BOOT_SCRIPT---'; test -f {OnBootDir}/20-sfp-sgmiiplus.sh && echo 'exists' || echo 'missing'; " +
                 $"echo '---SFP_MODULE_FILE---'; test -f {SfpModuleDir}/force_uniphy1_sgmiiplus.ko && echo 'exists' || echo 'missing'; " +
                 "echo '---SFP_QCA_SSDK---'; lsmod | grep -q qca_ssdk && echo 'loaded' || echo 'not-loaded'; " +
@@ -233,17 +242,66 @@ public class PerfTweaksDeploymentService
             }
             status.Tweaks["journald-volatile"] = journaldStatus;
 
-            // SFP SGMII+
+            // qca-ssdk is shared between both SFP ports
+            var sfpQcaSsdkLoaded = GetSection(sections, "SFP_QCA_SSDK").Trim() == "loaded";
+            status.SfpQcaSsdkMissing = !sfpQcaSsdkLoaded;
+
+            // SFP SGMII+ Port 6 (eth5 / uniphy2)
+            var sfpPort6Status = new TweakDeploymentStatus { Id = "sfp-sgmiiplus-port6" };
+            sfpPort6Status.BootScriptDeployed = GetSection(sections, "SFP_PORT6_BOOT_SCRIPT").Contains("exists");
+            var sfpPort6ModuleExists = GetSection(sections, "SFP_PORT6_MODULE_FILE").Contains("exists");
+            var sfpPort6ModuleLoaded = GetSection(sections, "SFP_PORT6_MODULE_LOADED").Trim() == "loaded";
+            var port6ClockRate = GetSection(sections, "SFP_PORT6_CLOCK_RATE").Trim();
+            var port6SerdesReg = GetSection(sections, "SFP_PORT6_SERDES_REG").Trim().ToLowerInvariant();
+            var port6EthSpeed = GetSection(sections, "SFP_PORT6_ETH5_SPEED").Trim();
+            status.SfpPort6ModuleAlreadyLoaded = sfpPort6ModuleLoaded;
+            sfpPort6Status.RuntimeDetected = sfpPort6ModuleLoaded;
+
+            if (sfpPort6Status.BootScriptDeployed || sfpPort6ModuleLoaded)
+            {
+                var isSgmiiPlus = port6SerdesReg.EndsWith("50");
+                var isSgmii = port6SerdesReg.EndsWith("30");
+                var is25g = port6ClockRate == "312500000" && isSgmiiPlus;
+                sfpPort6Status.IsActive = sfpPort6Status.BootScriptDeployed && sfpPort6ModuleExists && is25g;
+
+                sfpPort6Status.HealthChecks.Add(new("SFP Kernel Module", sfpPort6ModuleLoaded ? "Loaded" : "Not loaded", sfpPort6ModuleLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                sfpPort6Status.HealthChecks.Add(new("qca-ssdk", sfpQcaSsdkLoaded ? "Loaded" : "Missing (required)", sfpQcaSsdkLoaded ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                sfpPort6Status.HealthChecks.Add(new("Module File", sfpPort6ModuleExists ? $"{SfpModuleDir}/" : "Missing", sfpPort6ModuleExists ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+
+                if (port6ClockRate != "N/A")
+                {
+                    var clockLabel = port6ClockRate == "312500000" ? "312.5 MHz (2.5 Gbps)" : port6ClockRate == "125000000" ? "125 MHz (1 Gbps)" : $"{port6ClockRate} Hz";
+                    sfpPort6Status.HealthChecks.Add(new("Clock Rate", clockLabel, port6ClockRate == "312500000" ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                }
+
+                if (port6SerdesReg != "n/a")
+                {
+                    var regDisplay = FormatHexRegister(port6SerdesReg);
+                    var regLabel = isSgmiiPlus ? $"{regDisplay} (SGMII+)" : isSgmii ? $"{regDisplay} (SGMII)" : regDisplay;
+                    sfpPort6Status.HealthChecks.Add(new("SerDes Register", regLabel, isSgmiiPlus ? HealthCheckStatus.Ok : HealthCheckStatus.Error));
+                }
+
+                if (port6EthSpeed != "N/A" && port6EthSpeed != "Unknown!")
+                    sfpPort6Status.HealthChecks.Add(new("eth5 Speed", FormatLinkSpeed(port6EthSpeed), port6EthSpeed.Contains("2500") ? HealthCheckStatus.Ok : HealthCheckStatus.Warning));
+                else if (port6EthSpeed == "Unknown!")
+                    sfpPort6Status.HealthChecks.Add(new("eth5 Speed", "No link", HealthCheckStatus.Ok));
+
+                if (sfpPort6ModuleLoaded && !is25g && port6ClockRate != "N/A")
+                {
+                    sfpPort6Status.IssueDescription = "Module loaded but clock/register mismatch - link may not be running at 2.5 Gbps.";
+                }
+            }
+            status.Tweaks["sfp-sgmiiplus-port6"] = sfpPort6Status;
+
+            // SFP SGMII+ Port 7 (eth6 / uniphy1)
             var sfpStatus = new TweakDeploymentStatus { Id = "sfp-sgmiiplus" };
             sfpStatus.BootScriptDeployed = GetSection(sections, "SFP_BOOT_SCRIPT").Contains("exists");
             var sfpModuleExists = GetSection(sections, "SFP_MODULE_FILE").Contains("exists");
-            var sfpQcaSsdkLoaded = GetSection(sections, "SFP_QCA_SSDK").Trim() == "loaded";
             var sfpModuleLoaded = GetSection(sections, "SFP_MODULE_LOADED").Trim() == "loaded";
             var clockRate = GetSection(sections, "SFP_CLOCK_RATE").Trim();
             var serdesReg = GetSection(sections, "SFP_SERDES_REG").Trim().ToLowerInvariant();
             var ethSpeed = GetSection(sections, "SFP_ETH6_SPEED").Trim();
             status.SfpModuleAlreadyLoaded = sfpModuleLoaded;
-            status.SfpQcaSsdkMissing = !sfpQcaSsdkLoaded;
             sfpStatus.RuntimeDetected = sfpModuleLoaded;
 
             if (sfpStatus.BootScriptDeployed || sfpModuleLoaded)
@@ -359,9 +417,19 @@ public class PerfTweaksDeploymentService
 
         try
         {
-            if (tweakId == "sfp-sgmiiplus")
+            if (tweakId is "sfp-sgmiiplus-port6" or "sfp-sgmiiplus")
             {
-                return await DeploySfpTweakAsync(progress);
+                var otherTweakId = tweakId == "sfp-sgmiiplus-port6" ? "sfp-sgmiiplus" : "sfp-sgmiiplus-port6";
+                var otherModuleName = tweakId == "sfp-sgmiiplus-port6" ? "force_uniphy1_sgmiiplus" : "force_uniphy2_sgmiiplus";
+                var checkOther = await RunCommandAsync($"echo '---OTHER---'; lsmod | grep -q {otherModuleName} && echo 'loaded' || echo 'not-loaded'");
+                var otherSections = ParseDelimitedOutput(checkOther.output);
+                if (GetSection(otherSections, "OTHER").Trim() == "loaded")
+                    return (false, $"Cannot deploy: the other SFP+ SGMII+ patch ({otherTweakId}) is currently loaded. Only one can be active at a time. Remove it first.", steps);
+
+                var (moduleName, uniphyName) = tweakId == "sfp-sgmiiplus-port6"
+                    ? ("force_uniphy2_sgmiiplus", "uniphy2")
+                    : ("force_uniphy1_sgmiiplus", "uniphy1");
+                return await DeploySfpTweakAsync(tweakId, moduleName, uniphyName, progress);
             }
 
             var scriptName = BootScriptFiles.GetValueOrDefault(tweakId);
@@ -420,6 +488,7 @@ public class PerfTweaksDeploymentService
             else
                 Report("Warning: verification failed.");
 
+            await PersistDeployedStateAsync(tweakId);
             return (true, "Deployed successfully", steps);
         }
         catch (Exception ex)
@@ -430,17 +499,16 @@ public class PerfTweaksDeploymentService
     }
 
     private async Task<(bool success, string message, List<string> steps)> DeploySfpTweakAsync(
-        IProgress<string>? progress = null)
+        string tweakId, string moduleName, string uniphyName, IProgress<string>? progress = null)
     {
         var steps = new List<string>();
         void Report(string step) { steps.Add(step); progress?.Report(step); }
 
         try
         {
-            // Check dependencies
             Report("Checking prerequisites...");
             var checkResult = await RunCommandAsync(
-                "echo '---MODULE---'; lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
+                $"echo '---MODULE---'; lsmod | grep -q {moduleName} && echo 'loaded' || echo 'not-loaded'; " +
                 "echo '---SSDK---'; lsmod | grep -q qca_ssdk && echo 'loaded' || echo 'not-loaded'");
             var checkSections = ParseDelimitedOutput(checkResult.output);
 
@@ -450,20 +518,18 @@ public class PerfTweaksDeploymentService
             if (GetSection(checkSections, "SSDK").Trim() != "loaded")
                 return (false, "qca-ssdk kernel module is not loaded. This is a required dependency for the SFP SGMII+ patch.", steps);
 
-            // Deploy kernel module
             Report("Deploying kernel module to /data/sfp-sgmiiplus/...");
-            var koBytes = ReadEmbeddedResourceBytes("force_uniphy1_sgmiiplus.ko");
+            var koBytes = ReadEmbeddedResourceBytes($"{moduleName}.ko");
             if (koBytes == null)
                 return (false, "Kernel module not found in embedded resources", steps);
 
             var b64Ko = Convert.ToBase64String(koBytes);
-            var koCmd = $"mkdir -p {SfpModuleDir} && echo '{b64Ko}' | base64 -d > {SfpModuleDir}/force_uniphy1_sgmiiplus.ko && echo 'deployed'";
+            var koCmd = $"mkdir -p {SfpModuleDir} && echo '{b64Ko}' | base64 -d > {SfpModuleDir}/{moduleName}.ko && echo 'deployed'";
             var koResult = await RunCommandAsync(koCmd);
             if (!koResult.success || !koResult.output.Contains("deployed"))
                 return (false, $"Failed to deploy kernel module: {koResult.output}", steps);
 
-            // Deploy boot script
-            var scriptName = BootScriptFiles["sfp-sgmiiplus"];
+            var scriptName = BootScriptFiles[tweakId];
             var scriptContent = ReadEmbeddedResource(scriptName);
             if (scriptContent == null)
                 return (false, $"Boot script not found: {scriptName}", steps);
@@ -480,25 +546,29 @@ public class PerfTweaksDeploymentService
 
             Report("Verifying...");
             var verifyResult = await RunCommandAsync(
-                "echo '---MOD---'; lsmod | grep -q force_uniphy1_sgmiiplus && echo 'loaded' || echo 'not-loaded'; " +
-                "echo '---CLK---'; cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'");
+                $"echo '---MOD---'; lsmod | grep -q {moduleName} && echo 'loaded' || echo 'not-loaded'; " +
+                $"echo '---CLK---'; cat /sys/kernel/debug/clk/{uniphyName}_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'");
             var verifySections = ParseDelimitedOutput(verifyResult.output);
             var modLoaded = GetSection(verifySections, "MOD").Trim() == "loaded";
             var clkOk = GetSection(verifySections, "CLK").Trim() == "312500000";
 
             if (modLoaded && clkOk)
-                Report("Verified: Module loaded, uniphy1 at 312.5 MHz (2.5 Gbps).");
+                Report($"Verified: Module loaded, {uniphyName} at 312.5 MHz (2.5 Gbps).");
             else if (modLoaded)
                 Report("Module loaded but clock rate not at expected value. Check logs.");
             else
-                Report("Warning: Module may not have loaded correctly. Check /var/log/sfp-sgmiiplus.log");
+            {
+                var logName = tweakId == "sfp-sgmiiplus-port6" ? "sfp-sgmiiplus-eth5" : "sfp-sgmiiplus";
+                Report($"Warning: Module may not have loaded correctly. Check /var/log/{logName}.log");
+            }
 
             Report("Done.");
+            await PersistDeployedStateAsync(tweakId);
             return (true, "SFP SGMII+ patch deployed", steps);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deploy SFP tweak");
+            _logger.LogError(ex, "Failed to deploy SFP tweak {TweakId}", tweakId);
             return (false, ex.Message, steps);
         }
     }
@@ -594,12 +664,21 @@ public class PerfTweaksDeploymentService
                     "systemctl restart syslog-ng 2>/dev/null; " +
                     "echo 'removed'";
             }
+            else if (tweakId == "sfp-sgmiiplus-port6")
+            {
+                removeCmd =
+                    $"rm -f {OnBootDir}/{scriptName} && " +
+                    "rmmod force_uniphy2_sgmiiplus 2>/dev/null; " +
+                    $"rm -f {SfpModuleDir}/force_uniphy2_sgmiiplus.ko; " +
+                    "rm -f /var/log/sfp-sgmiiplus-eth5.log; " +
+                    "echo 'removed'";
+            }
             else if (tweakId == "sfp-sgmiiplus")
             {
                 removeCmd =
                     $"rm -f {OnBootDir}/{scriptName} && " +
                     "rmmod force_uniphy1_sgmiiplus 2>/dev/null; " +
-                    $"rm -rf {SfpModuleDir}; " +
+                    $"rm -f {SfpModuleDir}/force_uniphy1_sgmiiplus.ko; " +
                     "rm -f /var/log/sfp-sgmiiplus.log; " +
                     "echo 'removed'";
             }
@@ -657,6 +736,17 @@ public class PerfTweaksDeploymentService
         }
 
         await db.SaveChangesAsync();
+    }
+
+    private async Task PersistDeployedStateAsync(string tweakId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var existing = await db.PerfTweakSettings.FirstOrDefaultAsync(s => s.TweakId == tweakId);
+        if (existing == null)
+        {
+            db.PerfTweakSettings.Add(new PerfTweakSetting { TweakId = tweakId, IsManuallyDeployed = false });
+            await db.SaveChangesAsync();
+        }
     }
 
     public async Task<(bool success, string message)> InstallUdmBootAsync()
@@ -760,6 +850,7 @@ public class PerfTweaksStatus
     public bool SsdAvailable { get; set; }
     public string? SsdMountPath { get; set; }
     public bool SfpModuleAlreadyLoaded { get; set; }
+    public bool SfpPort6ModuleAlreadyLoaded { get; set; }
     public bool SfpQcaSsdkMissing { get; set; }
     public string? Error { get; set; }
     public Dictionary<string, TweakDeploymentStatus> Tweaks { get; set; } = new();

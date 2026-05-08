@@ -221,6 +221,9 @@
         {
             var tweakStatus = _status?.Tweaks.GetValueOrDefault(def.Id);
             var effectiveStatus = GetEffectiveStatus(tweakStatus);
+            var exclusiveOtherActive = def.MutuallyExclusiveWith != null
+                && _status?.Tweaks.TryGetValue(def.MutuallyExclusiveWith, out var otherTweak) == true
+                && (otherTweak.IsActive || otherTweak.IsManuallyDeployed);
 
             <div class="card pt-tweak-card">
                 <div class="card-header">
@@ -294,25 +297,41 @@
                     }
 
                     <!-- SFP qca-ssdk gate -->
-                    @if (def.Id == "sfp-sgmiiplus" && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpQcaSsdkMissing == true)
+                    @if ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && effectiveStatus == TweakDisplayStatus.NotDeployed && _status?.SfpQcaSsdkMissing == true)
                     {
                         <div class="alert alert-warning" style="margin-top: 0.75rem;">
                             <strong>Missing dependency:</strong> The <code>qca-ssdk</code> kernel module is not loaded on this gateway. It is required for the SFP SGMII+ patch to function.
                         </div>
                     }
 
-                    <!-- SFP-specific gate -->
-                    @if (def.Id == "sfp-sgmiiplus" && (effectiveStatus == TweakDisplayStatus.NotDeployed || effectiveStatus == TweakDisplayStatus.Detected) && _status?.SfpModuleAlreadyLoaded == true)
+                    <!-- SFP-specific gate (Port 6) -->
+                    @if (def.Id == "sfp-sgmiiplus-port6" && (effectiveStatus == TweakDisplayStatus.NotDeployed || effectiveStatus == TweakDisplayStatus.Detected) && _status?.SfpPort6ModuleAlreadyLoaded == true)
                     {
                         <div class="alert alert-info" style="margin-top: 0.75rem;">
-                            <strong>Module already loaded.</strong> The SFP SGMII+ kernel module is already active on this gateway. Use "Mark as Manually Deployed" to enable monitoring without redeploying.
+                            <strong>Module already loaded.</strong> The SFP SGMII+ kernel module is already active on this port. Use "Mark as Manually Deployed" to enable monitoring without redeploying.
                         </div>
                     }
 
-                    @if (def.Id == "sfp-sgmiiplus")
+                    <!-- SFP-specific gate (Port 7) -->
+                    @if (def.Id == "sfp-sgmiiplus" && (effectiveStatus == TweakDisplayStatus.NotDeployed || effectiveStatus == TweakDisplayStatus.Detected) && _status?.SfpModuleAlreadyLoaded == true)
+                    {
+                        <div class="alert alert-info" style="margin-top: 0.75rem;">
+                            <strong>Module already loaded.</strong> The SFP SGMII+ kernel module is already active on this port. Use "Mark as Manually Deployed" to enable monitoring without redeploying.
+                        </div>
+                    }
+
+                    @if (def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6")
                     {
                         <div class="alert alert-warning" style="margin-top: 0.75rem;">
                             <strong>Compatibility note:</strong> Zyxel PMG3000-D20B support is currently being tested. If you have this module (or another GPON stick that may not negotiate 2.5 G cleanly with the UniFi host), feel free to try the patch, but be prepared to remove it if the link doesn't come up and stabilize.
+                        </div>
+                    }
+
+                    @if (exclusiveOtherActive && effectiveStatus == TweakDisplayStatus.NotDeployed)
+                    {
+                        var otherDef = _tweakDefs.FirstOrDefault(d => d.Id == def.MutuallyExclusiveWith);
+                        <div class="alert alert-danger" style="margin-top: 0.75rem;">
+                            <strong>Cannot deploy:</strong> @(otherDef?.Title ?? def.MutuallyExclusiveWith) is currently active. Only one SFP+ SGMII+ patch can be loaded at a time - each module saves and restores the MAC sync polling loop's port bitmap independently, so loading both would corrupt the restore state. Remove the other patch first.
                         </div>
                     }
 
@@ -321,7 +340,7 @@
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
                         {
                             <button class="btn btn-primary btn-sm"
-                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus" && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
+                                    disabled="@(!_canDeploy || _deployingTweakId == def.Id || exclusiveOtherActive || (def.Id == "sfp-sgmiiplus" && _status?.SfpModuleAlreadyLoaded == true) || (def.Id == "sfp-sgmiiplus-port6" && _status?.SfpPort6ModuleAlreadyLoaded == true) || ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && _status?.SfpQcaSsdkMissing == true) || (def.Id == "mongodb-ssd" && _status?.SsdAvailable != true))"
                                     @onclick="() => ShowDeployConfirmation(def.Id)"
                                     data-tooltip="@(!_canDeploy ? (_status?.FirmwareSupported != true ? "Unsupported firmware" : "Install UDM Boot first") : null)">
                                 @if (_deployingTweakId == def.Id)
@@ -824,9 +843,13 @@
         new("journald-volatile", "Logging Offload",
             "Moves system journal to RAM (volatile) and disables syslog-ng routes that write to eMMC, reducing eMMC writes from logging by ~10-15 per minute. Preserves IDS/IPS threat alert pipeline, remote syslog forwarding, and all tmpfs-based logging. Logs remain available for the current boot session via journalctl.",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber", "ucg-max", "ucgmax" }),
-        new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch",
+        new("sfp-sgmiiplus-port6", "SFP+ 2.5 G SGMII+ Patch (Port 6)",
+            "Loads a kernel module that forces the 1st SFP+ port (Port 6 / eth5) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy2 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion.",
+            MutuallyExclusiveWith: "sfp-sgmiiplus",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" }),
+        new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch (Port 7)",
             "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion.",
-            ExtraNote: "If you need 1st SFP+ port (Port 6 / eth5) support, open an issue on GitHub and we'll work on it.",
+            MutuallyExclusiveWith: "sfp-sgmiiplus-port6",
             CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" })
     };
 
@@ -1022,7 +1045,7 @@
 
     private enum TweakDisplayStatus { NotDeployed, Active, Manual, Detected, Issue }
 
-    private record TweakDefinition(string Id, string Title, string Description, string? ExtraNote = null, string[]? CompatibleModels = null)
+    private record TweakDefinition(string Id, string Title, string Description, string? ExtraNote = null, string? MutuallyExclusiveWith = null, string[]? CompatibleModels = null)
     {
         public bool IsCompatibleWith(string? model)
         {
