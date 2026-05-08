@@ -417,14 +417,18 @@ public class PerfTweaksDeploymentService
 
         try
         {
-            if (tweakId == "sfp-sgmiiplus-port6")
+            if (tweakId is "sfp-sgmiiplus-port6" or "sfp-sgmiiplus")
             {
-                return await DeploySfpTweakAsync("sfp-sgmiiplus-port6", "force_uniphy2_sgmiiplus", "uniphy2", progress);
-            }
+                var otherTweakId = tweakId == "sfp-sgmiiplus-port6" ? "sfp-sgmiiplus" : "sfp-sgmiiplus-port6";
+                var otherModuleName = tweakId == "sfp-sgmiiplus-port6" ? "force_uniphy1_sgmiiplus" : "force_uniphy2_sgmiiplus";
+                var checkOther = await RunCommandAsync($"lsmod | grep -q {otherModuleName} && echo 'loaded' || echo 'not-loaded'");
+                if (checkOther.output.Contains("loaded"))
+                    return (false, $"Cannot deploy: the other SFP+ SGMII+ patch ({otherTweakId}) is currently loaded. Only one can be active at a time. Remove it first.", steps);
 
-            if (tweakId == "sfp-sgmiiplus")
-            {
-                return await DeploySfpTweakAsync("sfp-sgmiiplus", "force_uniphy1_sgmiiplus", "uniphy1", progress);
+                var (moduleName, uniphyName) = tweakId == "sfp-sgmiiplus-port6"
+                    ? ("force_uniphy2_sgmiiplus", "uniphy2")
+                    : ("force_uniphy1_sgmiiplus", "uniphy1");
+                return await DeploySfpTweakAsync(tweakId, moduleName, uniphyName, progress);
             }
 
             var scriptName = BootScriptFiles.GetValueOrDefault(tweakId);
