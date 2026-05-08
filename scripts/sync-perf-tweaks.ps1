@@ -26,11 +26,13 @@ $scripts = @(
     "scripts/07-mongodb-ssd-backup.sh",
     "scripts/10-journald-volatile.sh",
     "scripts/15-fan-control-tuning.sh",
+    "scripts/19-sfp-sgmiiplus-eth5.sh",
     "scripts/20-sfp-sgmiiplus.sh"
 )
 
 $binaries = @(
-    "modules/force-uniphy1-sgmiiplus/force_uniphy1_sgmiiplus.ko"
+    "modules/force-uniphy1-sgmiiplus/force_uniphy1_sgmiiplus.ko",
+    "modules/force-uniphy2-sgmiiplus/force_uniphy2_sgmiiplus.ko"
 )
 
 foreach ($file in $scripts + $binaries) {

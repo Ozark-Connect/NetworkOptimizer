@@ -1,0 +1,5 @@
+# Shell scripts must use LF - they're deployed to Linux gateways
+*.sh text eol=lf
+
+# Kernel modules are binary
+*.ko binary
