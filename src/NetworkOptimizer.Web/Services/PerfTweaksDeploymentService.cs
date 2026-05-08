@@ -676,7 +676,7 @@ public class PerfTweaksDeploymentService
         if (stream == null) return null;
 
         using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
+        return reader.ReadToEnd().Replace("\r\n", "\n");
     }
 
     private static byte[]? ReadEmbeddedResourceBytes(string fileName)
