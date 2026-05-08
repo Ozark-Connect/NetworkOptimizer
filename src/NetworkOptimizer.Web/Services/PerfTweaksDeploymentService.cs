@@ -421,8 +421,9 @@ public class PerfTweaksDeploymentService
             {
                 var otherTweakId = tweakId == "sfp-sgmiiplus-port6" ? "sfp-sgmiiplus" : "sfp-sgmiiplus-port6";
                 var otherModuleName = tweakId == "sfp-sgmiiplus-port6" ? "force_uniphy1_sgmiiplus" : "force_uniphy2_sgmiiplus";
-                var checkOther = await RunCommandAsync($"lsmod | grep -q {otherModuleName} && echo 'loaded' || echo 'not-loaded'");
-                if (checkOther.output.Contains("loaded"))
+                var checkOther = await RunCommandAsync($"echo '---OTHER---'; lsmod | grep -q {otherModuleName} && echo 'loaded' || echo 'not-loaded'");
+                var otherSections = ParseDelimitedOutput(checkOther.output);
+                if (GetSection(otherSections, "OTHER").Trim() == "loaded")
                     return (false, $"Cannot deploy: the other SFP+ SGMII+ patch ({otherTweakId}) is currently loaded. Only one can be active at a time. Remove it first.", steps);
 
                 var (moduleName, uniphyName) = tweakId == "sfp-sgmiiplus-port6"
