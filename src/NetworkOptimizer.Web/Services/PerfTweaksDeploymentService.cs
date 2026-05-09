@@ -92,7 +92,7 @@ public class PerfTweaksDeploymentService
                 "echo '---MONGO_MOUNTPOINT---'; mountpoint -q /data/unifi/data/db 2>/dev/null && echo 'mounted' || echo 'not-mounted'; " +
                 "echo '---MONGO_FINDMNT---'; findmnt -no SOURCE /data/unifi/data/db 2>/dev/null || echo 'N/A'; " +
                 "echo '---MONGO_SERVICE---'; systemctl is-active unifi-mongodb 2>/dev/null || echo 'inactive'; " +
-                "echo '---MONGO_SSD_SIZE---'; du -sh /volume*/unifi-db 2>/dev/null | head -1 | cut -f1 || echo 'N/A'; " +
+                "echo '---MONGO_SSD_SIZE---'; du -sh /volume1/unifi-db /volume/*/unifi-db 2>/dev/null | head -1 | cut -f1 || echo 'N/A'; " +
                 // MongoDB backup
                 $"echo '---MONGO_BACKUP_SCRIPT---'; test -f {OnBootDir}/07-mongodb-ssd-backup.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---MONGO_BACKUP_CRON---'; test -f /etc/cron.d/mongodb-ssd-backup && echo 'exists' || echo 'missing'; " +
