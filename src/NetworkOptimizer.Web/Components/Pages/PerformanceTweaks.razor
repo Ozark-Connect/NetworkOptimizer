@@ -109,7 +109,7 @@
                         </div>
                         <div class="metric">
                             <div class="metric-label">Active Tweaks</div>
-                            <div class="metric-value">@_activeTweakCount / @_compatibleTweaks.Count</div>
+                            <div class="metric-value">@_activeTweakCount / @_compatibleTweakSlotCount</div>
                         </div>
                     </div>
 
@@ -827,9 +827,38 @@
     private List<TweakDefinition> _compatibleTweaks => _tweakDefs
         .Where(d => d.IsCompatibleWith(_status?.GatewayModel)).ToList();
 
-    private int _activeTweakCount => _status?.Tweaks.Values
-        .Count(t => (t.IsActive || t.IsManuallyDeployed)
-            && _compatibleTweaks.Any(d => d.Id == t.Id)) ?? 0;
+    // TODO: Remove deduplication when simultaneous SFP port support is working -
+    // at that point each SFP tweak should count independently.
+    private int _compatibleTweakSlotCount => _compatibleTweaks
+        .Where(d => d.MutuallyExclusiveWith == null
+            || string.Compare(d.Id, d.MutuallyExclusiveWith, StringComparison.Ordinal) < 0)
+        .Count();
+
+    private int _activeTweakCount
+    {
+        get
+        {
+            if (_status == null) return 0;
+            var activeIds = _status.Tweaks.Values
+                .Where(t => (t.IsActive || t.IsManuallyDeployed)
+                    && _compatibleTweaks.Any(d => d.Id == t.Id))
+                .Select(t => t.Id)
+                .ToHashSet();
+
+            // TODO: Remove deduplication when simultaneous SFP port support is working
+            var counted = new HashSet<string>();
+            var count = 0;
+            foreach (var id in activeIds)
+            {
+                var def = _compatibleTweaks.FirstOrDefault(d => d.Id == id);
+                if (def?.MutuallyExclusiveWith != null && counted.Contains(def.MutuallyExclusiveWith))
+                    continue;
+                counted.Add(id);
+                count++;
+            }
+            return count;
+        }
+    }
 
     private static readonly List<TweakDefinition> _tweakDefs = new()
     {
