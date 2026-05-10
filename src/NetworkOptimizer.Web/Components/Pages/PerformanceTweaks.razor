@@ -774,10 +774,12 @@ ls -la /var/config/run-syslog.sh</code></pre>
         bottom: 0;
         background: rgba(0, 0, 0, 0.6);
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         z-index: 1000;
-        padding: 1rem;
+        padding: 2rem 1rem;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .pt-modal {
@@ -785,6 +787,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
         border-radius: 0.75rem;
         max-width: 540px;
         width: 100%;
+        margin: auto 0;
         box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
     }
 
