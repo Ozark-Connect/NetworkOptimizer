@@ -90,6 +90,7 @@
                     <strong>Device Offline</strong>
                     <span>This device is currently offline. Showing historical data. Live data will appear when it reconnects.</span>
                 </div>
+                <button class="btn btn-primary btn-sm" @onclick="() => NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true)">Retry</button>
             </div>
         </div>
     }
@@ -122,7 +123,7 @@
         <div class="card empty-state">
             <h3>Device Not Found</h3>
             <p>Could not identify your device on the network. Make sure you're connected and the UniFi Console is reachable.</p>
-            <button class="btn btn-primary" @onclick="RetryIdentify">Retry</button>
+            <button class="btn btn-primary" @onclick="() => NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true)">Retry</button>
         </div>
     }
     else
@@ -1636,12 +1637,6 @@
             ? DateTime.MinValue
             : to.AddHours(-_selectedTimeFilter);
         return (from, to);
-    }
-
-    private async Task RetryIdentify()
-    {
-        await IdentifyAndLoadAsync();
-        StateHasChanged();
     }
 
     private void ToggleResultExpand(int resultId)
