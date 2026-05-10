@@ -90,6 +90,7 @@
                     <strong>Device Offline</strong>
                     <span>This device is currently offline. Showing historical data. Live data will appear when it reconnects.</span>
                 </div>
+                <button class="btn btn-primary btn-sm" @onclick="() => NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true)">Retry</button>
             </div>
         </div>
     }
