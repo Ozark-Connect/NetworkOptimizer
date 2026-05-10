@@ -153,7 +153,6 @@
                     scrollUpAccum = 0;
                     lastScrollTop = st;
                 } else if (topBar) {
-                    hasScrolledDown = true;
                     var delta = lastScrollTop - st; // positive = scrolling up
                     if (delta > 0) {
                         scrollUpAccum += delta;
@@ -162,6 +161,7 @@
                     }
 
                     if (st > lastScrollTop && st > 60 && isContentScrollable()) {
+                        hasScrolledDown = true;
                         topBar.classList.add('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
