@@ -530,22 +530,32 @@
     <div class="pt-modal-overlay" @onclick="() => _showZyxelInstructions = false">
         <div class="pt-modal pt-modal-wide" @onclick:stopPropagation="true">
             <div class="pt-modal-header">
-                <h3>Zyxel PMG3000-D20B - Pre-Flight Steps</h3>
+                <h3>GPON Stick Compatibility - Pre-Flight Steps</h3>
             </div>
             <div class="pt-modal-body pt-instructions">
-                <p>The Zyxel PMG3000-D20B (and some other GPON sticks) may not negotiate 2.5 G cleanly with the UniFi host by default. Run the following commands on the SFP stick <strong>before</strong> deploying the SGMII+ patch.</p>
+                <p>Some GPON ONT SFP modules default to a link mode that won't negotiate 2.5 G with the UniFi host. If your stick doesn't link up after deploying the SGMII+ patch, you likely need to switch it to 2.5/1 G auto-negotiation mode first.</p>
 
-                <h4>Step 1: Switch to 2.5/1 G auto-negotiation</h4>
-                <p>SSH to your SFP stick and run:</p>
+                <p>The general process is:</p>
+                <ol>
+                    <li>SSH into your SFP stick and configure it for 2.5/1 G auto-negotiation</li>
+                    <li>Deploy the SGMII+ patch from this page</li>
+                    <li>If it links up, persist the configuration so it survives SFP reboots</li>
+                </ol>
+                <p>The exact commands vary by stick. If yours isn't listed below, check your stick's documentation or community wiki for the equivalent auto-negotiation command.</p>
+
+                <h4>If it doesn't work</h4>
+                <p>If the link and data path don't come up after deploying, use the Remove button on the tweak card to unload the module - this should restore normal functionality. If the link still doesn't recover after removal, reboot the SFP stick.</p>
+
+                <h4>Zyxel PMG3000-D20B</h4>
+
+                <p><strong>Configure auto-negotiation.</strong> SSH to the stick and run:</p>
                 <pre><code>linuxshell
 onu lanpcs 0 1 -1 4 15 1 0 5 0 0 1518 1 3 0 0 0</code></pre>
-                <p>This switches the SFP interface to 2.5/1 G auto-negotiation mode. It resets back to the default on SFP reboot, so you always have a way out.</p>
+                <p>The <code>linuxshell</code> command breaks out of the Zyxel CLI into a Linux shell. The <code>onu lanpcs</code> command switches the SFP interface to 2.5/1 G auto-negotiation mode. It resets on SFP reboot, so you always have a way out.</p>
 
-                <h4>Step 2: Deploy the patch</h4>
-                <p>Come back here and deploy the SGMII+ patch. After about a minute, the link should come up and you should have data path again.</p>
+                <p><strong>Deploy the patch.</strong> Come back here and deploy the SGMII+ patch. After about a minute, the link should come up and you should have data path again.</p>
 
-                <h4>Step 3: Persist the command</h4>
-                <p>If it works, make the command run automatically on every SFP boot. SSH to the stick again and run:</p>
+                <p><strong>Persist across reboots.</strong> If it works, make the command run automatically on every SFP boot. SSH to the stick again and run:</p>
                 <pre><code># Enter the Linux shell first (if a new SSH session)
 linuxshell
 
@@ -888,6 +898,18 @@ ls -la /var/config/run-syslog.sh</code></pre>
         font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
         font-size: 0.8rem;
         color: var(--text-primary);
+    }
+
+    .pt-instructions ol {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.5;
+        margin: 0 0 0.75rem 0;
+        padding-left: 1.25rem;
+    }
+
+    .pt-instructions li {
+        margin-bottom: 0.25rem;
     }
 </style>
 
