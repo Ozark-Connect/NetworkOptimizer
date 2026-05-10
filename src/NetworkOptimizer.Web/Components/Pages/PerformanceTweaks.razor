@@ -323,7 +323,7 @@
                     @if (def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6")
                     {
                         <div class="alert alert-warning" style="margin-top: 0.75rem;">
-                            <strong>GPON stick compatibility:</strong> Some SFP GPON ONTs (particularly the Zyxel PMG3000-D20B) may not negotiate 2.5 G cleanly with the UniFi host without extra configuration. If your stick won't link up after deploying, <a href="javascript:void(0)" @onclick="() => _showZyxelInstructions = true" @onclick:stopPropagation="true" class="pt-inline-link">check these pre-flight steps</a>.
+                            <strong>GPON stick compatibility:</strong> Some SFP GPON ONTs (particularly the Zyxel PMG3000-D20B) may not negotiate 2.5 G cleanly with the UniFi host without extra configuration. If your stick won't link up after deploying, <a href="javascript:void(0)" @onclick="() => _showZyxelInstructions = true" @onclick:stopPropagation="true" class="pt-inline-link">check these pre-flight steps</a>, and Remove the SFP tweak to restore the link if all else fails.
                         </div>
                     }
 
