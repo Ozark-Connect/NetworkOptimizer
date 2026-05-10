@@ -140,10 +140,11 @@
 
                 var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
                 if (st <= 0) {
-                    // Always show nav bar at top of page
+                    // Always show nav bar at top of page - no auto-hide here,
+                    // otherwise the bar hides and the user can't scroll further up to recover it
                     topBar.classList.remove('top-bar-hidden');
                     currentEl.style.scrollPaddingTop = '70px';
-                    startAutoHideTimer(topBar);
+                    clearAutoHideTimer();
                     scrollUpAccum = 0;
                     lastScrollTop = st;
                 } else if (topBar) {
@@ -203,19 +204,6 @@
 
         attachListener(getScrollEl());
         window.addEventListener('resize', function() { attachListener(getScrollEl()); });
-
-        // Show nav bar when content shrinks below scrollable (e.g. Blazor re-render on disconnect)
-        var resizeObs = new ResizeObserver(function() {
-            if (window.innerWidth > 768) return;
-            var topBar = document.querySelector('.top-bar');
-            if (topBar && topBar.classList.contains('top-bar-hidden') && !isContentScrollable()) {
-                topBar.classList.remove('top-bar-hidden');
-                if (currentEl) currentEl.style.scrollPaddingTop = '70px';
-                clearAutoHideTimer();
-            }
-        });
-        var mainContent = document.querySelector('.main-content');
-        if (mainContent) resizeObs.observe(mainContent);
 
         // Restart auto-hide timer when sidebar closes
         var sidebar = document.querySelector('.sidebar');
