@@ -86,7 +86,6 @@
         }
         var lastScrollTop = 0;
         var scrollUpAccum = 0; // cumulative upward scroll distance
-        var hasScrolledDown = false; // tracks if user has ever scrolled down (reset on nav)
         var currentEl = null;
 
         function attachListener(el) {
@@ -141,15 +140,10 @@
 
                 var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
                 if (st <= 0) {
+                    // Always show nav bar at top of page
                     topBar.classList.remove('top-bar-hidden');
                     currentEl.style.scrollPaddingTop = '70px';
-                    // Auto-hide at top only on initial load; if the user scrolled
-                    // down and back up, they're reaching for the nav - don't hide it
-                    if (hasScrolledDown) {
-                        clearAutoHideTimer();
-                    } else {
-                        startAutoHideTimer(topBar);
-                    }
+                    startAutoHideTimer(topBar);
                     scrollUpAccum = 0;
                     lastScrollTop = st;
                 } else if (topBar) {
@@ -161,7 +155,6 @@
                     }
 
                     if (st > lastScrollTop && st > 60 && isContentScrollable()) {
-                        hasScrolledDown = true;
                         topBar.classList.add('top-bar-hidden');
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
@@ -193,7 +186,6 @@
         // hidden=false: page nav (show bar, add padding)
         window.__setScrollState = function(hidden) {
             lastScrollTop = 0;
-            hasScrolledDown = false;
             if (window.innerWidth <= 768) {
                 var topBar = document.querySelector('.top-bar');
                 if (topBar) {
