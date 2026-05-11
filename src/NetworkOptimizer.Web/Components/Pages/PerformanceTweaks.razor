@@ -220,7 +220,7 @@
         @foreach (var def in _tweakDefs.Where(d => d.IsCompatibleWith(_status?.GatewayModel)))
         {
             var tweakStatus = _status?.Tweaks.GetValueOrDefault(def.Id);
-            var effectiveStatus = GetEffectiveStatus(tweakStatus);
+            var effectiveStatus = GetEffectiveStatus(tweakStatus, def.Id);
             var exclusiveOtherActive = def.MutuallyExclusiveWith != null
                 && _status?.Tweaks.TryGetValue(def.MutuallyExclusiveWith, out var otherTweak) == true
                 && (otherTweak.IsActive || otherTweak.IsManuallyDeployed);
@@ -256,6 +256,14 @@
                     @if (!string.IsNullOrEmpty(def.ExtraNote))
                     {
                         <p class="pt-tweak-description" style="font-style: italic;">@def.ExtraNote</p>
+                    }
+
+                    <!-- SFP carrier wait note: boot script deployed but module not yet loaded -->
+                    @if ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && tweakStatus?.BootScriptDeployed == true && tweakStatus?.RuntimeDetected != true)
+                    {
+                        <div class="alert alert-info" style="margin-top: 0.75rem; margin-bottom: 0.75rem;">
+                            <strong>Waiting for link:</strong> After a reboot or deploy, the boot script waits up to 90 seconds for the SFP to establish a 1 G link before loading the SGMII+ kernel module. This allows time for the ONT's boot sequence and SerDes configuration. If the kernel module has not loaded yet, it may still be in this link check period.
+                        </div>
                     }
 
                     <!-- Health Check Results -->
@@ -934,6 +942,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
     private bool _showRemoveConfirm;
     private string? _pendingRemoveTweakId;
     private bool _showZyxelInstructions;
+    private readonly Dictionary<string, DateTime> _sfpDeployTimes = new();
     private bool _allConfirmed => _confirmBackup && _confirmBackupDownloaded && _confirmWarranty && _confirmRisk;
     private bool _canDeploy => _status?.UdmBootInstalled == true && _status?.FirmwareSupported == true;
     private List<string> _deploySteps = new();
@@ -1122,7 +1131,11 @@ ls -la /var/config/run-syslog.sh</code></pre>
             var result = await DeployService.DeployTweakAsync(tweakId, progress);
 
             if (result.success)
+            {
+                if (tweakId is "sfp-sgmiiplus" or "sfp-sgmiiplus-port6")
+                    _sfpDeployTimes[tweakId] = DateTime.UtcNow;
                 await LoadStatusAsync();
+            }
         }
         finally
         {
@@ -1163,13 +1176,22 @@ ls -la /var/config/run-syslog.sh</code></pre>
         await LoadStatusAsync();
     }
 
-    private TweakDisplayStatus GetEffectiveStatus(TweakDeploymentStatus? status)
+    private bool IsSfpInCarrierWait(string tweakId) =>
+        _sfpDeployTimes.TryGetValue(tweakId, out var deployTime)
+        && (DateTime.UtcNow - deployTime).TotalSeconds < 90;
+
+    private TweakDisplayStatus GetEffectiveStatus(TweakDeploymentStatus? status, string? tweakId = null)
     {
         if (status == null) return TweakDisplayStatus.NotDeployed;
         if (status.IsManuallyDeployed) return TweakDisplayStatus.Manual;
         if (status.IsActive && string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Active;
         if (status.IsActive && !string.IsNullOrEmpty(status.IssueDescription)) return TweakDisplayStatus.Issue;
-        if (status.BootScriptDeployed && !status.IsActive) return TweakDisplayStatus.Issue;
+        if (status.BootScriptDeployed && !status.IsActive)
+        {
+            if (tweakId != null && IsSfpInCarrierWait(tweakId))
+                return TweakDisplayStatus.Active;
+            return TweakDisplayStatus.Issue;
+        }
         if (status.RuntimeDetected && !status.BootScriptDeployed) return TweakDisplayStatus.Detected;
         return TweakDisplayStatus.NotDeployed;
     }
