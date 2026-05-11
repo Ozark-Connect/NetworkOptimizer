@@ -558,7 +558,7 @@
 
                 <p><strong>Configure auto-negotiation.</strong> SSH to the stick and run:</p>
                 <pre><code>linuxshell
-onu lanpcs 0 1 -1 4 15 1 0 5 0 0 1518 1 3 0 0 0</code></pre>
+onu lanpcs 0 1 -1 4 15 1 0 5 0 0 9990 1 3 0 0 0</code></pre>
                 <p>The <code>linuxshell</code> command breaks out of the Zyxel CLI into a Linux shell. The <code>onu lanpcs</code> command switches the SFP interface to 2.5/1 G auto-negotiation mode. It resets on SFP reboot, so you always have a way out.</p>
 
                 <p><strong>Deploy the patch.</strong> Come back here and deploy the SGMII+ patch. After about a minute, the link should come up and you should have data path again.</p>
@@ -571,10 +571,10 @@ linuxshell
 ls -la /var/config/run-syslog.sh</code></pre>
 
                 <p>If the file <strong>does not exist</strong> (you see "No such file or directory"):</p>
-                <pre><code>echo 'onu lanpcs 0 1 -1 4 15 1 0 5 0 0 1518 1 3 0 0 0' > /var/config/run-syslog.sh</code></pre>
+                <pre><code>echo 'onu lanpcs 0 1 -1 4 15 1 0 5 0 0 9990 1 3 0 0 0' > /var/config/run-syslog.sh</code></pre>
 
                 <p>If the file <strong>already exists</strong>, safely append the command:</p>
-                <pre><code>grep -q 'lanpcs' /var/config/run-syslog.sh 2>/dev/null || echo 'onu lanpcs 0 1 -1 4 15 1 0 5 0 0 1518 1 3 0 0 0' >> /var/config/run-syslog.sh</code></pre>
+                <pre><code>grep -q 'lanpcs' /var/config/run-syslog.sh 2>/dev/null || echo 'onu lanpcs 0 1 -1 4 15 1 0 5 0 0 9990 1 3 0 0 0' >> /var/config/run-syslog.sh</code></pre>
             </div>
             <div class="pt-modal-footer">
                 <button class="btn btn-primary btn-sm" @onclick="() => _showZyxelInstructions = false">Got It</button>
