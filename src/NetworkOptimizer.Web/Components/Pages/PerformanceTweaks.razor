@@ -262,7 +262,7 @@
                     @if ((def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6") && tweakStatus?.BootScriptDeployed == true && tweakStatus?.RuntimeDetected != true)
                     {
                         <div class="alert alert-info" style="margin-top: 0.75rem; margin-bottom: 0.75rem;">
-                            <strong>Waiting for link:</strong> After a reboot, the boot script waits up to 90 seconds for the SFP to establish a 1 G link before loading the SGMII+ kernel module. This allows time for the ONT's boot sequence and SerDes configuration. If the kernel module has not loaded yet, it may still be in this link check period.
+                            <strong>Waiting for link:</strong> After a reboot or deploy, the boot script waits up to 90 seconds for the SFP to establish a 1 G link before loading the SGMII+ kernel module. This allows time for the ONT's boot sequence and SerDes configuration. If the kernel module has not loaded yet, it may still be in this link check period.
                         </div>
                     }
 
