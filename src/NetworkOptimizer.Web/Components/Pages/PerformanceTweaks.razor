@@ -578,6 +578,9 @@ ls -la /var/config/run-syslog.sh</code></pre>
                         <pre><code>grep -q 'lanpcs' /var/config/run-syslog.sh 2>/dev/null || echo 'onu lanpcs 0 1 -1 4 15 1 3 5 0 0 4096 1 3 0 0 0' >> /var/config/run-syslog.sh</code></pre>
                     </div>
                 </details>
+
+                <h4>Other GPON ONT sticks</h4>
+                <p>If your stick isn't a Zyxel PMG3000 but still has trouble linking at 2.5 G, a firmware upgrade may help. Most GPON SFP sticks are built on the same Lantiq Falcon SoC, and the SGMII auto-negotiation recovery logic improved significantly in newer OpenWrt/kernel builds. The Zyxel only started working reliably once it was on the same kernel version (3.10.49 / OpenWrt 14.07) as the Calix 100-05609 we've validated this feature against. Check your stick's community resources for newer firmware images.</p>
             </div>
             <div class="pt-modal-footer">
                 <button class="btn btn-primary btn-sm" @onclick="() => _showZyxelInstructions = false">Got It</button>
