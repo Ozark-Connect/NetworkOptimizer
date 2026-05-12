@@ -580,7 +580,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
                 </details>
 
                 <h4>Other GPON ONT sticks</h4>
-                <p>If your stick isn't a Zyxel PMG3000 but still has trouble linking at 2.5 G, a firmware upgrade may help. Many carrier-grade and ISP-issued GPON sticks (including the Zyxel and Calix) use T&W boards with the Lantiq Falcon SoC, and the SGMII auto-negotiation recovery logic improved significantly in newer kernel builds. The Zyxel only started working reliably once it was on the same kernel as the Calix 100-05609 we've validated this feature against. Realtek-based sticks may have similar gotchas. Check your stick's community resources for newer firmware images.</p>
+                <p>If your stick isn't a Zyxel PMG3000 but still has trouble linking at 2.5 G, a firmware upgrade may help. Many carrier-grade and ISP-issued GPON sticks (including the Zyxel and Calix) use T&W boards with the Lantiq Falcon SoC, and the SGMII auto-negotiation recovery logic improved significantly in newer kernel builds. The Zyxel only started working reliably after upgrading from its older V1.00 kernel to the newer V2.50 branch. Realtek-based sticks may have similar gotchas. Check your stick's community resources for newer firmware images.</p>
             </div>
             <div class="pt-modal-footer">
                 <button class="btn btn-primary btn-sm" @onclick="() => _showZyxelInstructions = false">Got It</button>
