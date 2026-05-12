@@ -331,7 +331,7 @@
                     @if (def.Id == "sfp-sgmiiplus" || def.Id == "sfp-sgmiiplus-port6")
                     {
                         <div class="alert alert-warning" style="margin-top: 0.75rem;">
-                            <strong>GPON stick compatibility:</strong> Some SFP GPON ONTs (particularly the Zyxel PMG3000-D20B) may not negotiate 2.5 G cleanly with the UniFi host without extra configuration. If your stick won't link up after deploying, <a href="javascript:void(0)" @onclick="() => _showZyxelInstructions = true" @onclick:stopPropagation="true" class="pt-inline-link">check these pre-flight steps</a>, and Remove the SFP tweak to restore the link if all else fails.
+                            <strong>GPON stick compatibility:</strong> Some SFP GPON ONTs need extra configuration to negotiate 2.5 G with the UniFi host. For Zyxel PMG3000-D20B sticks, upgrading to V2.50 firmware is recommended - it supports 2.5 G out of the box. <a href="javascript:void(0)" @onclick="() => _showZyxelInstructions = true" @onclick:stopPropagation="true" class="pt-inline-link">See compatibility details</a>, and Remove the SFP tweak to restore the link if all else fails.
                         </div>
                     }
 
@@ -541,40 +541,46 @@
                 <h3>GPON Stick Compatibility - Pre-Flight Steps</h3>
             </div>
             <div class="pt-modal-body pt-instructions">
-                <p>Some GPON ONT SFP modules default to a link mode that won't negotiate 2.5 G with the UniFi host. If your stick doesn't link up after deploying the SGMII+ patch, you likely need to switch it to 2.5/1 G auto-negotiation mode first.</p>
-
-                <p>The general process is:</p>
-                <ol>
-                    <li>SSH into your SFP stick and configure it for 2.5/1 G auto-negotiation</li>
-                    <li>Deploy the SGMII+ patch from this page</li>
-                    <li>If it links up, persist the configuration so it survives SFP reboots</li>
-                </ol>
-                <p>The exact commands vary by stick. If yours isn't listed below, check your stick's documentation or community wiki for the equivalent auto-negotiation command.</p>
+                <p>Some GPON ONT SFP modules default to a link mode that won't negotiate 2.5 G with the UniFi host. The exact steps depend on your stick and its firmware version.</p>
 
                 <h4>If it doesn't work</h4>
                 <p>If the link and data path don't come up after deploying, use the Remove button on the tweak card to unload the module - this should restore normal functionality. If the link still doesn't recover after removal, reboot the SFP stick.</p>
 
                 <h4>Zyxel PMG3000-D20B</h4>
 
-                <p><strong>Configure auto-negotiation.</strong> SSH to the stick and run:</p>
-                <pre><code>linuxshell
+                <p><strong>Recommended: upgrade to V2.50 firmware.</strong> The V1.00 firmware branch has an incomplete auto-negotiation state machine that can fail to converge at 2.5 G, especially after host reboots. The V2.50 branch (V2.50(ABVJ.1)b1f or later) fixes this and defaults to 2.5 G out of the box - no manual SFP configuration needed. Just deploy the SGMII+ patch and the stick handles the rest.</p>
+
+                <p>V2.50 firmware images are available from the <a href="https://gist.github.com/maurice-w/faeb60bf8201ce70391873bcb9059bc2" target="_blank" rel="noopener noreferrer">community firmware archive</a>. Flash via the SFP's web installer or UART.</p>
+
+                <details class="pt-collapsible">
+                    <summary>V1.00 firmware workaround (if you can't upgrade)</summary>
+                    <div class="pt-collapsible-body">
+                        <p>This workaround switches the V1.00 stick to 2.5/1 G auto-negotiation mode. It may work for initial link-up, but the V1.00 firmware may fail to re-converge at 2.5 G after a host reboot due to missing clock domain reset logic. If that happens, upgrading to V2.50 is the fix.</p>
+
+                        <p><strong>Configure auto-negotiation.</strong> SSH to the stick and run:</p>
+                        <pre><code>linuxshell
 onu lanpcs 0 1 -1 4 15 1 3 5 0 0 4096 1 3 0 0 0</code></pre>
-                <p>The <code>linuxshell</code> command breaks out of the Zyxel CLI into a Linux shell. The <code>onu lanpcs</code> command switches the SFP interface to 2.5/1 G auto-negotiation mode. It resets on SFP reboot, so you always have a way out.</p>
+                        <p>The <code>linuxshell</code> command breaks out of the Zyxel CLI into a Linux shell. The <code>onu lanpcs</code> command switches the SFP interface to 2.5/1 G auto-negotiation mode. It resets on SFP reboot, so you always have a way out.</p>
 
-                <p><strong>Deploy the patch.</strong> Come back here and deploy the SGMII+ patch. After about a minute, the link should come up and you should have data path again.</p>
+                        <p><strong>Deploy the patch.</strong> Come back here and deploy the SGMII+ patch. After about a minute, the link should come up and you should have data path again.</p>
 
-                <p><strong>Persist across reboots.</strong> If it works, make the command run automatically on every SFP boot. SSH to the stick again and run:</p>
-                <pre><code># Enter the Linux shell first (if a new SSH session)
+                        <p><strong>Persist across reboots.</strong> If it works, make the command run automatically on every SFP boot. SSH to the stick again and run:</p>
+                        <pre><code># Enter the Linux shell first (if a new SSH session)
 linuxshell
 
 # Check if the boot script file already exists
 ls -la /var/config/run-syslog.sh</code></pre>
 
-                <p>If the file <strong>does not exist</strong> (you see "No such file or directory"):</p>
-                <pre><code>echo 'onu lanpcs 0 1 -1 4 15 1 3 5 0 0 4096 1 3 0 0 0' > /var/config/run-syslog.sh</code></pre>
+                        <p>If the file <strong>does not exist</strong> (you see "No such file or directory"):</p>
+                        <pre><code>echo 'onu lanpcs 0 1 -1 4 15 1 3 5 0 0 4096 1 3 0 0 0' > /var/config/run-syslog.sh</code></pre>
 
-                <p>If the file <strong>already exists</strong>, safely append the command:</p>
-                <pre><code>grep -q 'lanpcs' /var/config/run-syslog.sh 2>/dev/null || echo 'onu lanpcs 0 1 -1 4 15 1 3 5 0 0 4096 1 3 0 0 0' >> /var/config/run-syslog.sh</code></pre>
+                        <p>If the file <strong>already exists</strong>, safely append the command:</p>
+                        <pre><code>grep -q 'lanpcs' /var/config/run-syslog.sh 2>/dev/null || echo 'onu lanpcs 0 1 -1 4 15 1 3 5 0 0 4096 1 3 0 0 0' >> /var/config/run-syslog.sh</code></pre>
+                    </div>
+                </details>
+
+                <h4>Other GPON ONT sticks</h4>
+                <p>If your stick isn't a Zyxel PMG3000 but still has trouble linking at 2.5 G, a firmware upgrade may help. Many carrier-grade and ISP-issued GPON sticks (including the Zyxel and Calix) use T&W boards with the Lantiq Falcon SoC, and the SGMII auto-negotiation recovery logic improved significantly in newer kernel builds. The Zyxel only started working reliably after upgrading from its older V1.00 kernel to the newer V2.50 branch. Realtek-based sticks may have similar gotchas. Check your stick's community resources for newer firmware images.</p>
             </div>
             <div class="pt-modal-footer">
                 <button class="btn btn-primary btn-sm" @onclick="() => _showZyxelInstructions = false">Got It</button>
@@ -921,6 +927,34 @@ ls -la /var/config/run-syslog.sh</code></pre>
 
     .pt-instructions li {
         margin-bottom: 0.25rem;
+    }
+
+    .pt-collapsible {
+        margin-top: 1rem;
+        border: 1px solid var(--bg-tertiary);
+        border-radius: 0.375rem;
+    }
+
+    .pt-collapsible summary {
+        padding: 0.625rem 1rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        cursor: pointer;
+        background: var(--bg-primary);
+        border-radius: 0.375rem;
+    }
+
+    .pt-collapsible summary:hover {
+        color: var(--text-primary);
+    }
+
+    .pt-collapsible[open] summary {
+        border-radius: 0.375rem 0.375rem 0 0;
+        border-bottom: 1px solid var(--bg-tertiary);
+    }
+
+    .pt-collapsible-body {
+        padding: 0.75rem 1rem;
     }
 </style>
 
