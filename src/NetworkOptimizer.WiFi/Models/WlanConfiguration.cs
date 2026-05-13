@@ -50,6 +50,18 @@ public class WlanConfiguration
     /// </summary>
     public bool MloEnabled { get; set; }
 
+    /// <summary>Whether Roaming Assistant is enabled on 5 GHz (SSID-level setting)</summary>
+    public bool? RoamingAssistant5GHzEnabled { get; set; }
+
+    /// <summary>Roaming Assistant RSSI threshold for 5 GHz (dBm)</summary>
+    public int? RoamingAssistant5GHzRssi { get; set; }
+
+    /// <summary>Whether Roaming Assistant is enabled on 6 GHz (SSID-level setting)</summary>
+    public bool? RoamingAssistant6GHzEnabled { get; set; }
+
+    /// <summary>Roaming Assistant RSSI threshold for 6 GHz (dBm)</summary>
+    public int? RoamingAssistant6GHzRssi { get; set; }
+
     /// <summary>Minimum data rate settings</summary>
     public MinRateSettings? MinRateSettings { get; set; }
 

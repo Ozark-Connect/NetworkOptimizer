@@ -73,6 +73,22 @@ public class UniFiWlanConfig
     [JsonPropertyName("minrate_na_advertising_rates")]
     public bool MinrateNaAdvertisingRates { get; set; }
 
+    [JsonPropertyName("roaming_assistant_na_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? RoamingAssistantNaEnabled { get; set; }
+
+    [JsonPropertyName("roaming_assistant_na_rssi")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? RoamingAssistantNaRssi { get; set; }
+
+    [JsonPropertyName("roaming_assistant_6e_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? RoamingAssistant6eEnabled { get; set; }
+
+    [JsonPropertyName("roaming_assistant_6e_rssi")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? RoamingAssistant6eRssi { get; set; }
+
     /// <summary>
     /// AP group mode: "all" means broadcast on all APs, otherwise check ap_group_ids
     /// </summary>
