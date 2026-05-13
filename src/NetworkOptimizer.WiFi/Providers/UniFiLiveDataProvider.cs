@@ -436,6 +436,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     MinRate5GHz = w.MinrateNaEnabled ? w.MinrateNaDataRateKbps : null,
                     AdvertiseLowerRates = w.MinrateNgAdvertisingRates || w.MinrateNaAdvertisingRates
                 },
+                RoamingAssistant5GHzEnabled = w.RoamingAssistantNaEnabled,
+                RoamingAssistant5GHzRssi = w.RoamingAssistantNaRssi,
+                RoamingAssistant6GHzEnabled = w.RoamingAssistant6eEnabled,
+                RoamingAssistant6GHzRssi = w.RoamingAssistant6eRssi,
                 NetworkId = w.NetworkConfId,
                 PrivatePresharedKeysEnabled = w.PrivatePresharedKeysEnabled,
                 PpskNetworkIds = w.PrivatePresharedKeys?

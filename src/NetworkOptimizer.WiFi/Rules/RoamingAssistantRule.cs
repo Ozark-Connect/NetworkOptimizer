@@ -2,21 +2,64 @@ using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
 
-/// <summary>
-/// Rule that recommends enabling Roaming Assistant on 5 GHz radios.
-/// Unlike Minimum RSSI, Roaming Assistant uses BSS transition frames (soft nudge)
-/// instead of hard-disconnecting clients.
-/// </summary>
 public class RoamingAssistantRule : IWiFiOptimizerRule
 {
     public string RuleId => "WIFI-ROAMING-ASSISTANT-001";
 
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
     {
-        // Only relevant for multi-AP deployments
         if (ctx.AccessPoints.Count <= 1)
             return null;
 
+        var issues = new List<string>();
+
+        // Try SSID-level settings first (newer UniFi Network versions)
+        var enabledWlans = ctx.Wlans.Where(w => w.Enabled).ToList();
+        var hasSsidLevelSettings = enabledWlans.Any(w => w.RoamingAssistant5GHzEnabled.HasValue);
+
+        if (hasSsidLevelSettings)
+        {
+            if (ctx.Has5GHzCoverage)
+            {
+                var wlansWithout5g = enabledWlans
+                    .Where(w => w.EnabledBands.Contains(RadioBand.Band5GHz) &&
+                                w.RoamingAssistant5GHzEnabled != true)
+                    .ToList();
+
+                if (wlansWithout5g.Count > 0)
+                    issues.Add($"5 GHz: {string.Join(", ", wlansWithout5g.Select(w => w.Name))}");
+            }
+
+            if (ctx.Has6GHzCoverage)
+            {
+                var wlansWithout6g = enabledWlans
+                    .Where(w => w.EnabledBands.Contains(RadioBand.Band6GHz) &&
+                                w.RoamingAssistant6GHzEnabled != true)
+                    .ToList();
+
+                if (wlansWithout6g.Count > 0)
+                    issues.Add($"6 GHz: {string.Join(", ", wlansWithout6g.Select(w => w.Name))}");
+            }
+
+            if (issues.Count == 0)
+                return null;
+
+            return new HealthIssue
+            {
+                Severity = HealthIssueSeverity.Info,
+                Dimensions = { HealthDimension.RoamingPerformance },
+                Title = "Enable Roaming Assistant (Recommended)",
+                Description = $"SSIDs without Roaming Assistant - {string.Join("; ", issues)}. " +
+                    "Roaming Assistant uses BSS transition frames (soft nudge) instead of hard-disconnecting clients.",
+                AffectedEntity = string.Join("; ", issues),
+                Recommendation = "Per SSID: Settings > WiFi > (SSID) > Advanced > Roaming Assistant. " +
+                    "Recommended threshold: -70 to -75 dBm.",
+                ScoreImpact = -3,
+                ShowOnOverview = false
+            };
+        }
+
+        // Fallback: per-AP radio_table settings (older UniFi Network versions)
         var apsWithout5gRoamingAssistant = ctx.AccessPoints
             .Where(ap => ap.Radios.Any(r =>
                 r.Band == RadioBand.Band5GHz &&
@@ -39,7 +82,7 @@ public class RoamingAssistantRule : IWiFiOptimizerRule
                 "Or globally: Settings > WiFi > 5 GHz Roaming Assistant with 'Override All APs'. " +
                 "Recommended threshold: -70 to -75 dBm.",
             ScoreImpact = -3,
-            ShowOnOverview = false  // Informational, only relevant to Roaming tab
+            ShowOnOverview = false
         };
     }
 }

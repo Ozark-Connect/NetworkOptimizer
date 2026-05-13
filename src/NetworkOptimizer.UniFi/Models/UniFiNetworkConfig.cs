@@ -48,6 +48,33 @@ public class FlexibleBoolConverter : JsonConverter<bool>
 }
 
 /// <summary>
+/// Nullable version of FlexibleBoolConverter for fields that may be absent from the response.
+/// </summary>
+public class FlexibleNullableBoolConverter : JsonConverter<bool?>
+{
+    public override bool? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.True => true,
+            JsonTokenType.False => false,
+            JsonTokenType.String => bool.TryParse(reader.GetString(), out var value) ? value : null,
+            JsonTokenType.Number => reader.GetInt32() != 0,
+            JsonTokenType.Null => null,
+            _ => null
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, bool? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+            writer.WriteBooleanValue(value.Value);
+        else
+            writer.WriteNullValue();
+    }
+}
+
+/// <summary>
 /// JSON converter that handles int values that may come as strings, empty strings, or null.
 /// UniFi API sometimes returns VLAN IDs as strings or empty strings instead of numbers.
 /// </summary>
