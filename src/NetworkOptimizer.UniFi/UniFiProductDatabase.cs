@@ -134,6 +134,9 @@ public static class UniFiProductDatabase
         // ----- Dream Wall -----
         { "UDW", "UDW" },
 
+        // ----- Dream Machine Beast -----
+        { "UDMEA4C", "UDM-Beast" },
+
         // ----- Enterprise Fortress Gateway -----
         { "UDMENT", "EFG" },
 
@@ -200,6 +203,7 @@ public static class UniFiProductDatabase
         { "USL8LPB", "USW-Lite-8-PoE" },
         { "USL16LP", "USW-Lite-16-PoE" },
         { "USL16LPB", "USW-Lite-16-PoE" },
+        { "USWED06", "USW-Lite-16-PoE" },
 
         // ----- Official: USW Mission Critical Series -----
         { "USL8MP", "USW-Mission-Critical" },
@@ -216,6 +220,7 @@ public static class UniFiProductDatabase
         { "USL24B", "USW-24" },
         { "USL24P", "USW-24-PoE" },
         { "USL24PB", "USW-24-PoE" },
+        { "USWED08", "USW-24-PoE" },
         { "USL48", "USW-48" },
         { "USL48B", "USW-48" },
         { "USL48P", "USW-48-PoE" },
@@ -275,6 +280,10 @@ public static class UniFiProductDatabase
         { "USWF003", "USW-Pro-XG-Aggregation" },
         { "USWF004", "ECS-24S-PoE" },
         { "USWF006", "ECS-48S-PoE" },
+
+        // ----- Official: Enterprise AV Series -----
+        { "USWF001", "EAV-24-PoE" },
+        { "USWF002", "EAVAGG" },
 
         // ----- Official: Data Center / Leaf Switches -----
         { "UDC48X6", "USW-Leaf" },
@@ -383,12 +392,16 @@ public static class UniFiProductDatabase
         // ----- BeaconHD -----
         { "UDMB", "UAP-BeaconHD" },
 
+        // ----- AirWire -----
+        { "UAPEA07", "U-AirWire" },
+
         // =====================================================================
         // OTHER DEVICES
         // =====================================================================
 
         // ----- Official: UniFi Protect NVRs -----
         { "ENVR", "ENVR" },
+        { "ENVR-Core", "ENVR-Core" },
         { "UNVR4", "UNVR" },
         { "UNVRPRO", "UNVR-Pro" },
         { "UNVRINS", "UNVR-Instant" },
@@ -419,6 +432,7 @@ public static class UniFiProductDatabase
         // ----- Official: Building Bridge -----
         { "UBB", "UBB" },
         { "UBBXG", "UBB-XG" },
+        { "UAVAA06", "EAVBRIDGE" },
 
         // ----- Official: Device Bridge -----
         { "UDB", "UDB-Pro" },
