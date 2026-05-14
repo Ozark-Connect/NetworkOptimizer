@@ -340,7 +340,7 @@ export PATH="$BREW_PREFIX/bin:/usr/local/bin:\$PATH"
 
 # Environment configuration
 export TZ="${TZ:-America/Chicago}"
-export ASPNETCORE_URLS="http://0.0.0.0:8042"
+export ASPNETCORE_URLS="http://*:8042"
 
 # Enable iperf3 server for CLI-based client speed testing (port 5201)
 export Iperf3Server__Enabled=true

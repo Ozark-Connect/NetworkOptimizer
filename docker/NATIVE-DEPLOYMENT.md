@@ -102,7 +102,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 # Environment configuration
 export TZ="America/Chicago"  # Change to your timezone
-export ASPNETCORE_URLS="http://0.0.0.0:8042"
+export ASPNETCORE_URLS="http://*:8042"
 
 # Host IP - required for iperf3 client result tracking
 export HOST_IP="192.168.1.100"  # Change to this Mac's IP address
@@ -310,7 +310,7 @@ cd "$(dirname "$0")"
 
 # Environment configuration
 export TZ="America/Chicago"  # Change to your timezone
-export ASPNETCORE_URLS="http://0.0.0.0:8042"
+export ASPNETCORE_URLS="http://*:8042"
 
 # Host IP - required for iperf3 client result tracking
 export HOST_IP="192.168.1.100"  # Change to this server's IP address
@@ -594,7 +594,7 @@ chmod +x /opt/network-optimizer/start.sh
 
 Change the port in your startup script:
 ```bash
-export ASPNETCORE_URLS="http://0.0.0.0:8080"  # Use different port
+export ASPNETCORE_URLS="http://*:8080"  # Use different port
 ```
 
 ### Check Application Logs

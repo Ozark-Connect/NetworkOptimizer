@@ -42,7 +42,7 @@ if (OperatingSystem.IsWindows())
                       || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS"));
     if (!urlsConfigured)
     {
-        builder.WebHost.UseUrls("http://0.0.0.0:8042");
+        builder.WebHost.UseUrls("http://*:8042");
     }
 }
 
