@@ -46,6 +46,25 @@ else
     log "journald already configured."
 fi
 
+# ─── Part 1b: syslog-ng persist file → tmpfs ───
+#
+# syslog-ng writes its state to a persist file on every config/state change.
+# Default location is /var/log/.syslog-ng.persist (eMMC). Redirect to /run/
+# (tmpfs) to eliminate these continuous eMMC writes. The persist file only
+# tracks source read positions — losing it on reboot just means syslog-ng
+# re-reads from the current journal position, which is fine for volatile logs.
+
+PERSIST_CONF="/etc/default/syslog-ng-persist"
+PERSIST_TMPFS="/run/syslog-ng.persist"
+
+CURRENT_PERSIST=$(grep "^SYSLOGNG_OPTS" "$PERSIST_CONF" 2>/dev/null | grep -o 'persist-file=[^ "]*' | cut -d= -f2)
+
+if [ "$CURRENT_PERSIST" != "$PERSIST_TMPFS" ]; then
+    echo "SYSLOGNG_OPTS=\"--persist-file=$PERSIST_TMPFS\"" > "$PERSIST_CONF"
+    log "Redirected syslog-ng persist file to tmpfs ($PERSIST_TMPFS)"
+    SYSLOG_CHANGED=true
+fi
+
 # ─── Part 2: syslog-ng local file destinations ───
 #
 # Comment out log{} lines that route to local file destinations on eMMC.
