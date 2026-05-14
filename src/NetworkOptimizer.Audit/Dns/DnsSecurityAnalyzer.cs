@@ -304,7 +304,8 @@ public class DnsSecurityAnalyzer
             var cellularWanNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var prop in device.EnumerateObject())
             {
-                if (!System.Text.RegularExpressions.Regex.IsMatch(prop.Name, @"^wan\d*$"))
+                if (!prop.Name.StartsWith("wan", StringComparison.OrdinalIgnoreCase)
+                    || (prop.Name.Length > 3 && !prop.Name[3..].All(char.IsDigit)))
                     continue;
                 if (prop.Value.ValueKind != JsonValueKind.Object)
                     continue;
