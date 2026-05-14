@@ -299,6 +299,26 @@ public class DnsSecurityAnalyzer
             if (!device.TryGetProperty("port_table", out var portTable) || portTable.ValueKind != JsonValueKind.Array)
                 continue;
 
+            // Collect cellular WAN network names from device-level wan1/wan2 properties.
+            // Device keys "wan1","wan2" map to port_table network_name "wan","wan2".
+            var cellularWanNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prop in device.EnumerateObject())
+            {
+                if (!prop.Name.StartsWith("wan", StringComparison.OrdinalIgnoreCase)
+                    || (prop.Name.Length > 3 && !prop.Name[3..].All(char.IsDigit)))
+                    continue;
+                if (prop.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var wanType = prop.Value.GetStringOrNull("type");
+                if (wanType is "wireless_5g" or "lte" or "wireless_lte")
+                {
+                    cellularWanNames.Add(prop.Name);
+                    if (prop.Name == "wan1")
+                        cellularWanNames.Add("wan");
+                }
+            }
+
             foreach (var port in portTable.EnumerateArray())
             {
                 var networkName = port.GetStringOrNull("network_name");
@@ -310,11 +330,31 @@ public class DnsSecurityAnalyzer
                 var portMedia = port.GetStringOrNull("media") ?? "unknown";
                 var portUp = port.GetBoolOrDefault("up");
                 var portIp = port.GetStringOrNull("ip");
+                var portIfname = port.GetStringOrNull("ifname");
+
+                // Cellular WANs (U5G, LTE modems) don't allow DNS configuration
+                var isCellular = cellularWanNames.Contains(networkName)
+                    || (portIfname?.StartsWith("gre", StringComparison.OrdinalIgnoreCase) == true);
 
                 wanInterfacesChecked.Add(networkName);
 
-                _logger.LogInformation("WAN interface detected: {Interface} (name={Name}, media={Media}, up={Up}, ip={Ip})",
-                    networkName, portName, portMedia, portUp, portIp ?? "none");
+                _logger.LogInformation("WAN interface detected: {Interface} (name={Name}, media={Media}, up={Up}, ip={Ip}, ifname={Ifname}, cellular={Cellular})",
+                    networkName, portName, portMedia, portUp, portIp ?? "none", portIfname ?? "unknown", isCellular);
+
+                if (isCellular)
+                {
+                    _logger.LogDebug("Skipping DNS check for cellular WAN interface {Interface}", networkName);
+                    result.WanInterfaces.Add(new WanInterfaceDns
+                    {
+                        InterfaceName = networkName,
+                        PortName = portName,
+                        IpAddress = portIp,
+                        IsUp = portUp,
+                        IsCellular = true,
+                        DnsServers = new List<string>()
+                    });
+                    continue;
+                }
 
                 // Check for DNS servers on this WAN port
                 var hasDnsProperty = port.TryGetProperty("dns", out var dnsArray);
@@ -2748,6 +2788,7 @@ public class WanInterfaceDns
     public string? PortName { get; init; }
     public string? IpAddress { get; init; }
     public bool IsUp { get; init; }
+    public bool IsCellular { get; init; }
     public List<string> DnsServers { get; init; } = new();
     public bool HasStaticDns => DnsServers.Any();
     public bool MatchesDoH { get; set; }
