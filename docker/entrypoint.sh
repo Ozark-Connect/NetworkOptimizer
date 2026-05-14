@@ -18,8 +18,8 @@ if [ "${BIND_LOCALHOST_ONLY,,}" = "true" ]; then
     export ASPNETCORE_URLS="http://127.0.0.1:8042"
     echo "Binding to localhost only (127.0.0.1:8042)"
 else
-    export ASPNETCORE_URLS="http://0.0.0.0:8042"
-    echo "Binding to all interfaces (0.0.0.0:8042)"
+    export ASPNETCORE_URLS="http://*:8042"
+    echo "Binding to all interfaces (*:8042, IPv4 + IPv6)"
 fi
 
 # Drop to app user and run the application
