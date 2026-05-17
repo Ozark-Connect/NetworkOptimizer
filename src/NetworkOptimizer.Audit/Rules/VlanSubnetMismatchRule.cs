@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
 
@@ -71,7 +72,21 @@ public class VlanSubnetMismatchRule : WirelessAuditRuleBase
         if (NetworkUtilities.IsIpInSubnet(ip, effectiveNetwork.Subnet))
             return null; // IP matches subnet, no issue
 
-        // IP doesn't match subnet - this is a problem
+        // Before flagging, check if the IP matches any other known network's subnet.
+        // UniFi sometimes reports the wrong network_id for PPSK clients while the device
+        // is actually on the correct VLAN (proven by its IP matching that VLAN's subnet).
+        var matchingNetwork = networks.FirstOrDefault(n =>
+            n.Id != effectiveNetwork.Id &&
+            !string.IsNullOrEmpty(n.Subnet) &&
+            IsValidSubnetFormat(n.Subnet) &&
+            NetworkUtilities.IsIpInSubnet(ip, n.Subnet));
+        if (matchingNetwork != null)
+        {
+            Logger?.LogInformation("Subnet mismatch suppressed for '{Name}' ({Ip}): reported on {Reported} but IP matches {Matching} (VLAN {Vlan})",
+                client.Client.Name ?? client.Client.Mac, clientIp, effectiveNetwork.Name, matchingNetwork.Name, matchingNetwork.VlanId);
+            return null;
+        }
+
         var metadata = new Dictionary<string, object>
         {
             ["clientIp"] = clientIp,
