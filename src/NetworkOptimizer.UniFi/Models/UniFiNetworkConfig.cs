@@ -84,7 +84,8 @@ public class FlexibleIntConverter : JsonConverter<int?>
     {
         return reader.TokenType switch
         {
-            JsonTokenType.Number => reader.GetInt32(),
+            JsonTokenType.Number when reader.TryGetInt32(out var i) => i,
+            JsonTokenType.Number => (int)reader.GetDouble(),
             JsonTokenType.String when int.TryParse(reader.GetString(), out var value) => value,
             JsonTokenType.String => null, // Empty string or non-numeric string
             JsonTokenType.Null => null,

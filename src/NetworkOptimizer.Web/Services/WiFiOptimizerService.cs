@@ -30,7 +30,7 @@ public class WiFiOptimizerService
     private readonly VlanAnalyzer _vlanAnalyzer;
     private readonly HeatmapDataCache _heatmapCache;
     private readonly FloorPlanService _floorPlanService;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly PlannedApService _plannedApService;
     private readonly ChannelRecommendationService _channelRecommendationService;
 
@@ -51,7 +51,7 @@ public class WiFiOptimizerService
         ISystemSettingsService settingsService,
         HeatmapDataCache heatmapCache,
         FloorPlanService floorPlanService,
-        IServiceProvider serviceProvider,
+        IServiceScopeFactory serviceScopeFactory,
         PlannedApService plannedApService,
         ChannelRecommendationService channelRecommendationService,
         ILogger<WiFiOptimizerService> logger,
@@ -63,7 +63,7 @@ public class WiFiOptimizerService
         _settingsService = settingsService;
         _heatmapCache = heatmapCache;
         _floorPlanService = floorPlanService;
-        _serviceProvider = serviceProvider;
+        _serviceScopeFactory = serviceScopeFactory;
         _plannedApService = plannedApService;
         _channelRecommendationService = channelRecommendationService;
         _logger = logger;
@@ -480,9 +480,11 @@ public class WiFiOptimizerService
         ApPropagationContext? propCtx = null;
         try
         {
-            // Resolve ApMapService lazily to avoid circular dependency
-            // (ApMapService -> WiFiOptimizerService -> ApMapService)
-            var apMapService = _serviceProvider.GetRequiredService<ApMapService>();
+            // Resolve ApMapService lazily via a fresh scope to avoid circular dependency
+            // (ApMapService -> WiFiOptimizerService -> ApMapService) and to survive
+            // Blazor circuit disposal (the original scoped IServiceProvider can be disposed)
+            using var scope = _serviceScopeFactory.CreateScope();
+            var apMapService = scope.ServiceProvider.GetRequiredService<ApMapService>();
             var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, apMapService, _plannedApService);
             var placedAps = cached.ApMarkers
                 .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
@@ -796,7 +798,8 @@ public class WiFiOptimizerService
             bool hasBuildingData = false;
             try
             {
-                var apMapService = _serviceProvider.GetRequiredService<ApMapService>();
+                using var scope = _serviceScopeFactory.CreateScope();
+                var apMapService = scope.ServiceProvider.GetRequiredService<ApMapService>();
                 var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, apMapService, _plannedApService);
                 var placedAps = cached.ApMarkers
                     .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)

@@ -182,25 +182,33 @@ public class UniFiClientResponse
     public string? Note { get; set; }
 
     // Device fingerprinting (all nullable as API can return null)
+    // UniFi API sometimes returns these as floats (e.g. 4.0) so use FlexibleIntConverter
     [JsonPropertyName("fingerprint_source")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? FingerprintSource { get; set; }
 
     [JsonPropertyName("dev_id_override")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? DevIdOverride { get; set; }
 
     [JsonPropertyName("dev_cat")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? DevCat { get; set; }
 
     [JsonPropertyName("dev_family")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? DevFamily { get; set; }
 
     [JsonPropertyName("os_class")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? OsClass { get; set; }
 
     [JsonPropertyName("os_name")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? OsName { get; set; }
 
     [JsonPropertyName("dev_vendor")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
     public int? DevVendor { get; set; }
 
     // Blocked/allowed status
