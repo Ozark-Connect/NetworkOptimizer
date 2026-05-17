@@ -53,6 +53,7 @@ public class PerformanceAnalyzer
             issues.AddRange(CheckHardwareAcceleration(devices, settingsData));
             issues.AddRange(CheckJumboFrames(devices, settingsData));
             issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData, portProfiles));
+            issues.AddRange(CheckSqmFirmwareRegression(devices, networks));
         }
 
         if (runCellularChecks)
@@ -420,6 +421,64 @@ public class PerformanceAnalyzer
                 });
             }
         }
+
+        return issues;
+    }
+
+    private static readonly HashSet<string> SqmFirmwareAffectedGateways = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "UCG-Fiber", "UXG-Fiber", "UCG-Max", "UXG-Max"
+    };
+
+    private static readonly Version SqmLastGoodFirmware = new(5, 0, 10);
+
+    /// <summary>
+    /// Check if SQM is enabled on a gateway with firmware newer than 5.0.10.
+    /// Firmware versions after 5.0.10 have a known SQM download throughput regression
+    /// on high-bandwidth connections (bottlenecked to ~800 Mbps or less).
+    /// </summary>
+    internal List<PerformanceIssue> CheckSqmFirmwareRegression(
+        List<UniFiDeviceResponse> devices,
+        List<UniFiNetworkConfig> networks)
+    {
+        var issues = new List<PerformanceIssue>();
+
+        var gateway = devices.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
+        if (gateway == null)
+            return issues;
+
+        if (!SqmFirmwareAffectedGateways.Contains(gateway.FriendlyModelName))
+            return issues;
+
+        var firmwareStr = gateway.DisplayableVersion ?? gateway.Version;
+        if (string.IsNullOrEmpty(firmwareStr) || !Version.TryParse(firmwareStr, out var firmware))
+            return issues;
+
+        if (firmware <= SqmLastGoodFirmware)
+            return issues;
+
+        var sqmWans = networks.Where(n =>
+            string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) &&
+            n.WanSmartqEnabled &&
+            (n.WanProviderCapabilities?.DownloadMbps > 500 || n.WanProviderCapabilities?.UploadMbps > 500))
+            .ToList();
+
+        if (sqmWans.Count == 0)
+            return issues;
+
+        var wanNames = string.Join(", ", sqmWans.Select(w => w.Name));
+
+        issues.Add(new PerformanceIssue
+        {
+            Title = "SQM Performance Regression on Current Firmware",
+            Description = $"Your {gateway.FriendlyModelName} is running firmware {firmwareStr} with SQM enabled on {wanNames}. " +
+                $"UniFi OS versions after 5.0.10 have a known SQM download throughput regression that can bottleneck speeds to 800 Mbps or less on faster connections.",
+            Recommendation = "UniFi OS 5.0.10 provides significantly better SQM download performance on high-speed connections. " +
+                "Rolling back firmware is non-trivial and may require a backup, factory reset, and restore.",
+            Severity = PerformanceSeverity.Recommendation,
+            Category = PerformanceCategory.Performance,
+            DeviceName = gateway.Name
+        });
 
         return issues;
     }

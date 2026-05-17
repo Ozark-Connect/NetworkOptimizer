@@ -42,12 +42,6 @@ public class AccessPortVlanRule : AuditRuleBase
         ClientDeviceCategory.NAS
     };
 
-    private static ILogger? _logger;
-
-    /// <summary>
-    /// Set the logger for diagnostic output
-    /// </summary>
-    public static void SetLogger(ILogger logger) => _logger = logger;
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
@@ -126,7 +120,7 @@ public class AccessPortVlanRule : AuditRuleBase
         var (taggedVlanCount, allowsAllVlans) = GetTaggedVlanInfo(port, networksForCounting);
 
         var excludedCount = port.ExcludedNetworkIds?.Count ?? 0;
-        _logger?.LogDebug(
+        Logger?.LogDebug(
             "ACCESS-VLAN {Switch} port {Port}: networks={NetworkCount}, excluded={ExcludedCount}, native={NativeId}, tagged={TaggedCount}, allowsAll={AllowsAll}, threshold={Threshold}",
             port.Switch.Name, port.PortIndex, networksForCounting.Count, excludedCount,
             port.NativeNetworkId ?? "(none)", taggedVlanCount, allowsAllVlans, effectiveThreshold);
