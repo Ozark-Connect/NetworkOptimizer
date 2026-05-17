@@ -230,8 +230,10 @@ public class CameraVlanRule : AuditRuleBase
     /// </summary>
     private AuditIssue? EvaluateProtectCamera(ProtectCamera camera, PortInfo port, List<NetworkInfo> networks)
     {
-        // Use Protect API's ConnectionNetworkId for authoritative network placement
-        var network = GetNetwork(camera.ConnectionNetworkId, networks);
+        // Use Protect API's ConnectionNetworkId, falling back to port's native network
+        // (ConnectionNetworkId may point to L3 routing infrastructure on switch-routed VLANs)
+        var network = GetNetwork(camera.ConnectionNetworkId, networks)
+            ?? GetNetwork(port.NativeNetworkId, networks);
         if (network == null)
             return null;
 

@@ -1673,9 +1673,9 @@ public class CameraVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_ProtectCamera_NoConnectionNetworkId_ReturnsNull()
+    public void Evaluate_ProtectCamera_NoConnectionNetworkId_FallsBackToPortNetwork()
     {
-        // Arrange - Protect camera with no ConnectionNetworkId (shouldn't happen, but defensive)
+        // Arrange - Protect camera with no ConnectionNetworkId falls back to port's native network
         var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
         var protectCameras = new ProtectCameraCollection();
         protectCameras.Add("aa:bb:cc:dd:ee:06", "G4 Instant", null, isNvr: false);
@@ -1697,8 +1697,9 @@ public class CameraVlanRuleTests
         // Act
         var result = _rule.Evaluate(port, networks);
 
-        // Assert - No ConnectionNetworkId means we can't determine placement
-        result.Should().BeNull();
+        // Assert - Falls through to port's native network, camera on Corporate should be flagged
+        result.Should().NotBeNull();
+        result!.CurrentNetwork.Should().Be("Corporate");
     }
 
     [Fact]

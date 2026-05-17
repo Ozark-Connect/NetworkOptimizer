@@ -376,4 +376,22 @@ public class UniFiNetworkConfig
     /// </summary>
     [JsonPropertyName("firewall_zone_id")]
     public string? FirewallZoneId { get; set; }
+
+    [JsonPropertyName("attr_hidden_id")]
+    public string? AttrHiddenId { get; set; }
+
+    [JsonPropertyName("attr_no_delete")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
+    public bool AttrNoDelete { get; set; }
+
+    [JsonPropertyName("network_isolation_enabled")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
+    public bool NetworkIsolationEnabled { get; set; }
+
+    /// <summary>
+    /// Whether this is a system/infrastructure network (e.g., Inter-VLAN routing for L3 switching).
+    /// These should be excluded from audit analysis and network reference lists.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsSystemNetwork => string.Equals(AttrHiddenId, "ROUTE", StringComparison.OrdinalIgnoreCase);
 }
