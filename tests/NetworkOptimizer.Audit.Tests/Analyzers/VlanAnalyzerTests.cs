@@ -3484,4 +3484,130 @@ public class VlanAnalyzerTests
     }
 
     #endregion
+
+    #region L3 Switch-Routed Network Tests
+
+    [Fact]
+    public void ExtractNetworks_SkipsRouteSystemNetwork()
+    {
+        var json = """
+        {
+            "data": [{
+                "type": "ugw",
+                "network_table": [
+                    { "_id": "net-home", "name": "Home", "vlan": 1, "purpose": "corporate", "dhcpd_enabled": true, "ip_subnet": "192.168.1.1/24", "network_isolation_enabled": false, "internet_access_enabled": true },
+                    { "_id": "net-route", "name": "Inter-VLAN routing", "vlan": 4040, "purpose": "corporate", "dhcpd_enabled": false, "ip_subnet": "10.255.253.1/24", "network_isolation_enabled": false, "internet_access_enabled": false, "attr_hidden_id": "ROUTE" },
+                    { "_id": "net-iot", "name": "IoT", "vlan": 64, "purpose": "corporate", "dhcpd_enabled": true, "ip_subnet": "192.168.64.1/24", "network_isolation_enabled": true, "internet_access_enabled": true }
+                ]
+            }]
+        }
+        """;
+        var deviceData = System.Text.Json.JsonDocument.Parse(json).RootElement;
+
+        var networks = _analyzer.ExtractNetworks(deviceData);
+
+        networks.Should().HaveCount(2);
+        networks.Should().Contain(n => n.Name == "Home");
+        networks.Should().Contain(n => n.Name == "IoT");
+        networks.Should().NotContain(n => n.Name == "Inter-VLAN routing");
+    }
+
+    [Fact]
+    public void NetworkInfoFromConfig_BuildsCorrectNetworkInfo()
+    {
+        var config = new UniFiNetworkConfig
+        {
+            Id = "sec-net",
+            Name = "Security Devices",
+            Purpose = "corporate",
+            Vlan = 42,
+            IpSubnet = "192.168.42.1/24",
+            DhcpdEnabled = true,
+            DhcpdDnsEnabled = true,
+            DhcpdDns1 = "192.168.53.220",
+            DhcpdDns2 = "192.168.1.1",
+            NetworkIsolationEnabled = true,
+            InternetAccessEnabled = false,
+            Networkgroup = "LAN",
+            Enabled = true
+        };
+
+        var result = _analyzer.NetworkInfoFromConfig(config);
+
+        result.Id.Should().Be("sec-net");
+        result.Name.Should().Be("Security Devices");
+        result.VlanId.Should().Be(42);
+        result.Subnet.Should().Be("192.168.42.0/24");
+        result.Gateway.Should().Be("192.168.42.1");
+        result.DnsServers.Should().BeEquivalentTo(new[] { "192.168.53.220", "192.168.1.1" });
+        result.Purpose.Should().Be(NetworkPurpose.Security);
+        result.NetworkIsolationEnabled.Should().BeTrue();
+        result.InternetAccessEnabled.Should().BeFalse();
+        result.DhcpEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void NetworkInfoFromConfig_NoDnsWhenDisabled()
+    {
+        var config = new UniFiNetworkConfig
+        {
+            Id = "guest-net",
+            Name = "Guest",
+            Purpose = "guest",
+            Vlan = 210,
+            IpSubnet = "192.168.210.1/24",
+            DhcpdEnabled = true,
+            DhcpdDnsEnabled = false,
+            DhcpdDns1 = "8.8.8.8",
+            Networkgroup = "LAN",
+            Enabled = true
+        };
+
+        var result = _analyzer.NetworkInfoFromConfig(config);
+
+        result.DnsServers.Should().BeNull();
+    }
+
+    [Fact]
+    public void IsSystemNetwork_TrueForRouteNetwork()
+    {
+        var config = new UniFiNetworkConfig
+        {
+            Id = "route-net",
+            Name = "Inter-VLAN routing",
+            AttrHiddenId = "ROUTE",
+            AttrNoDelete = true
+        };
+
+        config.IsSystemNetwork.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsSystemNetwork_FalseForRegularNetwork()
+    {
+        var config = new UniFiNetworkConfig
+        {
+            Id = "sec-net",
+            Name = "Security Devices",
+            AttrHiddenId = null
+        };
+
+        config.IsSystemNetwork.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsSystemNetwork_FalseForLanHiddenId()
+    {
+        var config = new UniFiNetworkConfig
+        {
+            Id = "home-net",
+            Name = "Main Home Network",
+            AttrHiddenId = "LAN",
+            AttrNoDelete = true
+        };
+
+        config.IsSystemNetwork.Should().BeFalse();
+    }
+
+    #endregion
 }

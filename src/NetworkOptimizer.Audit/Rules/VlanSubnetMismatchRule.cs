@@ -75,6 +75,9 @@ public class VlanSubnetMismatchRule : WirelessAuditRuleBase
         // Before flagging, check if the IP matches any other known network's subnet.
         // UniFi sometimes reports the wrong network_id for PPSK clients while the device
         // is actually on the correct VLAN (proven by its IP matching that VLAN's subnet).
+        // If the IP matches another known network's subnet, the device is actually on the
+        // correct VLAN - UniFi is just reporting the wrong network_id (common with PPSK SSIDs
+        // where the AP assigns VLANs by password).
         var matchingNetwork = networks.FirstOrDefault(n =>
             n.Id != effectiveNetwork.Id &&
             !string.IsNullOrEmpty(n.Subnet) &&
