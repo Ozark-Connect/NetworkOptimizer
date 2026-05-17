@@ -10,7 +10,6 @@ namespace NetworkOptimizer.Audit.Rules;
 /// </summary>
 public class UnusedPortRule : AuditRuleBase
 {
-    private static ILogger? _logger;
     private static int _unusedPortInactivityDays = 15;
     private static int _namedPortInactivityDays = 45;
 
@@ -20,8 +19,6 @@ public class UnusedPortRule : AuditRuleBase
     /// power events) and are ignored rather than flagging the port.
     /// </summary>
     private const int MaxReasonableAgeDays = 3650; // 10 years
-
-    public static void SetLogger(ILogger logger) => _logger = logger;
 
     /// <summary>
     /// Configure the inactivity thresholds for unused port detection.
@@ -74,7 +71,7 @@ public class UnusedPortRule : AuditRuleBase
             // Don't flag these ports - we can't trust the data
             if (daysSinceLastConnection > MaxReasonableAgeDays)
             {
-                _logger?.LogWarning(
+                Logger?.LogWarning(
                     "UnusedPortRule ignoring invalid lastSeen for {Switch} port {Port}: timestamp={Timestamp} ({Days:F0} days ago exceeds {Max} day maximum)",
                     port.Switch.Name, port.PortIndex, port.LastConnectionSeen, daysSinceLastConnection, MaxReasonableAgeDays);
                 return null;
@@ -88,7 +85,7 @@ public class UnusedPortRule : AuditRuleBase
         }
 
         // Debug logging for flagged ports
-        _logger?.LogInformation("UnusedPortRule flagging {Switch} port {Port}: forward='{Forward}', isUp={IsUp}, lastSeenDaysAgo={LastSeenDays}, threshold={Threshold}d",
+        Logger?.LogInformation("UnusedPortRule flagging {Switch} port {Port}: forward='{Forward}', isUp={IsUp}, lastSeenDaysAgo={LastSeenDays}, threshold={Threshold}d",
             port.Switch.Name, port.PortIndex, port.ForwardMode, port.IsUp,
             port.LastConnectionSeen.HasValue
                 ? $"{(DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(port.LastConnectionSeen.Value)).TotalDays:F0}"

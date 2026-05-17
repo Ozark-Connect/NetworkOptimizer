@@ -1560,4 +1560,125 @@ public class PerformanceAnalyzerTests
     }
 
     #endregion
+
+    #region SQM Firmware Regression
+
+    [Fact]
+    public void CheckSqmFirmwareRegression_AffectedGateway_ReturnsIssue()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = "UDMA6A8", DisplayableVersion = "5.1.2" }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().HaveCount(1);
+        result[0].Title.Should().Contain("SQM Performance Regression");
+        result[0].Description.Should().Contain("UCG-Fiber");
+        result[0].Description.Should().Contain("5.1.2");
+    }
+
+    [Fact]
+    public void CheckSqmFirmwareRegression_FirmwareAt5010_ReturnsEmpty()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = "UDMA6A8", DisplayableVersion = "5.0.10" }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqmFirmwareRegression_FirmwareAt5012_ReturnsIssue()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = "UDMA6A8", DisplayableVersion = "5.0.12" }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void CheckSqmFirmwareRegression_SqmDisabled_ReturnsEmpty()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = "UXGA6AA", DisplayableVersion = "5.1.7" }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = false,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqmFirmwareRegression_SpeedBelow500Mbps_ReturnsEmpty()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = "UCGMAX", DisplayableVersion = "5.1.7" }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 400_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqmFirmwareRegression_UnaffectedGatewayModel_ReturnsEmpty()
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = "UDR", DisplayableVersion = "5.1.7" }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().BeEmpty();
+    }
+
+    #endregion
 }
