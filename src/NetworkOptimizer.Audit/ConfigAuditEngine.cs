@@ -501,7 +501,7 @@ public class ConfigAuditEngine
             {
                 if (string.IsNullOrEmpty(nc.Id) || existingIds.Contains(nc.Id))
                     continue;
-                if (nc.IsSystemNetwork)
+                if (nc.IsSystemNetwork || !nc.Enabled)
                     continue;
                 if (!string.Equals(nc.Purpose, "corporate", StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(nc.Purpose, "guest", StringComparison.OrdinalIgnoreCase))
