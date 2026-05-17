@@ -72,8 +72,10 @@ public class PortSecurityAnalyzer
         }
 
         // Inject logger into rules that support it
-        UnusedPortRule.SetLogger(_logger);
-        AccessPortVlanRule.SetLogger(_logger);
+        foreach (var rule in _rules.OfType<AuditRuleBase>())
+        {
+            rule.SetLogger(_logger);
+        }
     }
 
     /// <summary>

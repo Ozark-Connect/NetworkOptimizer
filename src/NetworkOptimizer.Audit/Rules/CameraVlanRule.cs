@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Models;
@@ -239,7 +240,11 @@ public class CameraVlanRule : AuditRuleBase
 
         var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact, isNvr: camera.IsNvr);
         if (placement.IsCorrectlyPlaced)
+        {
+            Logger?.LogDebug("Protect camera '{Name}' on {Switch} port {Port}: correctly placed on {Network} (VLAN {Vlan})",
+                camera.Name, port.Switch.Name, port.PortIndex, network.Name, network.VlanId);
             return null;
+        }
 
         var deviceName = $"{camera.Name} on {port.Switch.Name}";
         var message = camera.IsNvr
