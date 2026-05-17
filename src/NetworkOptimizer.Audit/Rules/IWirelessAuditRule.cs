@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
@@ -56,6 +57,13 @@ public abstract class WirelessAuditRuleBase : IWirelessAuditRule
     public abstract AuditSeverity Severity { get; }
     public virtual int ScoreImpact { get; } = 5;
     public virtual bool Enabled { get; set; } = true;
+
+    protected ILogger? Logger { get; private set; }
+
+    public void SetLogger(ILogger logger)
+    {
+        Logger = logger;
+    }
 
     /// <summary>
     /// Device allowance settings for allowing certain devices on main network

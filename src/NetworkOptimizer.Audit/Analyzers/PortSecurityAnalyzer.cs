@@ -71,11 +71,11 @@ public class PortSecurityAnalyzer
             _logger.LogInformation("Enhanced device detection enabled for audit rules");
         }
 
-        // Inject logger into rules that support it
+        // Inject logger into rules
         foreach (var rule in _rules.OfType<AuditRuleBase>())
-        {
             rule.SetLogger(_logger);
-        }
+        foreach (var rule in _wirelessRules.OfType<WirelessAuditRuleBase>())
+            rule.SetLogger(_logger);
     }
 
     /// <summary>
