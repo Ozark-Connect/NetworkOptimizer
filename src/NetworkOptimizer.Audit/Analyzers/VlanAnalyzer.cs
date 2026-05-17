@@ -167,6 +167,57 @@ public class VlanAnalyzer
     }
 
     /// <summary>
+    /// Build a NetworkInfo from a UniFiNetworkConfig (rest/networkconf).
+    /// Used to supplement gateway network_table with switch-routed networks.
+    /// </summary>
+    public NetworkInfo NetworkInfoFromConfig(UniFiNetworkConfig nc, FirewallZoneLookup? zoneLookup = null)
+    {
+        var vlanId = nc.Vlan ?? 1;
+        var isGuest = string.Equals(nc.Purpose, "guest", StringComparison.OrdinalIgnoreCase);
+        var purpose = ClassifyNetwork(nc.Name, nc.Purpose, vlanId,
+            nc.DhcpdEnabled, nc.NetworkIsolationEnabled, nc.InternetAccessEnabled,
+            nc.FirewallZoneId, zoneLookup);
+
+        List<string>? dnsServers = null;
+        if (nc.DhcpdDnsEnabled)
+        {
+            dnsServers = new List<string>();
+            if (!string.IsNullOrEmpty(nc.DhcpdDns1)) dnsServers.Add(nc.DhcpdDns1);
+            if (!string.IsNullOrEmpty(nc.DhcpdDns2)) dnsServers.Add(nc.DhcpdDns2);
+            if (!string.IsNullOrEmpty(nc.DhcpdDns3)) dnsServers.Add(nc.DhcpdDns3);
+            if (!string.IsNullOrEmpty(nc.DhcpdDns4)) dnsServers.Add(nc.DhcpdDns4);
+            if (dnsServers.Count == 0) dnsServers = null;
+        }
+
+        return new NetworkInfo
+        {
+            Id = nc.Id,
+            Name = nc.Name ?? "Unknown",
+            VlanId = vlanId,
+            Purpose = purpose,
+            Subnet = NormalizeSubnet(nc.IpSubnet),
+            Gateway = ExtractGatewayFromSubnet(nc.IpSubnet),
+            DnsServers = dnsServers,
+            DhcpEnabled = nc.DhcpdEnabled,
+            NetworkIsolationEnabled = nc.NetworkIsolationEnabled,
+            InternetAccessEnabled = nc.InternetAccessEnabled,
+            IsUniFiGuestNetwork = isGuest,
+            FirewallZoneId = nc.FirewallZoneId,
+            NetworkGroup = nc.Networkgroup,
+            UpnpLanEnabled = nc.UpnpLanEnabled,
+            Enabled = nc.Enabled
+        };
+    }
+
+    private static string? ExtractGatewayFromSubnet(string? ipSubnet)
+    {
+        if (string.IsNullOrEmpty(ipSubnet))
+            return null;
+        var slashIndex = ipSubnet.IndexOf('/');
+        return slashIndex > 0 ? ipSubnet[..slashIndex] : null;
+    }
+
+    /// <summary>
     /// Parse a single network from JSON
     /// </summary>
     private NetworkInfo? ParseNetwork(JsonElement network, FirewallZoneLookup? zoneLookup = null)
@@ -174,6 +225,15 @@ public class VlanAnalyzer
         var networkId = network.GetStringFromAny("_id", "network_id");
         if (string.IsNullOrEmpty(networkId))
             return null;
+
+        // Skip system/infrastructure networks (e.g., "Inter-VLAN routing" for L3 switching)
+        var attrHiddenId = network.GetStringOrNull("attr_hidden_id");
+        if (string.Equals(attrHiddenId, "ROUTE", StringComparison.OrdinalIgnoreCase))
+        {
+            var sysName = network.GetStringOrDefault("name", "Unknown");
+            _logger.LogDebug("Skipping system network '{Name}' (attr_hidden_id=ROUTE)", sysName);
+            return null;
+        }
 
         var name = network.GetStringOrDefault("name", "Unknown");
         var vlanId = network.GetIntOrDefault("vlan", network.GetIntOrDefault("vlan_id", 1));

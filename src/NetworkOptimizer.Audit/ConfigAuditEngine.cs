@@ -489,7 +489,36 @@ public class ConfigAuditEngine
     {
         _logger.LogInformation("Phase 1: Extracting network topology");
         ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData, ctx.ZoneLookup);
-        _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
+        _logger.LogInformation("Found {NetworkCount} networks from gateway", ctx.Networks.Count);
+
+        // Supplement with switch-routed networks from NetworkConfigs that are missing from
+        // the gateway's network_table (L3 switching moves routing to the switch)
+        if (ctx.NetworkConfigs is { Count: > 0 })
+        {
+            var existingIds = new HashSet<string>(ctx.Networks.Select(n => n.Id));
+            var added = 0;
+            foreach (var nc in ctx.NetworkConfigs)
+            {
+                if (string.IsNullOrEmpty(nc.Id) || existingIds.Contains(nc.Id))
+                    continue;
+                if (nc.IsSystemNetwork || !nc.Enabled)
+                    continue;
+                if (!string.Equals(nc.Purpose, "corporate", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(nc.Purpose, "guest", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!string.Equals(nc.Networkgroup, "LAN", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var networkInfo = _vlanAnalyzer.NetworkInfoFromConfig(nc, ctx.ZoneLookup);
+                ctx.Networks.Add(networkInfo);
+                added++;
+                _logger.LogDebug("Added switch-routed network from config: {Name} (VLAN {VlanId})",
+                    networkInfo.Name, networkInfo.VlanId);
+            }
+
+            if (added > 0)
+                _logger.LogInformation("Added {Count} switch-routed networks from config (total: {Total})", added, ctx.Networks.Count);
+        }
 
         // Apply user purpose overrides
         _vlanAnalyzer.ApplyPurposeOverrides(ctx.Networks, ctx.NetworkPurposeOverrides);
@@ -518,7 +547,7 @@ public class ConfigAuditEngine
         if (ctx.NetworkConfigs != null && ctx.NetworkConfigs.Count > 0)
         {
             allNetworks = ctx.NetworkConfigs
-                .Where(nc => !string.IsNullOrEmpty(nc.Id) &&
+                .Where(nc => !string.IsNullOrEmpty(nc.Id) && !nc.IsSystemNetwork &&
                     (string.Equals(nc.Purpose, "corporate", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(nc.Purpose, "guest", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(nc.Purpose, "vlan-only", StringComparison.OrdinalIgnoreCase)))

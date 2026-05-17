@@ -71,9 +71,11 @@ public class PortSecurityAnalyzer
             _logger.LogInformation("Enhanced device detection enabled for audit rules");
         }
 
-        // Inject logger into rules that support it
-        UnusedPortRule.SetLogger(_logger);
-        AccessPortVlanRule.SetLogger(_logger);
+        // Inject logger into rules
+        foreach (var rule in _rules.OfType<AuditRuleBase>())
+            rule.SetLogger(_logger);
+        foreach (var rule in _wirelessRules.OfType<WirelessAuditRuleBase>())
+            rule.SetLogger(_logger);
     }
 
     /// <summary>
@@ -738,6 +740,11 @@ public class PortSecurityAnalyzer
                         _logger.LogDebug("Rule {RuleId} found issue on {Switch} port {Port}: {Message}",
                             rule.RuleId, switchInfo.Name, port.PortIndex, issue.Message);
                     }
+                    else
+                    {
+                        _logger.LogDebug("Rule {RuleId} passed on {Switch} port {Port} ({PortName})",
+                            rule.RuleId, switchInfo.Name, port.PortIndex, port.Name ?? "");
+                    }
                 }
             }
         }
@@ -944,18 +951,28 @@ public class PortSecurityAnalyzer
 
             // Determine effective network ID using this priority:
             // 1. Client's EffectiveNetworkId (handles virtual_network_override_id when override is enabled)
-            // 2. Protect API's connection_network_id (for UniFi Protect cameras)
+            // 2. Protect API's connection_network_id (for Protect cameras with network overrides)
             // 3. Match by VLAN number if available
             var effectiveNetworkId = client.EffectiveNetworkId;
 
-            // For UniFi Protect cameras, also check if Protect API has different network info
-            if (_protectCameras?.TryGetNetworkId(client.Mac, out var protectNetworkId) == true)
+            // For UniFi Protect cameras, prefer Protect API's connection_network_id when it
+            // resolves to a known network. Protect knows the authoritative network for its devices.
+            // However, with L3 switching the connection_network_id can point to the inter-VLAN
+            // routing infrastructure (excluded from networks list), in which case we ignore it.
+            if (_protectCameras?.TryGetNetworkId(client.Mac, out var protectNetworkId) == true &&
+                protectNetworkId != effectiveNetworkId)
             {
-                if (protectNetworkId != effectiveNetworkId)
+                var protectNetwork = networks.FirstOrDefault(n => n.Id == protectNetworkId);
+                if (protectNetwork != null)
                 {
-                    _logger.LogDebug("Network override for {Mac}: Network API reported {NetworkApiId}, using Protect API's {ProtectApiId}",
-                        client.Mac, effectiveNetworkId, protectNetworkId);
+                    _logger.LogDebug("Network override for {Mac}: Network API reported {NetworkApiId}, using Protect API's {ProtectApiId} ({NetworkName})",
+                        client.Mac, effectiveNetworkId, protectNetworkId, protectNetwork.Name);
                     effectiveNetworkId = protectNetworkId;
+                }
+                else
+                {
+                    _logger.LogDebug("Ignoring Protect API network {ProtectApiId} for {Mac} (not in network list, likely L3 routing infrastructure)",
+                        protectNetworkId, client.Mac);
                 }
             }
 

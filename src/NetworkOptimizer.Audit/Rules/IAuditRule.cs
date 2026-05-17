@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Enums;
@@ -70,6 +71,13 @@ public abstract class AuditRuleBase : IAuditRule
     public virtual int ScoreImpact { get; } = 5;
     public virtual bool Enabled { get; set; } = true;
     public virtual bool AppliesToLagChildPorts => false;
+
+    protected ILogger? Logger { get; private set; }
+
+    public void SetLogger(ILogger logger)
+    {
+        Logger = logger;
+    }
 
     /// <summary>
     /// Device type detection service for enhanced detection

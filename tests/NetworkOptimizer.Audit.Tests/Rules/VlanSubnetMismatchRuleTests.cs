@@ -456,6 +456,80 @@ public class VlanSubnetMismatchRuleTests
 
     #endregion
 
+    #region PPSK / Reporting Bug Suppression
+
+    [Fact]
+    public void Evaluate_IpMatchesAnotherNetwork_Suppressed()
+    {
+        // PPSK scenario: UniFi reports device on default VLAN but IP proves it's on VLAN 12
+        var defaultNetwork = CreateNetwork("10.1.0.0/16", vlanId: 1, name: "Default", id: "default-net");
+        var ppskNetwork = CreateNetwork("10.12.0.0/16", vlanId: 12, name: "IoT PPSK", id: "ppsk-net");
+        var client = CreateWirelessClient(
+            ip: "10.12.1.84",
+            networkOverrideEnabled: true,
+            network: defaultNetwork);
+        var networks = new List<NetworkInfo> { defaultNetwork, ppskNetwork };
+
+        var result = _rule.Evaluate(client, networks);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_IpMatchesNoNetwork_StillFlags()
+    {
+        // IP doesn't match any known network - genuine issue
+        var iotNetwork = CreateNetwork("192.168.64.0/24", vlanId: 64, name: "IoT", id: "iot-net");
+        var client = CreateWirelessClient(
+            ip: "172.16.99.50",
+            networkOverrideEnabled: true,
+            network: iotNetwork);
+        var networks = new List<NetworkInfo> { iotNetwork };
+
+        var result = _rule.Evaluate(client, networks);
+
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("172.16.99.50");
+    }
+
+    [Fact]
+    public void Evaluate_IpMatchesAssignedNetwork_NoIssue()
+    {
+        // Device correctly on its assigned network - no mismatch
+        var secNetwork = CreateNetwork("192.168.42.0/24", vlanId: 42, name: "Security", id: "sec-net");
+        var client = CreateWirelessClient(
+            ip: "192.168.42.100",
+            networkOverrideEnabled: true,
+            network: secNetwork);
+        var networks = new List<NetworkInfo> { secNetwork };
+
+        var result = _rule.Evaluate(client, networks);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_FixedIpMatchesAnotherNetwork_StillSuppressed()
+    {
+        // Even with a fixed IP, if it matches another network it's a reporting mismatch
+        // (UniFi won't let you set a fixed IP on the wrong subnet)
+        var defaultNetwork = CreateNetwork("10.1.0.0/16", vlanId: 1, name: "Default", id: "default-net");
+        var secNetwork = CreateNetwork("192.168.42.0/24", vlanId: 42, name: "Security", id: "sec-net");
+        var client = CreateWirelessClient(
+            ip: "192.168.42.100",
+            fixedIp: "192.168.42.100",
+            useFixedIp: true,
+            networkOverrideEnabled: true,
+            network: defaultNetwork);
+        var networks = new List<NetworkInfo> { defaultNetwork, secNetwork };
+
+        var result = _rule.Evaluate(client, networks);
+
+        result.Should().BeNull();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(

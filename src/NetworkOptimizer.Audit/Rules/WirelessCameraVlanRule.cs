@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Enums;
 
@@ -40,7 +41,11 @@ public class WirelessCameraVlanRule : WirelessAuditRuleBase
         var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact, isNvr: isNvr);
 
         if (placement.IsCorrectlyPlaced)
+        {
+            Logger?.LogDebug("Wireless camera '{Name}' correctly placed on {Network} (VLAN {Vlan})",
+                client.Client.Name ?? client.Client.Mac, network.Name, network.VlanId);
             return null;
+        }
 
         var message = isNvr
             ? $"NVR on {network.Name} VLAN - should be on management or security VLAN"
