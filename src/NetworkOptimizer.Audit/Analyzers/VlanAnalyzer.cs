@@ -178,6 +178,17 @@ public class VlanAnalyzer
             nc.DhcpdEnabled, nc.NetworkIsolationEnabled, nc.InternetAccessEnabled,
             nc.FirewallZoneId, zoneLookup);
 
+        List<string>? dnsServers = null;
+        if (nc.DhcpdDnsEnabled)
+        {
+            dnsServers = new List<string>();
+            if (!string.IsNullOrEmpty(nc.DhcpdDns1)) dnsServers.Add(nc.DhcpdDns1);
+            if (!string.IsNullOrEmpty(nc.DhcpdDns2)) dnsServers.Add(nc.DhcpdDns2);
+            if (!string.IsNullOrEmpty(nc.DhcpdDns3)) dnsServers.Add(nc.DhcpdDns3);
+            if (!string.IsNullOrEmpty(nc.DhcpdDns4)) dnsServers.Add(nc.DhcpdDns4);
+            if (dnsServers.Count == 0) dnsServers = null;
+        }
+
         return new NetworkInfo
         {
             Id = nc.Id,
@@ -186,6 +197,7 @@ public class VlanAnalyzer
             Purpose = purpose,
             Subnet = NormalizeSubnet(nc.IpSubnet),
             Gateway = ExtractGatewayFromSubnet(nc.IpSubnet),
+            DnsServers = dnsServers,
             DhcpEnabled = nc.DhcpdEnabled,
             NetworkIsolationEnabled = nc.NetworkIsolationEnabled,
             InternetAccessEnabled = nc.InternetAccessEnabled,
