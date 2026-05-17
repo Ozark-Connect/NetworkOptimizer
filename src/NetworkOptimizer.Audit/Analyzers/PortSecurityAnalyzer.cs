@@ -738,6 +738,11 @@ public class PortSecurityAnalyzer
                         _logger.LogDebug("Rule {RuleId} found issue on {Switch} port {Port}: {Message}",
                             rule.RuleId, switchInfo.Name, port.PortIndex, issue.Message);
                     }
+                    else
+                    {
+                        _logger.LogDebug("Rule {RuleId} passed on {Switch} port {Port} ({PortName})",
+                            rule.RuleId, switchInfo.Name, port.PortIndex, port.Name ?? "");
+                    }
                 }
             }
         }
