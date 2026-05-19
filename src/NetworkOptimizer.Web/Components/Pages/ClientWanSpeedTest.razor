@@ -211,7 +211,7 @@
                         <span class="time-label">@GetTimeLabel()</span>
                     </div>
 
-                    <div class="wan-filter-badges" style="min-height: 0.5rem; padding-bottom: 0;">
+                    <div class="wan-filter-badges @(string.IsNullOrEmpty(_serverFilter) && string.IsNullOrEmpty(_deviceFilter) ? "filter-area-empty" : "")">
                         @if (!string.IsNullOrEmpty(_serverFilter))
                         {
                             <div class="device-filter-pill">
@@ -629,6 +629,11 @@
     .device-filter-clear:hover {
         color: var(--text-primary);
         background: rgba(255, 255, 255, 0.1);
+    }
+
+    .filter-area-empty {
+        min-height: 0.5rem;
+        padding-bottom: 0;
     }
 </style>
 
