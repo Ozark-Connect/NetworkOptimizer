@@ -140,6 +140,10 @@
                                 <tr>
                                     <th class="col-time">Time</th>
                                     <th>Device</th>
+                                    @if (_servers.Count > 1)
+                                    {
+                                        <th class="hide-mobile">Server</th>
+                                    }
                                     <th class="hide-mobile">
                                         <span class="tooltip-wrapper tooltip-bottom">
                                             ↓ Mbps
@@ -194,6 +198,10 @@
                                                 </button>
                                             }
                                         </td>
+                                        @if (_servers.Count > 1)
+                                        {
+                                            <td class="hide-mobile">@ResolveServerName(result.ExternalServerName)</td>
+                                        }
                                         <td class="hide-mobile">
                                             @if (result.DownloadMbps > 0)
                                             {
@@ -232,7 +240,7 @@
                                         </td>
                                     </tr>
                                     <tr class="history-details-row">
-                                        <td colspan="7">
+                                        <td colspan="@(_servers.Count > 1 ? 8 : 7)">
                                             <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                                 <div class="expand-content">
                                                     <div class="history-details">
@@ -566,6 +574,13 @@
     private void OnServerChanged()
     {
         _selectedServer = _servers.FirstOrDefault(s => s.Id == _selectedServerId);
+    }
+
+    private string ResolveServerName(string? serverId)
+    {
+        if (string.IsNullOrEmpty(serverId)) return "-";
+        var server = _servers.FirstOrDefault(s => string.Equals(s.ServerId, serverId, StringComparison.OrdinalIgnoreCase));
+        return server?.Name ?? serverId;
     }
 
     private async Task LoadResults()
