@@ -211,27 +211,24 @@
                         <span class="time-label">@GetTimeLabel()</span>
                     </div>
 
-                    @if (!string.IsNullOrEmpty(_serverFilter) || !string.IsNullOrEmpty(_deviceFilter))
-                    {
-                        <div class="wan-filter-badges">
-                            @if (!string.IsNullOrEmpty(_serverFilter))
-                            {
-                                <div class="device-filter-pill">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                                    <span>Server: <strong>@_serverFilterName</strong></span>
-                                    <button class="device-filter-clear" @onclick="ClearServerFilter" type="button">×</button>
-                                </div>
-                            }
-                            @if (!string.IsNullOrEmpty(_deviceFilter))
-                            {
-                                <div class="device-filter-pill">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                                    <span>Device: <strong>@_deviceFilterName</strong></span>
-                                    <button class="device-filter-clear" @onclick="ClearDeviceFilter" type="button">×</button>
-                                </div>
-                            }
-                        </div>
-                    }
+                    <div class="wan-filter-badges" style="min-height: 0.5rem;">
+                        @if (!string.IsNullOrEmpty(_serverFilter))
+                        {
+                            <div class="device-filter-pill">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                <span>Server: <strong>@_serverFilterName</strong></span>
+                                <button class="device-filter-clear" @onclick="ClearServerFilter" type="button">×</button>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(_deviceFilter))
+                        {
+                            <div class="device-filter-pill">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                <span>Device: <strong>@_deviceFilterName</strong></span>
+                                <button class="device-filter-clear" @onclick="ClearDeviceFilter" type="button">×</button>
+                            </div>
+                        }
+                    </div>
 
                     @* History Table *@
                     <div class="table-responsive" id="history-table">
