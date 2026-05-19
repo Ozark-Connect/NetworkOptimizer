@@ -73,7 +73,7 @@
                             </a>
                         </div>
                         <p>
-                            Run a speed test against an external server. This measures your internet speed (WAN) -
+                            Run a speed test against your own external server. This measures your internet speed (WAN) -
                             traffic goes from your device, out through your WAN, across the internet to the remote server, and back.
                         </p>
                         <div class="test-option-actions">
@@ -104,7 +104,7 @@
         </div>
 
         <!-- Test History -->
-        <div class="card">
+        <div class="card" id="client-wan-history-card">
             <div class="card-header history-card-header">
                 <div class="header-title-row">
                     <h2 class="card-title">Test History</h2>
@@ -125,7 +125,7 @@
                                 <button class="device-filter-clear" @onclick="ClearDeviceFilter" type="button">×</button>
                             </div>
                         }
-                        <button class="btn btn-sm btn-secondary" @onclick="LoadResults" disabled="@_loading">
+                        <button class="btn btn-sm btn-secondary" @onclick="RefreshHistory" disabled="@_loading">
                             @if (_loading)
                             {
                                 <span class="spinner"></span>
@@ -138,10 +138,96 @@
                         </button>
                     </div>
                 </div>
+                @if (_results.Count > 0)
+                {
+                    <div class="wan-history-tabs">
+                        <button class="wan-history-tab @(_activeTab == "speed" ? "active" : "")" @onclick='() => SwitchTab("speed")'>Speed</button>
+                        <button class="wan-history-tab @(_activeTab == "latency" ? "active" : "")" @onclick='() => SwitchTab("latency")'>Latency</button>
+                        <button class="wan-history-tab @(_activeTab == "jitter" ? "active" : "")" @onclick='() => SwitchTab("jitter")'>Jitter</button>
+                    </div>
+                }
             </div>
             <div class="card-body">
                 @if (_results.Count > 0)
                 {
+                    @* Speed Chart *@
+                    @if (_activeTab == "speed")
+                    {
+                        <div class="wan-chart-container">
+                            <ApexChart @ref="_speedChart" TItem="ChartPoint"
+                                       Options="_speedChartOptions"
+                                       Height="@("250px")"
+                                       OnClick="OnChartClicked">
+                                @foreach (var series in _chartSeries)
+                                {
+                                    <ApexPointSeries TItem="ChartPoint"
+                                                     Items="@(IsSeriesVisible(series) ? series.DownloadData : _emptyChartData)"
+                                                     Name="@($"{series.DisplayName} ↓")"
+                                                     SeriesType="SeriesType.Area"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                    <ApexPointSeries TItem="ChartPoint"
+                                                     Items="@(IsSeriesVisible(series) ? series.UploadData : _emptyChartData)"
+                                                     Name="@($"{series.DisplayName} ↑")"
+                                                     SeriesType="SeriesType.Area"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                }
+                            </ApexChart>
+                        </div>
+                    }
+
+                    @* Latency Chart *@
+                    @if (_activeTab == "latency")
+                    {
+                        <div class="wan-chart-container">
+                            <ApexChart @ref="_latencyChart" TItem="ChartPoint"
+                                       Options="_latencyChartOptions"
+                                       Height="@("250px")">
+                                @foreach (var series in _chartSeries)
+                                {
+                                    <ApexPointSeries TItem="ChartPoint"
+                                                     Items="@(IsSeriesVisible(series) ? series.LatencyData : _emptyChartData)"
+                                                     Name="@series.DisplayName"
+                                                     SeriesType="SeriesType.Line"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                }
+                            </ApexChart>
+                        </div>
+                    }
+
+                    @* Jitter Chart *@
+                    @if (_activeTab == "jitter")
+                    {
+                        <div class="wan-chart-container">
+                            <ApexChart @ref="_jitterChart" TItem="ChartPoint"
+                                       Options="_jitterChartOptions"
+                                       Height="@("250px")">
+                                @foreach (var series in _chartSeries)
+                                {
+                                    <ApexPointSeries TItem="ChartPoint"
+                                                     Items="@(IsSeriesVisible(series) ? series.JitterData : _emptyChartData)"
+                                                     Name="@series.DisplayName"
+                                                     SeriesType="SeriesType.Line"
+                                                     XValue="e => e.Timestamp"
+                                                     YValue="e => e.Value"
+                                                     OrderBy="e => e.X" />
+                                }
+                            </ApexChart>
+                        </div>
+                    }
+
+                    @* Time Slider *@
+                    <div class="wan-time-slider">
+                        <input type="range" min="0" max="10" step="1" @bind="_sliderValue" @bind:after="OnSliderChanged" />
+                        <span class="time-label">@GetTimeLabel()</span>
+                    </div>
+
+                    @* History Table *@
                     <div class="table-responsive" id="history-table">
                         <table class="data-table">
                             <thead>
@@ -554,13 +640,69 @@
     private const int PageSize = 20;
     private System.Threading.Timer? _pollTimer;
 
-    // Device filter (set by clicking filter icon on a row)
+    // Filters
     private string _deviceFilter = "";
     private string _deviceFilterName = "";
-
-    // Server filter (set by clicking filter icon on server column)
     private string _serverFilter = "";
     private string _serverFilterName = "";
+
+    // Chart state
+    private ApexChart<ChartPoint>? _speedChart;
+    private ApexChartOptions<ChartPoint> _speedChartOptions = new();
+    private ApexChart<ChartPoint>? _latencyChart;
+    private ApexChartOptions<ChartPoint> _latencyChartOptions = new();
+    private ApexChart<ChartPoint>? _jitterChart;
+    private ApexChartOptions<ChartPoint> _jitterChartOptions = new();
+    private List<ServerSeriesInfo> _chartSeries = new();
+    private List<ChartPoint> _emptyChartData = new();
+    private string _activeTab = "speed";
+
+    // Time slider
+    private int _sliderValue = 6;
+    private static readonly (int hours, string label)[] TimeBreakpoints = new[]
+    {
+        (1, "1 hr"), (4, "4 hrs"), (24, "24 hrs"), (72, "3 days"),
+        (168, "1 week"), (336, "2 weeks"), (720, "30 days"),
+        (2160, "90 days"), (4320, "6 months"), (8760, "1 year"), (0, "All time")
+    };
+    private const int MaxChartPoints = 20;
+
+    private static readonly string[] SeriesColors = new[]
+    {
+        "#2ba89a", "#a78bfa", "#3b82f6", "#ef5858", "#f59e0b", "#10b981"
+    };
+
+    private class ChartPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal Value { get; set; }
+        public int ResultId { get; set; }
+        public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+        public ChartPoint(DateTime timestamp, double value, int resultId)
+        {
+            Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
+            Value = (decimal)value;
+            ResultId = resultId;
+        }
+    }
+
+    private class ServerSeriesInfo
+    {
+        public string Key { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string Color { get; set; } = "";
+        public List<ChartPoint> DownloadData { get; set; } = new();
+        public List<ChartPoint> UploadData { get; set; } = new();
+        public List<ChartPoint> LatencyData { get; set; } = new();
+        public List<ChartPoint> JitterData { get; set; } = new();
+        public bool IsSelected { get; set; }
+    }
+
+    private bool _noneSelected => !_chartSeries.Any(s => s.IsSelected);
+    private bool _allSelected => _chartSeries.All(s => s.IsSelected);
+    private bool _showAll => _noneSelected || _allSelected;
+    private bool IsSeriesVisible(ServerSeriesInfo series) => _showAll || series.IsSelected;
 
     private List<Iperf3Result> _filteredResults
     {
@@ -583,16 +725,15 @@
         PtrState.RefreshCallback = () => LoadResults();
         PtrState.NotifyStateChanged = StateHasChanged;
 
+        InitializeChartOptions();
+
         _servers = await SettingsService.GetExternalSpeedTestServersAsync();
         _selectedServer = _servers.FirstOrDefault(s => s.IsDefault) ?? _servers.FirstOrDefault();
         _selectedServerId = _selectedServer?.Id ?? 0;
 
         if (_selectedServer != null)
-        {
             await LoadResults();
-        }
 
-        // Poll for new results every 10 seconds
         _pollTimer = new System.Threading.Timer(async _ =>
         {
             try
@@ -625,11 +766,19 @@
         try
         {
             _results = await ClientSpeedTestService.GetWanResultsAsync(200);
+            TransformChartData();
+            ApplyChartFilters();
         }
         finally
         {
             _loading = false;
         }
+    }
+
+    private async Task RefreshHistory()
+    {
+        await LoadResults();
+        await RenderActiveChart();
     }
 
     private void ToggleExpand(int id)
@@ -646,6 +795,7 @@
     {
         await ClientSpeedTestService.DeleteResultAsync(id);
         await LoadResults();
+        await RenderActiveChart();
     }
 
     private async Task HandleNotesChanged((int Id, string? Notes) args)
@@ -657,15 +807,9 @@
     private void ToggleDeviceFilter(string host, string displayName)
     {
         if (string.Equals(_deviceFilter, host, StringComparison.OrdinalIgnoreCase))
-        {
-            _deviceFilter = "";
-            _deviceFilterName = "";
-        }
+        { _deviceFilter = ""; _deviceFilterName = ""; }
         else
-        {
-            _deviceFilter = host;
-            _deviceFilterName = displayName;
-        }
+        { _deviceFilter = host; _deviceFilterName = displayName; }
         _page = 1;
         _expandedId = 0;
         StateHasChanged();
@@ -674,15 +818,9 @@
     private void ToggleServerFilter(string serverId, string displayName)
     {
         if (string.Equals(_serverFilter, serverId, StringComparison.OrdinalIgnoreCase))
-        {
-            _serverFilter = "";
-            _serverFilterName = "";
-        }
+        { _serverFilter = ""; _serverFilterName = ""; }
         else
-        {
-            _serverFilter = serverId;
-            _serverFilterName = displayName;
-        }
+        { _serverFilter = serverId; _serverFilterName = displayName; }
         _page = 1;
         _expandedId = 0;
         StateHasChanged();
@@ -690,21 +828,362 @@
 
     private void ClearServerFilter()
     {
-        _serverFilter = "";
-        _serverFilterName = "";
-        _page = 1;
-        _expandedId = 0;
+        _serverFilter = ""; _serverFilterName = "";
+        _page = 1; _expandedId = 0;
         StateHasChanged();
     }
 
     private void ClearDeviceFilter()
     {
-        _deviceFilter = "";
-        _deviceFilterName = "";
-        _page = 1;
-        _expandedId = 0;
+        _deviceFilter = ""; _deviceFilterName = "";
+        _page = 1; _expandedId = 0;
         StateHasChanged();
     }
+
+    #region Charts
+
+    private void InitializeChartOptions()
+    {
+        _speedChartOptions = new ApexChartOptions<ChartPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false },
+                RedrawOnParentResize = true,
+                RedrawOnWindowResize = true,
+                Animations = new Animations { Enabled = true, Speed = 300, AnimateGradually = new AnimateGradually { Enabled = false } }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                },
+                AxisBorder = new AxisBorder { Show = false },
+                AxisTicks = new AxisTicks { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = 0,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                        Formatter = @"function(val) { return val != null ? val.toFixed(0) + ' Mbps' : ''; }"
+                    }
+                }
+            },
+            Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+            Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+            Legend = new Legend { Show = false },
+            Tooltip = new Tooltip { Theme = Mode.Dark, Intersect = false, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm" } },
+            Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } },
+            Fill = new Fill
+            {
+                Type = new List<FillType> { FillType.Gradient },
+                Gradient = new FillGradient { ShadeIntensity = 0.3, OpacityFrom = 0.4, OpacityTo = 0.05 }
+            }
+        };
+
+        _latencyChartOptions = CreateMsChartOptions("ms");
+        _jitterChartOptions = CreateMsChartOptions("ms");
+    }
+
+    private ApexChartOptions<ChartPoint> CreateMsChartOptions(string unit)
+    {
+        return new ApexChartOptions<ChartPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false },
+                RedrawOnParentResize = true,
+                RedrawOnWindowResize = true,
+                Animations = new Animations { Enabled = true, Speed = 300, AnimateGradually = new AnimateGradually { Enabled = false } }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    DatetimeUTC = false,
+                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                },
+                AxisBorder = new AxisBorder { Show = false },
+                AxisTicks = new AxisTicks { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = 0,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                        Formatter = @"function(val) { return val != null ? val.toFixed(1) + ' " + unit + @"' : ''; }"
+                    }
+                }
+            },
+            Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+            Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+            Legend = new Legend { Show = false },
+            Tooltip = new Tooltip { Theme = Mode.Dark, Intersect = false, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm" } },
+            Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } }
+        };
+    }
+
+    private void TransformChartData()
+    {
+        var serverKeys = _results
+            .Where(r => r.Success)
+            .Select(r => r.ExternalServerName ?? "unknown")
+            .Distinct()
+            .OrderBy(k => k)
+            .ToList();
+
+        var previousSelection = _chartSeries.ToDictionary(s => s.Key, s => s.IsSelected);
+
+        _chartSeries = serverKeys.Select((key, i) => new ServerSeriesInfo
+        {
+            Key = key,
+            DisplayName = ResolveServerName(key),
+            Color = SeriesColors[i % SeriesColors.Length],
+            IsSelected = previousSelection.TryGetValue(key, out var selected) && selected
+        }).ToList();
+
+        if (_chartSeries.Count == 0 && _results.Any(r => r.Success))
+        {
+            _chartSeries.Add(new ServerSeriesInfo
+            {
+                Key = "unknown",
+                DisplayName = "Server",
+                Color = SeriesColors[0]
+            });
+        }
+
+        UpdateSpeedChartColors();
+        UpdateMsChartColors(_latencyChartOptions);
+        UpdateMsChartColors(_jitterChartOptions);
+    }
+
+    private void UpdateSpeedChartColors()
+    {
+        var colors = new List<string>();
+        var dashArray = new List<int>();
+        var fillTypes = new List<FillType>();
+        foreach (var s in _chartSeries)
+        {
+            colors.Add(s.Color); colors.Add(s.Color);
+            dashArray.Add(0); dashArray.Add(5);
+            fillTypes.Add(FillType.Gradient); fillTypes.Add(FillType.Gradient);
+        }
+        _speedChartOptions.Colors = colors;
+        if (_speedChartOptions.Stroke != null)
+            _speedChartOptions.Stroke.DashArray = dashArray;
+        _speedChartOptions.Fill = new Fill
+        {
+            Type = fillTypes,
+            Gradient = new FillGradient { ShadeIntensity = 0.3, OpacityFrom = 0.4, OpacityTo = 0.05 }
+        };
+    }
+
+    private void UpdateMsChartColors(ApexChartOptions<ChartPoint> opts)
+    {
+        var colors = _chartSeries.Select(s => s.Color).ToList();
+        opts.Colors = colors;
+        if (opts.Stroke != null)
+            opts.Stroke.DashArray = colors.Select(_ => 0).ToList();
+    }
+
+    private List<Iperf3Result> GetTimeFilteredResults()
+    {
+        var idx = Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1);
+        var hours = TimeBreakpoints[idx].hours;
+        if (hours <= 0) return _results;
+        var cutoff = DateTime.UtcNow.AddHours(-hours);
+        return _results.Where(r => r.TestTime >= cutoff).ToList();
+    }
+
+    private void ApplyChartFilters()
+    {
+        var timeFiltered = GetTimeFilteredResults();
+        var idx = Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1);
+        var shouldDownsample = TimeBreakpoints[idx].hours is 0 or > 4;
+
+        foreach (var series in _chartSeries)
+        {
+            var results = timeFiltered
+                .Where(r => r.Success && string.Equals(r.ExternalServerName ?? "unknown", series.Key, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(r => r.TestTime)
+                .ToList();
+
+            var downloadRaw = results.Select(r => new ChartPoint(r.TestTime, r.DownloadMbps, r.Id)).ToList();
+            var uploadRaw = results.Select(r => new ChartPoint(r.TestTime, r.UploadMbps, r.Id)).ToList();
+
+            if (shouldDownsample)
+            {
+                series.DownloadData = DownsampleLttb(CollapseClusters(downloadRaw), MaxChartPoints);
+                var keptIds = series.DownloadData.Select(d => d.ResultId).ToHashSet();
+                series.UploadData = uploadRaw.Where(u => keptIds.Contains(u.ResultId)).ToList();
+            }
+            else
+            {
+                series.DownloadData = downloadRaw;
+                series.UploadData = uploadRaw;
+            }
+
+            var latencyRaw = results
+                .Where(r => r.PingMs.HasValue)
+                .Select(r => new ChartPoint(r.TestTime, r.PingMs!.Value, r.Id))
+                .ToList();
+            series.LatencyData = shouldDownsample ? DownsampleLttb(CollapseClusters(latencyRaw), MaxChartPoints) : latencyRaw;
+
+            var jitterRaw = results
+                .Where(r => r.JitterMs.HasValue)
+                .Select(r => new ChartPoint(r.TestTime, r.JitterMs!.Value, r.Id))
+                .ToList();
+            series.JitterData = shouldDownsample ? DownsampleLttb(CollapseClusters(jitterRaw), MaxChartPoints) : jitterRaw;
+        }
+    }
+
+    private static List<ChartPoint> CollapseClusters(List<ChartPoint> data)
+    {
+        if (data.Count <= 3) return data;
+        var range = (double)(data.Max(d => d.Value) - data.Min(d => d.Value));
+        if (range < 1) return data;
+        var valueThreshold = range * 0.15;
+        var timeThreshold = TimeSpan.FromHours(2);
+
+        var result = new List<ChartPoint> { data[0] };
+        for (int i = 1; i < data.Count - 1; i++)
+        {
+            var lastKept = result[^1];
+            var curr = data[i];
+            if (curr.Timestamp - lastKept.Timestamp >= timeThreshold ||
+                Math.Abs((double)curr.Value - (double)lastKept.Value) > valueThreshold)
+                result.Add(curr);
+        }
+        result.Add(data[^1]);
+        return result;
+    }
+
+    private static List<ChartPoint> DownsampleLttb(List<ChartPoint> data, int targetCount)
+    {
+        if (data.Count <= targetCount || targetCount < 3) return data;
+
+        var result = new List<ChartPoint>(targetCount) { data[0] };
+        double bucketSize = (double)(data.Count - 2) / (targetCount - 2);
+        int prevIdx = 0;
+
+        for (int bucket = 0; bucket < targetCount - 2; bucket++)
+        {
+            int currStart = (int)Math.Floor(bucket * bucketSize) + 1;
+            int currEnd = (int)Math.Floor((bucket + 1) * bucketSize) + 1;
+            currEnd = Math.Min(currEnd, data.Count - 1);
+
+            double avgX, avgY;
+            if (bucket == targetCount - 3)
+            {
+                avgX = data[^1].X; avgY = (double)data[^1].Value;
+            }
+            else
+            {
+                int nextStart = currEnd;
+                int nextEnd = Math.Min((int)Math.Floor((bucket + 2) * bucketSize) + 1, data.Count - 1);
+                avgX = 0; avgY = 0; int count = 0;
+                for (int j = nextStart; j < nextEnd; j++) { avgX += data[j].X; avgY += (double)data[j].Value; count++; }
+                if (count > 0) { avgX /= count; avgY /= count; }
+                else { avgX = data[nextStart].X; avgY = (double)data[nextStart].Value; }
+            }
+
+            double maxArea = -1; int bestIdx = currStart;
+            double prevX = data[prevIdx].X, prevY = (double)data[prevIdx].Value;
+            for (int j = currStart; j < currEnd; j++)
+            {
+                double area = Math.Abs((prevX - avgX) * ((double)data[j].Value - prevY) - (prevX - data[j].X) * (avgY - prevY));
+                if (area > maxArea) { maxArea = area; bestIdx = j; }
+            }
+            result.Add(data[bestIdx]);
+            prevIdx = bestIdx;
+        }
+
+        result.Add(data[^1]);
+        return result;
+    }
+
+    private string GetTimeLabel() => TimeBreakpoints[_sliderValue].label;
+
+    private async Task OnSliderChanged()
+    {
+        _page = 1;
+        _expandedId = 0;
+        ApplyChartFilters();
+        await RenderActiveChart();
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        if (_activeTab == tab) return;
+        _activeTab = tab;
+        StateHasChanged();
+        await Task.Delay(50);
+        await RenderActiveChart();
+    }
+
+    private async Task RenderActiveChart()
+    {
+        StateHasChanged();
+        try
+        {
+            var chart = _activeTab switch
+            {
+                "latency" => _latencyChart,
+                "jitter" => _jitterChart,
+                _ => _speedChart
+            };
+            if (chart != null) await chart.RenderAsync();
+        }
+        catch { }
+    }
+
+    private async Task OnChartClicked(SelectedData<ChartPoint> data)
+    {
+        if (data?.DataPoint?.Items?.FirstOrDefault() is ChartPoint point)
+            await ScrollToResult(point.ResultId);
+    }
+
+    private async Task ScrollToResult(int resultId)
+    {
+        var index = _filteredResults.FindIndex(r => r.Id == resultId);
+        if (index >= 0)
+            _page = (index / PageSize) + 1;
+
+        _expandedId = resultId;
+        StateHasChanged();
+
+        await Task.Delay(100);
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var el = document.getElementById('result-{resultId}');
+                if (el) {{
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                    el.style.transition = 'background-color 0.3s';
+                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.3)';
+                    setTimeout(function() {{ el.style.backgroundColor = ''; }}, 1500);
+                }}
+            }})();
+        ");
+    }
+
+    #endregion
 
     public void Dispose()
     {
