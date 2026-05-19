@@ -708,7 +708,7 @@
     {
         get
         {
-            IEnumerable<Iperf3Result> q = _results;
+            IEnumerable<Iperf3Result> q = GetTimeFilteredResults();
             if (!string.IsNullOrEmpty(_deviceFilter))
                 q = q.Where(r => string.Equals(r.DeviceHost, _deviceFilter, StringComparison.OrdinalIgnoreCase));
             if (!string.IsNullOrEmpty(_serverFilter))
