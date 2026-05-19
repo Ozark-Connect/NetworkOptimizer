@@ -941,21 +941,21 @@
                         </div>
                     </div>
 
-                    @if (extServerExpandedId == server.Id)
-                    {
-                        <div style="padding: 0.75rem 0; border-bottom: 1px solid var(--bg-tertiary);">
-                            <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 0.5rem;"><strong>Deploy command:</strong></p>
-                            <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
-                            <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.75rem; margin-bottom: 0.5rem;">Update existing:</p>
-                            <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
-                        </div>
-                    }
-                    else
-                    {
-                        <div style="padding: 0.25rem 0 0.5rem;">
-                            <button class="btn-link" style="font-size: 0.8125rem; color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 0;" @onclick="() => ToggleExtServerDeploy(server.Id)">Show deploy command</button>
-                        </div>
-                    }
+                    <div style="border-bottom: 1px solid var(--bg-tertiary);">
+                        <button style="display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.5rem 0; background: none; border: none; cursor: pointer; color: var(--text-secondary); font-size: 0.8125rem;" @onclick="() => ToggleExtServerDeploy(server.Id)">
+                            <span style="font-size: 0.65rem; transition: transform 0.15s; transform: rotate(@(extServerExpandedId == server.Id ? "90deg" : "0"));">&#9654;</span>
+                            Deploy commands
+                        </button>
+                        @if (extServerExpandedId == server.Id)
+                        {
+                            <div style="padding: 0 0 0.75rem;">
+                                <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0.5rem;">Install on a new server:</p>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
+                                <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem; margin-bottom: 0.5rem;">Update existing:</p>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
+                            </div>
+                        }
+                    </div>
                 }
             }
             else if (!showExtServerForm)
