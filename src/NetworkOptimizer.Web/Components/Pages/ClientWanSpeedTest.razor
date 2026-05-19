@@ -804,7 +804,7 @@
         await LoadResults();
     }
 
-    private void ToggleDeviceFilter(string host, string displayName)
+    private async Task ToggleDeviceFilter(string host, string displayName)
     {
         if (string.Equals(_deviceFilter, host, StringComparison.OrdinalIgnoreCase))
         { _deviceFilter = ""; _deviceFilterName = ""; }
@@ -812,10 +812,11 @@
         { _deviceFilter = host; _deviceFilterName = displayName; }
         _page = 1;
         _expandedId = 0;
-        StateHasChanged();
+        ApplyChartFilters();
+        await RenderActiveChart();
     }
 
-    private void ToggleServerFilter(string serverId, string displayName)
+    private async Task ToggleServerFilter(string serverId, string displayName)
     {
         if (string.Equals(_serverFilter, serverId, StringComparison.OrdinalIgnoreCase))
         { _serverFilter = ""; _serverFilterName = ""; }
@@ -823,21 +824,24 @@
         { _serverFilter = serverId; _serverFilterName = displayName; }
         _page = 1;
         _expandedId = 0;
-        StateHasChanged();
+        ApplyChartFilters();
+        await RenderActiveChart();
     }
 
-    private void ClearServerFilter()
+    private async Task ClearServerFilter()
     {
         _serverFilter = ""; _serverFilterName = "";
         _page = 1; _expandedId = 0;
-        StateHasChanged();
+        ApplyChartFilters();
+        await RenderActiveChart();
     }
 
-    private void ClearDeviceFilter()
+    private async Task ClearDeviceFilter()
     {
         _deviceFilter = ""; _deviceFilterName = "";
         _page = 1; _expandedId = 0;
-        StateHasChanged();
+        ApplyChartFilters();
+        await RenderActiveChart();
     }
 
     #region Charts
@@ -1014,7 +1018,13 @@
 
     private void ApplyChartFilters()
     {
-        var timeFiltered = GetTimeFilteredResults();
+        IEnumerable<Iperf3Result> filtered = GetTimeFilteredResults();
+        if (!string.IsNullOrEmpty(_deviceFilter))
+            filtered = filtered.Where(r => string.Equals(r.DeviceHost, _deviceFilter, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(_serverFilter))
+            filtered = filtered.Where(r => string.Equals(r.ExternalServerName, _serverFilter, StringComparison.OrdinalIgnoreCase));
+        var timeFiltered = filtered.ToList();
+
         var idx = Math.Clamp(_sliderValue, 0, TimeBreakpoints.Length - 1);
         var shouldDownsample = TimeBreakpoints[idx].hours is 0 or > 4;
 
