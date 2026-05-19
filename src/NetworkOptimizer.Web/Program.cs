@@ -542,14 +542,16 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// Load external speed test server origin into CORS cache (from SystemSettings)
+// Load external speed test server origins into CORS cache
 {
     var sysSettings = app.Services.GetRequiredService<SystemSettingsService>();
-    var extSettings = await sysSettings.GetExternalSpeedTestSettingsAsync();
-    sysSettings.UpdateCachedExternalOrigin(extSettings);
-    if (extSettings.IsConfigured)
+    var servers = await sysSettings.GetExternalSpeedTestServersAsync();
+    sysSettings.UpdateCachedExternalOrigins(servers);
+    var configured = servers.Where(s => s.IsConfigured).ToList();
+    if (configured.Count > 0)
     {
-        app.Logger.LogInformation("External speed test server configured: {Url}", extSettings.Url);
+        app.Logger.LogInformation("External speed test servers configured: {Count} ({Urls})",
+            configured.Count, string.Join(", ", configured.Select(s => s.Url)));
     }
 }
 

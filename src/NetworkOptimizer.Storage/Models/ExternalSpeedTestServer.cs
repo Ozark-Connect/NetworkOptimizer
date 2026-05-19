@@ -36,6 +36,8 @@ public class ExternalSpeedTestServer
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    public bool IsDefault { get; set; }
+
     [NotMapped]
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);
 

@@ -899,97 +899,159 @@
         </div>
     </div>
 
-    <!-- 8. External Speed Test Server -->
+    <!-- 8. External Speed Test Servers -->
     <div class="card" id="external-speedtest-settings">
         <div class="card-header">
-            <h2 class="card-title">External Speed Test Server</h2>
+            <h2 class="card-title">External Speed Test Servers</h2>
         </div>
         <div class="card-body">
-            <p class="section-description">Configure an external OpenSpeedTest server for WAN speed testing. Deploy the speed test container to a remote server (e.g., a VPS) and clients can test their internet speed through it. Results are reported back here automatically.</p>
+            <p class="section-description">Configure external OpenSpeedTest servers for WAN speed testing. Deploy the speed test container to remote servers (e.g., VPS instances) and clients can test their internet speed through them. Results are reported back here automatically.</p>
 
-            @if (extSpeedTestScheme != "https")
+            @if (extServers.Count > 0)
             {
-                <div class="alert alert-warning" style="margin-bottom: 1rem;">
-                    <strong>HTTPS Strongly Recommended:</strong> Chrome and Edge block speed test results from posting back to Network Optimizer when the external server is on HTTP. This is due to Private Network Access restrictions on non-secure origins reaching private addresses. HTTPS with a reverse proxy is strongly recommended. The reverse proxy must also force HTTP/1.1 for accurate results.
+                @foreach (var server in extServers)
+                {
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 0.75rem 0; border-bottom: 1px solid var(--bg-tertiary); gap: 1rem;">
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <strong style="color: var(--text-primary);">@server.Name</strong>
+                                @if (server.IsDefault)
+                                {
+                                    <span class="status-badge status-active" style="font-size: 0.7rem;">Default</span>
+                                }
+                            </div>
+                            <div style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem; margin-top: 0.25rem;">@server.Url</div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+                            @if (!server.IsDefault)
+                            {
+                                <button class="btn btn-secondary btn-sm" @onclick="() => SetDefaultExtServer(server.Id)">Set Default</button>
+                            }
+                            <button class="btn btn-secondary btn-sm" @onclick="() => StartEditExtServer(server)">Edit</button>
+                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteExtServer(server.Id)" disabled="@(deletingExtServerId == server.Id)">
+                                @if (deletingExtServerId == server.Id)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                }
+                                else
+                                {
+                                    <span>Delete</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="border-bottom: 1px solid var(--bg-tertiary);">
+                        <button style="display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.5rem 0; background: none; border: none; cursor: pointer; color: var(--text-secondary); font-size: 0.8125rem;" @onclick="() => ToggleExtServerDeploy(server.Id)">
+                            <span style="font-size: 0.65rem; transition: transform 0.15s; transform: rotate(@(extServerExpandedId == server.Id ? "90deg" : "0"));">&#9654;</span>
+                            Deploy commands
+                        </button>
+                        @if (extServerExpandedId == server.Id)
+                        {
+                            <div style="padding: 0 0 0.75rem;">
+                                <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0.5rem;">Install on a new server:</p>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
+                                <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem; margin-bottom: 0.5rem;">Update existing:</p>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else if (!showExtServerForm)
+            {
+                <div class="empty-state" style="padding: 2rem;">
+                    <p>No external speed test servers configured. Add one to enable client WAN speed tests.</p>
                 </div>
             }
 
-            <div class="form-group">
-                <label class="form-label">Server Name</label>
-                <input type="text" class="form-control" @bind="extSpeedTestName" @bind:after="UpdateServerId" placeholder="e.g. VPS Chicago, Datacenter East" />
-                <small class="form-help">Display name for this server (shown in speed test results)</small>
-            </div>
-
-            @if (!string.IsNullOrEmpty(ComputeServerId()))
+            @if (showExtServerForm)
             {
-                <div class="form-group">
-                    <label class="form-label">Server ID</label>
-                    <input type="text" class="form-control" value="@ComputeServerId()" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
-                    <small class="form-help">Auto-generated identifier used to link speed test results to this server</small>
-                </div>
-            }
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 6px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 1rem;">@(editingExtServerId.HasValue ? "Edit" : "Add") Server</h4>
 
-            <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
-                <div class="form-group" style="flex: 1; min-width: 200px;">
-                    <label class="form-label">Hostname / IP</label>
-                    <input type="text" class="form-control" @bind="extSpeedTestHost" placeholder="e.g. speedtest.example.com or 203.0.113.10" />
-                </div>
-                <div class="form-group" style="width: 100px;">
-                    <label class="form-label">Port</label>
-                    <input type="number" class="form-control" @bind="extSpeedTestPort" min="1" max="65535" />
-                </div>
-                <div class="form-group" style="width: 120px;">
-                    <label class="form-label">Scheme</label>
-                    <select class="form-control" @bind="extSpeedTestScheme">
-                        <option value="http">HTTP</option>
-                        <option value="https">HTTPS</option>
-                    </select>
-                </div>
-            </div>
-
-            @if (!string.IsNullOrEmpty(extSpeedTestHost))
-            {
-                <div class="form-group">
-                    <label class="form-label">Speed Test URL (preview)</label>
-                    <input type="text" class="form-control" value="@ComputeExternalSpeedTestUrl()" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
-                </div>
-            }
-
-            <div class="action-buttons">
-                <button class="btn btn-success" @onclick="SaveExternalSpeedTestSettings" disabled="@savingExtSpeedTest">
-                    @if (savingExtSpeedTest)
+                    @if (extServerFormScheme != "https")
                     {
-                        <span class="spinner"></span>
-                        <span>Saving...</span>
+                        <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                            <strong>HTTPS Strongly Recommended:</strong> Chrome and Edge block speed test results from posting back to Network Optimizer when the server is on HTTP. HTTPS with a reverse proxy is strongly recommended.
+                        </div>
                     }
-                    else
-                    {
-                        <span>Save Settings</span>
-                    }
-                </button>
-            </div>
 
-            @if (!string.IsNullOrEmpty(extSpeedTestMessage))
+                    <div class="form-group">
+                        <label class="form-label">Server Name</label>
+                        <input type="text" class="form-control" @bind="extServerFormName" placeholder="e.g. VPS Chicago, Datacenter East" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(extServerFormName))
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Server ID</label>
+                            <input type="text" class="form-control" value="@ExternalSpeedTestServer.GenerateServerId(extServerFormName)" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
+                            <small class="form-help">Auto-generated identifier used to link speed test results to this server</small>
+                        </div>
+                    }
+
+                    <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                        <div class="form-group" style="flex: 1; min-width: 200px;">
+                            <label class="form-label">Hostname / IP</label>
+                            <input type="text" class="form-control" @bind="extServerFormHost" placeholder="e.g. speedtest.example.com or 203.0.113.10" />
+                        </div>
+                        <div class="form-group" style="width: 100px;">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" @bind="extServerFormPort" min="1" max="65535" />
+                        </div>
+                        <div class="form-group" style="width: 120px;">
+                            <label class="form-label">Scheme</label>
+                            <select class="form-control" @bind="extServerFormScheme">
+                                <option value="http">HTTP</option>
+                                <option value="https">HTTPS</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(extServerFormHost))
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Speed Test URL (preview)</label>
+                            <input type="text" class="form-control" value="@ComputeExtServerFormUrl()" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
+                        </div>
+                    }
+
+                    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                        <button class="btn btn-success" @onclick="SaveExtServer" disabled="@savingExtServer">
+                            @if (savingExtServer)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>@(editingExtServerId.HasValue ? "Update" : "Add") Server</span>
+                            }
+                        </button>
+                        <button class="btn btn-secondary" @onclick="CancelExtServerForm">Cancel</button>
+                    </div>
+                </div>
+            }
+            else
             {
-                <div class="alert alert-@extSpeedTestMessageClass">
-                    @extSpeedTestMessage
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-primary" @onclick="StartAddExtServer">+ Add Server</button>
                 </div>
             }
 
-            @if (extSpeedTestSaved && !string.IsNullOrEmpty(extSpeedTestHost))
+            @if (!string.IsNullOrEmpty(extServerMessage))
             {
-                <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--bg-tertiary);">
-                    <h3 style="font-size: 1rem; margin-bottom: 0.75rem;">Deploy to Remote Server</h3>
-                    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 0.75rem;">Run this command on your remote server to deploy the speed test container:</p>
-                    <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(extSpeedTestSavedSettings?.ServerId)@GetSavedDeployPortParam()</pre>
-
-                    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 1rem; margin-bottom: 0.75rem;">To update an existing installation:</p>
-                    <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
-
-                    <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem;">
-                        HTTPS is strongly recommended - Chrome and Edge block results from posting back without it. If you use <a href="https://github.com/Ozark-Connect/NetworkOptimizer-Proxy" target="_blank" style="color: var(--info-color);">NetworkOptimizer-Proxy</a>, the WAN speed test route is pre-configured - just uncomment it. Otherwise, see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#external-wan-speed-test-server-optional" target="_blank" style="color: var(--info-color);">deployment guide</a>.
-                    </p>
+                <div class="alert alert-@extServerMessageClass" style="margin-top: 1rem;">
+                    @extServerMessage
                 </div>
+            }
+
+            @if (extServers.Count > 0)
+            {
+                <p style="color: var(--text-muted); font-size: 0.8125rem; margin-top: 1rem;">
+                    HTTPS is strongly recommended - Chrome and Edge block results from posting back without it. If you use <a href="https://github.com/Ozark-Connect/NetworkOptimizer-Proxy" target="_blank" style="color: var(--info-color);">NetworkOptimizer-Proxy</a>, the WAN speed test route is pre-configured - just uncomment it. Otherwise, see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#external-wan-speed-test-server-optional" target="_blank" style="color: var(--info-color);">deployment guide</a>.
+                </p>
             }
         </div>
     </div>
@@ -1985,17 +2047,19 @@
     private string iperf3Message = "";
     private string iperf3MessageClass = "";
 
-    // External Speed Test Server
-    private string extSpeedTestHost = "";
-    private int extSpeedTestPort = 3005;
-    private string extSpeedTestScheme = "https";
-    private string extSpeedTestName = "";
-    private string extSpeedTestServerId = "";
-    private ExternalSpeedTestSettings? extSpeedTestSavedSettings = null;
-    private bool extSpeedTestSaved = false;
-    private bool savingExtSpeedTest = false;
-    private string extSpeedTestMessage = "";
-    private string extSpeedTestMessageClass = "";
+    // External Speed Test Servers
+    private List<ExternalSpeedTestServer> extServers = new();
+    private bool showExtServerForm = false;
+    private int? editingExtServerId = null;
+    private string extServerFormName = "";
+    private string extServerFormHost = "";
+    private int extServerFormPort = 3005;
+    private string extServerFormScheme = "https";
+    private bool savingExtServer = false;
+    private int deletingExtServerId = 0;
+    private int extServerExpandedId = 0;
+    private string extServerMessage = "";
+    private string extServerMessageClass = "";
 
     // Admin Password
     private AdminPasswordSource adminPasswordSource = AdminPasswordSource.None;
@@ -2118,7 +2182,7 @@
         await LoadModemConfigs();
         await LoadDiscoveredModems();
         await LoadIperf3Settings();
-        await LoadExternalSpeedTestSettings();
+        await LoadExtServers();
         await LoadAdminPasswordSettings();
         await LoadAuditSettings();
         await LoadAlertChannels();
@@ -2179,111 +2243,163 @@
         }
     }
 
-    private async Task LoadExternalSpeedTestSettings()
+    private async Task LoadExtServers()
     {
         try
         {
-            var settings = await SystemSettings.GetExternalSpeedTestSettingsAsync();
-            extSpeedTestHost = settings.Host ?? "";
-            extSpeedTestPort = settings.Port;
-            extSpeedTestScheme = settings.Scheme;
-            extSpeedTestName = settings.Name;
-            extSpeedTestServerId = settings.ServerId;
-            extSpeedTestSavedSettings = settings;
-            extSpeedTestSaved = settings.IsConfigured;
+            extServers = await SystemSettings.GetExternalSpeedTestServersAsync();
         }
         catch (Exception ex)
         {
-            extSpeedTestMessage = $"Error loading settings: {ex.Message}";
-            extSpeedTestMessageClass = "danger";
+            extServerMessage = $"Error loading servers: {ex.Message}";
+            extServerMessageClass = "danger";
         }
     }
 
-    private async Task SaveExternalSpeedTestSettings()
+    private void StartAddExtServer()
     {
-        savingExtSpeedTest = true;
-        extSpeedTestMessage = "";
+        editingExtServerId = null;
+        extServerFormName = "";
+        extServerFormHost = "";
+        extServerFormPort = 3005;
+        extServerFormScheme = "https";
+        showExtServerForm = true;
+        extServerMessage = "";
+    }
+
+    private void StartEditExtServer(ExternalSpeedTestServer server)
+    {
+        editingExtServerId = server.Id;
+        extServerFormName = server.Name;
+        extServerFormHost = server.Host;
+        extServerFormPort = server.Port;
+        extServerFormScheme = server.Scheme;
+        showExtServerForm = true;
+        extServerMessage = "";
+    }
+
+    private void CancelExtServerForm()
+    {
+        showExtServerForm = false;
+        editingExtServerId = null;
+    }
+
+    private async Task SaveExtServer()
+    {
+        if (string.IsNullOrWhiteSpace(extServerFormName) || string.IsNullOrWhiteSpace(extServerFormHost))
+        {
+            extServerMessage = "Server name and hostname are required";
+            extServerMessageClass = "danger";
+            return;
+        }
+
+        savingExtServer = true;
+        extServerMessage = "";
         StateHasChanged();
 
         try
         {
-            extSpeedTestPort = Math.Clamp(extSpeedTestPort, 1, 65535);
-
-            var settings = new ExternalSpeedTestSettings
+            var server = new ExternalSpeedTestServer
             {
-                Host = extSpeedTestHost?.Trim(),
-                Port = extSpeedTestPort,
-                Scheme = extSpeedTestScheme,
-                Name = extSpeedTestName?.Trim() ?? ""
+                Name = extServerFormName.Trim(),
+                Host = extServerFormHost.Trim(),
+                Port = Math.Clamp(extServerFormPort, 1, 65535),
+                Scheme = extServerFormScheme
             };
 
-            await SystemSettings.SaveExternalSpeedTestSettingsAsync(settings);
+            if (editingExtServerId.HasValue)
+            {
+                server.Id = editingExtServerId.Value;
+                await SystemSettings.UpdateExternalSpeedTestServerAsync(server);
+                extServerMessage = "Server updated";
+            }
+            else
+            {
+                await SystemSettings.AddExternalSpeedTestServerAsync(server);
+                extServerMessage = "Server added";
+            }
+            extServerMessageClass = "success";
 
-            // Reload to get the generated ServerId
-            var saved = await SystemSettings.GetExternalSpeedTestSettingsAsync();
-            extSpeedTestServerId = saved.ServerId;
-            extSpeedTestSavedSettings = saved;
-            extSpeedTestSaved = saved.IsConfigured;
-
-            // Update CORS cache so the external server can immediately post results
-            SystemSettings.UpdateCachedExternalOrigin(saved);
-
-            extSpeedTestMessage = "External speed test server settings saved";
-            extSpeedTestMessageClass = "success";
+            await LoadExtServers();
+            SystemSettings.UpdateCachedExternalOrigins(extServers);
+            showExtServerForm = false;
+            editingExtServerId = null;
         }
         catch (Exception ex)
         {
-            extSpeedTestMessage = $"Error saving settings: {ex.Message}";
-            extSpeedTestMessageClass = "danger";
+            extServerMessage = $"Error saving server: {ex.Message}";
+            extServerMessageClass = "danger";
         }
         finally
         {
-            savingExtSpeedTest = false;
+            savingExtServer = false;
             StateHasChanged();
         }
     }
 
-    private string ComputeExternalSpeedTestUrl()
+    private async Task DeleteExtServer(int id)
     {
-        if (string.IsNullOrWhiteSpace(extSpeedTestHost)) return "";
-        return (extSpeedTestPort == 443 || extSpeedTestPort == 80)
-            ? $"{extSpeedTestScheme}://{extSpeedTestHost}"
-            : $"{extSpeedTestScheme}://{extSpeedTestHost}:{extSpeedTestPort}";
+        deletingExtServerId = id;
+        extServerMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await SystemSettings.DeleteExternalSpeedTestServerAsync(id);
+            await LoadExtServers();
+            SystemSettings.UpdateCachedExternalOrigins(extServers);
+            if (extServerExpandedId == id) extServerExpandedId = 0;
+            extServerMessage = "Server removed";
+            extServerMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            extServerMessage = $"Error deleting server: {ex.Message}";
+            extServerMessageClass = "danger";
+        }
+        finally
+        {
+            deletingExtServerId = 0;
+            StateHasChanged();
+        }
     }
 
-    private string ComputeServerId()
+    private async Task SetDefaultExtServer(int id)
     {
-        return ExternalSpeedTestServer.GenerateServerId(extSpeedTestName);
+        try
+        {
+            await SystemSettings.SetDefaultExternalSpeedTestServerAsync(id);
+            await LoadExtServers();
+        }
+        catch (Exception ex)
+        {
+            extServerMessage = $"Error setting default: {ex.Message}";
+            extServerMessageClass = "danger";
+        }
     }
 
-    private void UpdateServerId()
+    private void ToggleExtServerDeploy(int id)
     {
-        extSpeedTestServerId = ComputeServerId();
+        extServerExpandedId = extServerExpandedId == id ? 0 : id;
+    }
+
+    private string ComputeExtServerFormUrl()
+    {
+        if (string.IsNullOrWhiteSpace(extServerFormHost)) return "";
+        return (extServerFormPort == 443 || extServerFormPort == 80)
+            ? $"{extServerFormScheme}://{extServerFormHost}"
+            : $"{extServerFormScheme}://{extServerFormHost}:{extServerFormPort}";
     }
 
     private string GetOptimizerUrl()
     {
-        var baseUri = NavigationManager.BaseUri.TrimEnd('/');
-        return baseUri;
+        return NavigationManager.BaseUri.TrimEnd('/');
     }
 
-    private string GetDeployPortParam()
+    private string GetDeployPortParam(ExternalSpeedTestServer server)
     {
-        // HTTPS = reverse proxied, container always runs on default 3005
-        if (extSpeedTestScheme == "https")
-            return "";
-        // HTTP with non-default port
-        if (extSpeedTestPort != 3005)
-            return $" {extSpeedTestPort}";
-        return "";
-    }
-
-    private string GetSavedDeployPortParam()
-    {
-        if (extSpeedTestSavedSettings == null) return "";
-        if (extSpeedTestSavedSettings.Scheme == "https") return "";
-        if (extSpeedTestSavedSettings.Port != 3005)
-            return $" {extSpeedTestSavedSettings.Port}";
+        if (server.Scheme == "https") return "";
+        if (server.Port != 3005) return $" {server.Port}";
         return "";
     }
 
