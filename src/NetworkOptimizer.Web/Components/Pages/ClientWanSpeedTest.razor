@@ -109,11 +109,19 @@
                 <div class="header-title-row">
                     <h2 class="card-title">Test History</h2>
                     <div class="header-actions">
+                        @if (!string.IsNullOrEmpty(_serverFilter))
+                        {
+                            <div class="device-filter-pill">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                <span>Server: <strong>@_serverFilterName</strong></span>
+                                <button class="device-filter-clear" @onclick="ClearServerFilter" type="button">×</button>
+                            </div>
+                        }
                         @if (!string.IsNullOrEmpty(_deviceFilter))
                         {
                             <div class="device-filter-pill">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                                <span>Filtering to <strong>@_deviceFilterName</strong></span>
+                                <span>Device: <strong>@_deviceFilterName</strong></span>
                                 <button class="device-filter-clear" @onclick="ClearDeviceFilter" type="button">×</button>
                             </div>
                         }
@@ -200,7 +208,19 @@
                                         </td>
                                         @if (_servers.Count > 1)
                                         {
-                                            <td class="hide-mobile">@ResolveServerName(result.ExternalServerName)</td>
+                                            <td class="hide-mobile">
+                                                @{
+                                                    var serverName = ResolveServerName(result.ExternalServerName);
+                                                    var isServerFiltered = string.Equals(_serverFilter, result.ExternalServerName, StringComparison.OrdinalIgnoreCase);
+                                                }
+                                                <span>@serverName</span>
+                                                @if (!string.IsNullOrEmpty(result.ExternalServerName))
+                                                {
+                                                    <button class="device-filter-btn @(isServerFiltered ? "active" : "")" @onclick="() => ToggleServerFilter(result.ExternalServerName!, serverName)" @onclick:stopPropagation data-tooltip="@(isServerFiltered ? "Clear server filter" : "Filter to this server")" data-tooltip-hover-only>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                                    </button>
+                                                }
+                                            </td>
                                         }
                                         <td class="hide-mobile">
                                             @if (result.DownloadMbps > 0)
@@ -263,7 +283,10 @@
                     {
                         <div class="pagination">
                             <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
-                            <span class="pagination-info">Page @_page of @_totalPages (@_filteredResults.Count@(string.IsNullOrEmpty(_deviceFilter) ? " total" : $" of {_results.Count}"))</span>
+                            @{
+                                var hasFilter = !string.IsNullOrEmpty(_deviceFilter) || !string.IsNullOrEmpty(_serverFilter);
+                            }
+                            <span class="pagination-info">Page @_page of @_totalPages (@_filteredResults.Count@(hasFilter ? $" of {_results.Count}" : " total"))</span>
                             <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
                         </div>
                     }
@@ -535,9 +558,22 @@
     private string _deviceFilter = "";
     private string _deviceFilterName = "";
 
-    private List<Iperf3Result> _filteredResults => string.IsNullOrEmpty(_deviceFilter)
-        ? _results
-        : _results.Where(r => string.Equals(r.DeviceHost, _deviceFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+    // Server filter (set by clicking filter icon on server column)
+    private string _serverFilter = "";
+    private string _serverFilterName = "";
+
+    private List<Iperf3Result> _filteredResults
+    {
+        get
+        {
+            IEnumerable<Iperf3Result> q = _results;
+            if (!string.IsNullOrEmpty(_deviceFilter))
+                q = q.Where(r => string.Equals(r.DeviceHost, _deviceFilter, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(_serverFilter))
+                q = q.Where(r => string.Equals(r.ExternalServerName, _serverFilter, StringComparison.OrdinalIgnoreCase));
+            return q.ToList();
+        }
+    }
 
     private int _totalPages => Math.Max(1, (int)Math.Ceiling(_filteredResults.Count / (double)PageSize));
     private IEnumerable<Iperf3Result> _pagedResults => _filteredResults.Skip((_page - 1) * PageSize).Take(PageSize);
@@ -630,6 +666,32 @@
             _deviceFilter = host;
             _deviceFilterName = displayName;
         }
+        _page = 1;
+        _expandedId = 0;
+        StateHasChanged();
+    }
+
+    private void ToggleServerFilter(string serverId, string displayName)
+    {
+        if (string.Equals(_serverFilter, serverId, StringComparison.OrdinalIgnoreCase))
+        {
+            _serverFilter = "";
+            _serverFilterName = "";
+        }
+        else
+        {
+            _serverFilter = serverId;
+            _serverFilterName = displayName;
+        }
+        _page = 1;
+        _expandedId = 0;
+        StateHasChanged();
+    }
+
+    private void ClearServerFilter()
+    {
+        _serverFilter = "";
+        _serverFilterName = "";
         _page = 1;
         _expandedId = 0;
         StateHasChanged();
