@@ -23,8 +23,8 @@ public class SystemSettingsService : ISystemSettingsService
     public const int DefaultIperf3UniFiParallelStreams = 3;
     public const int DefaultIperf3OtherParallelStreams = 10;
 
-    // Cached external speed test server origin for CORS checks (volatile for thread safety)
-    private volatile string? _cachedExternalOrigin;
+    // Cached external speed test server origins for CORS checks (volatile reference swap for thread safety)
+    private volatile HashSet<string> _cachedExternalOrigins = new(StringComparer.OrdinalIgnoreCase);
 
     public SystemSettingsService(IServiceProvider serviceProvider, ILogger<SystemSettingsService> logger)
     {
@@ -32,21 +32,18 @@ public class SystemSettingsService : ISystemSettingsService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Check if an origin matches the external speed test server (for CORS)
-    /// </summary>
     public bool IsExternalSpeedTestOrigin(string origin)
     {
-        return !string.IsNullOrEmpty(_cachedExternalOrigin)
-            && string.Equals(origin, _cachedExternalOrigin, StringComparison.OrdinalIgnoreCase);
+        return !string.IsNullOrEmpty(origin) && _cachedExternalOrigins.Contains(origin);
     }
 
-    /// <summary>
-    /// Update the cached external speed test origin (called after settings save)
-    /// </summary>
-    public void UpdateCachedExternalOrigin(ExternalSpeedTestSettings settings)
+    public void UpdateCachedExternalOrigins(IEnumerable<ExternalSpeedTestServer>? servers)
     {
-        _cachedExternalOrigin = settings.IsConfigured ? settings.Url : null;
+        _cachedExternalOrigins = servers == null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(
+                servers.Where(s => s.IsConfigured).Select(s => s.Url),
+                StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -301,15 +298,11 @@ public class SystemSettingsService : ISystemSettingsService
     }
 
     /// <summary>
-    /// Get external speed test server settings (from ExternalSpeedTestServers table)
+    /// Get default external speed test server settings (backward compat for alerts/schedule).
     /// </summary>
     public async Task<ExternalSpeedTestSettings> GetExternalSpeedTestSettingsAsync()
     {
-        using var scope = _serviceProvider.CreateScope();
-        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
-        await using var db = await dbFactory.CreateDbContextAsync();
-
-        var server = await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
+        var server = await GetDefaultExternalSpeedTestServerAsync();
         if (server == null)
             return new ExternalSpeedTestSettings();
 
@@ -323,30 +316,113 @@ public class SystemSettingsService : ISystemSettingsService
         };
     }
 
-    /// <summary>
-    /// Save external speed test server settings (upsert into ExternalSpeedTestServers table)
-    /// </summary>
-    public async Task SaveExternalSpeedTestSettingsAsync(ExternalSpeedTestSettings settings)
+    #region External Speed Test Server CRUD
+
+    public async Task<List<ExternalSpeedTestServer>> GetExternalSpeedTestServersAsync()
     {
         using var scope = _serviceProvider.CreateScope();
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
         await using var db = await dbFactory.CreateDbContextAsync();
 
-        var server = await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
-        if (server == null)
-        {
-            server = new ExternalSpeedTestServer();
-            db.ExternalSpeedTestServers.Add(server);
-        }
+        return await db.ExternalSpeedTestServers
+            .OrderByDescending(s => s.IsDefault)
+            .ThenBy(s => s.Name)
+            .ToListAsync();
+    }
 
-        server.Host = settings.Host ?? "";
-        server.Port = settings.Port;
-        server.Scheme = settings.Scheme;
-        server.Name = settings.Name;
-        server.ServerId = ExternalSpeedTestServer.GenerateServerId(settings.Name);
+    public async Task<ExternalSpeedTestServer?> GetDefaultExternalSpeedTestServerAsync()
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        return await db.ExternalSpeedTestServers.FirstOrDefaultAsync(s => s.IsDefault)
+            ?? await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
+    }
+
+    public async Task<ExternalSpeedTestServer?> GetExternalSpeedTestServerAsync(int id)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        return await db.ExternalSpeedTestServers.FindAsync(id);
+    }
+
+    public async Task AddExternalSpeedTestServerAsync(ExternalSpeedTestServer server)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        server.ServerId = ExternalSpeedTestServer.GenerateServerId(server.Name);
+        server.CreatedAt = DateTime.UtcNow;
+
+        var anyExist = await db.ExternalSpeedTestServers.AnyAsync();
+        if (!anyExist)
+            server.IsDefault = true;
+
+        db.ExternalSpeedTestServers.Add(server);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task UpdateExternalSpeedTestServerAsync(ExternalSpeedTestServer server)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var existing = await db.ExternalSpeedTestServers.FindAsync(server.Id);
+        if (existing == null) return;
+
+        existing.Name = server.Name;
+        existing.Host = server.Host;
+        existing.Port = server.Port;
+        existing.Scheme = server.Scheme;
+        existing.ServerId = ExternalSpeedTestServer.GenerateServerId(server.Name);
 
         await db.SaveChangesAsync();
     }
+
+    public async Task DeleteExternalSpeedTestServerAsync(int id)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var server = await db.ExternalSpeedTestServers.FindAsync(id);
+        if (server == null) return;
+
+        var wasDefault = server.IsDefault;
+        db.ExternalSpeedTestServers.Remove(server);
+        await db.SaveChangesAsync();
+
+        if (wasDefault)
+        {
+            var next = await db.ExternalSpeedTestServers.FirstOrDefaultAsync();
+            if (next != null)
+            {
+                next.IsDefault = true;
+                await db.SaveChangesAsync();
+            }
+        }
+    }
+
+    public async Task SetDefaultExternalSpeedTestServerAsync(int id)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var servers = await db.ExternalSpeedTestServers.ToListAsync();
+        if (!servers.Any(s => s.Id == id)) return;
+
+        foreach (var s in servers)
+            s.IsDefault = s.Id == id;
+        await db.SaveChangesAsync();
+    }
+
+    #endregion
 }
 
 /// <summary>

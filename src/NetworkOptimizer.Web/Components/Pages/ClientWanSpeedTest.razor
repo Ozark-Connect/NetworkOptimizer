@@ -26,7 +26,7 @@
 </div>
 
 <div class="client-speedtest-container">
-    @if (!_serverConfigured)
+    @if (_servers.Count == 0)
     {
         <div class="card">
             <div class="card-body">
@@ -51,9 +51,20 @@
                     <div class="test-option">
                         <div class="test-option-header">
                             <h3>Browser Speed Test</h3>
-                            @if (!string.IsNullOrEmpty(_serverName))
+                            @if (_servers.Count > 1)
                             {
-                                <span class="badge badge-wan">@_serverName</span>
+                                <select class="wan-reassign-select" style="min-width: 140px;"
+                                        @bind="_selectedServerId"
+                                        @bind:after="OnServerChanged">
+                                    @foreach (var s in _servers)
+                                    {
+                                        <option value="@s.Id">@s.Name@(s.IsDefault ? " (default)" : "")</option>
+                                    }
+                                </select>
+                            }
+                            else if (!string.IsNullOrEmpty(_selectedServer?.Name))
+                            {
+                                <span class="badge badge-wan">@_selectedServer.Name</span>
                             }
                             <a href="/settings#external-speedtest-settings" class="tooltip-icon settings-link" data-tooltip="Server settings">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -66,13 +77,13 @@
                             traffic goes from your device, out through your WAN, across the internet to the remote server, and back.
                         </p>
                         <div class="test-option-actions">
-                            <a href="@(_serverUrl)?Run" target="_blank" rel="opener" class="btn btn-primary">
+                            <a href="@(_selectedServer?.Url)?Run" target="_blank" rel="opener" class="btn btn-primary">
                                 Run WAN Speed Test
                             </a>
                             <span class="form-help">Opens in a new tab and auto-starts</span>
                         </div>
                         <div class="url-copy-row">
-                            <input type="text" class="url-display" value="@_serverUrl" readonly />
+                            <input type="text" class="url-display" value="@(_selectedServer?.Url)" readonly />
                             <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
                                 <span class="copy-icon">📋</span>
                                 <span class="copy-check" style="display:none;">✓</span>
@@ -81,7 +92,7 @@
                         <p class="form-help browser-tip">
                             <strong>Tip:</strong> Share this URL with any device on your network to test WAN speed from that device.
                         </p>
-                        @if (_showHttpsWarning)
+                        @if (_selectedServer?.Scheme != "https")
                         {
                             <div class="alert alert-warning" style="margin-top: 1rem;">
                                 <strong>HTTPS Strongly Recommended:</strong> This server is configured over HTTP. Chrome and Edge will block speed test results from posting back due to Private Network Access restrictions. HTTPS with a reverse proxy is strongly recommended.
@@ -502,10 +513,9 @@
 </style>
 
 @code {
-    private bool _serverConfigured;
-    private string _serverUrl = "";
-    private string _serverName = "";
-    private bool _showHttpsWarning;
+    private List<ExternalSpeedTestServer> _servers = new();
+    private ExternalSpeedTestServer? _selectedServer;
+    private int _selectedServerId;
     private bool _loading;
     private List<Iperf3Result> _results = new();
     private int _expandedId;
@@ -529,18 +539,11 @@
         PtrState.RefreshCallback = () => LoadResults();
         PtrState.NotifyStateChanged = StateHasChanged;
 
-        var settings = await SettingsService.GetExternalSpeedTestSettingsAsync();
-        _serverConfigured = settings.IsConfigured;
-        _serverUrl = settings.Url;
-        _serverName = settings.Name;
+        _servers = await SettingsService.GetExternalSpeedTestServersAsync();
+        _selectedServer = _servers.FirstOrDefault(s => s.IsDefault) ?? _servers.FirstOrDefault();
+        _selectedServerId = _selectedServer?.Id ?? 0;
 
-        // Show HTTPS warning when external server is not HTTPS.
-        // Browser loads page from external server (public origin), then XHRs results
-        // back to Network Optimizer (private LAN). Private Network Access requires
-        // the origin to be a secure context (HTTPS) to access private addresses.
-        _showHttpsWarning = settings.Scheme != "https";
-
-        if (_serverConfigured)
+        if (_selectedServer != null)
         {
             await LoadResults();
         }
@@ -558,6 +561,11 @@
             }
             catch { }
         }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private void OnServerChanged()
+    {
+        _selectedServer = _servers.FirstOrDefault(s => s.Id == _selectedServerId);
     }
 
     private async Task LoadResults()
