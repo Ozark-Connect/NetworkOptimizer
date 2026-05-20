@@ -702,11 +702,8 @@ public class ThreatCollectionService : BackgroundService
                     _logger.LogDebug("v2 IPS API returned totalCount={TotalCount}", totalCount);
 
                 events = _normalizer.NormalizeV2Events(v2Response);
-                if (events.Count > 0)
-                {
-                    _logger.LogDebug("Collected {Count} IPS events via v2 API", events.Count);
-                    return events;
-                }
+                _logger.LogDebug("Collected {Count} IPS events via v2 API", events.Count);
+                return events;
             }
         }
         catch (Exception ex)
