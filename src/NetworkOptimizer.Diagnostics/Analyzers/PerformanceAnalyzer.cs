@@ -663,7 +663,7 @@ public class PerformanceAnalyzer
                 if (port.Forward == "disabled")
                     continue;
 
-                if (trunkPorts.Contains((device.Mac, port.PortIdx)))
+                if (trunkPorts.Contains((device.Mac.ToLowerInvariant(), port.PortIdx)))
                     continue;
 
                 bool portFcOff;
@@ -901,12 +901,12 @@ public class PerformanceAnalyzer
             if (!infraMacs.Contains(device.Uplink.UplinkMac))
                 continue;
 
-            // This device's uplink port
+            // This device's uplink port (normalize MAC case for consistent lookup)
             if (device.Uplink.PortIdx.HasValue)
-                trunkPorts.Add((device.Mac, device.Uplink.PortIdx.Value));
+                trunkPorts.Add((device.Mac.ToLowerInvariant(), device.Uplink.PortIdx.Value));
 
             // The upstream device's downlink port
-            trunkPorts.Add((device.Uplink.UplinkMac, device.Uplink.UplinkRemotePort));
+            trunkPorts.Add((device.Uplink.UplinkMac.ToLowerInvariant(), device.Uplink.UplinkRemotePort));
         }
 
         return trunkPorts;

@@ -1436,6 +1436,28 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
+    public void GetInfrastructureTrunkPorts_MixedCaseMacs_NormalizedToLowercase()
+    {
+        var core = CreateSwitch("core", "Core");
+        core.Mac = "AA:BB:CC:00:00:01";
+
+        var access = CreateSwitch("access", "Access");
+        access.Mac = "aa:bb:cc:00:00:02";
+        access.Uplink = new UplinkInfo
+        {
+            UplinkMac = "AA:BB:CC:00:00:01",
+            UplinkRemotePort = 5,
+            PortIdx = 1
+        };
+
+        var result = PerformanceAnalyzer.GetInfrastructureTrunkPorts(
+            new List<UniFiDeviceResponse> { core, access });
+
+        result.Should().Contain(("aa:bb:cc:00:00:01", 5));
+        result.Should().Contain(("aa:bb:cc:00:00:02", 1));
+    }
+
+    [Fact]
     public void GetInfrastructureTrunkPorts_NoUplink_Empty()
     {
         var sw = CreateSwitch("switch1", "Switch 1");
