@@ -621,7 +621,8 @@ public class PerformanceAnalyzer
         if (portProfiles != null)
         {
             var fcOffProfiles = portProfiles
-                .Where(p => p.FlowControlEnabled == false && p.Forward != "disabled")
+                .Where(p => p.FlowControlEnabled == false && p.Forward != "disabled"
+                    && !p.Name.Contains("trunk", StringComparison.OrdinalIgnoreCase))
                 .ToList();
             if (fcOffProfiles.Count > 0)
             {

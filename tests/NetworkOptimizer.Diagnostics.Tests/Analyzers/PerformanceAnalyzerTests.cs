@@ -1343,6 +1343,26 @@ public class PerformanceAnalyzerTests
         profileIssues.Should().Contain(i => i.Title.Contains("Profile B"));
     }
 
+    [Fact]
+    public void CheckFlowControl_GlobalOn_TrunkNamedProfile_SkipsProfile()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "10G Trunk", FlowControlEnabled = false },
+            new() { Id = "profile2", Name = "Uplink Trunk Port", FlowControlEnabled = false },
+            new() { Id = "profile3", Name = "Access Port", FlowControlEnabled = false }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
+
+        var profileIssues = result.Where(i => i.Title.Contains("Profile")).ToList();
+        profileIssues.Should().HaveCount(1);
+        profileIssues.Should().Contain(i => i.Title.Contains("Access Port"));
+    }
+
     #endregion
 
     #region GetInfrastructureTrunkPorts
