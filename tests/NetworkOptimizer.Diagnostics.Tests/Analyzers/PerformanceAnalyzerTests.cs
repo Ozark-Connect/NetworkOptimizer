@@ -1168,6 +1168,111 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
+    public void CheckFlowControl_GlobalOn_TrunkPortFcOff_SkipsTrunk()
+    {
+        var coreSwitch = CreateSwitch("core", "Core Switch");
+        coreSwitch.Mac = "aa:bb:cc:00:00:01";
+        coreSwitch.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Port 1", Up = true, FlowControlEnabled = false },
+            new() { PortIdx = 5, Name = "Port 5", Up = true, FlowControlEnabled = false }
+        };
+
+        var accessSwitch = CreateSwitch("access", "Access Switch");
+        accessSwitch.Mac = "aa:bb:cc:00:00:02";
+        accessSwitch.Uplink = new UplinkInfo
+        {
+            UplinkMac = "aa:bb:cc:00:00:01",
+            UplinkRemotePort = 5,
+            PortIdx = 1
+        };
+        accessSwitch.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Uplink", Up = true, FlowControlEnabled = false },
+            new() { PortIdx = 2, Name = "Port 2", Up = true, FlowControlEnabled = false }
+        };
+
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { coreSwitch, accessSwitch },
+            CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, null);
+
+        // Core Port 5 (downlink to access switch) and Access Port 1 (uplink) are trunk - skipped
+        // Core Port 1 and Access Port 2 are access ports - flagged
+        var coreIssue = result.FirstOrDefault(i => i.DeviceName == "Core Switch" && i.Title.Contains("Overridden"));
+        coreIssue.Should().NotBeNull();
+        coreIssue!.Description.Should().Contain("Port 1");
+        coreIssue.Description.Should().NotContain("Port 5");
+
+        var accessIssue = result.FirstOrDefault(i => i.DeviceName == "Access Switch" && i.Title.Contains("Overridden"));
+        accessIssue.Should().NotBeNull();
+        accessIssue!.Description.Should().Contain("Port 2");
+        accessIssue.Description.Should().NotContain("Uplink");
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_AllPortsTrunk_NoIssue()
+    {
+        var coreSwitch = CreateSwitch("core", "Core Switch");
+        coreSwitch.Mac = "aa:bb:cc:00:00:01";
+        coreSwitch.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 5, Name = "Port 5", Up = true, FlowControlEnabled = false }
+        };
+
+        var accessSwitch = CreateSwitch("access", "Access Switch");
+        accessSwitch.Mac = "aa:bb:cc:00:00:02";
+        accessSwitch.Uplink = new UplinkInfo
+        {
+            UplinkMac = "aa:bb:cc:00:00:01",
+            UplinkRemotePort = 5,
+            PortIdx = 1
+        };
+        accessSwitch.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Uplink", Up = true, FlowControlEnabled = false }
+        };
+
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { coreSwitch, accessSwitch },
+            CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, null);
+
+        result.Should().NotContain(i => i.Title.Contains("Overridden"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_SwitchToGatewayTrunk_SkipsTrunk()
+    {
+        var gateway = CreateGateway();
+        gateway.Mac = "aa:bb:cc:00:00:01";
+
+        var sw = CreateSwitch("switch1", "Switch 1");
+        sw.Mac = "aa:bb:cc:00:00:02";
+        sw.Uplink = new UplinkInfo
+        {
+            UplinkMac = "aa:bb:cc:00:00:01",
+            UplinkRemotePort = 1,
+            PortIdx = 24
+        };
+        sw.PortTable = new List<SwitchPort>
+        {
+            new() { PortIdx = 1, Name = "Port 1", Up = true, FlowControlEnabled = false },
+            new() { PortIdx = 24, Name = "SFP+", Up = true, FlowControlEnabled = false }
+        };
+
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var result = _analyzer.CheckFlowControl(
+            new List<UniFiDeviceResponse> { gateway, sw },
+            CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, null);
+
+        var switchIssue = result.FirstOrDefault(i => i.DeviceName == "Switch 1" && i.Title.Contains("Overridden"));
+        switchIssue.Should().NotBeNull();
+        switchIssue!.Description.Should().Contain("Port 1");
+        switchIssue.Description.Should().NotContain("SFP+");
+    }
+
+    [Fact]
     public void CheckFlowControl_GlobalOn_DownPortWithFcOff_StillFlags()
     {
         var device = CreateSwitch("switch1", "Switch 1");
@@ -1236,6 +1341,130 @@ public class PerformanceAnalyzerTests
         profileIssues.Should().HaveCount(2);
         profileIssues.Should().Contain(i => i.Title.Contains("Profile A"));
         profileIssues.Should().Contain(i => i.Title.Contains("Profile B"));
+    }
+
+    [Fact]
+    public void CheckFlowControl_GlobalOn_TrunkNamedProfile_SkipsProfile()
+    {
+        var devices = new List<UniFiDeviceResponse> { CreateSwitch("switch1", "Switch 1") };
+        var settings = CreateSettings(flowCtrlEnabled: true);
+        var profiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile1", Name = "10G Trunk", FlowControlEnabled = false },
+            new() { Id = "profile2", Name = "Uplink Trunk Port", FlowControlEnabled = false },
+            new() { Id = "profile3", Name = "Access Port", FlowControlEnabled = false }
+        };
+
+        var result = _analyzer.CheckFlowControl(
+            devices, CreateWanNetwork(500), new List<UniFiClientResponse>(), settings, profiles);
+
+        var profileIssues = result.Where(i => i.Title.Contains("Profile")).ToList();
+        profileIssues.Should().HaveCount(1);
+        profileIssues.Should().Contain(i => i.Title.Contains("Access Port"));
+    }
+
+    #endregion
+
+    #region GetInfrastructureTrunkPorts
+
+    [Fact]
+    public void GetInfrastructureTrunkPorts_SwitchToSwitch_ReturnsBothSides()
+    {
+        var core = CreateSwitch("core", "Core");
+        core.Mac = "aa:bb:cc:00:00:01";
+
+        var access = CreateSwitch("access", "Access");
+        access.Mac = "aa:bb:cc:00:00:02";
+        access.Uplink = new UplinkInfo
+        {
+            UplinkMac = "aa:bb:cc:00:00:01",
+            UplinkRemotePort = 5,
+            PortIdx = 1
+        };
+
+        var result = PerformanceAnalyzer.GetInfrastructureTrunkPorts(
+            new List<UniFiDeviceResponse> { core, access });
+
+        result.Should().Contain(("aa:bb:cc:00:00:01", 5));
+        result.Should().Contain(("aa:bb:cc:00:00:02", 1));
+        result.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void GetInfrastructureTrunkPorts_SwitchToGateway_ReturnsBothSides()
+    {
+        var gateway = CreateGateway();
+        gateway.Mac = "aa:bb:cc:00:00:01";
+
+        var sw = CreateSwitch("switch1", "Switch 1");
+        sw.Mac = "aa:bb:cc:00:00:02";
+        sw.Uplink = new UplinkInfo
+        {
+            UplinkMac = "aa:bb:cc:00:00:01",
+            UplinkRemotePort = 1,
+            PortIdx = 24
+        };
+
+        var result = PerformanceAnalyzer.GetInfrastructureTrunkPorts(
+            new List<UniFiDeviceResponse> { gateway, sw });
+
+        result.Should().Contain(("aa:bb:cc:00:00:01", 1));
+        result.Should().Contain(("aa:bb:cc:00:00:02", 24));
+    }
+
+    [Fact]
+    public void GetInfrastructureTrunkPorts_UplinkToAP_NotTrunk()
+    {
+        var sw = CreateSwitch("switch1", "Switch 1");
+        sw.Mac = "aa:bb:cc:00:00:01";
+
+        var ap = new UniFiDeviceResponse
+        {
+            Id = "ap1", Mac = "aa:bb:cc:00:00:02", Name = "AP", Type = "uap",
+            Uplink = new UplinkInfo
+            {
+                UplinkMac = "aa:bb:cc:00:00:01",
+                UplinkRemotePort = 3,
+                PortIdx = 1
+            }
+        };
+
+        var result = PerformanceAnalyzer.GetInfrastructureTrunkPorts(
+            new List<UniFiDeviceResponse> { sw, ap });
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GetInfrastructureTrunkPorts_MixedCaseMacs_NormalizedToLowercase()
+    {
+        var core = CreateSwitch("core", "Core");
+        core.Mac = "AA:BB:CC:00:00:01";
+
+        var access = CreateSwitch("access", "Access");
+        access.Mac = "aa:bb:cc:00:00:02";
+        access.Uplink = new UplinkInfo
+        {
+            UplinkMac = "AA:BB:CC:00:00:01",
+            UplinkRemotePort = 5,
+            PortIdx = 1
+        };
+
+        var result = PerformanceAnalyzer.GetInfrastructureTrunkPorts(
+            new List<UniFiDeviceResponse> { core, access });
+
+        result.Should().Contain(("aa:bb:cc:00:00:01", 5));
+        result.Should().Contain(("aa:bb:cc:00:00:02", 1));
+    }
+
+    [Fact]
+    public void GetInfrastructureTrunkPorts_NoUplink_Empty()
+    {
+        var sw = CreateSwitch("switch1", "Switch 1");
+        var result = PerformanceAnalyzer.GetInfrastructureTrunkPorts(
+            new List<UniFiDeviceResponse> { sw });
+
+        result.Should().BeEmpty();
     }
 
     #endregion
