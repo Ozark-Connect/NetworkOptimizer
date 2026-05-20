@@ -600,6 +600,8 @@ public class PerformanceAnalyzer
     /// <summary>
     /// When global Flow Control is ON, check for port profiles and individual switch ports
     /// that have Flow Control explicitly disabled - creating inconsistency with the global setting.
+    /// Trunk ports (connecting switches/gateways on both sides) are excluded since disabling
+    /// FC on high-speed inter-switch links is a common and often optimal practice.
     /// </summary>
     [VendorSpecific("UniFi", "Reads FlowControlEnabled from port profiles and flow_control_enabled from switch port_table")]
     internal List<PerformanceIssue> CheckFlowControlPortProfiles(
@@ -612,6 +614,8 @@ public class PerformanceAnalyzer
         // Build profile lookup if available
         var profilesById = portProfiles?.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase)
             ?? new Dictionary<string, UniFiPortProfile>(StringComparer.OrdinalIgnoreCase);
+
+        var trunkPorts = GetInfrastructureTrunkPorts(devices);
 
         // Find profiles with FC explicitly disabled
         if (portProfiles != null)
@@ -656,6 +660,9 @@ public class PerformanceAnalyzer
             foreach (var port in device.PortTable)
             {
                 if (port.Forward == "disabled")
+                    continue;
+
+                if (trunkPorts.Contains((device.Mac, port.PortIdx)))
                     continue;
 
                 bool portFcOff;
@@ -866,6 +873,42 @@ public class PerformanceAnalyzer
         }
 
         return speeds;
+    }
+
+    /// <summary>
+    /// Builds a set of (device MAC, port index) pairs for ports that connect infrastructure
+    /// devices (switches and gateways) to each other. Both sides of each link are included.
+    /// </summary>
+    internal static HashSet<(string Mac, int PortIdx)> GetInfrastructureTrunkPorts(
+        List<UniFiDeviceResponse> devices)
+    {
+        var trunkPorts = new HashSet<(string Mac, int PortIdx)>();
+
+        var infraMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in devices)
+        {
+            if (d.DeviceType is DeviceType.Switch or DeviceType.Gateway && !string.IsNullOrEmpty(d.Mac))
+                infraMacs.Add(d.Mac);
+        }
+
+        foreach (var device in devices)
+        {
+            if (device.DeviceType is not (DeviceType.Switch or DeviceType.Gateway))
+                continue;
+            if (device.Uplink == null || string.IsNullOrEmpty(device.Uplink.UplinkMac))
+                continue;
+            if (!infraMacs.Contains(device.Uplink.UplinkMac))
+                continue;
+
+            // This device's uplink port
+            if (device.Uplink.PortIdx.HasValue)
+                trunkPorts.Add((device.Mac, device.Uplink.PortIdx.Value));
+
+            // The upstream device's downlink port
+            trunkPorts.Add((device.Uplink.UplinkMac, device.Uplink.UplinkRemotePort));
+        }
+
+        return trunkPorts;
     }
 
     /// <summary>
