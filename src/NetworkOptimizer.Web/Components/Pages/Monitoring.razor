@@ -55,7 +55,7 @@ else if (_snmpState == SnmpDetectionState.NotChecked)
 }
 else if (_snmpState == SnmpDetectionState.Disabled)
 {
-    <!-- SNMP not enabled — setup guide -->
+    <!-- SNMP not enabled - setup guide -->
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">SNMP Setup Required</h2>
@@ -93,7 +93,7 @@ else if (_snmpState == SnmpDetectionState.Disabled)
 }
 else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetectionState.EnabledV3Only || _snmpState == SnmpDetectionState.Working)
 {
-    <!-- SNMP configured — show monitoring content -->
+    <!-- SNMP configured - show monitoring content -->
 
     @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
     {
@@ -146,7 +146,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                     else if (!_influxConfigured)
                     {
                         <span class="status-indicator status-inactive"></span>
-                        <span>Not configured — follow the setup card above.</span>
+                        <span>Not configured - follow the setup card above.</span>
                     }
                     else
                     {
@@ -263,7 +263,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                                     @if (!string.IsNullOrEmpty(sfp.SfpPart))
                                     { <code>@sfp.SfpPart</code> }
                                     else
-                                    { <span class="text-muted">—</span> }
+                                    { <span class="text-muted">-</span> }
                                 </td>
                                 <td class="@RxClass(stats?.RxPowerDbm)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
                                 <td>@FormatOptical(stats?.TxPowerDbm, "dBm")</td>
@@ -428,7 +428,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
 
     private async Task OnInfluxProvisioned()
     {
-        // Wizard reports success — refresh the page state so the card flips from
+        // Wizard reports success - refresh the page state so the card flips from
         // "set up InfluxDB" to "configured + ready to enable" without a navigation.
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         LoadInfluxStateFromSettings(settings);
@@ -547,7 +547,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
 
     private static string FormatOptical(double? value, string unit)
     {
-        if (!value.HasValue) return "—";
+        if (!value.HasValue) return "-";
         return $"{value.Value:0.##} {unit}";
     }
 

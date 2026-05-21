@@ -15,6 +15,17 @@ namespace NetworkOptimizer.Monitoring.Probes;
 /// different shape from Linux/busybox and would require its own parser — see spec open
 /// question #10). Also serves as the implementation fallback on any platform where the
 /// native `traceroute` binary isn't present.
+///
+/// **Linux capability requirement.** This implementation calls the
+/// <c>Ping.SendPingAsync(host, timeout, buffer, options)</c> overload, which passes a
+/// custom payload + TTL via PingOptions. That overload uses a raw ICMP socket and
+/// requires CAP_NET_RAW on the calling process — the unprivileged
+/// <c>IPPROTO_ICMP</c> socket Linux exposes to non-root users does *not* support custom
+/// PingOptions and throws <see cref="PlatformNotSupportedException"/>. The Network
+/// Optimizer Docker container runs as a non-root user without CAP_NET_RAW, so on Linux
+/// the <see cref="LocalProbeExecutor"/> prefers the native <c>traceroute -I</c> binary
+/// (which is setuid / has its own capabilities) for ICMP and only falls back to this
+/// managed implementation when the binary is missing.
 /// </summary>
 public class ManagedTraceroute
 {

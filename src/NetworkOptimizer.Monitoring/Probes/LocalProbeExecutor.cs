@@ -231,19 +231,15 @@ public class LocalProbeExecutor : IProbeExecutor
         deadlineCts.CancelAfter(deadline);
         var probeCt = deadlineCts.Token;
 
-        // Prefer the native traceroute binary on Linux/macOS — it can do UDP/TCP modes, and
-        // its hop output includes DNS PTR records when -n is omitted (we keep -n for speed,
-        // but the binary remains the source of truth on Unix). On Windows MSI installs the
-        // binary isn't available and tracert.exe's output is a different format, so fall
-        // back to the managed Ping-with-TTL implementation.
-        if (!_tracerouteBinaryAvailable || OperatingSystem.IsWindows() || target.Mode == ProbeMode.Icmp)
+        // Prefer the native traceroute binary on Linux/macOS for every mode (including
+        // ICMP — `traceroute -I`). The binary ships setuid / with proper capabilities so
+        // it doesn't need CAP_NET_RAW on the calling process, and it captures PTR records
+        // that the managed implementation can't get. On Windows MSI installs the binary
+        // isn't available and tracert.exe's output is a different format, so we fall back
+        // to the managed Ping-with-TTL implementation only there (or as a last-resort
+        // fallback when traceroute is genuinely missing).
+        if (!_tracerouteBinaryAvailable || OperatingSystem.IsWindows())
         {
-            if (target.Mode != ProbeMode.Icmp && !_tracerouteBinaryAvailable)
-            {
-                _logger.LogDebug(
-                    "Requested {Mode} traceroute but native binary missing — falling back to managed ICMP traceroute",
-                    target.Mode);
-            }
             return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout, 3, probeCt);
         }
 

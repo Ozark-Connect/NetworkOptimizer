@@ -163,7 +163,7 @@
 
     private static string FormatBps(double? bps)
     {
-        if (!bps.HasValue) return "—";
+        if (!bps.HasValue) return "-";
         var v = bps.Value;
         if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.##} Gbps";
         if (v >= 1_000_000) return $"{v / 1_000_000:0.##} Mbps";

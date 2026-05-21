@@ -407,6 +407,187 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    // ---- Read API (Flux queries) ----
+
+    /// <summary>
+    /// Per-port time-series of computed rates for one device. Used by the diagnostic
+    /// view to plot ingress/egress per ifName over a chosen window. Returns rows
+    /// ordered by time.
+    /// </summary>
+    public async Task<IReadOnlyList<InterfaceRatePoint>> QueryInterfaceRatesAsync(
+        string deviceMac,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<InterfaceRatePoint>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<InterfaceRatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new InterfaceRatePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                IfName = record.GetValueByKey("if_name") as string ?? "?",
+                RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
+                RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
+            });
+        }
+        return results;
+    }
+
+    /// <summary>Per-device CPU/memory/temperature trace.</summary>
+    public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthAsync(
+        string deviceMac,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<DeviceHealthPoint>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<DeviceHealthPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new DeviceHealthPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                CpuPercent = AsDoubleOrNull(record.GetValueByKey("cpu_percent")),
+                MemoryUsedPercent = AsDoubleOrNull(record.GetValueByKey("memory_used_percent")),
+                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c"))
+            });
+        }
+        return results;
+    }
+
+    /// <summary>Time-series of RTT and loss for a single monitoring target.</summary>
+    public async Task<IReadOnlyList<LatencyPoint>> QueryLatencyAsync(
+        string targetId,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<LatencyPoint>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => r.target_id == ""{targetId}"")
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<LatencyPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new LatencyPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
+                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
+            });
+        }
+        return results;
+    }
+
+    private async IAsyncEnumerable<InfluxDB.Client.Core.Flux.Domain.FluxRecord> QueryFluxAsync(
+        string flux,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        if (_client == null || string.IsNullOrEmpty(_org)) yield break;
+        var queryApi = _client.GetQueryApi();
+        // Use the streaming overload so large windows don't materialize entirely in memory.
+        var tables = await queryApi.QueryAsync(flux, _org, ct);
+        foreach (var table in tables)
+            foreach (var record in table.Records)
+                yield return record;
+    }
+
+    private static TimeSpan PickAggregateWindow(TimeSpan range)
+    {
+        // Aim for ~120 points across the range — enough for a smooth chart, light enough
+        // that InfluxDB doesn't return tens of thousands of rows on long windows.
+        if (range <= TimeSpan.FromMinutes(15)) return TimeSpan.FromSeconds(5);
+        if (range <= TimeSpan.FromHours(1))   return TimeSpan.FromSeconds(30);
+        if (range <= TimeSpan.FromHours(6))   return TimeSpan.FromMinutes(3);
+        if (range <= TimeSpan.FromHours(24))  return TimeSpan.FromMinutes(15);
+        if (range <= TimeSpan.FromDays(7))    return TimeSpan.FromHours(1);
+        return TimeSpan.FromHours(6);
+    }
+
+    private static string ToFluxInstant(DateTime t) =>
+        t.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+    private static string ToFluxDuration(TimeSpan window)
+    {
+        if (window.TotalDays >= 1) return $"{(int)window.TotalDays}d";
+        if (window.TotalHours >= 1) return $"{(int)window.TotalHours}h";
+        if (window.TotalMinutes >= 1) return $"{(int)window.TotalMinutes}m";
+        return $"{Math.Max(1, (int)window.TotalSeconds)}s";
+    }
+
+    private static DateTime ToUtc(DateTime t) =>
+        t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);
+
+    private static double? AsDoubleOrNull(object? v) => v switch
+    {
+        null => null,
+        double d => d,
+        float f => f,
+        int i => (double)i,
+        long l => (double)l,
+        decimal m => (double)m,
+        _ => double.TryParse(v.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? parsed : null
+    };
+
+    public record InterfaceRatePoint
+    {
+        public required DateTime Time { get; init; }
+        public required string IfName { get; init; }
+        public double? RateInBps { get; init; }
+        public double? RateOutBps { get; init; }
+    }
+
+    public record DeviceHealthPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? CpuPercent { get; init; }
+        public double? MemoryUsedPercent { get; init; }
+        public double? TemperatureC { get; init; }
+    }
+
+    public record LatencyPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? RttAvgMs { get; init; }
+        public double? LossPercent { get; init; }
+    }
+
     // ---- Buffer + flush ----
 
     private void Enqueue(PointData point, bool longterm)

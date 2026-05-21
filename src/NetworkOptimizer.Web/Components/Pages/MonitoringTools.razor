@@ -96,7 +96,7 @@
                     <div class="form-value">
                         @($"{_pingResult.RttMinMs:0.000}") / @($"{_pingResult.RttAvgMs:0.000}") /
                         @($"{_pingResult.RttMaxMs:0.000}") /
-                        @(_pingResult.JitterMs.HasValue ? $"{_pingResult.JitterMs:0.000}" : "—") ms
+                        @(_pingResult.JitterMs.HasValue ? $"{_pingResult.JitterMs:0.000}" : "-") ms
                     </div>
                 </div>
             }
@@ -115,7 +115,7 @@
             <h2 class="card-title">Traceroute result</h2>
             <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
                 @(_traceResult.Reached ? "Target reached" : "Did not reach target")
-                · @_traceResult.ModeUsed
+                · @_traceResult.ModeUsed.ToString().ToUpperInvariant()
             </span>
         </div>
         <div class="card-body">
@@ -146,7 +146,7 @@
                                     <span class="text-muted">* * *</span>
                                 }
                             </td>
-                            <td>@(hop.RttAvgMs.HasValue ? $"{hop.RttAvgMs:0.0}" : "—")</td>
+                            <td>@(hop.RttAvgMs.HasValue ? $"{hop.RttAvgMs:0.0}" : "-")</td>
                             <td>@hop.Responses / @hop.Probes</td>
                         </tr>
                     }
@@ -167,6 +167,7 @@
     private bool _running;
     private string _runningKind = string.Empty;
     private string _localCapabilities = "detecting...";
+    private string? _gatewayIp;
 
     private PingProbeResult? _pingResult;
     private TracerouteResult? _traceResult;
@@ -175,6 +176,22 @@
     {
         var cap = await LocalProbe.GetCapabilityAsync();
         _localCapabilities = cap.Describe();
+        await LoadGatewayAsync();
+    }
+
+    private async Task LoadGatewayAsync()
+    {
+        try
+        {
+            if (!ConnectionService.IsConnected) return;
+            var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+            var gateway = devices?.FirstOrDefault(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+            if (gateway != null && !string.IsNullOrEmpty(gateway.DisplayIpAddress))
+            {
+                _gatewayIp = gateway.DisplayIpAddress;
+            }
+        }
+        catch { /* gateway preset is opportunistic; UI still works without it */ }
     }
 
     private async Task RunPing()
@@ -231,19 +248,15 @@
 
     private IEnumerable<PresetTarget> PresetTargets()
     {
+        // Gateway first if we know it and we're not already pointing at it.
+        if (!string.IsNullOrEmpty(_gatewayIp) &&
+            !string.Equals(_targetAddress?.Trim(), _gatewayIp, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return new PresetTarget("Gateway", _gatewayIp, ProbeMode.Icmp);
+        }
         yield return new PresetTarget("Cloudflare DNS", "1.1.1.1", ProbeMode.Icmp);
         yield return new PresetTarget("Google DNS", "8.8.8.8", ProbeMode.Icmp);
         yield return new PresetTarget("Cloudflare TCP/443", "1.1.1.1", ProbeMode.Tcp, 443);
-        var gateway = TryGetGatewayAddress();
-        if (!string.IsNullOrEmpty(gateway))
-            yield return new PresetTarget("Gateway", gateway, ProbeMode.Icmp);
-    }
-
-    private string? TryGetGatewayAddress()
-    {
-        // Topology-driven gateway discovery hooks in later (the topology already knows
-        // the gateway IP). Until then we skip the preset rather than guessing.
-        return null;
     }
 
     private record PresetTarget(string Label, string Address, ProbeMode Mode, int? Port = null);

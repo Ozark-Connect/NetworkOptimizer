@@ -1816,8 +1816,8 @@
             <p class="section-description">
                 Network Optimizer collects per-port SNMP counters and per-device health to
                 drive the dashboard's live device cards, the upcoming diagnostic views, and
-                the 3D LAN map. SNMP credentials are read directly from your UniFi Console
-                — you don't need to copy them by hand. InfluxDB stores the time-series data;
+                the 3D LAN map. SNMP credentials are read directly from your UniFi Console,
+                so you don't need to copy them by hand. InfluxDB stores the time-series data;
                 use your existing instance if you already run one.
             </p>
 
@@ -1866,7 +1866,7 @@
             <p class="section-description">
                 Time-series storage for monitoring data. If you don't already run InfluxDB,
                 the easiest path is the setup helper on the
-                <a href="/monitoring">Monitoring</a> page — it'll detect what's available,
+                <a href="/monitoring">Monitoring</a> page; it'll detect what's available,
                 install InfluxDB if needed, and provision the buckets and an API token for
                 you. If you already run InfluxDB (e.g. for Grafana), point this at it; the
                 bucket names below are NO-specific so they can't collide with other data.
@@ -1900,7 +1900,7 @@
 
             <div class="form-group">
                 <label class="form-label">API Token</label>
-                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved — leave blank to keep)" : "Paste an InfluxDB API token")" />
+                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" />
             </div>
 
             <div class="form-group">
@@ -4705,7 +4705,7 @@
 
             if (health.Reachable)
             {
-                _monitoringMessage = "InfluxDB settings saved — connection successful.";
+                _monitoringMessage = "InfluxDB settings saved; connection successful.";
                 _monitoringMessageClass = "success";
             }
             else

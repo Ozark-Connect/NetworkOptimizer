@@ -75,71 +75,53 @@
                 <h2 class="card-title">@TitlePrefix InfluxDB</h2>
                 <span class="status-badge status-connected">
                     Found at @_probe?.Url
-                    @if (!string.IsNullOrEmpty(_probe?.Version)) { <span> (v@_probe.Version)</span> }
+                    @if (!string.IsNullOrEmpty(_probe?.Version)) { <span> (@_probe.Version)</span> }
                 </span>
             </div>
             <div class="card-body">
                 <p class="section-description">
-                    Provide an <strong>admin (all-access)</strong> API token from your
-                    InfluxDB. We'll use it just for this setup to create a dedicated
-                    org, the required buckets, and a least-privilege token for ongoing
-                    use. <strong>The admin token is held in memory only for this
-                    request and discarded immediately after — it's never saved to disk.</strong>
+                    Provide an <strong>all-access API token</strong> for the InfluxDB org
+                    you want Network Optimizer's data to live in. We'll use it just for
+                    this setup, to create the two NO buckets in that org and mint a
+                    least-privilege token for ongoing use. <strong>Your all-access token
+                    is held in memory only for this request and discarded immediately
+                    after, it's never saved to disk.</strong>
                 </p>
 
                 <div class="form-group">
-                    <label class="form-label">Admin API token</label>
-                    <input type="password" class="form-control" @bind="_adminToken" placeholder="Paste your InfluxDB admin token" />
+                    <label class="form-label">All-access API token</label>
+                    <input type="password" class="form-control" @bind="_adminToken" placeholder="Paste your InfluxDB all-access token" />
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">Where should Network Optimizer's data live?</label>
-                    <div style="margin-top: 0.5rem;">
-                        <label style="display: block; margin-bottom: 0.5rem;">
-                            <input type="radio" name="orgChoice" checked="@(_orgChoice == OrgChoice.CreateNew)"
-                                   @onchange="() => { _orgChoice = OrgChoice.CreateNew; StateHasChanged(); }" />
-                            Create a new org (recommended)
-                        </label>
-                        @if (_orgChoice == OrgChoice.CreateNew)
+                @if (_state == Step.PickOrg)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Which org should Network Optimizer use?</label>
+                        @if (_orgs.Count == 0)
                         {
-                            <input type="text" class="form-control" @bind="_newOrgName"
-                                   style="margin-left: 1.5rem; max-width: 320px;" />
+                            <div class="alert alert-warning">
+                                No orgs are visible to this token. Use a token that's
+                                scoped to your target org, or your operator token.
+                            </div>
+                        }
+                        else
+                        {
+                            <select class="form-control" @bind="_selectedOrgId" style="max-width: 320px;">
+                                <option value="">- Pick an org -</option>
+                                @foreach (var org in _orgs)
+                                {
+                                    <option value="@org.Id">@org.Name</option>
+                                }
+                            </select>
+                            <p class="page-description" style="margin-top: 0.5rem;">
+                                NO creates two buckets in this org: <code>network_monitoring</code>
+                                (90-day retention) and <code>network_monitoring_longterm</code>
+                                (365-day). The bucket names are NO-specific so they can't
+                                collide with anything else in this org.
+                            </p>
                         }
                     </div>
-                    <div style="margin-top: 0.75rem;">
-                        <label style="display: block;">
-                            <input type="radio" name="orgChoice" checked="@(_orgChoice == OrgChoice.UseExisting)"
-                                   @onchange="() => { _orgChoice = OrgChoice.UseExisting; StateHasChanged(); }" />
-                            Use an existing org
-                        </label>
-                        @if (_orgChoice == OrgChoice.UseExisting)
-                        {
-                            @if (_state != Step.PickOrg)
-                            {
-                                <div class="page-description" style="margin-left: 1.5rem; margin-top: 0.5rem;">
-                                    Paste your token and click <strong>Set up</strong>; we'll list
-                                    your orgs so you can pick one.
-                                </div>
-                            }
-                            else if (_orgs.Count == 0)
-                            {
-                                <div class="alert alert-info" style="margin-top: 0.5rem;">
-                                    No existing orgs found. Create a new one above.
-                                </div>
-                            }
-                            else
-                            {
-                                <select class="form-control" @bind="_selectedOrgId"
-                                        style="margin-left: 1.5rem; margin-top: 0.5rem; max-width: 320px;">
-                                    @foreach (var org in _orgs)
-                                    {
-                                        <option value="@org.Id">@org.Name</option>
-                                    }
-                                </select>
-                            }
-                        }
-                    </div>
-                </div>
+                }
 
                 @if (!string.IsNullOrEmpty(_message))
                 {
@@ -190,48 +172,33 @@
     private string _adminToken = string.Empty;
     private string? _authedAs;
     private List<InfluxDbProvisioningService.InfluxOrg> _orgs = new();
-    private OrgChoice _orgChoice = OrgChoice.CreateNew;
-    private string _newOrgName = "network-optimizer";
     private string? _selectedOrgId;
     private bool _busy;
     private string? _message;
     private string _messageClass = "info";
 
-    private bool CanProvision => _orgChoice == OrgChoice.CreateNew
-        ? !string.IsNullOrWhiteSpace(_newOrgName)
-        : !string.IsNullOrEmpty(_selectedOrgId);
-
-    // The primary button is dual-purpose to keep the happy path to one click:
-    //   - "Create new" + valid token  → validate + provision in one shot.
-    //   - "Use existing" first press → validate + load orgs (now in PickOrg state).
-    //   - "Use existing" second press → provision with selected org.
+    // Primary action is two-stage: first press validates the token and loads orgs
+    // (the user has to see and pick one, we never auto-pick). Second press, once an
+    // org is selected, provisions the buckets and mints the scoped token.
     private bool CanPrimaryAction
     {
         get
         {
             if (string.IsNullOrWhiteSpace(_adminToken)) return false;
-            if (_orgChoice == OrgChoice.CreateNew) return !string.IsNullOrWhiteSpace(_newOrgName);
-            // UseExisting
-            if (_state != Step.PickOrg) return true; // first click — will load orgs
+            if (_state != Step.PickOrg) return true; // first click: validate + list
             return !string.IsNullOrEmpty(_selectedOrgId);
         }
     }
 
     private string PrimaryLabel =>
-        _orgChoice == OrgChoice.UseExisting && _state != Step.PickOrg
-            ? "Set up — list orgs"
-            : "Set up InfluxDB";
+        _state != Step.PickOrg ? "List orgs" : "Provision buckets and token";
 
     private string PrimaryBusyLabel =>
-        _orgChoice == OrgChoice.UseExisting && _state != Step.PickOrg
-            ? "Loading orgs..."
-            : "Provisioning...";
+        _state != Step.PickOrg ? "Loading orgs..." : "Provisioning...";
 
     private async Task OnPrimaryActionAsync()
     {
-        // UseExisting first press: validate token + load orgs only, then wait for user
-        // to pick one from the dropdown that now shows inline.
-        if (_orgChoice == OrgChoice.UseExisting && _state != Step.PickOrg)
+        if (_state != Step.PickOrg)
         {
             await ValidateTokenAsync();
             return;
@@ -315,8 +282,10 @@
                 _orgs = new();
             }
 
-            _orgChoice = OrgChoice.CreateNew;
-            _selectedOrgId = _orgs.FirstOrDefault()?.Id;
+            // Never auto-pick, the user must see and confirm. We do prime the dropdown
+            // with no selection so they have to deliberately choose, even if there's
+            // only one visible org.
+            _selectedOrgId = null;
             _state = Step.PickOrg;
         }
         finally
@@ -328,7 +297,7 @@
 
     private async Task ProvisionAsync()
     {
-        if (_probe == null) return;
+        if (_probe == null || string.IsNullOrEmpty(_selectedOrgId)) return;
         _busy = true;
         _message = null;
         StateHasChanged();
@@ -337,15 +306,7 @@
             var url = _probe.Url;
             var adminToken = _adminToken.Trim();
 
-            InfluxDbProvisioningService.InfluxOrg org;
-            if (_orgChoice == OrgChoice.CreateNew)
-            {
-                org = await Provisioner.CreateOrgAsync(url, adminToken, _newOrgName.Trim());
-            }
-            else
-            {
-                org = _orgs.First(o => o.Id == _selectedOrgId);
-            }
+            var org = _orgs.First(o => o.Id == _selectedOrgId);
             if (string.IsNullOrEmpty(org.Id))
                 throw new InvalidOperationException("Org has no ID");
 
@@ -359,7 +320,7 @@
             await using var db = await DbFactory.CreateDbContextAsync();
             var row = await db.MonitoringSettings.FirstAsync();
             row.InfluxDbUrl = url;
-            row.InfluxDbOrg = org.Name ?? _newOrgName;
+            row.InfluxDbOrg = org.Name ?? string.Empty;
             row.InfluxDbBucket = bucketResult.PrimaryBucketName;
             row.InfluxDbLongtermBucket = bucketResult.LongtermBucketName;
             row.InfluxDbToken = CredentialService.Encrypt(scoped.Token);
@@ -405,11 +366,5 @@
         UrlFound,
         PickOrg,
         Done
-    }
-
-    public enum OrgChoice
-    {
-        CreateNew,
-        UseExisting
     }
 }
