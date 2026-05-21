@@ -229,6 +229,7 @@ else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV2c)
 
     protected override async Task OnInitializedAsync()
     {
+        await ConnectionService.WaitForConnectionAsync();
         _settings = await SnmpDetection.GetOrCreateSettingsAsync();
 
         if (ConnectionService.IsConnected && _settings.SnmpDetectionState == SnmpDetectionState.NotChecked)
