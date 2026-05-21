@@ -2165,25 +2165,6 @@ select.form-control {
     font-size: 0.875rem;
 }
 
-/* Collapsible card: header click toggles the body. Used on the Monitoring page so the
-   3D map can stay the visual centerpiece while status / target lists collapse out of
-   the way once everything's healthy. */
-.card.collapsible .card-header.collapsible-header {
-    cursor: pointer;
-    user-select: none;
-}
-.card.collapsible .card-header.collapsible-header:hover .card-title {
-    color: var(--primary-hover);
-}
-.card.collapsible .collapse-chevron {
-    display: inline-block;
-    margin-right: 0.5rem;
-    color: var(--text-muted);
-    font-size: 0.85em;
-}
-.card.collapsible.collapsed .card-body {
-    display: none;
-}
 
 .alert-success {
     background: rgba(36, 188, 112, 0.1);

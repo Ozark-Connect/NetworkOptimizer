@@ -109,7 +109,74 @@ public class LocalProbeExecutor : IProbeExecutor
             return await TcpPingAsync(target, count, perPingTimeout ?? TimeSpan.FromSeconds(2), ct);
         }
 
-        var timeout = (int)(perPingTimeout?.TotalMilliseconds ?? 2000);
+        // On Linux and macOS, shell out to the native `ping` binary - same approach STM
+        // takes. Kernel-timestamped RTTs are sub-ms accurate; userspace overhead from
+        // .NET's Ping class adds 1-2 ms which makes LAN measurements visibly wrong
+        // ("ping" says 0.2 ms, dashboard says 1.5 ms). Windows ping has different output
+        // and gives less useful data, so the managed Ping + Stopwatch path is the
+        // Windows MSI fallback.
+        if (!OperatingSystem.IsWindows())
+        {
+            return await NativePingAsync(target, count, perPingTimeout ?? TimeSpan.FromSeconds(2), ct);
+        }
+
+        return await ManagedPingAsync(target, count, perPingTimeout ?? TimeSpan.FromSeconds(2), ct);
+    }
+
+    private async Task<PingProbeResult> NativePingAsync(ProbeTarget target, int count, TimeSpan timeout, CancellationToken ct)
+    {
+        // STM-style burst tuning: keep total burst duration ~1.5s by scaling interval
+        // inversely with count. 3 pings = 0.75 s interval, 6 = 0.3 s, 10 = ~0.17 s.
+        // Floor at 0.2 s to satisfy iputils' "minimum interval for non-root" check
+        // (also matches our SSH executor behavior).
+        var safeCount = Math.Max(1, count);
+        var rawInterval = safeCount > 1 ? 1.5 / (safeCount - 1) : 0.2;
+        var interval = Math.Max(0.2, Math.Round(rawInterval, 2));
+        var timeoutSeconds = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
+
+        var psi = new ProcessStartInfo("ping",
+            $"-4 -c {safeCount} -i {interval.ToString(System.Globalization.CultureInfo.InvariantCulture)} -W {timeoutSeconds} {target.Address}")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                // System ping somehow unavailable - degrade to managed.
+                return await ManagedPingAsync(target, count, timeout, ct);
+            }
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderrTask = proc.StandardError.ReadToEndAsync(ct);
+            // Cap the wall-clock overall in case ping hangs (interval * count + timeout, plus a small margin).
+            var overall = TimeSpan.FromSeconds(interval * safeCount + timeoutSeconds + 5);
+            using var killCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            killCts.CancelAfter(overall);
+            try { await proc.WaitForExitAsync(killCts.Token); }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { }
+            }
+            var stdout = await SafeReadAsync(stdoutTask);
+
+            var parsed = PingOutputParser.Parse(stdout, target, Vantage, safeCount);
+            return parsed;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Native ping invocation failed; falling back to managed Ping");
+            return await ManagedPingAsync(target, count, timeout, ct);
+        }
+    }
+
+    private async Task<PingProbeResult> ManagedPingAsync(ProbeTarget target, int count, TimeSpan timeout, CancellationToken ct)
+    {
+        var timeoutMs = (int)timeout.TotalMilliseconds;
         var rtts = new List<double>();
         int received = 0;
         string? lastError = null;
@@ -120,11 +187,14 @@ public class LocalProbeExecutor : IProbeExecutor
             if (ct.IsCancellationRequested) break;
             try
             {
-                // .NET's PingReply.RoundtripTime is integer milliseconds. On a LAN that
-                // floors a real 0.4 ms RTT to "0 ms". Time the call ourselves with
-                // Stopwatch to keep sub-millisecond precision (STM-style burst stats).
+                // PingReply.RoundtripTime is integer ms which floors sub-ms LAN pings to 0.
+                // Stopwatch captures wall-clock around the call, which includes ~1-2 ms of
+                // .NET userspace overhead vs the kernel's actual ICMP RTT. Acceptable on
+                // Windows because the alternative (parsing tracert.exe / Windows ping
+                // output) is messier; Linux/macOS use the native binary above for accurate
+                // numbers.
                 var sw = Stopwatch.StartNew();
-                var reply = await ping.SendPingAsync(target.Address, timeout);
+                var reply = await ping.SendPingAsync(target.Address, timeoutMs);
                 sw.Stop();
                 if (reply.Status == IPStatus.Success)
                 {

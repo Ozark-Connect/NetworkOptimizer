@@ -110,22 +110,21 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
         <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" />
     }
 
-    <div class="card collapsible @(_statusCollapsed ? "collapsed" : "")"
-         style="@(_influxConfigured ? "" : "margin-top: 1.5rem;")">
-        <div class="card-header collapsible-header" @onclick="ToggleStatus">
-            <h2 class="card-title">
-                <span class="collapse-chevron">@(_statusCollapsed ? "▸" : "▾")</span>
-                Monitoring Status
-            </h2>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span class="status-badge status-connected">@FormatSnmpState(_snmpState)</span>
+    <div class="card" style="@(_influxConfigured ? "" : "margin-top: 1.5rem;")">
+        <div class="card-header card-header-collapsible" @onclick="ToggleStatus">
+            <h2 class="card-title">Monitoring Status</h2>
+            <div style="display: flex; align-items: center; gap: 0.5rem;" @onclick:stopPropagation="true">
+                <span class="status-badge status-connected">@OverallStateBadge()</span>
                 <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
                     </svg>
                 </a>
             </div>
+            <span class="issue-type-chevron">@(_statusCollapsed ? "▼" : "▲")</span>
         </div>
+        <div class="expand-wrapper @(!_statusCollapsed ? "expanded" : "")">
+            <div class="expand-content">
         <div class="card-body">
             <div class="form-group">
                 <label class="form-label">SNMP</label>
@@ -230,6 +229,8 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                 }
             </div>
         </div>
+            </div>
+        </div>
     </div>
 
     @if (_monitoringEnabled && _monitoredSfps.Count > 0)
@@ -320,12 +321,9 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
 
     @if (_monitoringEnabled)
     {
-        <div class="card collapsible @(_targetsCollapsed ? "collapsed" : "")" style="margin-top: 1.5rem;">
-            <div class="card-header collapsible-header" @onclick="ToggleTargetsCollapse">
-                <h2 class="card-title">
-                    <span class="collapse-chevron">@(_targetsCollapsed ? "▸" : "▾")</span>
-                    Latency targets
-                </h2>
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header card-header-collapsible" @onclick="ToggleTargetsCollapse">
+                <h2 class="card-title">Latency targets</h2>
                 <div style="display: flex; align-items: center; gap: 0.5rem;" @onclick:stopPropagation="true">
                     <span class="status-badge status-active">@_targets.Count active</span>
                     <a href="/monitoring/tools" class="tooltip-icon settings-link" data-tooltip="Run an ad-hoc probe">
@@ -334,9 +332,12 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         </svg>
                     </a>
                 </div>
+                <span class="issue-type-chevron">@(_targetsCollapsed ? "▼" : "▲")</span>
             </div>
+            <div class="expand-wrapper @(!_targetsCollapsed ? "expanded" : "")">
+                <div class="expand-content">
             <div class="card-body">
-                <p class="page-description">
+                <p class="section-description">
                     Default WAN targets and one fabric target per discovered device. The agent probes
                     each target at its own interval and writes results to the <code>latency</code>
                     measurement in InfluxDB.
@@ -430,6 +431,8 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         probing without losing the row's history.
                     </p>
                 }
+            </div>
+                </div>
             </div>
         </div>
     }
@@ -627,10 +630,30 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         StateHasChanged();
     }
 
+    /// <summary>
+    /// The Monitoring Status badge reflects the holistic state of the subsystem, not
+    /// just SNMP. "SNMP Ready" was confusing when everything was actually online and
+    /// pumping data.
+    /// </summary>
+    private string OverallStateBadge()
+    {
+        // SNMP must be detected to do anything; if it isn't, surface that.
+        if (_snmpState != SnmpDetectionState.EnabledV2c
+            && _snmpState != SnmpDetectionState.EnabledV3Only
+            && _snmpState != SnmpDetectionState.Working)
+        {
+            return _snmpState.ToString();
+        }
+        if (!_influxConfigured) return "InfluxDB not configured";
+        if (_influxReachable == false) return "InfluxDB unreachable";
+        if (!_monitoringEnabled) return "Ready (disabled)";
+        return "Monitoring active";
+    }
+
     private static string FormatSnmpState(SnmpDetectionState state) => state switch
     {
-        SnmpDetectionState.EnabledV2c => "SNMP Ready",
-        SnmpDetectionState.EnabledV3Only => "SNMP Ready (v3)",
+        SnmpDetectionState.EnabledV2c => "v2c",
+        SnmpDetectionState.EnabledV3Only => "v3",
         SnmpDetectionState.Working => "Active",
         _ => state.ToString()
     };
