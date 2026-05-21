@@ -330,16 +330,35 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var gw in devices.Where(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway))
         {
             var gwMac = NormalizeMac(gw.Mac);
-            if (gw.PortTable == null) continue;
-            var wanPort = gw.PortTable.FirstOrDefault(p => p.IsUplink);
-            if (wanPort == null || wanPort.PortIdx <= 0) continue;
-            var rate = ComputePortRate(gwMac, wanPort.PortIdx, nowOverride);
-            if (rate.HasValue)
+
+            // Primary: UniFi PortTable WAN port byte delta. Works when the gateway's
+            // uplink is a simple physical port and PortIdx aligns with SNMP ifIndex.
+            (double DownBps, double UpBps)? rate = null;
+            if (gw.PortTable != null)
             {
-                // From the gateway's perspective: TX out the WAN = upstream (away from
-                // network, toward internet); RX = downstream. Note the direction flip
-                // vs the switch-port case above.
-                _liveStats.RecordInterfaceAggregate(gw.Mac, rate.Value.UpBps, rate.Value.DownBps, nowOverride);
+                var wanPort = gw.PortTable.FirstOrDefault(p => p.IsUplink);
+                if (wanPort != null && wanPort.PortIdx > 0)
+                {
+                    rate = ComputePortRate(gwMac, wanPort.PortIdx, nowOverride);
+                    if (rate.HasValue)
+                    {
+                        // Gateway perspective: TX out the WAN = upstream toward internet;
+                        // RX = downstream. Note direction flip vs the switch-port case.
+                        _liveStats.RecordInterfaceAggregate(gw.Mac, rate.Value.UpBps, rate.Value.DownBps, nowOverride);
+                        continue;
+                    }
+                }
+            }
+
+            // Fallback: UniFi device-level tx_bytes / rx_bytes delta. Used when the
+            // gateway's WAN-side is a bond/LAG (Linux bond0 aggregating eth4+eth5
+            // for the "Yelcot Fiber" port, etc.) and PortTable.PortIdx doesn't
+            // align with any single physical SNMP ifIndex. ComputeDeviceRate
+            // returns (down, up) in our convention.
+            var devRate = ComputeDeviceRate(gwMac);
+            if (devRate.HasValue)
+            {
+                _liveStats.RecordInterfaceAggregate(gw.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
             }
         }
 
@@ -515,6 +534,17 @@ public class MonitoringCollectionAgent : BackgroundService
                     if (string.IsNullOrEmpty(ifName)) continue;
                     var key = (NormalizeMac(device.Mac), ifName);
 
+                    // Map UniFi PortIdx to SNMP ifIndex if we can verify a physical
+                    // port match. UniFi switches keep PortIdx == SNMP ifIndex for
+                    // physical ports, so a PortTable entry with matching PortIdx is
+                    // the reverse-lookup key clients use (client.SwPort == PortIdx).
+                    int? portNumber = null;
+                    if (iface.Index > 0 && device.PortTable != null
+                        && device.PortTable.Any(p => p.PortIdx == iface.Index))
+                    {
+                        portNumber = iface.Index;
+                    }
+
                     if (!existingMaps.TryGetValue(key, out var mapping))
                     {
                         mapping = new InterfaceNameMap
@@ -525,6 +555,7 @@ public class MonitoringCollectionAgent : BackgroundService
                             IfAlias = iface.Description,
                             SpeedMbps = (int?)(iface.HighSpeed > 0 ? iface.HighSpeed : iface.Speed / 1_000_000),
                             FriendlyName = LookupUniFiPortName(device, iface),
+                            PortNumber = portNumber,
                             LastUpdated = DateTime.UtcNow
                         };
                         db.InterfaceNameMaps.Add(mapping);
@@ -541,6 +572,7 @@ public class MonitoringCollectionAgent : BackgroundService
                         else if (iface.Speed > 0) mapping.SpeedMbps = (int)(iface.Speed / 1_000_000);
                         var unifiName = LookupUniFiPortName(device, iface);
                         if (!string.IsNullOrEmpty(unifiName)) mapping.FriendlyName = unifiName;
+                        if (portNumber.HasValue) mapping.PortNumber = portNumber;
                         mapping.LastUpdated = DateTime.UtcNow;
                     }
                 }
