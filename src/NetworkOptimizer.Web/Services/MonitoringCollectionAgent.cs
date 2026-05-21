@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
+using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
@@ -34,17 +35,21 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringInfluxClient _influx;
     private readonly ICredentialProtectionService _credentialProtection;
+    private readonly LocalProbeExecutor _localProbe;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
 
     // Counter delta cache for server-side rate computation. Key = "deviceMac/ifName".
     private readonly ConcurrentDictionary<string, CounterSnapshot> _counterCache = new();
+    // Per-target last-probed time, for per-target poll intervals on a shared loop.
+    private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
 
     public MonitoringCollectionAgent(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
         MonitoringInfluxClient influx,
         ICredentialProtectionService credentialProtection,
+        LocalProbeExecutor localProbe,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger)
     {
@@ -52,6 +57,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _connectionService = connectionService;
         _influx = influx;
         _credentialProtection = credentialProtection;
+        _localProbe = localProbe;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -60,13 +66,25 @@ public class MonitoringCollectionAgent : BackgroundService
     {
         _logger.LogInformation("Monitoring collection agent starting");
 
-        // Three independent timers, each with its own tick cadence. Starting them slightly
-        // staggered avoids burst overlap when multiple tiers fire simultaneously.
-        var fastTask = RunTierAsync("fast", GetFastInterval, FastTierCollectAsync, initialDelay: TimeSpan.FromSeconds(5), stoppingToken);
-        var mediumTask = RunTierAsync("medium", GetMediumInterval, MediumTierCollectAsync, initialDelay: TimeSpan.FromSeconds(10), stoppingToken);
-        var slowTask = RunTierAsync("slow", GetSlowInterval, SlowTierCollectAsync, initialDelay: TimeSpan.FromSeconds(15), stoppingToken);
+        // Seed default targets on startup so the latency tier has something to probe even
+        // before the upstream wizard runs. Safe to call repeatedly — only inserts if absent.
+        try { await SeedDefaultTargetsAsync(stoppingToken); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Default target seeding failed"); }
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask);
+        // Four independent loops, slightly staggered to avoid burst overlap.
+        var fastTask = RunTierAsync("fast", GetFastInterval, FastTierCollectAsync, TimeSpan.FromSeconds(5), stoppingToken);
+        var mediumTask = RunTierAsync("medium", GetMediumInterval, MediumTierCollectAsync, TimeSpan.FromSeconds(10), stoppingToken);
+        var slowTask = RunTierAsync("slow", GetSlowInterval, SlowTierCollectAsync, TimeSpan.FromSeconds(15), stoppingToken);
+        // The latency tier ticks every 2 seconds and probes only the targets whose own
+        // per-target poll interval has elapsed since their last probe. One loop, many
+        // independent cadences — cheaper than maintaining a timer per target.
+        var latencyTask = RunTierAsync("latency",
+            _ => TimeSpan.FromSeconds(2),
+            LatencyTierCollectAsync,
+            TimeSpan.FromSeconds(20),
+            stoppingToken);
+
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask);
         _logger.LogInformation("Monitoring collection agent stopped");
     }
 
@@ -275,6 +293,204 @@ public class MonitoringCollectionAgent : BackgroundService
             }
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    // ---- Latency / loss tier ----
+
+    private async Task LatencyTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
+    {
+        if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
+
+        // Reconcile fabric targets with the live device list — gateways, switches, and APs
+        // should each have a `fabric` target on their management IP (spec 5.4). New devices
+        // add a target; deleted devices leave their targets untouched (history preserved).
+        await ReconcileFabricTargetsAsync(ct);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var targets = await db.MonitoringTargets
+            .AsNoTracking()
+            .Where(t => t.Enabled)
+            .ToListAsync(ct);
+
+        var now = DateTime.UtcNow;
+        var dueTargets = targets.Where(t => IsDue(t, now)).ToList();
+        if (dueTargets.Count == 0) return;
+
+        // Probe in parallel but bounded so we don't fan out to dozens of pings at once on a
+        // dense fabric. 8 concurrent is well under what the local executor can handle.
+        using var concurrency = new SemaphoreSlim(8);
+        var tasks = dueTargets.Select(t => ProbeTargetAsync(t, concurrency, ct));
+        await Task.WhenAll(tasks);
+    }
+
+    private bool IsDue(MonitoringTarget target, DateTime now)
+    {
+        var interval = TimeSpan.FromSeconds(Math.Max(2, target.PollIntervalSeconds));
+        if (!_targetLastProbed.TryGetValue(target.Id, out var last)) return true;
+        return now - last >= interval;
+    }
+
+    private async Task ProbeTargetAsync(MonitoringTarget target, SemaphoreSlim concurrency, CancellationToken ct)
+    {
+        await concurrency.WaitAsync(ct);
+        try
+        {
+            _targetLastProbed[target.Id] = DateTime.UtcNow;
+
+            var probeTarget = new ProbeTarget(target.Address, target.ProbeMode, target.Port);
+            var vantage = string.IsNullOrEmpty(target.VantagePoint) ? "server" : target.VantagePoint;
+            // MVP: only server-side probes. Per-device SSH vantages come with the SSH
+            // toolbox device picker (planned next).
+            if (!string.Equals(vantage, "server", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Skipping target {Target} — SSH vantage {Vantage} not wired yet",
+                    target.TargetId, vantage);
+                return;
+            }
+
+            var ping = await _localProbe.PingAsync(probeTarget, count: Math.Max(3, Math.Min(target.PingCount, 20)), perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
+
+            await _influx.WriteLatencyAsync(
+                targetId: target.TargetId,
+                vantagePoint: vantage,
+                targetType: target.TargetType,
+                probeMode: target.ProbeMode,
+                rttMinMs: ping.RttMinMs,
+                rttAvgMs: ping.RttAvgMs,
+                rttMaxMs: ping.RttMaxMs,
+                jitterMs: ping.JitterMs,
+                lossPercent: ping.LossPercent,
+                success: ping.Success,
+                timestamp: ping.Timestamp);
+
+            if (ping.Success)
+            {
+                // Persist last-verified time on success — used by both UI ("last seen") and
+                // the wizard's re-validation (spec 5.5).
+                try
+                {
+                    await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                    var row = await db.MonitoringTargets.FindAsync(new object[] { target.Id }, ct);
+                    if (row != null)
+                    {
+                        row.LastVerified = ping.Timestamp;
+                        await db.SaveChangesAsync(ct);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to persist LastVerified for {Target}", target.TargetId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Latency probe failed for {Target}", target.TargetId);
+        }
+        finally
+        {
+            concurrency.Release();
+        }
+    }
+
+    private async Task SeedDefaultTargetsAsync(CancellationToken ct)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var existing = await db.MonitoringTargets.AsNoTracking()
+            .Select(t => t.TargetId).ToListAsync(ct);
+        var existingSet = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
+
+        var defaults = new[]
+        {
+            new MonitoringTarget
+            {
+                TargetId = "wan-cloudflare-1111",
+                Name = "Cloudflare (1.1.1.1)",
+                Address = "1.1.1.1",
+                ProbeMode = ProbeMode.Icmp,
+                TargetType = MonitoringTargetType.Wan,
+                VantagePoint = "server",
+                PollIntervalSeconds = 10,
+                PingCount = 5,
+                Enabled = true,
+                AutoDiscovered = true,
+                AutoLabel = "Cloudflare DNS",
+                CreatedAt = DateTime.UtcNow
+            },
+            new MonitoringTarget
+            {
+                TargetId = "wan-google-8888",
+                Name = "Google (8.8.8.8)",
+                Address = "8.8.8.8",
+                ProbeMode = ProbeMode.Icmp,
+                TargetType = MonitoringTargetType.Wan,
+                VantagePoint = "server",
+                PollIntervalSeconds = 10,
+                PingCount = 5,
+                Enabled = true,
+                AutoDiscovered = true,
+                AutoLabel = "Google DNS",
+                CreatedAt = DateTime.UtcNow
+            }
+        };
+
+        bool added = false;
+        foreach (var t in defaults)
+        {
+            if (!existingSet.Contains(t.TargetId))
+            {
+                db.MonitoringTargets.Add(t);
+                added = true;
+            }
+        }
+        if (added) await db.SaveChangesAsync(ct);
+    }
+
+    private async Task ReconcileFabricTargetsAsync(CancellationToken ct)
+    {
+        var devices = await GetMonitorableDevicesAsync(ct);
+        if (devices.Count == 0) return;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var existingByTargetId = await db.MonitoringTargets
+            .Where(t => t.TargetType == MonitoringTargetType.Fabric)
+            .ToDictionaryAsync(t => t.TargetId, ct);
+
+        bool changed = false;
+        foreach (var d in devices)
+        {
+            if (string.IsNullOrEmpty(d.Ip) || string.IsNullOrEmpty(d.Mac)) continue;
+            var targetId = $"fabric-{NormalizeMac(d.Mac)}";
+            if (existingByTargetId.TryGetValue(targetId, out var existing))
+            {
+                // Refresh address in case the device's management IP changed.
+                if (existing.Address != d.Ip)
+                {
+                    existing.Address = d.Ip;
+                    changed = true;
+                }
+                continue;
+            }
+
+            db.MonitoringTargets.Add(new MonitoringTarget
+            {
+                TargetId = targetId,
+                Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name,
+                Address = d.Ip,
+                ProbeMode = ProbeMode.Icmp,
+                TargetType = MonitoringTargetType.Fabric,
+                DeviceMac = NormalizeMac(d.Mac),
+                VantagePoint = "server",
+                PollIntervalSeconds = 5,
+                PingCount = 3,
+                Enabled = true,
+                AutoDiscovered = true,
+                AutoLabel = DescribeDeviceType(d.DeviceType),
+                CreatedAt = DateTime.UtcNow
+            });
+            changed = true;
+        }
+        if (changed) await db.SaveChangesAsync(ct);
     }
 
     // ---- Helpers ----

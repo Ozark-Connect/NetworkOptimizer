@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Monitoring.Probes;
 

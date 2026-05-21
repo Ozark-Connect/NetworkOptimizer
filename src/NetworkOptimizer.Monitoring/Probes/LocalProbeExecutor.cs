@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Monitoring.Probes;
 

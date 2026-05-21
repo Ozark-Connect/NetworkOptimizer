@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
 using Xunit;
 

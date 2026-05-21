@@ -1,13 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Storage.Models;
-
-public enum ProbeMode
-{
-    Icmp = 0,
-    Tcp = 1,
-    Udp = 2
-}
 
 public enum MonitoringTargetType
 {

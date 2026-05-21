@@ -1,15 +1,11 @@
+using NetworkOptimizer.Core.Enums;
+
 namespace NetworkOptimizer.Monitoring.Probes;
 
-/// <summary>
-/// How a probe contacts its target. A monitored target sticks with the mode it last
-/// responded to (3.2 in the spec) — so this is recorded with every result.
-/// </summary>
-public enum ProbeMode
-{
-    Icmp = 0,
-    Tcp = 1,
-    Udp = 2
-}
+// ProbeMode lives in NetworkOptimizer.Core.Enums so it can be persisted on the
+// MonitoringTarget storage model without a duplicate enum / converter dance. Probe code
+// uses the Core enum directly; this re-export keeps imports terse for call sites that
+// only `using NetworkOptimizer.Monitoring.Probes`.
 
 /// <summary>
 /// Where the probe runs from. The NO server, or any SSH-able network device.

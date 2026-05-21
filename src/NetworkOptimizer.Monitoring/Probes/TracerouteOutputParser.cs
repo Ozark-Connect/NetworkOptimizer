@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Monitoring.Probes;
 

@@ -204,9 +204,68 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         </span>
                     }
                 }
+                <a href="/monitoring/tools" class="btn btn-secondary">Network Tools</a>
             </div>
         </div>
     </div>
+
+    @if (_monitoringEnabled)
+    {
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Latency targets</h2>
+                <span class="status-badge status-active">@_targets.Count active</span>
+            </div>
+            <div class="card-body">
+                <p class="page-description">
+                    Default WAN targets and one fabric target per discovered device. The agent probes
+                    each target at its own interval and writes results to the <code>latency</code>
+                    measurement in InfluxDB.
+                </p>
+                @if (_targets.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No targets yet. They'll appear once the agent's first cycle completes.</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Target</th>
+                                <th>Address</th>
+                                <th>Interval</th>
+                                <th>Last verified</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var t in _targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="status-badge @TargetTypeBadgeClass(t.TargetType)">
+                                            @t.TargetType
+                                        </span>
+                                    </td>
+                                    <td>@t.Name</td>
+                                    <td><code>@t.Address</code></td>
+                                    <td>@t.PollIntervalSeconds s</td>
+                                    <td>
+                                        @if (t.LastVerified.HasValue)
+                                        { <span>@RelativeTime(t.LastVerified.Value)</span> }
+                                        else
+                                        { <span class="text-muted">never</span> }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
 }
 else if (_snmpState == SnmpDetectionState.PollFailing)
 {
@@ -242,6 +301,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool _checkingInflux;
     private bool _monitoringEnabled;
     private bool _togglingEnable;
+    private List<MonitoringTarget> _targets = new();
+    private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
     {
@@ -250,6 +311,22 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
         LoadInfluxStateFromSettings(settings);
+        await LoadTargetsAsync();
+
+        // Refresh the targets list periodically so LastVerified updates show movement
+        // without requiring a full page reload.
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadTargetsAsync();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
 
         if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
         {
@@ -360,8 +437,43 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         _ => state.ToString()
     };
 
+    private async Task LoadTargetsAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _targets = await db.MonitoringTargets.AsNoTracking()
+                .OrderBy(t => t.TargetType).ThenBy(t => t.Name).ToListAsync();
+        }
+        catch
+        {
+            _targets = new List<MonitoringTarget>();
+        }
+    }
+
+    private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch
+    {
+        MonitoringTargetType.Fabric => "status-connected",
+        MonitoringTargetType.Wan => "status-active",
+        MonitoringTargetType.AccessIsp => "status-active",
+        MonitoringTargetType.Transit => "status-active",
+        _ => "status-disconnected"
+    };
+
+    private static string RelativeTime(DateTime when)
+    {
+        var delta = DateTime.UtcNow - when.ToUniversalTime();
+        if (delta < TimeSpan.Zero) return "just now";
+        if (delta < TimeSpan.FromSeconds(15)) return "just now";
+        if (delta < TimeSpan.FromMinutes(1)) return $"{(int)delta.TotalSeconds}s ago";
+        if (delta < TimeSpan.FromHours(1)) return $"{(int)delta.TotalMinutes}m ago";
+        if (delta < TimeSpan.FromDays(1)) return $"{(int)delta.TotalHours}h ago";
+        return $"{(int)delta.TotalDays}d ago";
+    }
+
     public void Dispose()
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        _refreshTimer?.Dispose();
     }
 }

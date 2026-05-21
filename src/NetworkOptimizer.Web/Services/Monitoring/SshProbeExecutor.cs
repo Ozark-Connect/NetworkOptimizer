@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Web.Services.Ssh;
 
