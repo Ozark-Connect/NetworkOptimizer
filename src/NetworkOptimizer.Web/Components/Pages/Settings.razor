@@ -4596,7 +4596,13 @@
             {
                 await SnmpDetection.SaveDetectionResultAsync(result);
                 await LoadMonitoringSettings();
-                _monitoringMessage = $"SNMP detection complete: {_monitoringSettings?.SnmpDetectionState}";
+                _monitoringMessage = _monitoringSettings?.SnmpDetectionState switch
+                {
+                    SnmpDetectionState.EnabledV2c => "SNMP v2c detected and saved.",
+                    SnmpDetectionState.EnabledV3Only => "SNMPv3 detected and saved.",
+                    SnmpDetectionState.Disabled => "SNMP is not enabled on your UniFi Console.",
+                    _ => "SNMP detection complete."
+                };
                 _monitoringMessageClass = "success";
             }
             else
