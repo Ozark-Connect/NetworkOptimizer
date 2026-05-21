@@ -987,12 +987,24 @@ public class MonitoringCollectionAgent : BackgroundService
             hcCounters: hcCounters,
             timestamp: now);
 
-        // _portRateLatest is fed by UpdatePortRatesFromUnifi (UniFi port_table delta
-        // at the same fast-tier cadence). We deliberately do NOT write to it from
-        // SNMP here: SNMP returns interfaces UniFi doesn't expose (VLAN/aggregate/
-        // mgmt) which clobber physical port_idx slots when ifIndex collides with a
-        // physical port number on a different interface kind. UniFi port_table is
-        // authoritative for port_idx-keyed rates.
+        // SNMP per-interface rates feed the port-keyed cache, but ONLY for verified
+        // physical ports - those that appear in the device's PortTable with a
+        // matching PortIdx. This filters out VLAN sub-interfaces, bridges, radios,
+        // and other virtual interfaces whose ifIndex would otherwise collide with
+        // a physical port_idx slot and clobber the real rate.
+        //
+        // Why SNMP and not UniFi port_table: UniFi updates port_table server-side
+        // every ~30s, so polling it at 5s gives "0, 0, 0, 0, 0, BOOM 30s-of-bytes
+        // divided by 5s" - a 6x spike every six cycles. SNMP polls the device's
+        // own kernel counters at 5s and produces smooth deltas.
+        if (rateInBps.HasValue && rateOutBps.HasValue
+            && iface.Index > 0
+            && device.PortTable != null
+            && device.PortTable.Any(p => p.PortIdx == iface.Index))
+        {
+            _portRateLatest[(mac, iface.Index)] = (rateInBps.Value, rateOutBps.Value);
+        }
+
         return (rateInBps, rateOutBps);
     }
 
