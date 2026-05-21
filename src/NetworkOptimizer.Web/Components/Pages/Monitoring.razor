@@ -1,5 +1,6 @@
 @page "/monitoring"
 @rendermode InteractiveServer
+@implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @inject SnmpDetectionService SnmpDetection
@@ -229,6 +230,8 @@ else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV2c)
 
     protected override async Task OnInitializedAsync()
     {
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+
         await ConnectionService.WaitForConnectionAsync();
         _settings = await SnmpDetection.GetOrCreateSettingsAsync();
 
@@ -236,6 +239,27 @@ else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV2c)
         {
             await RunDetection();
         }
+    }
+
+    private async void OnConnectionChanged()
+    {
+        if (ConnectionService.IsConnected && (_detectionResult == null || !_detectionResult.Success))
+        {
+            await InvokeAsync(async () =>
+            {
+                await RunDetection();
+                StateHasChanged();
+            });
+        }
+        else
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
     }
 
     private async Task RunDetection()
