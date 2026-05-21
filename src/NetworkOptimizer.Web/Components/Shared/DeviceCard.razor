@@ -79,8 +79,8 @@
                     @if (Device.LiveLatencyMs.HasValue)
                     {
                         <div class="device-latency @(Device.LiveLossPercent > 5 ? "latency-degraded" : "")">
-                            <span class="latency-label">ping</span>
-                            <span class="latency-value">@($"{Device.LiveLatencyMs.Value:0.#} ms")</span>
+                            <span class="latency-label">Ping</span>
+                            <span class="latency-value">@($"{Device.LiveLatencyMs.Value:0.000} ms")</span>
                             @if (Device.LiveLossPercent > 0)
                             {
                                 <span class="latency-loss">@($"{Device.LiveLossPercent:0.#}% loss")</span>

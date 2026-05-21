@@ -120,11 +120,16 @@ public class LocalProbeExecutor : IProbeExecutor
             if (ct.IsCancellationRequested) break;
             try
             {
+                // .NET's PingReply.RoundtripTime is integer milliseconds. On a LAN that
+                // floors a real 0.4 ms RTT to "0 ms". Time the call ourselves with
+                // Stopwatch to keep sub-millisecond precision (STM-style burst stats).
+                var sw = Stopwatch.StartNew();
                 var reply = await ping.SendPingAsync(target.Address, timeout);
+                sw.Stop();
                 if (reply.Status == IPStatus.Success)
                 {
                     received++;
-                    rtts.Add(reply.RoundtripTime);
+                    rtts.Add(sw.Elapsed.TotalMilliseconds);
                 }
                 else
                 {

@@ -182,6 +182,11 @@ public class MonitoringCollectionAgent : BackgroundService
         if (!_influx.IsConfigured)
             await _influx.ReconfigureAsync(ct);
 
+        // Update the per-port rate cache from the UniFi API port_table for every
+        // switch / gateway. Used below to compute AP backhaul rates from the upstream
+        // port the AP is plugged into (spec 5.6).
+        UpdatePortRatesFromUnifi(devices, DateTime.UtcNow);
+
         var deviceTasks = devices.Select(async device =>
         {
             try
@@ -204,6 +209,9 @@ public class MonitoringCollectionAgent : BackgroundService
                 }
                 if (anyRate)
                 {
+                    // Default: use the device's own SNMP-aggregated rate. Override for
+                    // APs below using the parent switch port's counter, which is what
+                    // spec 5.6 calls for since AP SNMP rates can double-count wireless.
                     _liveStats.RecordInterfaceAggregate(device.Mac, aggregateInBps, aggregateOutBps, now);
                 }
             }
@@ -213,8 +221,84 @@ public class MonitoringCollectionAgent : BackgroundService
             }
         });
         await Task.WhenAll(deviceTasks);
+
+        // Post-process: override AP rates with their parent-switch-port counters.
+        // Per spec 5.6: "Aggregate upstream/downstream rates for an AP, derived from
+        // its switch port stats. Label it clearly as the device's total backhaul
+        // traffic (not per-SSID, not per-client)."
+        var nowOverride = DateTime.UtcNow;
+        foreach (var ap in devices.Where(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
+                                              && d.Uplink != null
+                                              && !string.IsNullOrEmpty(d.Uplink.UplinkMac)))
+        {
+            var parentMac = NormalizeMac(ap.Uplink!.UplinkMac);
+            var portIdx = ap.Uplink.UplinkRemotePort;
+            if (portIdx <= 0) continue;
+            var rate = ComputePortRate(parentMac, portIdx, nowOverride);
+            if (rate.HasValue)
+            {
+                // The port_table TX/RX byte counters are from the SWITCH'S perspective:
+                // TX = switch sends out the port (toward the AP, = downstream),
+                // RX = switch receives from the port (from the AP, = upstream).
+                // That matches the live-stats convention (RateIn = downstream toward
+                // the device, RateOut = upstream away from the device).
+                _liveStats.RecordInterfaceAggregate(ap.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
+            }
+        }
+
         _liveStats.Prune(TimeSpan.FromMinutes(5));
     }
+
+    /// <summary>
+    /// Diff the latest port_table byte counters against the previous reading to compute
+    /// per-port bps rates. Populates _portRateLatest, which AP-rate post-processing
+    /// reads from. Spec 5.6: AP rates come from the switch port they're plugged into,
+    /// not from the AP's own SNMP counters.
+    /// </summary>
+    private void UpdatePortRatesFromUnifi(IReadOnlyList<UniFiDeviceResponse> devices, DateTime now)
+    {
+        foreach (var device in devices)
+        {
+            if (device.PortTable == null || device.PortTable.Count == 0) continue;
+            var mac = NormalizeMac(device.Mac);
+            foreach (var port in device.PortTable)
+            {
+                if (port.PortIdx <= 0) continue;
+                var key = (mac, port.PortIdx);
+                var current = new PortByteSnapshot(now, port.TxBytes, port.RxBytes);
+                if (_portBytePrev.TryGetValue(key, out var prev))
+                {
+                    var elapsed = (now - prev.Timestamp).TotalSeconds;
+                    if (elapsed > 0.5)
+                    {
+                        long deltaTx = current.TxBytes - prev.TxBytes;
+                        long deltaRx = current.RxBytes - prev.RxBytes;
+                        if (deltaTx >= 0 && deltaRx >= 0)
+                        {
+                            // From the switch's perspective:
+                            // TX out the port = downstream toward the connected device
+                            // RX from the port = upstream from the connected device
+                            // That matches MonitoringLiveStats' (RateIn=down, RateOut=up).
+                            _portRateLatest[key] = (deltaTx * 8.0 / elapsed, deltaRx * 8.0 / elapsed);
+                        }
+                    }
+                }
+                _portBytePrev[key] = current;
+            }
+        }
+    }
+
+    /// <summary>Returns the latest computed rate for a given switch port, or null.</summary>
+    private (double DownBps, double UpBps)? ComputePortRate(string switchMac, int portIdx, DateTime now)
+    {
+        return _portRateLatest.TryGetValue((switchMac, portIdx), out var v) ? v : null;
+    }
+
+    // Per-port rate state for AP backhaul lookups. _portBytePrev stores the last byte
+    // counter sample so we can diff; _portRateLatest holds the most recent computed
+    // rate keyed identically.
+    private readonly ConcurrentDictionary<(string SwitchMac, int PortIdx), PortByteSnapshot> _portBytePrev = new();
+    private readonly ConcurrentDictionary<(string SwitchMac, int PortIdx), (double DownBps, double UpBps)> _portRateLatest = new();
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
@@ -776,4 +860,5 @@ public class MonitoringCollectionAgent : BackgroundService
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
 
     private readonly record struct CounterSnapshot(DateTime Timestamp, long InOctets, long OutOctets);
+    private readonly record struct PortByteSnapshot(DateTime Timestamp, long TxBytes, long RxBytes);
 }
