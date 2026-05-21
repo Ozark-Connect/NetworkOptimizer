@@ -34,6 +34,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringInfluxClient _influx;
+    private readonly MonitoringLiveStats _liveStats;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
     private readonly ILoggerFactory _loggerFactory;
@@ -48,6 +49,7 @@ public class MonitoringCollectionAgent : BackgroundService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
         MonitoringInfluxClient influx,
+        MonitoringLiveStats liveStats,
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
         ILoggerFactory loggerFactory,
@@ -56,6 +58,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _dbFactory = dbFactory;
         _connectionService = connectionService;
         _influx = influx;
+        _liveStats = liveStats;
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         _loggerFactory = loggerFactory;
@@ -186,9 +189,22 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (!IPAddress.TryParse(device.Ip, out var ip)) return;
                 var interfaces = await poller.GetInterfaceMetricsAsync(ip, device.Name);
                 var now = DateTime.UtcNow;
+                double aggregateInBps = 0;
+                double aggregateOutBps = 0;
+                bool anyRate = false;
                 foreach (var iface in interfaces)
                 {
-                    WriteInterfaceCounters(device, iface, now);
+                    var (rateIn, rateOut) = WriteInterfaceCounters(device, iface, now);
+                    if (rateIn.HasValue && rateOut.HasValue)
+                    {
+                        aggregateInBps += rateIn.Value;
+                        aggregateOutBps += rateOut.Value;
+                        anyRate = true;
+                    }
+                }
+                if (anyRate)
+                {
+                    _liveStats.RecordInterfaceAggregate(device.Mac, aggregateInBps, aggregateOutBps, now);
                 }
             }
             catch (Exception ex)
@@ -197,6 +213,7 @@ public class MonitoringCollectionAgent : BackgroundService
             }
         });
         await Task.WhenAll(deviceTasks);
+        _liveStats.Prune(TimeSpan.FromMinutes(5));
     }
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
@@ -363,6 +380,14 @@ public class MonitoringCollectionAgent : BackgroundService
                 success: ping.Success,
                 timestamp: ping.Timestamp);
 
+            // Surface fabric probe results on the dashboard's device cards (5.6). Other
+            // target types (WAN, transit) feed cloud nodes on the 3D map; the per-device
+            // card only cares about its own fabric probe.
+            if (target.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(target.DeviceMac))
+            {
+                _liveStats.RecordLatency(target.DeviceMac, ping.RttAvgMs, ping.LossPercent, ping.Timestamp);
+            }
+
             if (ping.Success)
             {
                 // Persist last-verified time on success — used by both UI ("last seen") and
@@ -495,10 +520,10 @@ public class MonitoringCollectionAgent : BackgroundService
 
     // ---- Helpers ----
 
-    private void WriteInterfaceCounters(UniFiDeviceResponse device, InterfaceMetrics iface, DateTime now)
+    private (double? RateInBps, double? RateOutBps) WriteInterfaceCounters(UniFiDeviceResponse device, InterfaceMetrics iface, DateTime now)
     {
         var ifName = string.IsNullOrEmpty(iface.Name) ? iface.Description : iface.Name;
-        if (string.IsNullOrEmpty(ifName)) return;
+        if (string.IsNullOrEmpty(ifName)) return (null, null);
         var mac = NormalizeMac(device.Mac);
 
         // Compute rate from previous snapshot
@@ -544,6 +569,8 @@ public class MonitoringCollectionAgent : BackgroundService
             discardsOut: iface.OutDiscards,
             hcCounters: hcCounters,
             timestamp: now);
+
+        return (rateInBps, rateOutBps);
     }
 
     private SnmpPoller? BuildPoller(MonitoringSettings settings)

@@ -41,7 +41,7 @@ public class MonitoringSettings
 
     // InfluxDB connection
     [MaxLength(500)]
-    public string InfluxDbUrl { get; set; } = "http://localhost:8087";
+    public string InfluxDbUrl { get; set; } = "http://localhost:8086";
 
     [MaxLength(500)]
     public string? InfluxDbToken { get; set; }
@@ -50,10 +50,10 @@ public class MonitoringSettings
     public string InfluxDbOrg { get; set; } = "network-optimizer";
 
     [MaxLength(100)]
-    public string InfluxDbBucket { get; set; } = "monitoring";
+    public string InfluxDbBucket { get; set; } = "network_monitoring";
 
     [MaxLength(100)]
-    public string InfluxDbLongtermBucket { get; set; } = "monitoring_longterm";
+    public string InfluxDbLongtermBucket { get; set; } = "network_monitoring_longterm";
 
     // Polling intervals (seconds)
     public int FastPollIntervalSeconds { get; set; } = 5;

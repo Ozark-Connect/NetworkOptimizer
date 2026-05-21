@@ -1,0 +1,114 @@
+@page "/monitoring/device/{Mac}"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@using Microsoft.EntityFrameworkCore
+@inject MonitoringLiveStats LiveStats
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+
+<PageTitle>Device @Mac - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <a href="/" class="page-back-link back-link">← Back to Dashboard</a>
+    <h1>@Mac</h1>
+    <p class="page-description">
+        Per-device diagnostic view. The full multi-panel timeline (port time-series,
+        correlated latency, event annotations) is the next build (5.8). For now this
+        confirms the click-through and shows live stats from the agent.
+    </p>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Live snapshot</h2>
+        @if (_stats?.HasFreshData(TimeSpan.FromMinutes(2)) == true)
+        {
+            <span class="status-badge status-active">Live</span>
+        }
+        else
+        {
+            <span class="status-badge status-disconnected">No data</span>
+        }
+    </div>
+    <div class="card-body">
+        @if (_stats == null || !_stats.HasFreshData(TimeSpan.FromMinutes(2)))
+        {
+            <div class="empty-state">
+                <p>No fresh monitoring data for this device yet. The agent may not have
+                completed its first cycle, or this device isn't yet being polled.</p>
+                <p style="margin-top: 0.5rem;">
+                    <a href="/monitoring">Open Monitoring</a> to verify the agent is enabled.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label class="form-label">Throughput</label>
+                <div class="form-value">
+                    <span style="color: var(--speed-download-color);">↓ @FormatBps(_stats.RateInBps)</span>
+                    &nbsp;&nbsp;
+                    <span style="color: var(--speed-upload-color);">↑ @FormatBps(_stats.RateOutBps)</span>
+                </div>
+            </div>
+            @if (_stats.LatestRttMs.HasValue)
+            {
+                <div class="form-group">
+                    <label class="form-label">Latest fabric ping</label>
+                    <div class="form-value">
+                        @($"{_stats.LatestRttMs:0.##} ms")
+                        @if (_stats.LatestLossPercent > 0)
+                        {
+                            <span style="color: var(--danger-color); margin-left: 0.5rem;">
+                                @($"{_stats.LatestLossPercent:0.#}% loss")
+                            </span>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Mac { get; set; } = string.Empty;
+
+    private DeviceLiveStats? _stats;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Refresh();
+        // Light polling — the agent cycle is 5 s so 5 s here is enough.
+        _refreshTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                _ = InvokeAsync(() =>
+                {
+                    Refresh();
+                    StateHasChanged();
+                });
+            }
+            catch { /* swallow */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        await Task.CompletedTask;
+    }
+
+    private void Refresh()
+    {
+        _stats = LiveStats.GetForDevice(Mac);
+    }
+
+    private static string FormatBps(double? bps)
+    {
+        if (!bps.HasValue) return "—";
+        var v = bps.Value;
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.##} Gbps";
+        if (v >= 1_000_000) return $"{v / 1_000_000:0.##} Mbps";
+        if (v >= 1_000) return $"{v / 1_000:0.##} Kbps";
+        return $"{v:0} bps";
+    }
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}
