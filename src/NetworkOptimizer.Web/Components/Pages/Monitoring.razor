@@ -9,6 +9,7 @@
 @inject MonitoringInfluxClient InfluxClient
 @inject MonitoringLiveStats LiveStats
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 <PageTitle>Monitoring - Network Optimizer</PageTitle>
 
@@ -299,22 +300,14 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
 
     @if (_monitoringEnabled && _influxReachable == true)
     {
-        <!-- Placeholder for the 3D LAN flow map, the centerpiece of this page. Build #11
-             in the sequence; until then the card just reserves the space and tells the
-             user what's coming. -->
-        <div class="card" style="margin-top: 1.5rem;">
+        <!-- 3D LAN flow map (spec 5.7). Centerpiece of the monitoring view. -->
+        <div class="card lan-flow-map-card" style="margin-top: 1.5rem;">
             <div class="card-header">
                 <h2 class="card-title">3D LAN Flow Map</h2>
-                <span class="status-badge status-disconnected">Coming soon</span>
+                <span class="status-badge status-active">Live</span>
             </div>
-            <div class="card-body">
-                <div class="empty-state">
-                    <p>This card will host the 3D LAN flow map (spec 5.7), the centerpiece
-                    of the monitoring view. Particle streams will visualize traffic on
-                    every link in your topology, with cloud nodes for each upstream ISP
-                    and transit ASN. Live and historic playback modes both supported.</p>
-                    <p style="margin-top: 0.5rem;">Coming in the next monitoring iteration.</p>
-                </div>
+            <div class="card-body lan-flow-map-body">
+                <canvas id="lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
             </div>
         </div>
 
@@ -489,6 +482,9 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool _statusCollapsed = false;
     private bool _targetsCollapsed = true;
     private bool _userToggledStatus = false; // once the user clicks, stop auto-collapsing
+
+    // 3D map JS module handle. Mounted after first render (canvas must exist in DOM).
+    private bool _mapMounted = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -788,10 +784,45 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         return $"{(int)delta.TotalDays}d ago";
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Mount the 3D map once the canvas is in the DOM and monitoring is active.
+        // Idempotent: the JS module unmounts any previous instance on re-mount.
+        if (_monitoringEnabled && _influxReachable == true && !_mapMounted)
+        {
+            _mapMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("import", "/js/lan-flow-map.js?v=1");
+                await JS.InvokeVoidAsync("eval",
+                    "(async () => { const m = await import('/js/lan-flow-map.js'); window.__lanFlowMap = m; await m.mount('lan-flow-map-canvas'); })();");
+            }
+            catch
+            {
+                _mapMounted = false;
+            }
+        }
+        else if ((!_monitoringEnabled || _influxReachable != true) && _mapMounted)
+        {
+            // Map card is no longer rendered; tear the JS instance down.
+            _mapMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
+            catch { /* best effort */ }
+        }
+    }
+
     public void Dispose()
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _refreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
+        if (_mapMounted)
+        {
+            try
+            {
+                _ = JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();").AsTask();
+            }
+            catch { /* best effort */ }
+        }
     }
 }

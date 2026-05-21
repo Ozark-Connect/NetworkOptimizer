@@ -66,6 +66,15 @@
     <!-- Tippy.js for interactive tooltips/popovers -->
     <script src="https://unpkg.com/@@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
+    <!-- Three.js importmap. Vendored under /lib/three/. Used by the 3D LAN flow map (spec 5.7). -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "/lib/three/three.module.js",
+            "three/addons/": "/lib/three/addons/"
+        }
+    }
+    </script>
     <HeadOutlet @rendermode="RenderMode.InteractiveServer" />
 </head>
 
