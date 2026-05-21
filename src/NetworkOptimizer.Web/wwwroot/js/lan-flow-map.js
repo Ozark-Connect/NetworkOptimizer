@@ -1393,6 +1393,9 @@ class ParticleStream {
             transparent: true,
             opacity: 0.92,
             depthWrite: false,
+            depthTest: false, // additive dots should always blend on top - the pipe's
+                              // transparent geometry was occluding them from the side
+                              // opposite the link's near surface.
             blending: THREE.AdditiveBlending,
         });
         this.mesh = new THREE.Points(geometry, material);
@@ -1417,8 +1420,11 @@ class ParticleStream {
         // 1Gbps -> 0.60, 10Gbps -> 0.85.
         const ratio = Math.log10(Math.max(this._rateBps, 1)) / 11;  // log10(1e11) = 11
         this._density = Math.max(0, Math.min(1, ratio));
-        // Velocity scales similarly but with a floor so even idle traffic moves a tick.
-        this._velocity = 0.6 + this._density * 8.0;
+        // Velocity scales subtly with density (more traffic = faster dots) but with a
+        // raised floor and reduced spread so per-poll rate fluctuations on WAN/trunk
+        // links don't visually slam particles between crawl and jet ("matrix" effect).
+        // Range: 2.5 (idle) to 6.5 (saturated). Still communicates throughput.
+        this._velocity = 2.5 + this._density * 4.0;
     }
 
     advance(dt) {
