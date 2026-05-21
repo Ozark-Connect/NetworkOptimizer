@@ -34,8 +34,9 @@
         </div>
     </div>
 }
-else if (_detecting)
+else if (_snmpState == SnmpDetectionState.NotChecked)
 {
+    <!-- Detection in progress or about to start -->
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">SNMP Configuration</h2>
@@ -48,31 +49,12 @@ else if (_detecting)
         </div>
     </div>
 }
-else if (_detectionResult == null || !_detectionResult.Success)
+else if (_snmpState == SnmpDetectionState.Disabled)
 {
+    <!-- SNMP not enabled — setup guide -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">SNMP Configuration</h2>
-            <span class="status-badge status-error">Error</span>
-        </div>
-        <div class="card-body">
-            <div class="alert alert-danger">
-                <strong>Could not detect SNMP settings.</strong>
-                @(_detectionResult?.ErrorMessage ?? "Failed to read SNMP configuration from UniFi Console.")
-            </div>
-            <div class="action-buttons" style="margin-top: 1rem;">
-                <button class="btn btn-primary" @onclick="RunDetection">
-                    Retry Detection
-                </button>
-            </div>
-        </div>
-    </div>
-}
-else if (_detectionResult.DetectionState == SnmpDetectionState.Disabled)
-{
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">SNMP Configuration</h2>
+            <h2 class="card-title">SNMP Setup Required</h2>
             <span class="status-badge status-disconnected">Disabled</span>
         </div>
         <div class="card-body">
@@ -97,112 +79,39 @@ else if (_detectionResult.DetectionState == SnmpDetectionState.Disabled)
             </details>
 
             <div class="action-buttons" style="margin-top: 1rem;">
-                <button class="btn btn-primary" @onclick="RunDetection">Re-check</button>
+                <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                    @if (_detecting) { <span class="spinner-sm"></span> <span>Checking...</span> }
+                    else { <span>Re-check</span> }
+                </button>
             </div>
         </div>
     </div>
 }
-else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV3Only)
+else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetectionState.EnabledV3Only || _snmpState == SnmpDetectionState.Working)
 {
+    <!-- SNMP configured — show monitoring content -->
+
+    @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
+    {
+        <div class="alert alert-info" style="margin-bottom: 1.5rem;">
+            <strong>SNMPv3 detected.</strong>
+            Consider switching to v1/v2c - the per-packet crypto adds CPU load to your network devices. The recommended security posture is a management VLAN, not v3 encryption.
+            <button class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+        </div>
+    }
+
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">SNMP Configuration</h2>
-            <span class="status-badge status-connected">Detected</span>
-        </div>
-        <div class="card-body">
-            <p class="section-description">Found SNMPv3 credentials on your UniFi Console.</p>
-
-            <div class="form-group">
-                <label class="form-label">Version</label>
-                <div class="form-value">SNMPv3</div>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Username</label>
-                <div class="form-value">@_detectionResult.V3Username</div>
-            </div>
-
-            <div class="alert alert-info" style="margin-top: 1rem;">
-                <strong>Consider switching to SNMPv1/v2c.</strong>
-                SNMPv3's per-packet crypto adds measurable CPU load to your gateway and switches. The recommended security posture is a management VLAN (which your Security Audit already checks for) rather than per-packet encryption. This is a recommendation, not a requirement - you can proceed with v3.
-            </div>
-
-            @if (!_saved)
-            {
-                <div class="action-buttons" style="margin-top: 1rem;">
-                    <button class="btn btn-primary" @onclick="SaveAndProceed">Use SNMPv3</button>
-                    <button class="btn btn-secondary" @onclick="RunDetection">Re-check</button>
-                </div>
-            }
-            else
-            {
-                <div class="alert alert-success" style="margin-top: 1rem;">
-                    SNMP configuration saved. Monitoring is ready to start collecting data.
-                </div>
-            }
-        </div>
-    </div>
-}
-else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV2c)
-{
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">SNMP Configuration</h2>
-            <span class="status-badge status-connected">Ready</span>
-        </div>
-        <div class="card-body">
-            <p class="section-description">Found your SNMP config - looks good. Network Optimizer will use these credentials for SNMP polling.</p>
-
-            <div class="form-group">
-                <label class="form-label">Version</label>
-                <div class="form-value">SNMPv2c</div>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Community string</label>
-                <div class="form-value">@MaskString(_detectionResult.Community)</div>
-            </div>
-            @if (_detectionResult.SnmpV3Enabled)
-            {
-                <div class="form-group">
-                    <label class="form-label">SNMPv3</label>
-                    <div class="form-value">Also enabled (v2c will be used for polling)</div>
-                </div>
-            }
-
-            @if (!_saved)
-            {
-                <div class="action-buttons" style="margin-top: 1rem;">
-                    <button class="btn btn-primary" @onclick="SaveAndProceed">Confirm & Enable Monitoring</button>
-                    <button class="btn btn-secondary" @onclick="RunDetection">Re-check</button>
-                </div>
-            }
-            else
-            {
-                <div class="alert alert-success" style="margin-top: 1rem;">
-                    SNMP configuration saved. Monitoring is ready to start collecting data.
-                </div>
-            }
-        </div>
-    </div>
-}
-
-@if (_settings != null && _settings.SnmpDetectionState != SnmpDetectionState.NotChecked && _settings.SnmpDetectionState != SnmpDetectionState.Disabled)
-{
-    <div class="card" style="margin-top: 1.5rem;">
         <div class="card-header">
             <h2 class="card-title">Monitoring Status</h2>
-            <span class="status-badge status-disconnected">Pending Setup</span>
+            <span class="status-badge status-connected">@FormatSnmpState(_snmpState)</span>
         </div>
         <div class="card-body">
             <div class="form-group">
                 <label class="form-label">SNMP</label>
                 <div class="form-value">
                     <span class="status-indicator status-active"></span>
-                    @FormatDetectionState(_settings.SnmpDetectionState)
+                    @(_snmpState == SnmpDetectionState.EnabledV2c ? "v2c" : _snmpState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")
                 </div>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Last detection</label>
-                <div class="form-value">@(_settings.LastSnmpDetection?.ToString("g") ?? "Never")</div>
             </div>
             <div class="form-group">
                 <label class="form-label">InfluxDB</label>
@@ -221,29 +130,56 @@ else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV2c)
         </div>
     </div>
 }
+else if (_snmpState == SnmpDetectionState.PollFailing)
+{
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Monitoring Status</h2>
+            <span class="status-badge status-error">SNMP Error</span>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-danger">
+                <strong>SNMP polling is failing.</strong>
+                @(_detectionError ?? "Check that SNMP is still enabled on your UniFi Console and that firewall rules permit UDP/161 from this server to your network devices.")
+            </div>
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                    @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                    else { <span>Re-check SNMP</span> }
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
+    private SnmpDetectionState _snmpState = SnmpDetectionState.NotChecked;
     private bool _detecting;
-    private bool _saved;
-    private SnmpDetectionResult? _detectionResult;
-    private MonitoringSettings? _settings;
+    private bool _showV3Recommendation = true;
+    private string? _detectionError;
 
     protected override async Task OnInitializedAsync()
     {
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
-        await ConnectionService.WaitForConnectionAsync();
-        _settings = await SnmpDetection.GetOrCreateSettingsAsync();
+        var settings = await SnmpDetection.GetOrCreateSettingsAsync();
+        _snmpState = settings.SnmpDetectionState;
 
-        if (ConnectionService.IsConnected && _settings.SnmpDetectionState == SnmpDetectionState.NotChecked)
+        if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
         {
             await RunDetection();
+        }
+        else if (_snmpState == SnmpDetectionState.NotChecked)
+        {
+            await ConnectionService.WaitForConnectionAsync();
+            if (ConnectionService.IsConnected)
+                await RunDetection();
         }
     }
 
     private async void OnConnectionChanged()
     {
-        if (ConnectionService.IsConnected && (_detectionResult == null || !_detectionResult.Success))
+        if (ConnectionService.IsConnected && _snmpState == SnmpDetectionState.NotChecked)
         {
             await InvokeAsync(async () =>
             {
@@ -257,45 +193,40 @@ else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV2c)
         }
     }
 
-    public void Dispose()
-    {
-        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
-    }
-
     private async Task RunDetection()
     {
         _detecting = true;
-        _saved = false;
+        _detectionError = null;
         StateHasChanged();
 
-        _detectionResult = await SnmpDetection.DetectSnmpSettingsAsync();
+        var result = await SnmpDetection.DetectSnmpSettingsAsync();
+
+        if (result.Success)
+        {
+            await SnmpDetection.SaveDetectionResultAsync(result);
+            var settings = await SnmpDetection.GetOrCreateSettingsAsync();
+            _snmpState = settings.SnmpDetectionState;
+        }
+        else
+        {
+            _detectionError = result.ErrorMessage;
+            _snmpState = SnmpDetectionState.PollFailing;
+        }
+
         _detecting = false;
         StateHasChanged();
     }
 
-    private async Task SaveAndProceed()
+    private static string FormatSnmpState(SnmpDetectionState state) => state switch
     {
-        if (_detectionResult == null) return;
-
-        await SnmpDetection.SaveDetectionResultAsync(_detectionResult);
-        _settings = await SnmpDetection.GetOrCreateSettingsAsync();
-        _saved = true;
-        StateHasChanged();
-    }
-
-    private static string MaskString(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return "(empty)";
-        if (value.Length <= 4) return new string('*', value.Length);
-        return value[..2] + new string('*', value.Length - 4) + value[^2..];
-    }
-
-    private static string FormatDetectionState(SnmpDetectionState state) => state switch
-    {
-        SnmpDetectionState.EnabledV2c => "Configured (v2c)",
-        SnmpDetectionState.EnabledV3Only => "Configured (v3)",
+        SnmpDetectionState.EnabledV2c => "SNMP Ready",
+        SnmpDetectionState.EnabledV3Only => "SNMP Ready (v3)",
         SnmpDetectionState.Working => "Active",
-        SnmpDetectionState.PollFailing => "Poll failures",
         _ => state.ToString()
     };
+
+    public void Dispose()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+    }
 }
