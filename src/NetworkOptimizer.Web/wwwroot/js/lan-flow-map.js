@@ -759,14 +759,22 @@ export class LanFlowMap {
             const link = this._linkMeshes.get(linkId);
             let down = r?.downstreamBps || 0;
             let up = r?.upstreamBps || 0;
-            // Gateway-centric convention: every link's ↓ = traffic moving toward
-            // the LAN side. On LAN links (Uplink/WiredClient/WifiClient/MeshBackhaul)
-            // that's "away from gateway toward leaf" - already what the backend
-            // emits. On WAN/Transit links the cloud is the "upstream" side from the
-            // gateway's perspective, so ↓ = traffic from cloud INTO gateway
-            // (downloads). Flip down/up for those link kinds.
+            // Gateway-centric convention: ↓ = traffic flowing INTO the gateway via
+            // this link, ↑ = traffic flowing OUT of the gateway via this link.
+            //   - WAN/Transit: backend already emits this (DownstreamBps =
+            //     wan.LiveRateInBps = gateway RX from internet). No flip needed.
+            //   - LAN (Uplink/WiredClient/WifiClient/MeshBackhaul): backend emits
+            //     DownstreamBps = child device's RateIn = data going FROM gateway
+            //     INTO the child = OUT of gateway. Flip to put gateway-incoming
+            //     traffic under ↓. Example: a camera on a leaf switch uploading
+            //     ~5 Mbps appears as ↓ on the trunk to its parent switch (data
+            //     entering the gateway from below).
             const kind = link?.link?.kind;
-            if (kind === LINK_KIND.Wan || kind === LINK_KIND.Transit) {
+            const isLanLink = kind === LINK_KIND.Uplink
+                || kind === LINK_KIND.WiredClient
+                || kind === LINK_KIND.WifiClient
+                || kind === LINK_KIND.MeshBackhaul;
+            if (isLanLink) {
                 const tmp = down; down = up; up = tmp;
             }
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
