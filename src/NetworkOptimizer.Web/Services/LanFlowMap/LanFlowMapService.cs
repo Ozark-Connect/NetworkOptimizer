@@ -5,6 +5,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.LanFlowMap;
 
@@ -20,6 +21,7 @@ public class LanFlowMapService
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly MonitoringLiveStats _liveStats;
     private readonly MonitoringInfluxClient _influx;
+    private readonly MonitoringPathView _pathView;
     private readonly ApMapService _apMap;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly ILoggerFactory _loggerFactory;
@@ -30,6 +32,7 @@ public class LanFlowMapService
         INetworkPathAnalyzer pathAnalyzer,
         MonitoringLiveStats liveStats,
         MonitoringInfluxClient influx,
+        MonitoringPathView pathView,
         ApMapService apMap,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         ILoggerFactory loggerFactory,
@@ -39,6 +42,7 @@ public class LanFlowMapService
         _pathAnalyzer = pathAnalyzer;
         _liveStats = liveStats;
         _influx = influx;
+        _pathView = pathView;
         _apMap = apMap;
         _dbFactory = dbFactory;
         _loggerFactory = loggerFactory;
@@ -383,114 +387,131 @@ public class LanFlowMapService
         LanFlowMapSnapshot snapshot,
         CancellationToken ct)
     {
-        var gateway = topology.Devices.FirstOrDefault(d => d.HardwareType == DeviceType.Gateway);
-        if (gateway == null) return;
-        var gwMac = NormalizeMac(gateway.Mac);
+        // Spec 5.7 grammar: every WAN gets an access-ISP cloud. Only the primary WAN
+        // surfaces the chain of transit clouds. Cloud data is owned by MonitoringPathView -
+        // the map never renders MonitoringTarget rows directly.
+        var wans = await _pathView.GetWansAsync(ct);
+        if (wans.Count == 0) return;
 
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-
-        var wanInterfaces = await db.InterfaceNameMaps
-            .AsNoTracking()
-            .Where(m => m.DeviceMac == gwMac && m.IsWan)
-            .ToListAsync(ct);
-        var targets = await db.MonitoringTargets.AsNoTracking().ToListAsync(ct);
-        var upstream = await db.UpstreamDiscoveries.AsNoTracking()
-            .Where(u => u.IsActive)
-            .OrderBy(u => u.HopNumber)
-            .ToListAsync(ct);
-
-        // Each WAN interface gets its own edge off the gateway plus an access-ISP cloud.
-        for (int i = 0; i < wanInterfaces.Count; i++)
+        foreach (var wan in wans)
         {
-            var wan = wanInterfaces[i];
-            var isPrimary = i == 0;  // MVP: first WAN is primary, only it shows transit clouds.
-            var wanNodeId = $"wan-iface-{wan.IfName}";
+            var wanNodeId = $"wan-iface-{wan.WanInterface}";
+            var gwId = !string.IsNullOrEmpty(wan.GatewayMac)
+                ? "dev-" + NormalizeMac(wan.GatewayMac)
+                : null;
+
             snapshot.Nodes.Add(new LanNode
             {
                 Id = wanNodeId,
                 Kind = LanNodeKind.Cloud,
-                Name = wan.WanName ?? wan.FriendlyName ?? wan.IfName,
-                ParentId = "dev-" + gwMac,
+                Name = wan.FriendlyName ?? wan.WanInterface.ToUpperInvariant(),
+                ParentId = gwId,
             });
-            snapshot.Links.Add(new LanLink
+            if (!string.IsNullOrEmpty(gwId))
             {
-                Id = $"wan-link-{wan.IfName}",
-                FromNodeId = "dev-" + gwMac,
-                ToNodeId = wanNodeId,
-                Kind = LanLinkKind.Wan,
-                CapacityBps = wan.SpeedMbps.HasValue ? (long)wan.SpeedMbps.Value * 1_000_000L : null,
-                PortKey = PortKey(gwMac, wan.IfName),
-            });
-
-            // Access ISP cloud terminates the WAN link.
-            var access = targets.FirstOrDefault(t =>
-                t.TargetType == MonitoringTargetType.AccessIsp &&
-                (string.IsNullOrEmpty(t.PtrHostname) || true) /* TODO: per-WAN binding when we have it */);
-            var accessCloud = new LanCloud
-            {
-                Id = "cloud-access-" + (wan.WanName ?? wan.IfName),
-                Kind = LanCloudKind.AccessIsp,
-                Name = access?.AsnName ?? access?.Name ?? "Access ISP",
-                Asn = access?.AsnNumber,
-                AsnName = access?.AsnName,
-                Order = 0,
-                IsPathProxy = access?.DiscoveryMethod == DiscoveryMethod.PathProxy,
-            };
-            if (access != null)
-            {
-                var stats = _liveStats.GetTargetStats(access.TargetId);
-                if (stats != null && stats.Success)
+                var wanLink = new LanLink
                 {
-                    accessCloud.RttAvgMs = stats.RttAvgMs;
-                    accessCloud.LossPercent = stats.LossPercent;
+                    Id = $"wan-link-{wan.WanInterface}",
+                    FromNodeId = gwId,
+                    ToNodeId = wanNodeId,
+                    Kind = LanLinkKind.Wan,
+                    CapacityBps = wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null,
+                };
+                if (!string.IsNullOrEmpty(wan.GatewayPortName))
+                {
+                    wanLink.PortKey = PortKey(wan.GatewayMac!, wan.GatewayPortName);
+                }
+                snapshot.Links.Add(wanLink);
+
+                // Pre-seed the WAN link's live rates from the WanSummary so the map shows
+                // gateway WAN throughput from frame zero.
+                if (wan.LiveRateInBps.HasValue || wan.LiveRateOutBps.HasValue)
+                {
+                    snapshot.LiveRates[wanLink.Id] = new LinkLiveRates
+                    {
+                        // WanSummary's RateIn/RateOut are device-aggregates from the live-stats
+                        // cache. RateIn = incoming to gateway = internet -> gateway = downstream.
+                        DownstreamBps = wan.LiveRateInBps ?? 0,
+                        UpstreamBps = wan.LiveRateOutBps ?? 0,
+                        AsOf = DateTime.UtcNow,
+                    };
                 }
             }
+
+            UpstreamPathSnapshot? upstream = null;
+            try { upstream = await _pathView.GetUpstreamPathAsync(wan.WanInterface, ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Upstream path fetch failed for {Wan}", wan.WanInterface); }
+            if (upstream == null) continue;
+
+            var accessCloud = new LanCloud
+            {
+                Id = $"cloud-access-{wan.WanInterface}",
+                Kind = LanCloudKind.AccessIsp,
+                Name = upstream.Access.AsnName ?? upstream.Access.L2NeighborOui ?? "Access ISP",
+                Asn = upstream.Access.AsnNumber,
+                AsnName = upstream.Access.AsnName,
+                Order = 0,
+                WanInterface = wan.WanInterface,
+                AccessTechnology = upstream.Access.AccessTechnology,
+                L2NeighborOui = upstream.Access.L2NeighborOui,
+                IsCgnat = upstream.Access.IsCgnat,
+                IsDiscoveryPending = upstream.Access.Hops.Count == 0,
+                Tier = upstream.Access.Hops.Count == 0 ? LanCloudTier.Unresolved : LanCloudTier.Solid,
+            };
+
+            // RTT for the access cloud: pick the deepest hop that has live data (closest to
+            // the actual ISP boundary). Wizard-output ordering puts BNG/CMTS/OLT toward the
+            // tail of the hop list.
+            var lastLive = upstream.Access.Hops
+                .Reverse()
+                .FirstOrDefault(h => h.Live != null && h.Live.Success);
+            if (lastLive?.Live != null)
+            {
+                accessCloud.RttAvgMs = lastLive.Live.RttAvgMs;
+                accessCloud.LossPercent = lastLive.Live.LossPercent;
+            }
             snapshot.Clouds.Add(accessCloud);
+
             snapshot.Links.Add(new LanLink
             {
-                Id = "wan-to-access-" + (wan.WanName ?? wan.IfName),
+                Id = $"wan-to-access-{wan.WanInterface}",
                 FromNodeId = wanNodeId,
                 ToNodeId = accessCloud.Id,
                 Kind = LanLinkKind.Transit,
             });
 
-            if (!isPrimary) continue;
+            if (!upstream.IsPrimary) continue;
 
-            // Primary WAN only: chain of transit clouds, one per upstream ASN.
-            string? prevCloudId = accessCloud.Id;
+            string prevCloudId = accessCloud.Id;
             int order = 1;
-            foreach (var hop in upstream
-                .Where(u => u.Role == UpstreamRole.Transit || u.Role == UpstreamRole.Border || u.Role == UpstreamRole.PathProxy)
-                .GroupBy(u => u.AsnNumber)
-                .OrderBy(g => g.First().HopNumber))
+            foreach (var t in upstream.Transits)
             {
-                var first = hop.First();
-                var target = targets.FirstOrDefault(t =>
-                    t.TargetType == MonitoringTargetType.Transit && t.AsnNumber == first.AsnNumber);
                 var cloud = new LanCloud
                 {
-                    Id = $"cloud-transit-{first.AsnNumber}",
+                    Id = $"cloud-transit-{wan.WanInterface}-{t.AsnNumber}",
                     Kind = LanCloudKind.Transit,
-                    Asn = first.AsnNumber,
-                    AsnName = first.AsnName,
-                    Name = first.AsnName ?? $"AS{first.AsnNumber}",
+                    Asn = t.AsnNumber,
+                    AsnName = t.AsnName,
+                    Name = t.AsnName,
                     Order = order++,
-                    IsPathProxy = first.Role == UpstreamRole.PathProxy,
-                };
-                if (target != null)
-                {
-                    var stats = _liveStats.GetTargetStats(target.TargetId);
-                    if (stats != null && stats.Success)
+                    WanInterface = wan.WanInterface,
+                    Tier = t.Method switch
                     {
-                        cloud.RttAvgMs = stats.RttAvgMs;
-                        cloud.LossPercent = stats.LossPercent;
-                    }
+                        DiscoveryMethod.PathProxy => LanCloudTier.PathProxy,
+                        DiscoveryMethod.DirectRouter => LanCloudTier.Solid,
+                        _ => LanCloudTier.Unresolved,
+                    },
+                };
+                if (t.Live != null && t.Live.Success)
+                {
+                    cloud.RttAvgMs = t.Live.RttAvgMs;
+                    cloud.LossPercent = t.Live.LossPercent;
                 }
                 snapshot.Clouds.Add(cloud);
                 snapshot.Links.Add(new LanLink
                 {
                     Id = $"transit-link-{prevCloudId}-{cloud.Id}",
-                    FromNodeId = prevCloudId!,
+                    FromNodeId = prevCloudId,
                     ToNodeId = cloud.Id,
                     Kind = LanLinkKind.Transit,
                 });

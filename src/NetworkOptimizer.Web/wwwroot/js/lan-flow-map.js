@@ -64,6 +64,14 @@ const PLACEMENT_SOURCE = {
     Interpolated: 2,
 };
 
+const CLOUD_TIER = {
+    // Per spec 5.7: solid = real router target, PathProxy = dashed "via path",
+    // Unresolved = discovery still pending (no live stats yet).
+    Solid: 0,
+    PathProxy: 1,
+    Unresolved: 2,
+};
+
 export class LanFlowMap {
     constructor(canvasEl, options = {}) {
         this.canvas = canvasEl;
@@ -444,16 +452,25 @@ export class LanFlowMap {
             this._positions.set(cloud.id, pos);
 
             const group = new THREE.Group();
-            // Cloud "blob" using a large sphere with displaced normals via a noise material.
+            // Tier (DiscoveryMethod) drives the visual posture:
+            //   Solid     - bright, opaque cloud
+            //   PathProxy - dashed/dimmer, "via path" tag overlaid on label
+            //   Unresolved - neutral grey, "discovery pending" tag, no RTT badge
+            const tier = cloud.tier ?? CLOUD_TIER.Solid;
+            const baseOpacity = tier === CLOUD_TIER.Solid ? 0.85
+                              : tier === CLOUD_TIER.PathProxy ? 0.55
+                              : 0.35;
+            const baseColor = tier === CLOUD_TIER.Unresolved ? 0x2a3340 : COLORS.cloud;
+
             const geo = new THREE.SphereGeometry(NODE_RADIUS.cloud, 32, 24);
             const mat = new THREE.MeshStandardMaterial({
-                color: COLORS.cloud,
+                color: baseColor,
                 emissive: 0x1d2330,
                 emissiveIntensity: 0.3,
                 roughness: 0.95,
                 metalness: 0.02,
                 transparent: true,
-                opacity: cloud.isPathProxy ? 0.55 : 0.85,
+                opacity: baseOpacity,
             });
             const blob = new THREE.Mesh(geo, mat);
             group.add(blob);
@@ -461,11 +478,14 @@ export class LanFlowMap {
             // Outer wisp shell to read as a cloud, not a sphere.
             const wisp = new THREE.Mesh(
                 new THREE.SphereGeometry(NODE_RADIUS.cloud * 1.7, 24, 16),
-                new THREE.MeshBasicMaterial({ color: COLORS.cloud, transparent: true, opacity: 0.12, depthWrite: false }),
+                new THREE.MeshBasicMaterial({ color: baseColor, transparent: true, opacity: 0.12, depthWrite: false }),
             );
             group.add(wisp);
 
-            const label = this._makeLabelSprite(cloud.name || `AS${cloud.asn || ''}`);
+            // Label: ASN name (primary), with sub-tags for access-tech / OUI / tier hint.
+            const labelText = cloud.name || (cloud.asn ? `AS${cloud.asn}` : 'Cloud');
+            const subText = this._buildCloudSubLabel(cloud, tier);
+            const label = this._makeLabelSprite(labelText, subText);
             label.position.set(0, NODE_RADIUS.cloud + 1.2, 0);
             group.add(label);
 
@@ -535,31 +555,55 @@ export class LanFlowMap {
         }
     }
 
-    _makeLabelSprite(text) {
+    _makeLabelSprite(text, subText = null) {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const fontSize = 36;
+        const subFontSize = 22;
         const pad = 16;
         ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
-        const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
-        const h = fontSize + pad * 2;
+        const titleW = Math.ceil(ctx.measureText(text).width);
+        let subW = 0;
+        if (subText) {
+            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            subW = Math.ceil(ctx.measureText(subText).width);
+        }
+        const w = Math.max(titleW, subW) + pad * 2;
+        const h = subText ? fontSize + subFontSize + pad * 2 + 6 : fontSize + pad * 2;
         canvas.width = w;
         canvas.height = h;
-        // Re-set font after canvas resize (canvas resize clears state).
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
         ctx.fillStyle = 'rgba(16, 24, 32, 0.85)';
         roundRect(ctx, 0, 0, w, h, 12);
         ctx.fillStyle = '#f1f5f9';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, pad, h / 2);
+        ctx.textBaseline = 'top';
+        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.fillText(text, pad, pad);
+        if (subText) {
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            ctx.fillText(subText, pad, pad + fontSize + 6);
+        }
         const tex = new THREE.CanvasTexture(canvas);
         tex.needsUpdate = true;
         const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
         const sprite = new THREE.Sprite(mat);
-        const scaleY = 1.2;
+        const scaleY = 1.2 * (h / (fontSize + pad * 2));
         const scaleX = scaleY * (w / h);
         sprite.scale.set(scaleX, scaleY, 1);
         return sprite;
+    }
+
+    _buildCloudSubLabel(cloud, tier) {
+        const parts = [];
+        if (cloud.accessTechnology) parts.push(cloud.accessTechnology);
+        if (cloud.l2NeighborOui) parts.push(cloud.l2NeighborOui);
+        if (cloud.isCgnat) parts.push('CGNAT');
+        if (tier === CLOUD_TIER.PathProxy) parts.push('via path');
+        if (tier === CLOUD_TIER.Unresolved) parts.push('discovery pending');
+        if (cloud.rttAvgMs && Number.isFinite(cloud.rttAvgMs)) {
+            parts.push(`${cloud.rttAvgMs.toFixed(1)} ms`);
+        }
+        return parts.length ? parts.join('  ·  ') : null;
     }
 
     // ------------------------------------------------------------------------
