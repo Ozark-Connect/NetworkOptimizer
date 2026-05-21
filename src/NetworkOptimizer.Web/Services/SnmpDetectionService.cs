@@ -49,7 +49,29 @@ public class SnmpDetectionService
         _logger = logger;
     }
 
-    public async Task<SnmpDetectionResult> DetectSnmpSettingsAsync(CancellationToken ct = default)
+    public async Task<SnmpDetectionResult> DetectSnmpSettingsAsync(int maxRetries = 3, CancellationToken ct = default)
+    {
+        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            var result = await TryDetectOnceAsync(ct);
+            if (result.Success)
+                return result;
+
+            if (attempt < maxRetries)
+            {
+                _logger.LogDebug("SNMP detection attempt {Attempt} failed, retrying in {Delay} ms", attempt + 1, (attempt + 1) * 1000);
+                await Task.Delay((attempt + 1) * 1000, ct);
+            }
+            else
+            {
+                return result;
+            }
+        }
+
+        return new SnmpDetectionResult { Success = false, ErrorMessage = "Detection failed after retries" };
+    }
+
+    private async Task<SnmpDetectionResult> TryDetectOnceAsync(CancellationToken ct)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
         {
