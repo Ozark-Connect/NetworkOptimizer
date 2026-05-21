@@ -19,7 +19,11 @@ public class MonitoredSfp
     [MaxLength(200)]
     public string? SfpVendor { get; set; }
 
-    public bool IsGpon { get; set; }
+    /// <summary>
+    /// Whether this SFP is a Passive Optical Network module — GPON, XGS-PON, etc. Use
+    /// SfpPart / SfpCompliance to discriminate the specific PON variant if needed.
+    /// </summary>
+    public bool IsPon { get; set; }
 
     public bool IsMonitoredOnt { get; set; }
 

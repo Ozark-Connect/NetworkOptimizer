@@ -260,11 +260,23 @@ public class MonitoringCollectionAgent : BackgroundService
         var poller = BuildPoller(settings);
         if (poller == null) return;
 
+        if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
+
         // Reconcile InterfaceNameMap: stable device_mac+ifName → friendly name from UniFi
         // (per spec 3.7).
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var existingMaps = await db.InterfaceNameMaps.ToDictionaryAsync(
             m => (m.DeviceMac, m.IfName), m => m, ct);
+        var existingSfps = await db.MonitoredSfps.ToDictionaryAsync(
+            s => (s.DeviceMac, s.PortName), s => s, ct);
+
+        // SFP collection (spec 5.9): write DDM values to the sfp measurement for every port
+        // where UniFi reports sfp_found, and reconcile the MonitoredSfps relational row.
+        var nowSfp = DateTime.UtcNow;
+        foreach (var device in devices)
+        {
+            CollectSfpForDevice(device, db, existingSfps, nowSfp);
+        }
 
         foreach (var device in devices)
         {
@@ -650,6 +662,107 @@ public class MonitoringCollectionAgent : BackgroundService
             if (match != null && !string.IsNullOrEmpty(match.Name)) return match.Name;
         }
         return null;
+    }
+
+    private void CollectSfpForDevice(
+        UniFiDeviceResponse device,
+        NetworkOptimizerDbContext db,
+        Dictionary<(string DeviceMac, string PortName), MonitoredSfp> existing,
+        DateTime timestamp)
+    {
+        if (device.PortTable == null || device.PortTable.Count == 0) return;
+        var mac = NormalizeMac(device.Mac);
+
+        foreach (var port in device.PortTable)
+        {
+            if (port.SfpFound != true) continue;
+            // port_idx is what UniFi exposes; we use it as the stable port name for the
+            // SFP measurement. This matches how the device's UI labels SFP ports too.
+            var portName = port.PortIdx > 0
+                ? port.PortIdx.ToString()
+                : (port.Name ?? string.Empty);
+            if (string.IsNullOrEmpty(portName)) continue;
+
+            // Write the DDM values to InfluxDB regardless of whether the user has
+            // promoted this SFP to a monitored ONT — having the data is what enables
+            // promotion later, and the longterm bucket keeps it cheap.
+            _ = _influx.WriteSfpAsync(
+                deviceMac: mac,
+                portName: portName,
+                rxPowerDbm: port.SfpRxPower,
+                txPowerDbm: port.SfpTxPower,
+                txBiasMa: port.SfpCurrent,
+                temperatureC: port.SfpTemperature,
+                voltageV: port.SfpVoltage,
+                timestamp: timestamp);
+
+            // Mirror the values into the live-stats cache so the dashboard SFP card can
+            // render without a DB roundtrip on every refresh.
+            _liveStats.RecordSfp(
+                deviceMac: mac,
+                portName: portName,
+                rxDbm: port.SfpRxPower,
+                txDbm: port.SfpTxPower,
+                biasMa: port.SfpCurrent,
+                tempC: port.SfpTemperature,
+                voltageV: port.SfpVoltage,
+                timestamp: timestamp);
+
+            // Reconcile the relational row so the UI knows the SFP exists and can offer
+            // ONT promotion / friendly naming.
+            var key = (mac, portName);
+            var isPon = IsPonModule(port.SfpPart, port.SfpCompliance);
+            if (!existing.TryGetValue(key, out var row))
+            {
+                row = new MonitoredSfp
+                {
+                    DeviceMac = mac,
+                    PortName = portName,
+                    SfpPart = port.SfpPart,
+                    SfpVendor = port.SfpVendor,
+                    IsPon = isPon,
+                    IsMonitoredOnt = isPon, // auto-promote PON SFPs (GPON, XGS-PON) since they're the headline use case
+                    CreatedAt = timestamp,
+                    UpdatedAt = timestamp
+                };
+                db.MonitoredSfps.Add(row);
+                existing[key] = row;
+            }
+            else
+            {
+                row.SfpPart = port.SfpPart ?? row.SfpPart;
+                row.SfpVendor = port.SfpVendor ?? row.SfpVendor;
+                row.IsPon = isPon || row.IsPon;
+                row.UpdatedAt = timestamp;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Detect whether an SFP module is a Passive Optical Network module. Covers GPON
+    /// (2.5G), XGS-PON (10G symmetric), XG-PON (10G asymmetric), EPON, and the
+    /// not-yet-shipping NG-PON2. We match conservatively on the part string and on the
+    /// compliance string when present — false positives here only mean an extra dashboard
+    /// row, never wrong data.
+    /// </summary>
+    private static bool IsPonModule(string? part, string? compliance)
+    {
+        if (!string.IsNullOrEmpty(part))
+        {
+            var p = part!;
+            if (p.Contains("GPON", StringComparison.OrdinalIgnoreCase)) return true;
+            if (p.Contains("XGS-PON", StringComparison.OrdinalIgnoreCase)) return true;
+            if (p.Contains("XGSPON", StringComparison.OrdinalIgnoreCase)) return true;
+            if (p.Contains("XG-PON", StringComparison.OrdinalIgnoreCase)) return true;
+            if (p.Contains("EPON", StringComparison.OrdinalIgnoreCase)) return true;
+            if (p.Contains("NG-PON", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        if (!string.IsNullOrEmpty(compliance) &&
+            compliance!.Contains("PON", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return false;
     }
 
     private static string NormalizeMac(string mac) =>

@@ -66,6 +66,39 @@ public class MonitoringLiveStats
             });
     }
 
+    private readonly ConcurrentDictionary<(string DeviceMac, string PortName), SfpLiveStats> _sfpStats = new();
+
+    /// <summary>Latest SFP DDM snapshot for a given device port.</summary>
+    public SfpLiveStats? GetSfpStats(string deviceMac, string portName)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return null;
+        return _sfpStats.TryGetValue((Normalize(deviceMac), portName), out var v) ? v : null;
+    }
+
+    /// <summary>All currently-known SFP readings — used by the dashboard SFP card.</summary>
+    public IReadOnlyList<(string DeviceMac, string PortName, SfpLiveStats Stats)> AllSfp()
+    {
+        return _sfpStats
+            .Select(kvp => (kvp.Key.DeviceMac, kvp.Key.PortName, kvp.Value))
+            .ToList();
+    }
+
+    public void RecordSfp(string deviceMac, string portName, double? rxDbm, double? txDbm, double? biasMa, double? tempC, double? voltageV, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
+        var key = (Normalize(deviceMac), portName);
+        var snapshot = new SfpLiveStats
+        {
+            RxPowerDbm = rxDbm,
+            TxPowerDbm = txDbm,
+            BiasMa = biasMa,
+            TemperatureC = tempC,
+            VoltageV = voltageV,
+            LastUpdate = timestamp
+        };
+        _sfpStats[key] = snapshot;
+    }
+
     /// <summary>Drop stale entries — called periodically by the agent.</summary>
     public void Prune(TimeSpan maxAge)
     {
@@ -76,10 +109,25 @@ public class MonitoringLiveStats
             if (newest != null && newest < cutoff)
                 _stats.TryRemove(kvp.Key, out _);
         }
+        foreach (var kvp in _sfpStats)
+        {
+            if (kvp.Value.LastUpdate < cutoff)
+                _sfpStats.TryRemove(kvp.Key, out _);
+        }
     }
 
     private static string Normalize(string mac) =>
         mac.ToLowerInvariant().Replace('-', ':');
+}
+
+public record SfpLiveStats
+{
+    public double? RxPowerDbm { get; init; }
+    public double? TxPowerDbm { get; init; }
+    public double? BiasMa { get; init; }
+    public double? TemperatureC { get; init; }
+    public double? VoltageV { get; init; }
+    public DateTime LastUpdate { get; init; }
 }
 
 public record DeviceLiveStats

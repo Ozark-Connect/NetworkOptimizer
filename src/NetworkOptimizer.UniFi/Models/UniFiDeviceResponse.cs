@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.UniFi.Models;
@@ -497,6 +498,57 @@ public class SwitchPort
     /// </summary>
     [JsonPropertyName("port_security_mac_address")]
     public List<string>? PortSecurityMacAddresses { get; set; }
+
+    // SFP / DDM (Digital Diagnostic Monitoring) — UniFi exposes these on ports populated
+    // by an SFP module. Used by NO's monitoring subsystem (spec 5.9) to track GPON ONT
+    // and other SFP optical levels over time.
+
+    /// <summary>True if an SFP/SFP+ module is detected in this port.</summary>
+    [JsonPropertyName("sfp_found")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? SfpFound { get; set; }
+
+    /// <summary>Receive optical power in dBm (negative values are normal — typical OK range -3 to -25).</summary>
+    [JsonPropertyName("sfp_rxpower")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    [VendorSpecific("UniFi", "SFP DDM value, units dBm")]
+    public double? SfpRxPower { get; set; }
+
+    /// <summary>Transmit optical power in dBm.</summary>
+    [JsonPropertyName("sfp_txpower")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    [VendorSpecific("UniFi", "SFP DDM value, units dBm")]
+    public double? SfpTxPower { get; set; }
+
+    /// <summary>Laser bias current in mA.</summary>
+    [JsonPropertyName("sfp_current")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    [VendorSpecific("UniFi", "SFP DDM value, units mA")]
+    public double? SfpCurrent { get; set; }
+
+    /// <summary>SFP module temperature in degrees Celsius.</summary>
+    [JsonPropertyName("sfp_temperature")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    [VendorSpecific("UniFi", "SFP DDM value, units °C")]
+    public double? SfpTemperature { get; set; }
+
+    /// <summary>SFP module supply voltage in volts.</summary>
+    [JsonPropertyName("sfp_voltage")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    [VendorSpecific("UniFi", "SFP DDM value, units V")]
+    public double? SfpVoltage { get; set; }
+
+    /// <summary>SFP module part / model identifier string.</summary>
+    [JsonPropertyName("sfp_part")]
+    public string? SfpPart { get; set; }
+
+    /// <summary>SFP module vendor name.</summary>
+    [JsonPropertyName("sfp_vendor")]
+    public string? SfpVendor { get; set; }
+
+    /// <summary>SFP module compliance type (e.g., "1000BASE-LX", "PON").</summary>
+    [JsonPropertyName("sfp_compliance")]
+    public string? SfpCompliance { get; set; }
 }
 
 public class UplinkInfo

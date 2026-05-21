@@ -7,6 +7,7 @@
 @inject SnmpDetectionService SnmpDetection
 @inject UniFiConnectionService ConnectionService
 @inject MonitoringInfluxClient InfluxClient
+@inject MonitoringLiveStats LiveStats
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 
 <PageTitle>Monitoring - Network Optimizer</PageTitle>
@@ -209,6 +210,69 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
         </div>
     </div>
 
+    @if (_monitoringEnabled && _monitoredSfps.Count > 0)
+    {
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Optical (SFP / ONT)</h2>
+                <span class="status-badge status-active">@_monitoredSfps.Count modules</span>
+            </div>
+            <div class="card-body">
+                <p class="page-description">
+                    GPON ONTs and other SFP modules detected on switch/gateway ports. RX
+                    optical power should sit in a healthy range (typically -3 to -25 dBm
+                    for single-mode; values outside that range need attention).
+                </p>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Port</th>
+                            <th>Module</th>
+                            <th>RX power</th>
+                            <th>TX power</th>
+                            <th>Temp</th>
+                            <th>Voltage</th>
+                            <th>Bias</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var sfp in _monitoredSfps.OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName))
+                        {
+                            var stats = LiveStats.GetSfpStats(sfp.DeviceMac, sfp.PortName);
+                            <tr>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(sfp.FriendlyName))
+                                    {
+                                        <span>@sfp.FriendlyName</span>
+                                    }
+                                    else
+                                    {
+                                        <span><code>@sfp.DeviceMac</code> port @sfp.PortName</span>
+                                    }
+                                    @if (sfp.IsPon)
+                                    {
+                                        <span class="status-badge status-active" style="margin-left: 0.5rem;">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(sfp.SfpPart))
+                                    { <code>@sfp.SfpPart</code> }
+                                    else
+                                    { <span class="text-muted">—</span> }
+                                </td>
+                                <td class="@RxClass(stats?.RxPowerDbm)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
+                                <td>@FormatOptical(stats?.TxPowerDbm, "dBm")</td>
+                                <td>@FormatOptical(stats?.TemperatureC, "°C")</td>
+                                <td>@FormatOptical(stats?.VoltageV, "V")</td>
+                                <td>@FormatOptical(stats?.BiasMa, "mA")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
     @if (_monitoringEnabled)
     {
         <div class="card" style="margin-top: 1.5rem;">
@@ -309,6 +373,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool _monitoringEnabled;
     private bool _togglingEnable;
     private List<MonitoringTarget> _targets = new();
+    private List<MonitoredSfp> _monitoredSfps = new();
     private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
@@ -451,11 +516,45 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             await using var db = await DbFactory.CreateDbContextAsync();
             _targets = await db.MonitoringTargets.AsNoTracking()
                 .OrderBy(t => t.TargetType).ThenBy(t => t.Name).ToListAsync();
+            _monitoredSfps = await db.MonitoredSfps.AsNoTracking()
+                .Where(s => s.IsMonitoredOnt)
+                .ToListAsync();
         }
         catch
         {
             _targets = new List<MonitoringTarget>();
+            _monitoredSfps = new List<MonitoredSfp>();
         }
+    }
+
+    private static string FormatOptical(double? value, string unit)
+    {
+        if (!value.HasValue) return "—";
+        return $"{value.Value:0.##} {unit}";
+    }
+
+    // Single-mode SFP/PON optical receive should land roughly between -3 and -25 dBm.
+    // Outside that range, the link is either over-driven (too strong, will cause errors)
+    // or under-driven (failing). Color-code the cell so problems jump out.
+    private static string RxClass(double? rxDbm)
+    {
+        if (!rxDbm.HasValue) return string.Empty;
+        var v = rxDbm.Value;
+        if (v >= -27 && v <= -3) return "";              // healthy range
+        if (v >= -30 && v <= -1) return "signal-fair";
+        return "signal-poor";
+    }
+
+    private static string PonVariantLabel(string? sfpPart, string? sfpVendor)
+    {
+        var s = $"{sfpPart} {sfpVendor}";
+        if (s.Contains("XGS-PON", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("XGSPON", StringComparison.OrdinalIgnoreCase)) return "XGS-PON";
+        if (s.Contains("XG-PON", StringComparison.OrdinalIgnoreCase)) return "XG-PON";
+        if (s.Contains("GPON", StringComparison.OrdinalIgnoreCase)) return "GPON";
+        if (s.Contains("EPON", StringComparison.OrdinalIgnoreCase)) return "EPON";
+        if (s.Contains("NG-PON", StringComparison.OrdinalIgnoreCase)) return "NG-PON";
+        return "PON";
     }
 
     private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch

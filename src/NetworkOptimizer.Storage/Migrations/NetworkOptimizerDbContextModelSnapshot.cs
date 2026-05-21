@@ -957,7 +957,7 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("IsGpon")
+                    b.Property<bool>("IsPon")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsMonitoredOnt")
