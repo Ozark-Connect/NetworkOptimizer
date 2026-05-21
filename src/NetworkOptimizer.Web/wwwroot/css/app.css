@@ -13941,3 +13941,16 @@ a.affected-client:hover {
     align-items: center;
     gap: 0.5rem;
 }
+
+/* 3D LAN Flow Map (spec 5.7) */
+.lan-flow-map-body {
+    padding: 0;
+}
+.lan-flow-map-canvas {
+    display: block;
+    width: 100%;
+    height: clamp(520px, 70vh, 820px);
+    background: var(--bg-primary);
+    border-radius: 0 0 8px 8px;
+    outline: none;
+}
