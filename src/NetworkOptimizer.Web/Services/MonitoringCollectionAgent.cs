@@ -1051,16 +1051,20 @@ public class MonitoringCollectionAgent : BackgroundService
             //    Linux driver init order). PortTable entries on WAN ports carry an
             //    'ifname' field (e.g. "eth1") that joins to SNMP's iface.Name.
             // Try the numeric match first; fall back to ifname.
+            // ifname match first (safer on gateways: Linux ifIndex != PortIdx, so
+            // numeric match would collide - eth4 ifIndex 6 would match the port_idx
+            // 6 entry which is eth5). Numeric fallback covers switches where the
+            // port_table entries usually lack ifname but keep PortIdx == ifIndex.
             SwitchPort? portMatch = null;
-            if (iface.Index > 0)
-                portMatch = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
-            if (portMatch == null && !string.IsNullOrEmpty(ifName))
+            if (!string.IsNullOrEmpty(ifName))
             {
                 portMatch = device.PortTable.FirstOrDefault(p =>
                     !string.IsNullOrEmpty(p.IfName)
                     && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
                     && p.PortIdx > 0);
             }
+            if (portMatch == null && iface.Index > 0)
+                portMatch = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
             if (portMatch != null && portMatch.PortIdx > 0)
             {
                 _portRateLatest[(mac, portMatch.PortIdx)] = (rateInBps.Value, rateOutBps.Value);
