@@ -353,6 +353,8 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecuto
 builder.Services.AddHostedService<MonitoringCollectionAgent>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
+// 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
@@ -1477,6 +1479,39 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
     service.CancelPendingImport();
     return Results.Ok(new { message = "Pending backup cancelled" });
 });
+
+// 3D LAN flow map (spec 5.7) data endpoints. The JS layer fetches the snapshot
+// when the map mounts, then polls the live endpoint at a 1-2 s cadence. Historic
+// mode targets a single instant via the timeline scrubber.
+app.MapGet("/api/monitoring/lan-flow-map/snapshot",
+    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, CancellationToken ct) =>
+    {
+        var snap = await svc.BuildSnapshotAsync(ct);
+        return Results.Ok(snap);
+    });
+
+app.MapGet("/api/monitoring/lan-flow-map/live",
+    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, CancellationToken ct) =>
+    {
+        var update = await svc.GetLiveUpdateAsync(ct);
+        return Results.Ok(update);
+    });
+
+app.MapGet("/api/monitoring/lan-flow-map/history",
+    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, DateTime at, CancellationToken ct) =>
+    {
+        var update = await svc.GetHistoricUpdateAsync(at, ct);
+        return Results.Ok(update);
+    });
+
+app.MapGet("/api/monitoring/lan-flow-map/speed-tests",
+    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, DateTime? since, DateTime? until, CancellationToken ct) =>
+    {
+        var fromT = since ?? DateTime.UtcNow.AddHours(-24);
+        var toT = until ?? DateTime.UtcNow;
+        var items = await svc.BuildSpeedTestOverlayAsync(fromT, toT, limitPerKind: 10, ct: ct);
+        return Results.Ok(items);
+    });
 
 app.Run();
 
