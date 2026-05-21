@@ -13946,11 +13946,205 @@ a.affected-client:hover {
 .lan-flow-map-body {
     padding: 0;
 }
-.lan-flow-map-canvas {
-    display: block;
+.lan-flow-map-stage {
+    position: relative;
     width: 100%;
     height: clamp(520px, 70vh, 820px);
     background: var(--bg-primary);
     border-radius: 0 0 8px 8px;
+    overflow: hidden;
+}
+.lan-flow-map-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-primary);
     outline: none;
+}
+.lan-flow-map-panel {
+    position: absolute;
+    background: rgba(16, 24, 32, 0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    color: var(--text-primary);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.85rem;
+    line-height: 1.3;
+    pointer-events: auto;
+}
+.lan-flow-map-panel-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.45rem;
+}
+.lan-flow-map-controls {
+    top: 0.75rem;
+    right: 0.75rem;
+    min-width: 178px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.lan-flow-map-filter {
+    top: 0.75rem;
+    left: 0.75rem;
+    min-width: 220px;
+}
+.lan-flow-map-legend {
+    bottom: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.78rem;
+}
+.lan-flow-map-status {
+    bottom: 0.75rem;
+    left: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+.lan-flow-map-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.32rem 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-secondary);
+    transition: background 0.15s ease;
+}
+.lan-flow-map-toggle:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.lan-flow-map-toggle.is-on {
+    color: var(--text-primary);
+    background: rgba(51, 133, 214, 0.12);
+}
+.lan-flow-map-toggle-pill {
+    width: 28px;
+    height: 16px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+.lan-flow-map-toggle-pill::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    transition: transform 0.15s ease;
+}
+.lan-flow-map-toggle.is-on .lan-flow-map-toggle-pill {
+    background: var(--speed-download-color, #3385d6);
+}
+.lan-flow-map-toggle.is-on .lan-flow-map-toggle-pill::after {
+    transform: translateX(12px);
+}
+.lan-flow-map-search {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.82rem;
+}
+.lan-flow-map-search::placeholder {
+    color: var(--text-muted);
+}
+.lan-flow-map-search:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+.lan-flow-map-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.45rem;
+}
+.lan-flow-map-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    cursor: pointer;
+    user-select: none;
+}
+.lan-flow-map-chip.is-on {
+    color: var(--text-primary);
+    border-color: rgba(51, 133, 214, 0.45);
+    background: rgba(51, 133, 214, 0.15);
+}
+.lan-flow-map-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.lan-flow-map-legend-dot.down {
+    background: var(--speed-download-color, #3385d6);
+}
+.lan-flow-map-legend-dot.up {
+    background: var(--speed-upload-color, #24bc70);
+}
+.lan-flow-map-scrubber {
+    position: absolute;
+    left: 50%;
+    bottom: 0.75rem;
+    transform: translateX(-50%);
+    width: min(640px, calc(100% - 22rem));
+    background: rgba(16, 24, 32, 0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 0.55rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.lan-flow-map-scrubber-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+.lan-flow-map-scrubber-range {
+    flex: 1;
+    accent-color: var(--speed-download-color, #3385d6);
+}
+.lan-flow-map-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(36, 188, 112, 0.15);
+    color: var(--success-color);
+}
+.lan-flow-map-mode.is-historic {
+    background: rgba(231, 150, 19, 0.15);
+    color: var(--warning-color);
 }

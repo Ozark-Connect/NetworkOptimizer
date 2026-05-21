@@ -75,6 +75,7 @@ const CLOUD_TIER = {
 export class LanFlowMap {
     constructor(canvasEl, options = {}) {
         this.canvas = canvasEl;
+        this.stage = canvasEl.parentElement || canvasEl;
         this.apiBase = options.apiBase ?? '/api/monitoring/lan-flow-map';
         this.pollIntervalMs = options.pollIntervalMs ?? 2000;
         this.onError = options.onError ?? ((err) => console.error('[LanFlowMap]', err));
@@ -85,6 +86,24 @@ export class LanFlowMap {
         this._linkMeshes = new Map();   // linkId -> { pipe, particlesDown, particlesUp }
         this._cloudMeshes = new Map();  // cloudId -> THREE.Group
         this._labelSprites = new Map(); // nodeId -> THREE.Sprite
+        this._speedTestOverlay = null;  // currently-rendered overlay tubes
+
+        // Overlay + filter state. Defaults match spec 5.7.1 ("default 'all on' so a
+        // first-time user sees the full picture, but power users can declutter").
+        this._overlays = {
+            wifiClients: true,
+            wiredClients: true,
+            clouds: true,
+            speedTests: false,    // off by default - heavy visual, opt-in
+        };
+        this._filter = {
+            text: '',
+            bands: { '2.4': true, '5': true, '6': true },
+        };
+        this._mode = 'live';      // 'live' | 'historic'
+        this._historicAt = null;  // Date when in historic mode
+
+        this._panels = {};        // DOM refs for overlay UI
 
         this._raf = null;
         this._pollTimer = null;
@@ -172,7 +191,9 @@ export class LanFlowMap {
     // ------------------------------------------------------------------------
 
     async start() {
+        this._buildOverlayUI();
         await this._loadSnapshot();
+        await this._loadInitialSpeedTests();
         this._startAnimation();
         this._startPolling();
     }
@@ -185,6 +206,12 @@ export class LanFlowMap {
         this.controls?.dispose();
         this.renderer?.dispose();
         this._disposeScene();
+        // Tear down overlay UI added to the stage.
+        for (const key of Object.keys(this._panels)) {
+            const el = this._panels[key];
+            if (el && el.remove) el.remove();
+        }
+        this._panels = {};
     }
 
     _disposeScene() {
@@ -676,7 +703,276 @@ export class LanFlowMap {
 
     _startPolling() {
         if (this._pollTimer) clearInterval(this._pollTimer);
-        this._pollTimer = setInterval(() => this._pollLive(), this.pollIntervalMs);
+        this._pollTimer = setInterval(() => {
+            if (this._mode === 'live') this._pollLive();
+        }, this.pollIntervalMs);
+    }
+
+    // ------------------------------------------------------------------------
+    // Overlay UI (controls, filter, legend, scrubber, mode indicator)
+    // ------------------------------------------------------------------------
+
+    _buildOverlayUI() {
+        if (!this.stage) return;
+
+        // Filter panel (top-left)
+        const filter = this._makePanel('lan-flow-map-filter');
+        filter.innerHTML = `
+            <div class="lan-flow-map-panel-title">Filter clients</div>
+            <input class="lan-flow-map-search" type="search" placeholder="Search by name or MAC" />
+            <div class="lan-flow-map-chips" data-chip-group="band">
+                <span class="lan-flow-map-chip is-on" data-band="2.4">2.4 GHz</span>
+                <span class="lan-flow-map-chip is-on" data-band="5">5 GHz</span>
+                <span class="lan-flow-map-chip is-on" data-band="6">6 GHz</span>
+            </div>
+        `;
+        const search = filter.querySelector('.lan-flow-map-search');
+        search.addEventListener('input', (e) => {
+            this._filter.text = (e.target.value || '').toLowerCase().trim();
+            this._applyFilter();
+        });
+        filter.querySelectorAll('.lan-flow-map-chip').forEach((chip) => {
+            chip.addEventListener('click', () => {
+                const b = chip.dataset.band;
+                this._filter.bands[b] = !this._filter.bands[b];
+                chip.classList.toggle('is-on', this._filter.bands[b]);
+                this._applyFilter();
+            });
+        });
+        this._panels.filter = filter;
+
+        // Controls panel (top-right) - overlay toggles
+        const controls = this._makePanel('lan-flow-map-controls');
+        controls.innerHTML = `
+            <div class="lan-flow-map-panel-title">Overlays</div>
+        `;
+        const overlayDefs = [
+            ['wifiClients', 'Wi-Fi clients'],
+            ['wiredClients', 'Wired clients'],
+            ['clouds', 'WAN clouds'],
+            ['speedTests', 'Speed test paths'],
+        ];
+        for (const [key, label] of overlayDefs) {
+            const row = document.createElement('div');
+            row.className = `lan-flow-map-toggle ${this._overlays[key] ? 'is-on' : ''}`;
+            row.innerHTML = `<span>${label}</span><span class="lan-flow-map-toggle-pill"></span>`;
+            row.addEventListener('click', () => {
+                this._overlays[key] = !this._overlays[key];
+                row.classList.toggle('is-on', this._overlays[key]);
+                this._applyOverlayVisibility();
+                if (key === 'speedTests') this._renderSpeedTestOverlay();
+            });
+            controls.appendChild(row);
+        }
+        this._panels.controls = controls;
+
+        // Legend (bottom-right)
+        const legend = this._makePanel('lan-flow-map-legend');
+        legend.innerHTML = `
+            <span class="lan-flow-map-legend-dot down"></span> Download
+            <span class="lan-flow-map-legend-dot up"></span> Upload
+        `;
+        this._panels.legend = legend;
+
+        // Status / mode indicator (bottom-left)
+        const status = this._makePanel('lan-flow-map-status');
+        const modeBadge = document.createElement('span');
+        modeBadge.className = 'lan-flow-map-mode';
+        modeBadge.textContent = 'Live';
+        status.appendChild(modeBadge);
+        this._panels.status = status;
+        this._panels.modeBadge = modeBadge;
+
+        // Timeline scrubber (bottom center)
+        const scrubber = document.createElement('div');
+        scrubber.className = 'lan-flow-map-scrubber';
+        scrubber.innerHTML = `
+            <div class="lan-flow-map-scrubber-row">
+                <span data-role="left">-24h</span>
+                <input class="lan-flow-map-scrubber-range" type="range" min="0" max="1000" value="1000" />
+                <span data-role="right">Live</span>
+            </div>
+        `;
+        const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
+        range.addEventListener('input', (e) => this._onScrubberInput(Number(e.target.value)));
+        range.addEventListener('change', (e) => this._onScrubberChange(Number(e.target.value)));
+        this.stage.appendChild(scrubber);
+        this._panels.scrubber = scrubber;
+        this._panels.scrubberRange = range;
+        this._panels.scrubberLeft = scrubber.querySelector('[data-role="left"]');
+        this._panels.scrubberRight = scrubber.querySelector('[data-role="right"]');
+    }
+
+    _makePanel(extraClass) {
+        const el = document.createElement('div');
+        el.className = `lan-flow-map-panel ${extraClass}`;
+        this.stage.appendChild(el);
+        return el;
+    }
+
+    _applyFilter() {
+        for (const node of (this._snapshot?.nodes || [])) {
+            if (node.kind !== NODE_KIND.WiredClient && node.kind !== NODE_KIND.WifiClient) continue;
+            const group = this._nodeMeshes.get(node.id);
+            if (!group) continue;
+            const visible = this._isClientVisible(node);
+            group.visible = visible;
+            // Hide the matching link too.
+            const linkId = 'cli-link-' + node.mac;
+            const link = this._linkMeshes.get(linkId);
+            if (link) {
+                link.pipe.visible = visible;
+                link.down.mesh.visible = visible;
+                link.up.mesh.visible = visible;
+            }
+        }
+    }
+
+    _isClientVisible(node) {
+        // Overlay master toggle wins first.
+        if (node.kind === NODE_KIND.WifiClient && !this._overlays.wifiClients) return false;
+        if (node.kind === NODE_KIND.WiredClient && !this._overlays.wiredClients) return false;
+        // Text search.
+        if (this._filter.text) {
+            const hay = `${node.name || ''} ${node.mac || ''} ${node.ssid || ''}`.toLowerCase();
+            if (!hay.includes(this._filter.text)) return false;
+        }
+        // Band filter (WiFi only).
+        if (node.kind === NODE_KIND.WifiClient && node.band) {
+            if (this._filter.bands[node.band] === false) return false;
+        }
+        return true;
+    }
+
+    _applyOverlayVisibility() {
+        if (this.cloudGroup) this.cloudGroup.visible = this._overlays.clouds;
+        this._applyFilter();
+    }
+
+    // ------------------------------------------------------------------------
+    // Speed test overlay (spec 5.7.2)
+    // ------------------------------------------------------------------------
+
+    async _loadInitialSpeedTests() {
+        try {
+            const res = await fetch(`${this.apiBase}/speed-tests`, { credentials: 'same-origin' });
+            if (!res.ok) return;
+            this._speedTests = await res.json();
+        } catch {
+            this._speedTests = [];
+        }
+        if (this._overlays.speedTests) this._renderSpeedTestOverlay();
+    }
+
+    _renderSpeedTestOverlay() {
+        if (this._speedTestOverlay) {
+            this.particleGroup.remove(this._speedTestOverlay);
+            this._speedTestOverlay.traverse((o) => {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) o.material.dispose();
+            });
+            this._speedTestOverlay = null;
+        }
+        if (!this._overlays.speedTests) return;
+        const tests = this._speedTests || [];
+        if (tests.length === 0) return;
+
+        // Render only the most recent test of each type (WAN + LAN) to avoid clutter.
+        const wan = tests.find((t) => t.testType === 'wan');
+        const lan = tests.find((t) => t.testType === 'lan');
+        const recent = [wan, lan].filter(Boolean);
+
+        const group = new THREE.Group();
+        for (const test of recent) {
+            this._addSpeedTestOverlayRibbon(group, test);
+        }
+        this.particleGroup.add(group);
+        this._speedTestOverlay = group;
+    }
+
+    _addSpeedTestOverlayRibbon(parent, test) {
+        // Walk the hops in order, drawing a paired blue + green ribbon along the device-MAC
+        // chain. The server pre-resolved FromDeviceBps / ToDeviceBps direction per spec 5.7.2,
+        // so the JS layer just paints what it's given.
+        const hops = (test.hops || []).filter((h) => h.deviceMac);
+        if (hops.length < 2) return;
+        const positions = [];
+        for (const hop of hops) {
+            const pos = this._positions.get('dev-' + hop.deviceMac);
+            if (pos) positions.push(pos);
+        }
+        if (positions.length < 2) return;
+
+        const curve = new THREE.CatmullRomCurve3(positions.map((p) => new THREE.Vector3(p.x, p.y + 1.2, p.z)));
+        const downGeo = new THREE.TubeGeometry(curve, 64, 0.20, 8, false);
+        const upGeo = new THREE.TubeGeometry(
+            new THREE.CatmullRomCurve3(positions.map((p) => new THREE.Vector3(p.x, p.y + 2.0, p.z))),
+            64, 0.20, 8, false,
+        );
+        const downMat = new THREE.MeshBasicMaterial({
+            color: COLORS.downstream, transparent: true, opacity: 0.55,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        const upMat = new THREE.MeshBasicMaterial({
+            color: COLORS.upstream, transparent: true, opacity: 0.55,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        parent.add(new THREE.Mesh(downGeo, downMat));
+        parent.add(new THREE.Mesh(upGeo, upMat));
+    }
+
+    // ------------------------------------------------------------------------
+    // Timeline scrubber
+    // ------------------------------------------------------------------------
+
+    _onScrubberInput(value) {
+        // Visual-only update while dragging - cheap label refresh.
+        const at = this._scrubberValueToTime(value);
+        if (this._panels.scrubberRight) {
+            this._panels.scrubberRight.textContent =
+                (value >= 998) ? 'Live' : at.toLocaleString();
+        }
+    }
+
+    async _onScrubberChange(value) {
+        if (value >= 998) {
+            // Snap back to live.
+            this._mode = 'live';
+            this._historicAt = null;
+            if (this._panels.modeBadge) {
+                this._panels.modeBadge.textContent = 'Live';
+                this._panels.modeBadge.classList.remove('is-historic');
+            }
+            await this._pollLive();
+            return;
+        }
+        const at = this._scrubberValueToTime(value);
+        this._mode = 'historic';
+        this._historicAt = at;
+        if (this._panels.modeBadge) {
+            this._panels.modeBadge.textContent = 'Historic';
+            this._panels.modeBadge.classList.add('is-historic');
+        }
+        await this._loadHistoric(at);
+    }
+
+    _scrubberValueToTime(value) {
+        // Range 0..1000 maps to 24 hours ago .. now.
+        const now = Date.now();
+        const ms = now - (1000 - value) * (24 * 60 * 60 * 1000 / 1000);
+        return new Date(ms);
+    }
+
+    async _loadHistoric(at) {
+        try {
+            const url = `${this.apiBase}/history?at=${encodeURIComponent(at.toISOString())}`;
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const update = await res.json();
+            this._applyLiveRates(update.linkRates || {});
+        } catch (err) {
+            // Surface but don't crash the rendering loop.
+        }
     }
 }
 
