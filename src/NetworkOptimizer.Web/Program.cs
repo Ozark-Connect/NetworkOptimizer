@@ -336,6 +336,11 @@ builder.Services.AddAuthorization();
 // Monitoring subsystem
 builder.Services.AddScoped<SnmpDetectionService>();
 builder.Services.AddSingleton<MonitoringInfluxClient>();
+// Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
+// vantages (gateway/switch/AP) are constructed per-device via SshProbeExecutor later.
+builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
+builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>());
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
