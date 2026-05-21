@@ -31,6 +31,7 @@ public class UpstreamTracerService
     private readonly AsnResolutionService _asnResolution;
     private readonly LocalProbeExecutor _localProbe;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly NetworkOptimizer.Audit.Services.IIeeeOuiDatabase _ouiDb;
     private readonly ILogger<UpstreamTracerService> _logger;
 
     private readonly SemaphoreSlim _stateLock = new(1, 1);
@@ -59,6 +60,7 @@ public class UpstreamTracerService
         AsnResolutionService asnResolution,
         LocalProbeExecutor localProbe,
         IServiceScopeFactory scopeFactory,
+        NetworkOptimizer.Audit.Services.IIeeeOuiDatabase ouiDb,
         ILogger<UpstreamTracerService> logger)
     {
         _connectionService = connectionService;
@@ -67,6 +69,7 @@ public class UpstreamTracerService
         _asnResolution = asnResolution;
         _localProbe = localProbe;
         _scopeFactory = scopeFactory;
+        _ouiDb = ouiDb;
         _logger = logger;
     }
 
@@ -280,19 +283,12 @@ public class UpstreamTracerService
 
         State.WanNeighborMac = neighborMac;
 
-        // OUI lookup via the OuiVendors table. Tracer's slow-tier seed (iteration 2)
-        // will populate this from the bundled IEEE OUI dataset; for now, attempt the
-        // lookup and accept a null vendor (labels will fall back gracefully).
+        // OUI lookup via the IEEE database service that's already loaded at app start
+        // (~39k entries cached). The OuiVendors EF table is unused; this is the source
+        // of truth.
         try
         {
-            var ouiPrefix = neighborMac.Replace(":", "").Substring(0, 6).ToUpperInvariant();
-            ouiPrefix = $"{ouiPrefix.Substring(0, 2)}:{ouiPrefix.Substring(2, 2)}:{ouiPrefix.Substring(4, 2)}";
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
-            var vendor = await db.OuiVendors.AsNoTracking()
-                .Where(o => o.OuiPrefix == ouiPrefix)
-                .Select(o => o.VendorName)
-                .FirstOrDefaultAsync(ct);
-            State.WanNeighborOuiVendor = vendor;
+            State.WanNeighborOuiVendor = _ouiDb.GetVendor(neighborMac);
         }
         catch (Exception ex)
         {
