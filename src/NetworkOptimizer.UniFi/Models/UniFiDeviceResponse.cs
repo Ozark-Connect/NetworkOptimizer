@@ -366,6 +366,13 @@ public class SwitchPort
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Linux interface name (eth0, eth4, etc.) - stable across user renames of Name.
+    /// Used to join UniFi port_table entries to SNMP per-interface results.
+    /// </summary>
+    [JsonPropertyName("ifname")]
+    public string? IfName { get; set; }
+
     [JsonPropertyName("port_poe")]
     public bool PortPoe { get; set; }
 

@@ -534,15 +534,20 @@ public class MonitoringCollectionAgent : BackgroundService
                     if (string.IsNullOrEmpty(ifName)) continue;
                     var key = (NormalizeMac(device.Mac), ifName);
 
-                    // Map UniFi PortIdx to SNMP ifIndex if we can verify a physical
-                    // port match. UniFi switches keep PortIdx == SNMP ifIndex for
-                    // physical ports, so a PortTable entry with matching PortIdx is
-                    // the reverse-lookup key clients use (client.SwPort == PortIdx).
+                    // Map SNMP ifName to UniFi PortTable.PortIdx via the stable
+                    // PortTable.IfName field (Linux iface name, not the user-editable
+                    // Name label). PortIdx == ifIndex is true on UniFi switches but
+                    // NOT on gateways - gateways number 1-7 by physical slot while
+                    // Linux assigns ifIndex by driver init order. The Linux iface
+                    // name is the only stable join key across both device classes.
                     int? portNumber = null;
-                    if (iface.Index > 0 && device.PortTable != null
-                        && device.PortTable.Any(p => p.PortIdx == iface.Index))
+                    if (!string.IsNullOrEmpty(ifName) && device.PortTable != null)
                     {
-                        portNumber = iface.Index;
+                        var portMatch = device.PortTable.FirstOrDefault(p =>
+                            !string.IsNullOrEmpty(p.IfName)
+                            && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                            && p.PortIdx > 0);
+                        if (portMatch != null) portNumber = portMatch.PortIdx;
                     }
 
                     if (!existingMaps.TryGetValue(key, out var mapping))
@@ -1019,22 +1024,34 @@ public class MonitoringCollectionAgent : BackgroundService
             hcCounters: hcCounters,
             timestamp: now);
 
-        // SNMP per-interface rates feed the port-keyed cache, but ONLY for verified
-        // physical ports - those that appear in the device's PortTable with a
-        // matching PortIdx. This filters out VLAN sub-interfaces, bridges, radios,
-        // and other virtual interfaces whose ifIndex would otherwise collide with
-        // a physical port_idx slot and clobber the real rate.
+        // SNMP per-interface rates feed the port-keyed cache. Match SNMP ifName to
+        // UniFi PortTable.Name (both Linux names like "eth4") then write keyed by
+        // PortTable.PortIdx (the UniFi-side port number the post-process looks up).
         //
-        // Why SNMP and not UniFi port_table: UniFi updates port_table server-side
-        // every ~30s, so polling it at 5s gives "0, 0, 0, 0, 0, BOOM 30s-of-bytes
-        // divided by 5s" - a 6x spike every six cycles. SNMP polls the device's
-        // own kernel counters at 5s and produces smooth deltas.
+        // Why name-match: PortIdx == ifIndex is true for UniFi switches but NOT
+        // for gateways. On gateways UniFi numbers ports 1-7 by physical slot while
+        // Linux assigns SNMP ifIndex by driver init order (lo=1, eth0=2, ...). The
+        // Linux ifName is the only stable join key across both.
+        //
+        // Why SNMP and not UniFi port_table.tx_bytes: UniFi updates those server-
+        // side at ~30s while we poll every 5s, producing a "0, 0, 0, 0, BOOM"
+        // pattern (5 polls of no-change then a 30s-worth-of-bytes spike). SNMP
+        // polls the device's own kernel counters at 5s and produces smooth deltas.
         if (rateInBps.HasValue && rateOutBps.HasValue
-            && iface.Index > 0
-            && device.PortTable != null
-            && device.PortTable.Any(p => p.PortIdx == iface.Index))
+            && !string.IsNullOrEmpty(ifName)
+            && device.PortTable != null)
         {
-            _portRateLatest[(mac, iface.Index)] = (rateInBps.Value, rateOutBps.Value);
+            // Join on PortTable.IfName (stable Linux iface name) rather than
+            // PortTable.Name (user-editable label that changes when ports are
+            // renamed in the UI).
+            var portMatch = device.PortTable.FirstOrDefault(p =>
+                !string.IsNullOrEmpty(p.IfName)
+                && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                && p.PortIdx > 0);
+            if (portMatch != null)
+            {
+                _portRateLatest[(mac, portMatch.PortIdx)] = (rateInBps.Value, rateOutBps.Value);
+            }
         }
 
         return (rateInBps, rateOutBps);
