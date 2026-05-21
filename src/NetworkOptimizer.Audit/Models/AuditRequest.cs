@@ -79,6 +79,14 @@ public class AuditRequest
     public List<int>? DnatExcludedVlanIds { get; init; }
 
     /// <summary>
+    /// Optional: Additional IPs to accept as valid DNAT DNS redirect targets.
+    /// Use for DNS VIPs (keepalived, HAProxy, anycast) or DNS servers not in
+    /// LAN DNS configuration. IPs are added to the valid-target set used by
+    /// the DNAT redirect destination validator.
+    /// </summary>
+    public List<string>? TrustedDnsRedirectTargets { get; init; }
+
+    /// <summary>
     /// Optional: Custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)
     /// If not specified, auto-probes ports 80, 443, 8080, 3000
     /// </summary>

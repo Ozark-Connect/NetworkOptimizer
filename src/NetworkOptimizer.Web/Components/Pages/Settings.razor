@@ -1295,6 +1295,12 @@
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="form-label">Trusted DNS Redirect Targets (optional)</label>
+                <input type="text" class="form-control" @bind="trustedDnsRedirectTargets" placeholder="e.g., 10.0.100.248" style="width: 320px;" />
+                <small class="form-help">Comma-separated IPs to accept as valid DNAT translated targets. Use for DNS VIPs (keepalived, HAProxy) or anycast addresses that are not in your LAN DNS configuration.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Third-Party DNS Management (optional)</label>
                 <input type="text" class="form-control" @bind="piholeManagementEndpoint" placeholder="Port number or URL" style="width: 240px;" />
                 <small class="form-help">Custom port (e.g., 8080) or full URL (e.g., https://pihole.local) for the admin interface. Leave empty to auto-probe ports 80, 443, 3000, 8080.</small>
@@ -2081,6 +2087,7 @@
     private bool allowPrintersOnMainNetwork = true;
     private string dnatExcludedVlans = "";
     private string? piholeManagementEndpoint;
+    private string trustedDnsRedirectTargets = "";
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
     private bool savingAuditSettings = false;
@@ -3663,6 +3670,7 @@
             var printers = await SystemSettings.GetAsync("audit:allowPrintersOnMainNetwork");
             var excludedVlans = await SystemSettings.GetAsync("audit:dnatExcludedVlans");
             var piholePort = await SystemSettings.GetAsync("audit:piholeManagementPort");
+            var trustedTargets = await SystemSettings.GetAsync("audit:trustedDnsRedirectTargets");
             var unusedPortDays = await SystemSettings.GetAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await SystemSettings.GetAsync("audit:namedPortInactivityDays");
 
@@ -3677,6 +3685,8 @@
             dnatExcludedVlans = excludedVlans ?? "";
             // Third-party DNS endpoint (Pi-hole, AdGuard Home, etc.) - null means auto-detect
             piholeManagementEndpoint = string.IsNullOrWhiteSpace(piholePort) ? null : piholePort;
+            // Trusted DNS redirect targets (VIPs, anycast)
+            trustedDnsRedirectTargets = trustedTargets ?? "";
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
@@ -3715,6 +3725,7 @@
                 return;
             }
             await SystemSettings.SetAsync("audit:piholeManagementPort", endpoint ?? "");
+            await SystemSettings.SetAsync("audit:trustedDnsRedirectTargets", trustedDnsRedirectTargets ?? "");
             await SystemSettings.SetAsync("audit:unusedPortInactivityDays", unusedPortInactivityDays.ToString());
             await SystemSettings.SetAsync("audit:namedPortInactivityDays", namedPortInactivityDays.ToString());
 
