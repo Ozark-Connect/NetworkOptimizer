@@ -303,6 +303,10 @@ public class MonitoringCollectionAgent : BackgroundService
                             LastUpdated = DateTime.UtcNow
                         };
                         db.InterfaceNameMaps.Add(mapping);
+                        // Register so duplicates within the same cycle (e.g. an interface
+                        // surfacing twice from a Walk) hit the update branch instead of
+                        // re-inserting and tripping the UNIQUE(DeviceMac, IfName) constraint.
+                        existingMaps[key] = mapping;
                     }
                     else
                     {
@@ -399,6 +403,9 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 _liveStats.RecordLatency(target.DeviceMac, ping.RttAvgMs, ping.LossPercent, ping.Timestamp);
             }
+            // Always record per-target stats so the targets table can show latest results
+            // regardless of target type.
+            _liveStats.RecordTargetProbe(target.TargetId, ping.RttAvgMs, ping.LossPercent, ping.Success, ping.Timestamp);
 
             if (ping.Success)
             {

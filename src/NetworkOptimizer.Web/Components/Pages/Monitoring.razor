@@ -110,9 +110,13 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
         <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" />
     }
 
-    <div class="card" style="@(_influxConfigured ? "" : "margin-top: 1.5rem;")">
-        <div class="card-header">
-            <h2 class="card-title">Monitoring Status</h2>
+    <div class="card collapsible @(_statusCollapsed ? "collapsed" : "")"
+         style="@(_influxConfigured ? "" : "margin-top: 1.5rem;")">
+        <div class="card-header collapsible-header" @onclick="ToggleStatus">
+            <h2 class="card-title">
+                <span class="collapse-chevron">@(_statusCollapsed ? "▸" : "▾")</span>
+                Monitoring Status
+            </h2>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <span class="status-badge status-connected">@FormatSnmpState(_snmpState)</span>
                 <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
@@ -291,12 +295,37 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
         </div>
     }
 
-    @if (_monitoringEnabled)
+    @if (_monitoringEnabled && _influxReachable == true)
     {
+        <!-- Placeholder for the 3D LAN flow map, the centerpiece of this page. Build #11
+             in the sequence; until then the card just reserves the space and tells the
+             user what's coming. -->
         <div class="card" style="margin-top: 1.5rem;">
             <div class="card-header">
-                <h2 class="card-title">Latency targets</h2>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h2 class="card-title">3D LAN Flow Map</h2>
+                <span class="status-badge status-disconnected">Coming soon</span>
+            </div>
+            <div class="card-body">
+                <div class="empty-state">
+                    <p>This card will host the 3D LAN flow map (spec 5.7), the centerpiece
+                    of the monitoring view. Particle streams will visualize traffic on
+                    every link in your topology, with cloud nodes for each upstream ISP
+                    and transit ASN. Live and historic playback modes both supported.</p>
+                    <p style="margin-top: 0.5rem;">Coming in the next monitoring iteration.</p>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_monitoringEnabled)
+    {
+        <div class="card collapsible @(_targetsCollapsed ? "collapsed" : "")" style="margin-top: 1.5rem;">
+            <div class="card-header collapsible-header" @onclick="ToggleTargetsCollapse">
+                <h2 class="card-title">
+                    <span class="collapse-chevron">@(_targetsCollapsed ? "▸" : "▾")</span>
+                    Latency targets
+                </h2>
+                <div style="display: flex; align-items: center; gap: 0.5rem;" @onclick:stopPropagation="true">
                     <span class="status-badge status-active">@_targets.Count active</span>
                     <a href="/monitoring/tools" class="tooltip-icon settings-link" data-tooltip="Run an ad-hoc probe">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
@@ -326,31 +355,79 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                                 <th>Target</th>
                                 <th>Address</th>
                                 <th>Interval</th>
+                                <th>Latest</th>
                                 <th>Last verified</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var t in _targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
                             {
-                                <tr>
+                                var latest = LiveStats.GetTargetStats(t.TargetId);
+                                <tr style="@(t.Enabled ? "" : "opacity: 0.55;")">
                                     <td>
                                         <span class="status-badge @TargetTypeBadgeClass(t.TargetType)">
-                                            @t.TargetType
+                                            @t.TargetType.ToDisplayName()
                                         </span>
                                     </td>
                                     <td>@t.Name</td>
                                     <td><code>@t.Address</code></td>
                                     <td>@t.PollIntervalSeconds s</td>
                                     <td>
+                                        @if (!t.Enabled)
+                                        {
+                                            <span class="text-muted">paused</span>
+                                        }
+                                        else if (latest != null)
+                                        {
+                                            @if (latest.Success && latest.RttAvgMs.HasValue)
+                                            {
+                                                <span>@($"{latest.RttAvgMs.Value:0.#} ms")</span>
+                                                @if (latest.LossPercent > 0)
+                                                {
+                                                    <span style="color: var(--danger-color); margin-left: 0.5rem;">
+                                                        @($"{latest.LossPercent:0.#}% loss")
+                                                    </span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span style="color: var(--danger-color);">no response</span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
                                         @if (t.LastVerified.HasValue)
                                         { <span>@RelativeTime(t.LastVerified.Value)</span> }
                                         else
                                         { <span class="text-muted">never</span> }
                                     </td>
+                                    <td style="white-space: nowrap;">
+                                        <button class="btn btn-sm btn-secondary"
+                                                @onclick="() => ToggleTargetAsync(t.Id)"
+                                                title="@(t.Enabled ? "Pause probing" : "Resume probing")">
+                                            @(t.Enabled ? "Pause" : "Resume")
+                                        </button>
+                                        <button class="btn btn-sm btn-danger"
+                                                @onclick="() => DeleteTargetAsync(t.Id)"
+                                                title="Remove this target"
+                                                style="margin-left: 0.25rem;">
+                                            Remove
+                                        </button>
+                                    </td>
                                 </tr>
                             }
                         </tbody>
                     </table>
+                    <p class="page-description" style="margin-top: 0.5rem;">
+                        Removing a fabric or default WAN target will trigger it to be re-created
+                        on the next agent cycle. Use <strong>Pause</strong> instead to stop
+                        probing without losing the row's history.
+                    </p>
                 }
             </div>
         </div>
@@ -395,6 +472,12 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private List<MonitoringTarget> _targets = new();
     private List<MonitoredSfp> _monitoredSfps = new();
     private System.Threading.Timer? _refreshTimer;
+
+    // Collapse state. Status auto-collapses when fully healthy (computed below);
+    // targets default-collapsed so the 3D map can stay centerstage.
+    private bool _statusCollapsed = false;
+    private bool _targetsCollapsed = true;
+    private bool _userToggledStatus = false; // once the user clicks, stop auto-collapsing
 
     protected override async Task OnInitializedAsync()
     {
@@ -561,12 +644,67 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             _monitoredSfps = await db.MonitoredSfps.AsNoTracking()
                 .Where(s => s.IsMonitoredOnt)
                 .ToListAsync();
+
+            // Auto-collapse the Monitoring Status card once everything is healthy. The
+            // user is here to see live data, not the green checkmarks. Once they've
+            // manually expanded or collapsed, respect their choice.
+            if (!_userToggledStatus)
+            {
+                _statusCollapsed = _monitoringEnabled
+                    && _influxReachable == true
+                    && (_snmpState == SnmpDetectionState.EnabledV2c
+                        || _snmpState == SnmpDetectionState.EnabledV3Only
+                        || _snmpState == SnmpDetectionState.Working);
+            }
         }
         catch
         {
             _targets = new List<MonitoringTarget>();
             _monitoredSfps = new List<MonitoredSfp>();
         }
+    }
+
+    private void ToggleStatus()
+    {
+        _statusCollapsed = !_statusCollapsed;
+        _userToggledStatus = true;
+        StateHasChanged();
+    }
+
+    private void ToggleTargetsCollapse()
+    {
+        _targetsCollapsed = !_targetsCollapsed;
+        StateHasChanged();
+    }
+
+    private async Task ToggleTargetAsync(int targetId)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoringTargets.FindAsync(targetId);
+            if (row == null) return;
+            row.Enabled = !row.Enabled;
+            await db.SaveChangesAsync();
+            await LoadTargetsAsync();
+            StateHasChanged();
+        }
+        catch { /* best effort */ }
+    }
+
+    private async Task DeleteTargetAsync(int targetId)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoringTargets.FindAsync(targetId);
+            if (row == null) return;
+            db.MonitoringTargets.Remove(row);
+            await db.SaveChangesAsync();
+            await LoadTargetsAsync();
+            StateHasChanged();
+        }
+        catch { /* best effort */ }
     }
 
     private static string FormatOptical(double? value, string unit)

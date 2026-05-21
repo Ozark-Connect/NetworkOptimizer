@@ -67,6 +67,27 @@ public class MonitoringLiveStats
     }
 
     private readonly ConcurrentDictionary<(string DeviceMac, string PortName), SfpLiveStats> _sfpStats = new();
+    private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
+
+    /// <summary>Latest probe result for a specific monitoring target ID.</summary>
+    public TargetLiveStats? GetTargetStats(string targetId)
+    {
+        if (string.IsNullOrEmpty(targetId)) return null;
+        return _targetStats.TryGetValue(targetId, out var v) ? v : null;
+    }
+
+    /// <summary>Record the latest probe for a target. Called by the agent's latency tier.</summary>
+    public void RecordTargetProbe(string targetId, double? rttAvgMs, double lossPercent, bool success, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(targetId)) return;
+        _targetStats[targetId] = new TargetLiveStats
+        {
+            RttAvgMs = rttAvgMs,
+            LossPercent = lossPercent,
+            Success = success,
+            LastUpdate = timestamp
+        };
+    }
 
     /// <summary>Latest SFP DDM snapshot for a given device port.</summary>
     public SfpLiveStats? GetSfpStats(string deviceMac, string portName)
@@ -114,10 +135,23 @@ public class MonitoringLiveStats
             if (kvp.Value.LastUpdate < cutoff)
                 _sfpStats.TryRemove(kvp.Key, out _);
         }
+        foreach (var kvp in _targetStats)
+        {
+            if (kvp.Value.LastUpdate < cutoff)
+                _targetStats.TryRemove(kvp.Key, out _);
+        }
     }
 
     private static string Normalize(string mac) =>
         mac.ToLowerInvariant().Replace('-', ':');
+}
+
+public record TargetLiveStats
+{
+    public double? RttAvgMs { get; init; }
+    public double LossPercent { get; init; }
+    public bool Success { get; init; }
+    public DateTime LastUpdate { get; init; }
 }
 
 public record SfpLiveStats

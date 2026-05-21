@@ -127,7 +127,10 @@ public class SnmpPoller : ISnmpPoller
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "SNMP Get failed for {Ip}:{Oid}", ip, oid);
+                // Per-OID SNMP failure is a normal, expected condition - one unreachable
+                // device shouldn't fill logs with errors. The agent layer aggregates and
+                // surfaces health state via MonitoringSettings.SnmpDetectionState.
+                _logger.LogDebug(ex, "SNMP Get failed for {Ip}:{Oid}", ip, oid);
                 return default;
             }
         });
@@ -172,7 +175,7 @@ public class SnmpPoller : ISnmpPoller
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "SNMP Walk failed for {Ip}:{Oid}", ip, oid);
+                _logger.LogDebug(ex, "SNMP Walk failed for {Ip}:{Oid}", ip, oid);
                 return new List<Variable>();
             }
         });
@@ -213,7 +216,7 @@ public class SnmpPoller : ISnmpPoller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get device metrics for {Ip}", ip);
+            _logger.LogDebug(ex, "Failed to get device metrics for {Ip}", ip);
             metrics.IsReachable = false;
             metrics.ErrorMessage = ex.Message;
         }
@@ -234,7 +237,7 @@ public class SnmpPoller : ISnmpPoller
             var ifNumber = await GetAsync<int>(ip, UniFiOids.IfNumber);
             if (ifNumber <= 0)
             {
-                _logger.LogWarning("No interfaces found on device {Ip}", ip);
+                _logger.LogDebug("No interfaces found on device {Ip}", ip);
                 return interfaces;
             }
 
@@ -257,7 +260,7 @@ public class SnmpPoller : ISnmpPoller
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to get metrics for interface on {Ip}", ip);
+                    _logger.LogDebug(ex, "Failed to get metrics for interface on {Ip}", ip);
                 }
             }
 
@@ -265,7 +268,7 @@ public class SnmpPoller : ISnmpPoller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get interface metrics for {Ip}", ip);
+            _logger.LogDebug(ex, "Failed to get interface metrics for {Ip}", ip);
         }
 
         return interfaces;
