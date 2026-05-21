@@ -174,12 +174,38 @@ public class MonitoringInfluxClient : IAsyncDisposable
             }
         }
 
+        // /ping only validates the server is up. The stored scoped token might be invalid
+        // (revoked, or scoped to a bucket the user deleted) and writes will silently fail
+        // while the UI keeps saying "Connected". Do a small query against the primary
+        // bucket so the health probe actually exercises the credentials + the bucket
+        // existence the agent depends on.
         try
         {
-            var ok = await _client!.PingAsync();
-            var err = ok ? null : "InfluxDB ping returned false";
-            await PersistHealthAsync(ok, err, ct);
-            return new InfluxHealthResult(ok, err);
+            var pinged = await _client!.PingAsync();
+            if (!pinged)
+            {
+                await PersistHealthAsync(false, "InfluxDB ping returned false", ct);
+                return new InfluxHealthResult(false, "InfluxDB ping returned false");
+            }
+
+            var flux = $@"from(bucket: ""{_bucket}"") |> range(start: -1m) |> limit(n: 1)";
+            var queryApi = _client.GetQueryApi();
+            // QueryAsync throws on auth or missing-bucket errors. We don't care about the
+            // result, only that the call succeeds.
+            await queryApi.QueryAsync(flux, _org, ct);
+
+            await PersistHealthAsync(true, null, ct);
+            return new InfluxHealthResult(true, null);
+        }
+        catch (InfluxDB.Client.Core.Exceptions.UnauthorizedException ex)
+        {
+            // Most common case after the user revokes the token or deletes the buckets
+            // the token was scoped to. Surface a specific message; the wizard can be
+            // re-run to provision fresh.
+            var msg = $"Token is no longer authorized for bucket '{_bucket}'. Re-run InfluxDB setup. ({ex.Message})";
+            _logger.LogWarning(ex, "InfluxDB health check: unauthorized");
+            await PersistHealthAsync(false, msg, ct);
+            return new InfluxHealthResult(false, msg);
         }
         catch (Exception ex)
         {
