@@ -7,7 +7,6 @@ using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
-using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -217,6 +216,11 @@ public class MonitoringCollectionAgent : BackgroundService
         // port the AP is plugged into (spec 5.6).
         UpdatePortRatesFromUnifi(devices, DateTime.UtcNow);
 
+        // Resolve the gateway LAN IP once per cycle so the SNMP poll targets the
+        // LAN-side address (which actually answers) instead of UniFi's reported WAN
+        // public IP for the gateway (which never will).
+        var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
+
         var deviceTasks = devices.Select(async device =>
         {
             var mac = NormalizeMac(device.Mac);
@@ -229,7 +233,8 @@ public class MonitoringCollectionAgent : BackgroundService
             }
             try
             {
-                if (!IPAddress.TryParse(device.Ip, out var ip)) return;
+                var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
+                if (!IPAddress.TryParse(pollIp, out var ip)) return;
                 var interfaces = await poller.GetInterfaceMetricsAsync(ip, device.Name);
                 var now = DateTime.UtcNow;
                 double aggregateInBps = 0;
@@ -383,12 +388,14 @@ public class MonitoringCollectionAgent : BackgroundService
         if (poller == null) return;
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
 
+        var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
         var deviceTasks = devices.Select(async device =>
         {
             if (_snmpExcluded.ContainsKey(NormalizeMac(device.Mac))) return;
             try
             {
-                if (!IPAddress.TryParse(device.Ip, out var ip)) return;
+                var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
+                if (!IPAddress.TryParse(pollIp, out var ip)) return;
                 var metrics = await poller.GetDeviceMetricsAsync(ip, device.Name);
                 if (!metrics.IsReachable) return;
 
@@ -437,12 +444,14 @@ public class MonitoringCollectionAgent : BackgroundService
             CollectSfpForDevice(device, db, existingSfps, nowSfp);
         }
 
+        var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
         foreach (var device in devices)
         {
             if (_snmpExcluded.ContainsKey(NormalizeMac(device.Mac))) continue;
             try
             {
-                if (!IPAddress.TryParse(device.Ip, out var ip)) continue;
+                var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
+                if (!IPAddress.TryParse(pollIp, out var ip)) continue;
                 var interfaces = await poller.GetInterfaceMetricsAsync(ip, device.Name);
                 foreach (var iface in interfaces)
                 {
@@ -922,17 +931,12 @@ public class MonitoringCollectionAgent : BackgroundService
             hcCounters: hcCounters,
             timestamp: now);
 
-        // STM parity: feed the port-keyed live cache from SNMP at 5s freshness. For
-        // UniFi switches the SNMP ifIndex == UniFi port_idx (verified in
-        // LookupUniFiPortName), so no name->idx translation is needed - the SNMP
-        // result row already has the port number. UniFi-fed UpdatePortRatesFromUnifi
-        // still runs as a backstop for the first cycle (before SNMP completes) and
-        // for devices that can't SNMP.
-        if (rateInBps.HasValue && rateOutBps.HasValue && iface.Index > 0)
-        {
-            _portRateLatest[(mac, iface.Index)] = (rateInBps.Value, rateOutBps.Value);
-        }
-
+        // _portRateLatest is fed by UpdatePortRatesFromUnifi (UniFi port_table delta
+        // at the same fast-tier cadence). We deliberately do NOT write to it from
+        // SNMP here: SNMP returns interfaces UniFi doesn't expose (VLAN/aggregate/
+        // mgmt) which clobber physical port_idx slots when ifIndex collides with a
+        // physical port number on a different interface kind. UniFi port_table is
+        // authoritative for port_idx-keyed rates.
         return (rateInBps, rateOutBps);
     }
 
@@ -986,6 +990,77 @@ public class MonitoringCollectionAgent : BackgroundService
     private List<UniFiDeviceResponse> _cachedDevices = new();
     private DateTime _cachedDevicesAt = DateTime.MinValue;
     private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);
+
+    // Gateway LAN IP cache. UniFi reports the gateway's "ip" as the WAN public IP
+    // which never answers SNMP from inside the LAN. The actual SNMP-reachable IP is
+    // the gateway's default-LAN address (e.g. 192.168.1.1). Resolved via network
+    // configs the same way UniFiDiscovery.GetDefaultLanGatewayIp does, then reused
+    // by every tier when polling gateway devices. Refresh hourly - this rarely
+    // changes and the API call is heavy.
+    private static readonly TimeSpan GatewayLanIpTtl = TimeSpan.FromHours(1);
+    private string? _gatewayLanIp;
+    private DateTime _gatewayLanIpAt = DateTime.MinValue;
+    private readonly SemaphoreSlim _gatewayLanIpLock = new(1, 1);
+
+    /// <summary>
+    /// Resolves the gateway's LAN-side IP via the default-LAN network config, the same
+    /// way Device Status / UniFiDiscovery does it. UniFi reports the gateway's "ip"
+    /// field as the WAN public IP, which never answers SNMP from inside the LAN.
+    /// Returns null if no LAN gateway can be derived (no networks fetched yet, etc).
+    /// </summary>
+    private async Task<string?> ResolveGatewayLanIpAsync(CancellationToken ct)
+    {
+        if (DateTime.UtcNow - _gatewayLanIpAt < GatewayLanIpTtl) return _gatewayLanIp;
+
+        await _gatewayLanIpLock.WaitAsync(ct);
+        try
+        {
+            if (DateTime.UtcNow - _gatewayLanIpAt < GatewayLanIpTtl) return _gatewayLanIp;
+            if (_connectionService.Client == null) return _gatewayLanIp;
+
+            try
+            {
+                var networks = await _connectionService.Client.GetNetworkConfigsAsync(ct);
+                var defaultLan = networks
+                    .Where(n => n.Purpose == "corporate" && n.Enabled)
+                    .OrderBy(n => n.Vlan ?? 0) // prefer no VLAN (0) first
+                    .FirstOrDefault();
+                string? ip = null;
+                if (!string.IsNullOrEmpty(defaultLan?.DhcpdGateway))
+                    ip = defaultLan!.DhcpdGateway;
+                else if (!string.IsNullOrEmpty(defaultLan?.IpSubnet))
+                    ip = defaultLan!.IpSubnet.Split('/')[0];
+
+                _gatewayLanIp = ip;
+                _gatewayLanIpAt = DateTime.UtcNow;
+                return ip;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to resolve gateway LAN IP");
+                return _gatewayLanIp; // keep last good
+            }
+        }
+        finally
+        {
+            _gatewayLanIpLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// SNMP poll address for a device. For gateways, swap UniFi's WAN public IP for
+    /// the LAN-side gateway IP so the poll actually reaches the device. All other
+    /// device types use their raw IP from UniFi.
+    /// </summary>
+    private static string ResolveSnmpAddress(UniFiDeviceResponse device, string? gatewayLanIp)
+    {
+        if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+            && !string.IsNullOrEmpty(gatewayLanIp))
+        {
+            return gatewayLanIp;
+        }
+        return device.Ip;
+    }
 
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {
@@ -1089,15 +1164,20 @@ public class MonitoringCollectionAgent : BackgroundService
             // Reconcile the relational row so the UI knows the SFP exists and can offer
             // ONT promotion / friendly naming.
             var key = (mac, portName);
-            var isPon = IsPonModule(port.SfpPart, port.SfpCompliance);
+            // Calix (and some other vendors) pad SFP vendor/part fields with trailing
+            // underscores or whitespace - "CALIX___" instead of "CALIX". Trim those so
+            // the UI doesn't render the padding.
+            var sfpPart = TrimSfpField(port.SfpPart);
+            var sfpVendor = TrimSfpField(port.SfpVendor);
+            var isPon = IsPonModule(sfpPart, port.SfpCompliance);
             if (!existing.TryGetValue(key, out var row))
             {
                 row = new MonitoredSfp
                 {
                     DeviceMac = mac,
                     PortName = portName,
-                    SfpPart = port.SfpPart,
-                    SfpVendor = port.SfpVendor,
+                    SfpPart = sfpPart,
+                    SfpVendor = sfpVendor,
                     IsPon = isPon,
                     IsMonitoredOnt = isPon, // auto-promote PON SFPs (GPON, XGS-PON) since they're the headline use case
                     CreatedAt = timestamp,
@@ -1108,8 +1188,8 @@ public class MonitoringCollectionAgent : BackgroundService
             }
             else
             {
-                row.SfpPart = port.SfpPart ?? row.SfpPart;
-                row.SfpVendor = port.SfpVendor ?? row.SfpVendor;
+                row.SfpPart = sfpPart ?? row.SfpPart;
+                row.SfpVendor = sfpVendor ?? row.SfpVendor;
                 row.IsPon = isPon || row.IsPon;
                 row.UpdatedAt = timestamp;
             }
@@ -1123,6 +1203,17 @@ public class MonitoringCollectionAgent : BackgroundService
     /// compliance string when present — false positives here only mean an extra dashboard
     /// row, never wrong data.
     /// </summary>
+    /// <summary>
+    /// Vendor-padded SFP fields trimmed for display. Calix DDM reports
+    /// "CALIX___" instead of "CALIX"; other vendors do similar with spaces or nulls.
+    /// </summary>
+    private static string? TrimSfpField(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+        var trimmed = value.TrimEnd('_', ' ', '\0', '\t');
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
+
     private static bool IsPonModule(string? part, string? compliance)
     {
         if (!string.IsNullOrEmpty(part))

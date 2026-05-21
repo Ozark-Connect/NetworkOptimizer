@@ -181,9 +181,9 @@ export class LanFlowMap {
         this.composer.addPass(new RenderPass(this.scene, this.camera));
         this.bloomPass = new UnrealBloomPass(
             new THREE.Vector2(width, height),
-            0.21,   // strength (was 0.85 - too intense, dropped to ~25%)
+            0.45,   // strength (0.85 was too intense, 0.21 was too tame, this is the middle)
             0.45,   // radius
-            0.55,   // threshold (was 0.32 - raised so only the brightest pixels bloom)
+            0.45,   // threshold (between original 0.32 and the over-conservative 0.55)
         );
         this.composer.addPass(this.bloomPass);
         this.composer.addPass(new OutputPass());
@@ -1423,7 +1423,10 @@ class ParticleStream {
             if (this._t[i] >= 0) active += 1;
         }
         const need = Math.max(0, desired - active);
-        this._spawnAccumulator += need * dt * 2.5;
+        // Higher spawn rate gets the stream to its desired density faster - was 2.5x
+        // which took ~3-4s to ramp on a typical link. 8x makes new traffic visible
+        // within ~1s.
+        this._spawnAccumulator += need * dt * 8.0;
         while (this._spawnAccumulator >= 1) {
             this._spawnAccumulator -= 1;
             for (let i = 0; i < this._max; i += 1) {
