@@ -166,6 +166,19 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                                 <span>Test</span>
                             }
                         </button>
+                        @if (_lastInfluxTestAt.HasValue && !_checkingInflux)
+                        {
+                            <span class="page-description" style="margin-left: 0.5rem;">
+                                @if (_influxReachable == true)
+                                {
+                                    <span style="color: var(--success-color);">✓ Connected</span>
+                                }
+                                else
+                                {
+                                    <span style="color: var(--danger-color);">✗ @(_influxError ?? "Unreachable")</span>
+                                }
+                            </span>
+                        }
                     }
                 </div>
             </div>
@@ -375,6 +388,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private string? _influxError;
     private bool _influxConfigured;
     private bool _checkingInflux;
+    private DateTime? _lastInfluxTestAt;
+    private System.Threading.Timer? _testFeedbackTimer;
     private bool _monitoringEnabled;
     private bool _togglingEnable;
     private List<MonitoringTarget> _targets = new();
@@ -471,6 +486,15 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             var health = await InfluxClient.CheckHealthAsync();
             _influxReachable = health.Reachable;
             _influxError = health.Error;
+            _lastInfluxTestAt = DateTime.UtcNow;
+            // Hide the "Last tested: just now" indicator after a few seconds so it doesn't
+            // become permanent visual noise.
+            _testFeedbackTimer?.Dispose();
+            _testFeedbackTimer = new System.Threading.Timer(_ =>
+            {
+                _lastInfluxTestAt = null;
+                _ = InvokeAsync(StateHasChanged);
+            }, null, TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
         }
         finally
         {
@@ -599,5 +623,6 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _refreshTimer?.Dispose();
+        _testFeedbackTimer?.Dispose();
     }
 }

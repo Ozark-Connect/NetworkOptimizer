@@ -96,16 +96,30 @@
                 @if (_state == Step.PickOrg)
                 {
                     <div class="form-group">
-                        <label class="form-label">Which org should Network Optimizer use?</label>
                         @if (_orgs.Count == 0)
                         {
+                            <label class="form-label">Which org should Network Optimizer use?</label>
                             <div class="alert alert-warning">
-                                No orgs are visible to this token. Use a token that's
-                                scoped to your target org, or your operator token.
+                                No orgs are visible to this token. Use an all-access token
+                                scoped to your target org, or an operator token.
                             </div>
+                        }
+                        else if (_orgs.Count == 1)
+                        {
+                            <label class="form-label">Network Optimizer's data will live in</label>
+                            <div class="form-value">
+                                <code>@_orgs[0].Name</code>
+                            </div>
+                            <p class="page-description" style="margin-top: 0.5rem;">
+                                NO creates two buckets in this org: <code>network_monitoring</code>
+                                (90-day retention) and <code>network_monitoring_longterm</code>
+                                (365-day). The bucket names are NO-specific so they can't
+                                collide with anything else in this org.
+                            </p>
                         }
                         else
                         {
+                            <label class="form-label">Which org should Network Optimizer use?</label>
                             <select class="form-control" @bind="_selectedOrgId" style="max-width: 320px;">
                                 <option value="">- Pick an org -</option>
                                 @foreach (var org in _orgs)
@@ -150,6 +164,9 @@
                 <div class="alert alert-success">
                     Buckets created and a scoped token has been saved. You can now enable
                     monitoring.
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" @onclick="DismissAsync">Continue</button>
                 </div>
             </div>
         </div>
@@ -282,13 +299,22 @@
                 _orgs = new();
             }
 
-            // Auto-select an existing org named "network-optimizer" if one is present;
-            // that's the convention from earlier setup runs (or someone who followed the
-            // recommendation). The user still sees the dropdown and can change it.
-            // Otherwise leave blank so the choice is deliberate.
-            var preferred = _orgs.FirstOrDefault(o =>
-                string.Equals(o.Name, "network-optimizer", StringComparison.OrdinalIgnoreCase));
-            _selectedOrgId = preferred?.Id;
+            // In current InfluxDB 2.x, an all-access token is scoped to exactly one org,
+            // so the list usually has one entry. Auto-select when there's just one (the
+            // UI shows the org name as confirmation rather than a single-item dropdown).
+            // When there are multiple (operator token / future multi-org architecture),
+            // prefer one named "network-optimizer" if present, otherwise leave blank so
+            // the user picks deliberately.
+            if (_orgs.Count == 1)
+            {
+                _selectedOrgId = _orgs[0].Id;
+            }
+            else
+            {
+                var preferred = _orgs.FirstOrDefault(o =>
+                    string.Equals(o.Name, "network-optimizer", StringComparison.OrdinalIgnoreCase));
+                _selectedOrgId = preferred?.Id;
+            }
             _state = Step.PickOrg;
         }
         finally
@@ -335,7 +361,9 @@
             await InfluxClient.CheckHealthAsync();
 
             _state = Step.Done;
-            if (OnProvisioned.HasDelegate) await OnProvisioned.InvokeAsync();
+            // Don't fire OnProvisioned immediately, otherwise the host page hides the
+            // wizard and the user never sees the "InfluxDB ready" confirmation. The
+            // callback fires when the user clicks Continue.
         }
         catch (Exception ex)
         {
@@ -347,6 +375,11 @@
             _busy = false;
             StateHasChanged();
         }
+    }
+
+    private async Task DismissAsync()
+    {
+        if (OnProvisioned.HasDelegate) await OnProvisioned.InvokeAsync();
     }
 
     private async Task<MonitoringSettings> GetOrCreateSettingsRowAsync()
