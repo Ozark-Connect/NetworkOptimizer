@@ -317,6 +317,13 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                 </div>
             </div>
         </div>
+
+        <!-- Upstream tracer wizard (Build #10). User-initiated discovery of the access
+             ISP path + transit ASN clouds; output populates AccessIsp / Transit
+             MonitoringTarget rows for the agent's latency tier to probe. -->
+        <div style="margin-top: 1.5rem;">
+            <UpstreamTracerPanel />
+        </div>
     }
 
     @if (_monitoringEnabled)

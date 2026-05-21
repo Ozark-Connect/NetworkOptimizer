@@ -1,0 +1,173 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Monitoring
+@implements IDisposable
+@inject UpstreamTracerService Tracer
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Upstream path discovery</h2>
+        <span class="status-badge @StateBadgeClass(_state.Step)">@StateLabel(_state.Step)</span>
+    </div>
+    <div class="card-body">
+        @if (_state.Step == TracerStep.Idle)
+        {
+            <p class="section-description">
+                Trace your network's path from the gateway to common internet destinations
+                so we can monitor each upstream ISP and transit ASN for outages or path
+                changes. The wizard runs traceroutes in both ICMP and UDP modes,
+                identifies your access ISP's first-mile device, attributes each transit
+                hop to an ASN, and proposes monitoring targets for review.
+            </p>
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="StartAsync">Discover upstream path</button>
+            </div>
+        }
+        else if (_state.Step == TracerStep.Failed)
+        {
+            <div class="alert alert-warning">
+                <strong>Discovery stopped.</strong>
+                @_state.FailureMessage
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="StartAsync">Try again</button>
+            </div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label class="form-label">Step</label>
+                <div class="form-value">@StateLabel(_state.Step)</div>
+            </div>
+            @if (!string.IsNullOrEmpty(_state.CurrentActivity))
+            {
+                <div class="form-group">
+                    <label class="form-label">Activity</label>
+                    <div class="form-value">@_state.CurrentActivity</div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_state.WanIpAddress))
+            {
+                <div class="form-group">
+                    <label class="form-label">WAN IP</label>
+                    <div class="form-value">
+                        <code>@_state.WanIpAddress</code>
+                        @if (_state.IsCgnat)
+                        {
+                            <span class="status-badge status-active" style="margin-left: 0.5rem;">CGNAT</span>
+                        }
+                        @if (_state.IsDoubleNat)
+                        {
+                            <span class="status-badge status-disconnected" style="margin-left: 0.5rem;">Double-NAT</span>
+                        }
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_state.WanNeighborMac))
+            {
+                <div class="form-group">
+                    <label class="form-label">L2 neighbor</label>
+                    <div class="form-value">
+                        <code>@_state.WanNeighborMac</code>
+                        @if (!string.IsNullOrEmpty(_state.WanNeighborOuiVendor))
+                        {
+                            <span style="margin-left: 0.5rem;">@_state.WanNeighborOuiVendor</span>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (_state.Step == TracerStep.ReviewingResults)
+            {
+                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0)
+                {
+                    <div class="alert alert-info">
+                        Detection complete. The actual hop tracing and ASN attribution
+                        are scheduled for the next iteration; this run captured your WAN
+                        IP classification and L2 neighbor identity.
+                    </div>
+                }
+                else
+                {
+                    <p class="section-description">Review the discovered targets, then Commit.</p>
+                    @* Detailed review UI lands when iteration 2 fills in the trace tiers. *@
+                }
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
+                    @if (_state.AccessHops.Count > 0 || _state.TransitAsns.Count > 0)
+                    {
+                        <button class="btn btn-primary" @onclick="CommitAsync">Commit</button>
+                    }
+                </div>
+            }
+            else if (_state.Step == TracerStep.Done)
+            {
+                <div class="alert alert-success">
+                    Discovery committed. The agent will start probing the new targets
+                    on the next latency-tier cycle.
+                </div>
+            }
+            else
+            {
+                <div class="loading-state">
+                    <span class="spinner"></span>
+                    <span>Running...</span>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private UpstreamTracerState _state = new();
+    private System.Threading.Timer? _pollTimer;
+
+    protected override void OnInitialized()
+    {
+        _state = Tracer.State;
+        // Poll the tracer state every 1.5s while a run is active; the state machine
+        // runs in the background and the UI just observes.
+        _pollTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(() => { _state = Tracer.State; StateHasChanged(); }); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(1.5), TimeSpan.FromSeconds(1.5));
+    }
+
+    private async Task StartAsync()
+    {
+        await Tracer.StartDiscoveryAsync();
+        _state = Tracer.State;
+        StateHasChanged();
+    }
+
+    private async Task CommitAsync()
+    {
+        await Tracer.CommitResultsAsync();
+        _state = Tracer.State;
+        StateHasChanged();
+    }
+
+    private static string StateLabel(TracerStep step) => step switch
+    {
+        TracerStep.Idle => "Ready",
+        TracerStep.DetectingPublicIp => "Detecting public IP",
+        TracerStep.DiscoveringL2Neighbor => "Discovering L2 neighbor",
+        TracerStep.TracingAccessIsp => "Tracing access ISP",
+        TracerStep.TracingTransitAsns => "Tracing transit ASNs",
+        TracerStep.ReviewingResults => "Review",
+        TracerStep.Done => "Done",
+        TracerStep.Failed => "Stopped",
+        _ => step.ToString()
+    };
+
+    private static string StateBadgeClass(TracerStep step) => step switch
+    {
+        TracerStep.Done => "status-connected",
+        TracerStep.ReviewingResults => "status-active",
+        TracerStep.Failed => "status-disconnected",
+        TracerStep.Idle => "status-disconnected",
+        _ => "status-active"
+    };
+
+    public void Dispose() => _pollTimer?.Dispose();
+}

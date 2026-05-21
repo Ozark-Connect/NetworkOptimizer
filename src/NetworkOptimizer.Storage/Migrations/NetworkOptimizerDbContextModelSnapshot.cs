@@ -780,6 +780,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int?>("DiscoveryMethod")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("DiscoveredProbeMode")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 

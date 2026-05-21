@@ -15,7 +15,16 @@ public enum MonitoringTargetType
 public enum DiscoveryMethod
 {
     DirectRouter = 0,
-    PathProxy = 1
+    PathProxy = 1,
+    /// <summary>User manually typed in the target IP for an ASN the tracer couldn't
+    /// auto-resolve. Same evidence treatment as DirectRouter (we trust the user that
+    /// the IP is on the path) but rendered with a small "user-added" badge.</summary>
+    UserProvided = 2,
+    /// <summary>Tracer couldn't find any responding hop in the ASN and couldn't fall
+    /// back to a CDN path-proxy either. No MonitoringTarget row is created for this
+    /// tier; the value exists so the cloud renderer can distinguish "we tried and
+    /// failed" from "we never tried".</summary>
+    Unresolved = 3
 }
 
 public class MonitoringTarget
@@ -33,6 +42,16 @@ public class MonitoringTarget
     public string Address { get; set; } = string.Empty;
 
     public ProbeMode ProbeMode { get; set; } = ProbeMode.Icmp;
+
+    /// <summary>
+    /// The probe mode this target originally answered to during tracer discovery.
+    /// ProbeMode (above) is what ongoing monitoring uses and can drift during
+    /// re-validation; DiscoveredProbeMode is the immutable record of "what worked
+    /// when we first found this," so the re-validation diff can usefully say
+    /// "AS3356 used to answer ICMP, now answers TCP/443." Null for targets that
+    /// weren't created by the tracer.
+    /// </summary>
+    public ProbeMode? DiscoveredProbeMode { get; set; }
 
     public int? Port { get; set; }
 
