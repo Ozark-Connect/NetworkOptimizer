@@ -51,6 +51,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<PerfTweakSetting> PerfTweakSettings { get; set; }
     public DbSet<MonitoringSettings> MonitoringSettings { get; set; }
     public DbSet<MonitoringTarget> MonitoringTargets { get; set; }
+    public DbSet<WanDiscoveryContext> WanDiscoveryContexts { get; set; }
     public DbSet<InterfaceNameMap> InterfaceNameMaps { get; set; }
     public DbSet<UpstreamDiscovery> UpstreamDiscoveries { get; set; }
     public DbSet<MonitoredSfp> MonitoredSfps { get; set; }
@@ -202,9 +203,18 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.TargetId).IsUnique();
             entity.HasIndex(e => e.TargetType);
             entity.HasIndex(e => e.Enabled);
+            entity.HasIndex(e => e.WanInterface);
             entity.Property(e => e.ProbeMode).HasConversion<int>();
             entity.Property(e => e.TargetType).HasConversion<int>();
             entity.Property(e => e.DiscoveryMethod).HasConversion<int>();
+        });
+
+        // WanDiscoveryContext configuration — one row per WAN with the per-WAN tracer state.
+        modelBuilder.Entity<WanDiscoveryContext>(entity =>
+        {
+            entity.ToTable("WanDiscoveryContexts");
+            entity.HasKey(e => e.WanInterface);
+            entity.Property(e => e.AccessTechnology).HasConversion<int>();
         });
 
         // InterfaceNameMap configuration

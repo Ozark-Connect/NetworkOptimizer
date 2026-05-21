@@ -108,17 +108,38 @@ public class MonitoringLiveStats
     public void RecordSfp(string deviceMac, string portName, double? rxDbm, double? txDbm, double? biasMa, double? tempC, double? voltageV, DateTime timestamp)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(portName)) return;
+
+        // If every DDM field came back null, the polling cycle gave us nothing usable -
+        // skip the write entirely so we don't blank out the prior good values on the
+        // card. UniFi will sometimes report sfp_found=true with all-null DDM values
+        // during port renegotiation or transient SNMP failures.
+        if (!rxDbm.HasValue && !txDbm.HasValue && !biasMa.HasValue && !tempC.HasValue && !voltageV.HasValue)
+            return;
+
         var key = (Normalize(deviceMac), portName);
-        var snapshot = new SfpLiveStats
-        {
-            RxPowerDbm = rxDbm,
-            TxPowerDbm = txDbm,
-            BiasMa = biasMa,
-            TemperatureC = tempC,
-            VoltageV = voltageV,
-            LastUpdate = timestamp
-        };
-        _sfpStats[key] = snapshot;
+        _sfpStats.AddOrUpdate(
+            key,
+            _ => new SfpLiveStats
+            {
+                RxPowerDbm = rxDbm,
+                TxPowerDbm = txDbm,
+                BiasMa = biasMa,
+                TemperatureC = tempC,
+                VoltageV = voltageV,
+                LastUpdate = timestamp
+            },
+            // Merge: each field keeps the new value when present, otherwise preserves
+            // the prior value. One null reading on a single sensor (e.g. bias) no
+            // longer wipes the others.
+            (_, prior) => new SfpLiveStats
+            {
+                RxPowerDbm = rxDbm ?? prior.RxPowerDbm,
+                TxPowerDbm = txDbm ?? prior.TxPowerDbm,
+                BiasMa = biasMa ?? prior.BiasMa,
+                TemperatureC = tempC ?? prior.TemperatureC,
+                VoltageV = voltageV ?? prior.VoltageV,
+                LastUpdate = timestamp
+            });
     }
 
     // ---- WiFi clients (spec 5.2 client data collection) ----

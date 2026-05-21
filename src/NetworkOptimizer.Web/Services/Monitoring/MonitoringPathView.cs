@@ -58,24 +58,34 @@ public class MonitoringPathView
         var resolvedWanInterface = wan?.WanInterface ?? wanInterface ?? "wan";
         var isPrimary = wan?.IsPrimary ?? true;
 
-        // Access cloud: pull from MonitoringSettings (L2 neighbor OUI, access tech) +
-        // MonitoringTargets where TargetType = AccessIsp + UpstreamDiscoveries for hop
-        // ordering. Until the tracer runs, this returns an empty hop list and the
-        // contextual metadata we already have (CGNAT detection, OUI lookup, etc.).
+        // Per-WAN context, with fallback to legacy MonitoringSettings for installs that
+        // pre-date the WanDiscoveryContexts table. New installs and any post-migration
+        // commit will populate the context row.
+        var wanCtx = await db.WanDiscoveryContexts.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.WanInterface == resolvedWanInterface, ct);
+
+        // Access cloud: WAN-scoped MonitoringTargets where TargetType = AccessIsp.
+        // Fallback for legacy rows that pre-date WanInterface stamping: include null
+        // WanInterface only when the requested WAN is the primary (single-WAN heritage).
         var accessHops = await db.MonitoringTargets.AsNoTracking()
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
-                        && (wan == null || t.AsnNumber == null || true))
+                        && (t.WanInterface == resolvedWanInterface
+                            || (isPrimary && t.WanInterface == null)))
             .OrderBy(t => t.Id)
             .ToListAsync(ct);
 
-        var isCgnat = settings?.WanNeighborMac != null
+        var l2NeighborMac = wanCtx?.L2NeighborMac ?? settings?.WanNeighborMac;
+        var l2NeighborOui = wanCtx?.L2NeighborOui ?? settings?.WanNeighborOui;
+        var accessTech = wanCtx?.AccessTechnology ?? settings?.AccessTechnology ?? AccessTechnology.Unknown;
+
+        var isCgnat = l2NeighborMac != null
             && !string.IsNullOrEmpty(wan?.IpAddress)
             && NetworkUtilities.ClassifyPublicAddress(wan.IpAddress) == PublicAddressClass.Cgnat;
 
         var access = new AccessIspCloud
         {
-            AccessTechnology = settings?.AccessTechnology.ToString(),
-            L2NeighborOui = settings?.WanNeighborOui,
+            AccessTechnology = accessTech.ToString(),
+            L2NeighborOui = l2NeighborOui,
             AsnNumber = accessHops.FirstOrDefault()?.AsnNumber,
             AsnName = accessHops.FirstOrDefault()?.AsnName,
             IsCgnat = isCgnat || (wan?.IpClass == PublicAddressClass.Cgnat),
@@ -90,15 +100,14 @@ public class MonitoringPathView
             }).ToList()
         };
 
-        // Transit clouds: only populate for the primary WAN per spec 5.7. The tracer
-        // creates one MonitoringTarget (TargetType = Transit) per ASN; UpstreamDiscoveries
-        // captures which hops belong to which ASN for re-validation. Until the tracer
-        // runs, this is empty and the map renders just the access cloud.
+        // Transit clouds: only populate for the primary WAN per spec 5.7. WAN-scoped
+        // same as access hops, with the same legacy-null fallback.
         IReadOnlyList<TransitCloud> transits = Array.Empty<TransitCloud>();
         if (isPrimary)
         {
             var transitRows = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == MonitoringTargetType.Transit)
+                .Where(t => t.TargetType == MonitoringTargetType.Transit
+                            && (t.WanInterface == resolvedWanInterface || t.WanInterface == null))
                 .OrderBy(t => t.AsnNumber)
                 .ToListAsync(ct);
 

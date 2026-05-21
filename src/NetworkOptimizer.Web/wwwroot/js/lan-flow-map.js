@@ -33,7 +33,22 @@ const COLORS = {
     pipeCool: 0x1f4068,
     pipeWarm: 0xe79613,
     pipeHot: 0xee6368,
+
+    // WiFi band palette - matches the WiFi Optimizer + CLAUDE.md spec. Used as the
+    // base "cool" color for wifi-client + mesh-backhaul links, so the pipe color
+    // identifies the band at a glance and only shifts toward amber/red when the
+    // link approaches capacity.
+    band24: 0xfbbf24, // 2.4 GHz amber
+    band5:  0x3b82f6, // 5 GHz blue
+    band6:  0xa855f7, // 6 GHz purple
 };
+
+function bandBaseColor(band) {
+    if (band === '2.4') return COLORS.band24;
+    if (band === '5')   return COLORS.band5;
+    if (band === '6')   return COLORS.band6;
+    return COLORS.pipeCool;
+}
 
 const NODE_RADIUS = {
     gateway: 1.6,
@@ -166,9 +181,9 @@ export class LanFlowMap {
         this.composer.addPass(new RenderPass(this.scene, this.camera));
         this.bloomPass = new UnrealBloomPass(
             new THREE.Vector2(width, height),
-            0.85,   // strength
+            0.21,   // strength (was 0.85 - too intense, dropped to ~25%)
             0.45,   // radius
-            0.32,   // threshold (only pixels above this luminosity bloom)
+            0.55,   // threshold (was 0.32 - raised so only the brightest pixels bloom)
         );
         this.composer.addPass(this.bloomPass);
         this.composer.addPass(new OutputPass());
@@ -189,12 +204,6 @@ export class LanFlowMap {
         key.position.set(40, 60, 30);
         this.scene.add(hemi, ambient, key);
 
-        // Ground grid for spatial reference.
-        const grid = new THREE.GridHelper(120, 24, 0x2a3340, 0x1c232e);
-        grid.material.opacity = 0.55;
-        grid.material.transparent = true;
-        grid.position.y = -8;
-        this.scene.add(grid);
 
         // Container groups so toggling layers is cheap.
         this.nodeGroup = new THREE.Group();
@@ -879,6 +888,31 @@ export class LanFlowMap {
         `;
         this._panels.legend = legend;
 
+        // Controls help (collapsed pill, expands on click). OrbitControls handles
+        // the actual input bindings; this just documents them so users can find
+        // their way around without trial and error.
+        const help = this._makePanel('lan-flow-map-help');
+        help.innerHTML = `
+            <button class="lan-flow-map-help-toggle" type="button" aria-expanded="false">
+                <span class="lan-flow-map-help-icon">?</span>
+                <span class="lan-flow-map-help-label">Controls</span>
+            </button>
+            <div class="lan-flow-map-help-body" hidden>
+                <div class="lan-flow-map-help-row"><span>Rotate</span><span class="kbd">Left-drag</span></div>
+                <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">Ctrl + Left-drag</span></div>
+                <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span></div>
+                <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over node</span></div>
+            </div>
+        `;
+        const helpToggle = help.querySelector('.lan-flow-map-help-toggle');
+        const helpBody = help.querySelector('.lan-flow-map-help-body');
+        helpToggle.addEventListener('click', () => {
+            const isOpen = helpBody.hasAttribute('hidden') === false;
+            if (isOpen) { helpBody.setAttribute('hidden', ''); helpToggle.setAttribute('aria-expanded', 'false'); }
+            else { helpBody.removeAttribute('hidden'); helpToggle.setAttribute('aria-expanded', 'true'); }
+        });
+        this._panels.help = help;
+
         // Status / mode indicator (bottom-left)
         const status = this._makePanel('lan-flow-map-status');
         const modeBadge = document.createElement('span');
@@ -1286,6 +1320,9 @@ export class LanFlowMap {
         if (node.band) rows.push(['Band', `${node.band} GHz`]);
         if (node.ssid) rows.push(['SSID', node.ssid]);
         if (node.signalDbm) rows.push(['Signal', `${node.signalDbm} dBm`]);
+        if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
+        if (node.wiredLinkSpeedMbps) rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
+        if (node.network) rows.push(['Network', node.network]);
         // Aggregate rate (from adjacent links)
         let dn = 0, up = 0, any = false;
         for (const [, link] of this._linkMeshes) {
@@ -1332,7 +1369,18 @@ class ParticleStream {
 
         const MAX = 80;
         this._max = MAX;
+        // Inactive particles are parked outside the camera's far plane (1000 units)
+        // so they don't render. Without this, all 80 vertices start at (0, 0, 0) -
+        // with additive blending + bloom across every stream, that piles into a
+        // bright artifact right at world origin.
+        const PARK = 1e6;
+        this._park = PARK;
         const positions = new Float32Array(MAX * 3);
+        for (let i = 0; i < MAX; i += 1) {
+            positions[i * 3 + 0] = PARK;
+            positions[i * 3 + 1] = PARK;
+            positions[i * 3 + 2] = PARK;
+        }
         const t = new Float32Array(MAX);
         for (let i = 0; i < MAX; i += 1) {
             t[i] = -1;  // inactive
@@ -1393,9 +1441,12 @@ class ParticleStream {
             this._t[i] += v * dt;
             if (this._t[i] >= 1) {
                 this._t[i] = -1;
-                this._positions[i * 3 + 0] = 0;
-                this._positions[i * 3 + 1] = 0;
-                this._positions[i * 3 + 2] = 0;
+                // Park outside the camera frustum so the inactive slot doesn't
+                // contribute a vertex at world origin (which would pile up bright
+                // additive-blended dots under bloom).
+                this._positions[i * 3 + 0] = this._park;
+                this._positions[i * 3 + 1] = this._park;
+                this._positions[i * 3 + 2] = this._park;
                 continue;
             }
             const lerpX = this._from.x + (this._to.x - this._from.x) * this._t[i];
@@ -1424,24 +1475,15 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.fill();
 }
 
-function makeRadialBackgroundTexture(width, height) {
-    const w = 512;
-    const h = Math.max(256, Math.round(512 * (height / Math.max(width, 1))));
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
-    grd.addColorStop(0, '#1c2a3a');
-    grd.addColorStop(0.55, '#121b27');
-    grd.addColorStop(1, '#0a1018');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, w, h);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.needsUpdate = true;
-    return tex;
+
+function formatLinkSpeed(mbps) {
+    if (!Number.isFinite(mbps) || mbps <= 0) return '';
+    if (mbps >= 1000) {
+        const gbps = mbps / 1000;
+        // Common negotiated rates render cleanly: 1, 2.5, 5, 10 Gbps
+        return `${gbps % 1 === 0 ? gbps.toFixed(0) : gbps.toFixed(1)} Gbps`;
+    }
+    return `${mbps} Mbps`;
 }
 
 function formatBps(bps) {
@@ -1484,6 +1526,26 @@ function lerpColor(a, b, t) {
     const g = Math.round(ag + (bg - ag) * t);
     const bl = Math.round(ab + (bb - ab) * t);
     return (r << 16) | (g << 8) | bl;
+}
+
+function makeRadialBackgroundTexture(width, height) {
+    const w = 512;
+    const h = Math.max(256, Math.round(512 * (height / Math.max(width, 1))));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
+    grd.addColorStop(0, '#1c2a3a');
+    grd.addColorStop(0.55, '#121b27');
+    grd.addColorStop(1, '#0a1018');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, w, h);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
 }
 
 // Entry point used by Blazor JS interop.

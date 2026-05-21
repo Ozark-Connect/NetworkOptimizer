@@ -81,8 +81,26 @@ public class LanFlowMapService
 
         var nameMaps = await LoadInterfaceNameMaps(ct);
 
+        // Raw device list with PortTable for direct UniFi-side port speed/name lookups.
+        // Used as the immediate-fallback path for wired client link speed when the
+        // SNMP slow tier hasn't populated the name map yet, and for surfacing the
+        // switch port label in the wired client node tooltip.
+        List<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawDevices;
+        try
+        {
+            rawDevices = (await _connection.Client!.GetDevicesAsync(ct))?.ToList()
+                         ?? new List<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse>();
+        }
+        catch
+        {
+            rawDevices = new List<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse>();
+        }
+        var rawByMac = rawDevices
+            .Where(d => !string.IsNullOrEmpty(d.Mac))
+            .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
+
         BuildInfrastructureGraph(topology, anchors, snapshot, nameMaps);
-        BuildClientLeaves(topology, snapshot, nameMaps);
+        BuildClientLeaves(topology, snapshot, nameMaps, rawByMac);
         await BuildWanAndClouds(topology, snapshot, ct);
 
         var portRates = await SeedPortRatesAsync(snapshot, ct);
@@ -405,7 +423,8 @@ public class LanFlowMapService
     private void BuildClientLeaves(
         NetworkTopology topology,
         LanFlowMapSnapshot snapshot,
-        Dictionary<(string mac, int port), InterfaceNameMap> nameMaps)
+        Dictionary<(string mac, int port), InterfaceNameMap> nameMaps,
+        Dictionary<string, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawByMac)
     {
         foreach (var c in topology.Clients)
         {
@@ -420,7 +439,10 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = c.IsWired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
                 Mac = clientMac,
-                Name = !string.IsNullOrEmpty(c.Hostname) ? c.Hostname : c.Name,
+                // Canonical client label chain (matches audit module): user-set Name
+                // wins over device-reported Hostname; fall back to MAC as last resort
+                // so the label is never blank.
+                Name = ResolveClientLabel(c),
                 ParentId = "dev-" + parentMac,
                 Network = c.Network,
                 IsGuest = c.IsGuest,
@@ -433,7 +455,6 @@ public class LanFlowMapService
                 node.PhyTxKbps = c.TxRate > 0 ? c.TxRate : null;
                 node.PhyRxKbps = c.RxRate > 0 ? c.RxRate : null;
             }
-            snapshot.Nodes.Add(node);
 
             var link = new LanLink
             {
@@ -446,11 +467,36 @@ public class LanFlowMapService
 
             if (c.IsWired && c.SwitchPort.HasValue)
             {
+                // Primary: SNMP-derived InterfaceNameMap. Gives us ifName for the
+                // SNMP-keyed _portRateLatest path + speed from sysSpeed.
                 if (nameMaps.TryGetValue((parentMac, c.SwitchPort.Value), out var nameMap))
                 {
                     link.PortKey = PortKey(parentMac, nameMap.IfName);
                     if (nameMap.SpeedMbps.HasValue && nameMap.SpeedMbps.Value > 0)
+                    {
                         link.CapacityBps = (long)nameMap.SpeedMbps.Value * 1_000_000L;
+                        node.WiredLinkSpeedMbps = nameMap.SpeedMbps.Value;
+                    }
+                    if (!string.IsNullOrEmpty(nameMap.FriendlyName))
+                        node.SwitchPortName = nameMap.FriendlyName;
+                }
+
+                // Fallback: direct UniFi PortTable lookup. Runs whenever the name map
+                // didn't give us speed or port name (slow tier hasn't seen this switch
+                // yet, or device doesn't speak SNMP). UniFi reports negotiated Speed +
+                // user-defined port Name on every device fetch - no SNMP dependency.
+                if (rawByMac.TryGetValue(parentMac, out var parentDev) && parentDev.PortTable != null)
+                {
+                    var port = parentDev.PortTable.FirstOrDefault(p => p.PortIdx == c.SwitchPort.Value);
+                    if (port != null)
+                    {
+                        if (!node.WiredLinkSpeedMbps.HasValue && port.Speed > 0)
+                            node.WiredLinkSpeedMbps = port.Speed;
+                        if (!link.CapacityBps.HasValue && port.Speed > 0)
+                            link.CapacityBps = (long)port.Speed * 1_000_000L;
+                        if (string.IsNullOrEmpty(node.SwitchPortName) && !string.IsNullOrEmpty(port.Name))
+                            node.SwitchPortName = port.Name;
+                    }
                 }
             }
             else if (!c.IsWired)
@@ -460,6 +506,7 @@ public class LanFlowMapService
                 if (maxPhyKbps > 0) link.CapacityBps = maxPhyKbps * 1_000L;
             }
 
+            snapshot.Nodes.Add(node);
             snapshot.Links.Add(link);
         }
     }
@@ -902,6 +949,18 @@ public class LanFlowMapService
 
     private static string NormalizeMac(string? mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace("-", ":");
+
+    /// <summary>
+    /// Client label fallback chain that matches what the audit / port-security
+    /// analyzers use: user-set Name > device-reported Hostname > MAC. Keeps the 3D
+    /// map labels consistent with the rest of the UI.
+    /// </summary>
+    private static string ResolveClientLabel(NetworkOptimizer.UniFi.DiscoveredClient c)
+    {
+        if (!string.IsNullOrWhiteSpace(c.Name)) return c.Name;
+        if (!string.IsNullOrWhiteSpace(c.Hostname)) return c.Hostname;
+        return string.IsNullOrEmpty(c.Mac) ? "unknown" : c.Mac;
+    }
 
     private static string PortKey(string deviceMac, string ifName) =>
         deviceMac.ToLowerInvariant() + "|" + ifName;

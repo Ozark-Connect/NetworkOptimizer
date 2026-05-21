@@ -25,6 +25,12 @@
     --purple-color: #a855f7;
     --purple-light: #c084fc;
 
+    /* WiFi band palette - canonical across WiFi Optimizer, audit views, 3D map.
+     * Use these instead of hardcoding #fbbf24 / #3b82f6 / #a855f7 inline. */
+    --band-24-color: #fbbf24;
+    --band-5-color:  #3b82f6;
+    --band-6-color:  #a855f7;
+
     /* Dark Mode Backgrounds - neutral dark, Linear/Vercel inspired */
     --bg-primary: #0f0f11;
     --bg-secondary: #161618;
@@ -14003,6 +14009,56 @@ a.affected-client:hover {
     padding: 0.5rem 0.7rem;
     font-size: 0.78rem;
 }
+.lan-flow-map-help {
+    bottom: 0.75rem;
+    right: 9rem;
+    padding: 0;
+    font-size: 0.78rem;
+}
+.lan-flow-map-help-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.7rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+}
+.lan-flow-map-help-toggle:hover { color: var(--text-primary); }
+.lan-flow-map-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.72rem;
+}
+.lan-flow-map-help-body {
+    padding: 0.55rem 0.75rem;
+    border-top: 1px solid var(--bg-tertiary);
+    display: grid;
+    gap: 0.3rem;
+    min-width: 180px;
+}
+.lan-flow-map-help-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+.lan-flow-map-help-row .kbd {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.72rem;
+}
 .lan-flow-map-status {
     bottom: 0.75rem;
     left: 0.75rem;
@@ -14092,6 +14148,19 @@ a.affected-client:hover {
     color: var(--text-primary);
     border-color: rgba(51, 133, 214, 0.45);
     background: rgba(51, 133, 214, 0.15);
+}
+/* WiFi band pills use the canonical band palette (matches WiFi Optimizer). */
+.lan-flow-map-chip[data-band="2.4"].is-on {
+    border-color: var(--band-24-color);
+    background: color-mix(in srgb, var(--band-24-color) 18%, transparent);
+}
+.lan-flow-map-chip[data-band="5"].is-on {
+    border-color: var(--band-5-color);
+    background: color-mix(in srgb, var(--band-5-color) 18%, transparent);
+}
+.lan-flow-map-chip[data-band="6"].is-on {
+    border-color: var(--band-6-color);
+    background: color-mix(in srgb, var(--band-6-color) 18%, transparent);
 }
 .lan-flow-map-legend-dot {
     width: 10px;

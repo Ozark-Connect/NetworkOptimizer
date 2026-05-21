@@ -78,6 +78,14 @@ public class MonitoringTarget
 
     public DiscoveryMethod? DiscoveryMethod { get; set; }
 
+    /// <summary>
+    /// Which WAN this target was discovered against. Null for fabric and custom
+    /// targets that aren't tied to a specific WAN. The upstream tracer always sets
+    /// this on access-ISP and transit targets.
+    /// </summary>
+    [MaxLength(50)]
+    public string? WanInterface { get; set; }
+
     [MaxLength(255)]
     public string? PtrHostname { get; set; }
 

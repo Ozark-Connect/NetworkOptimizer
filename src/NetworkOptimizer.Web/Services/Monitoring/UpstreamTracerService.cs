@@ -598,17 +598,37 @@ public class UpstreamTracerService
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
+        // Scope all writes to the WAN this discovery ran against. Multi-WAN setups
+        // get one row in MonitoringTargets per (target, wan) and one row in
+        // WanDiscoveryContexts per WAN.
+        var wanInterface = State.WanInterface ?? "wan";
+
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
-            await UpsertTargetAsync(db, hop, ct);
+            await UpsertTargetAsync(db, hop, wanInterface, ct);
         }
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
-            await UpsertTransitTargetAsync(db, transit, ct);
+            await UpsertTransitTargetAsync(db, transit, wanInterface, ct);
         }
 
-        // Record the discovery timestamp and clear any pending review flag from the
-        // auto re-discovery scheduler. This commit is what it was waiting on.
+        // Per-WAN tracer state. WanDiscoveryContexts is the new source of truth;
+        // MonitoringSettings still gets the timestamp + review flag cleared because
+        // legacy callers + UI still read it for single-WAN setups (transparent
+        // upgrade path).
+        var ctxRow = await db.WanDiscoveryContexts.FirstOrDefaultAsync(c => c.WanInterface == wanInterface, ct);
+        if (ctxRow == null)
+        {
+            ctxRow = new WanDiscoveryContext { WanInterface = wanInterface };
+            db.WanDiscoveryContexts.Add(ctxRow);
+        }
+        ctxRow.L2NeighborMac = State.WanNeighborMac;
+        ctxRow.L2NeighborOui = State.WanNeighborOuiVendor;
+        ctxRow.AccessTechnology = State.AccessTechnology;
+        ctxRow.LastDiscoveryAt = DateTime.UtcNow;
+        ctxRow.NeedsReview = false;
+        ctxRow.UpdatedAt = DateTime.UtcNow;
+
         var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
         if (settings != null)
         {
@@ -622,7 +642,7 @@ public class UpstreamTracerService
         State.CurrentActivity = "Targets committed. The agent will start probing on the next latency-tier cycle.";
     }
 
-    private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, CancellationToken ct)
+    private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, CancellationToken ct)
     {
         var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == hop.TargetId, ct);
         if (existing == null)
@@ -643,6 +663,7 @@ public class UpstreamTracerService
                 Enabled = true,
                 AutoDiscovered = true,
                 DiscoveryMethod = DiscoveryMethod.DirectRouter,
+                WanInterface = wanInterface,
                 PtrHostname = hop.PtrHostname,
                 AutoLabel = hop.Role.ToString(),
                 CreatedAt = DateTime.UtcNow,
@@ -655,12 +676,13 @@ public class UpstreamTracerService
             // preservation per locked decision 6b).
             existing.Address = hop.Address;
             existing.ProbeMode = hop.RespondedTo;
+            existing.WanInterface = wanInterface;
             existing.Name = string.IsNullOrEmpty(existing.Name) ? hop.Label : existing.Name; // don't stomp user-renamed labels
             existing.LastVerified = DateTime.UtcNow;
         }
     }
 
-    private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, CancellationToken ct)
+    private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, CancellationToken ct)
     {
         if (transit.Method == DiscoveryMethod.Unresolved || string.IsNullOrEmpty(transit.TargetId)) return;
         var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == transit.TargetId, ct);
@@ -682,6 +704,7 @@ public class UpstreamTracerService
                 Enabled = true,
                 AutoDiscovered = true,
                 DiscoveryMethod = transit.Method,
+                WanInterface = wanInterface,
                 CreatedAt = DateTime.UtcNow,
                 LastVerified = DateTime.UtcNow
             });
@@ -691,6 +714,7 @@ public class UpstreamTracerService
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
             existing.DiscoveryMethod = transit.Method;
+            existing.WanInterface = wanInterface;
             existing.LastVerified = DateTime.UtcNow;
         }
     }

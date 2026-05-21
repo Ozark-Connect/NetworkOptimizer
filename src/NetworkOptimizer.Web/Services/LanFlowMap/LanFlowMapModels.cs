@@ -65,6 +65,15 @@ public class LanNode
     /// <summary>VLAN for client filtering ("Main", "IoT", "Guest", ...).</summary>
     public string? Network { get; set; }
     public bool IsGuest { get; set; }
+
+    /// <summary>For wired clients: the switch port label ("Port 7", "Studio Drop", etc.)
+    /// from the parent switch's UniFi port_table. Lets the tooltip show "via Port 7"
+    /// without the user having to cross-reference the topology.</summary>
+    public string? SwitchPortName { get; set; }
+
+    /// <summary>For wired clients: the parent switch port's negotiated link speed
+    /// in Mbps. Surfaces as "1000 Mbps" / "2.5 Gbps" in the tooltip.</summary>
+    public int? WiredLinkSpeedMbps { get; set; }
 }
 
 public class LanPlacement

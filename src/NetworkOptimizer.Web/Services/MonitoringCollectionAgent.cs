@@ -270,27 +270,53 @@ public class MonitoringCollectionAgent : BackgroundService
         });
         await Task.WhenAll(deviceTasks);
 
-        // Post-process: override AP rates with their parent-switch-port counters.
-        // Per spec 5.6: "Aggregate upstream/downstream rates for an AP, derived from
-        // its switch port stats. Label it clearly as the device's total backhaul
-        // traffic (not per-SSID, not per-client)."
+        // Post-process: override device aggregates with their parent-uplink-port
+        // counters. For APs (spec 5.6) we already did this. For switches and gateways,
+        // summing every interface counter on the device double-counts traffic that
+        // crosses the switch fabric port-to-port and includes purely local traffic
+        // that never crosses the uplink - both of which inflate the "device activity"
+        // the topology cares about. The trunk/uplink port is the boundary between
+        // the device and the rest of the network, which is what the topology pipe
+        // actually carries.
         var nowOverride = DateTime.UtcNow;
-        foreach (var ap in devices.Where(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
-                                              && d.Uplink != null
-                                              && !string.IsNullOrEmpty(d.Uplink.UplinkMac)))
+        foreach (var dev in devices.Where(d => d.Uplink != null
+                                               && !string.IsNullOrEmpty(d.Uplink.UplinkMac)
+                                               && (d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
+                                                   || d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch)))
         {
-            var parentMac = NormalizeMac(ap.Uplink!.UplinkMac);
-            var portIdx = ap.Uplink.UplinkRemotePort;
+            var parentMac = NormalizeMac(dev.Uplink!.UplinkMac);
+            var portIdx = dev.Uplink.UplinkRemotePort;
             if (portIdx <= 0) continue;
             var rate = ComputePortRate(parentMac, portIdx, nowOverride);
             if (rate.HasValue)
             {
                 // The port_table TX/RX byte counters are from the SWITCH'S perspective:
-                // TX = switch sends out the port (toward the AP, = downstream),
-                // RX = switch receives from the port (from the AP, = upstream).
+                // TX = switch sends out the port (toward the child device, = downstream),
+                // RX = switch receives from the port (from the child device, = upstream).
                 // That matches the live-stats convention (RateIn = downstream toward
                 // the device, RateOut = upstream away from the device).
-                _liveStats.RecordInterfaceAggregate(ap.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
+                _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
+            }
+        }
+
+        // Gateways are the top of the topology - no parent switch to read their
+        // uplink rate from. Fall back to the SNMP rate on the gateway's own WAN
+        // interface (which is what the topology view's gateway pipe actually
+        // represents anyway). We pick the highest-rate non-LAN interface as a
+        // pragmatic heuristic - the WAN interface tends to dominate.
+        foreach (var gw in devices.Where(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway))
+        {
+            var gwMac = NormalizeMac(gw.Mac);
+            if (gw.PortTable == null) continue;
+            var wanPort = gw.PortTable.FirstOrDefault(p => p.IsUplink);
+            if (wanPort == null || wanPort.PortIdx <= 0) continue;
+            var rate = ComputePortRate(gwMac, wanPort.PortIdx, nowOverride);
+            if (rate.HasValue)
+            {
+                // From the gateway's perspective: TX out the WAN = upstream (away from
+                // network, toward internet); RX = downstream. Note the direction flip
+                // vs the switch-port case above.
+                _liveStats.RecordInterfaceAggregate(gw.Mac, rate.Value.UpBps, rate.Value.DownBps, nowOverride);
             }
         }
 
@@ -896,6 +922,17 @@ public class MonitoringCollectionAgent : BackgroundService
             hcCounters: hcCounters,
             timestamp: now);
 
+        // STM parity: feed the port-keyed live cache from SNMP at 5s freshness. For
+        // UniFi switches the SNMP ifIndex == UniFi port_idx (verified in
+        // LookupUniFiPortName), so no name->idx translation is needed - the SNMP
+        // result row already has the port number. UniFi-fed UpdatePortRatesFromUnifi
+        // still runs as a backstop for the first cycle (before SNMP completes) and
+        // for devices that can't SNMP.
+        if (rateInBps.HasValue && rateOutBps.HasValue && iface.Index > 0)
+        {
+            _portRateLatest[(mac, iface.Index)] = (rateInBps.Value, rateOutBps.Value);
+        }
+
         return (rateInBps, rateOutBps);
     }
 
@@ -939,21 +976,48 @@ public class MonitoringCollectionAgent : BackgroundService
         }
     }
 
+    // Shared TTL cache for the UniFi device list. Every tier (fast/medium/slow/wifi)
+    // calls into GetMonitorableDevicesAsync, and without a cache each call hits the
+    // controller's /stat/device endpoint. TTL is hardcoded at 4s which is just under
+    // the default fast tier interval (5s) - the data is always at most one fast tick
+    // stale, and slower tiers piggyback on whatever the fast tier just fetched.
+    // Concurrent callers serialize on _deviceFetchLock so a miss doesn't fan out.
+    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(4);
+    private List<UniFiDeviceResponse> _cachedDevices = new();
+    private DateTime _cachedDevicesAt = DateTime.MinValue;
+    private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);
+
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return new List<UniFiDeviceResponse>();
+
+        if (DateTime.UtcNow - _cachedDevicesAt < DeviceCacheTtl)
+            return _cachedDevices;
+
+        await _deviceFetchLock.WaitAsync(ct);
         try
         {
+            // Re-check inside the lock: another caller may have refreshed while we waited.
+            if (DateTime.UtcNow - _cachedDevicesAt < DeviceCacheTtl)
+                return _cachedDevices;
+
             var devices = await _connectionService.Client.GetDevicesAsync(ct);
-            return devices?.Where(d =>
+            var filtered = devices?.Where(d =>
                 d.Adopted && d.State == 1 && !string.IsNullOrEmpty(d.Ip) && !string.IsNullOrEmpty(d.Mac))
                 .ToList() ?? new List<UniFiDeviceResponse>();
+            _cachedDevices = filtered;
+            _cachedDevicesAt = DateTime.UtcNow;
+            return filtered;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to fetch UniFi device list for monitoring");
-            return new List<UniFiDeviceResponse>();
+            return _cachedDevices; // Fall back to the last good snapshot rather than empty
+        }
+        finally
+        {
+            _deviceFetchLock.Release();
         }
     }
 

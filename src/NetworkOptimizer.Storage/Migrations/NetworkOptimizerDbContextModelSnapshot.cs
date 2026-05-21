@@ -829,6 +829,10 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("WanInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Enabled");
@@ -838,7 +842,43 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.HasIndex("TargetType");
 
+                    b.HasIndex("WanInterface");
+
                     b.ToTable("MonitoringTargets", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanDiscoveryContext", b =>
+                {
+                    b.Property<string>("WanInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AccessTechnology")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<System.DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("L2NeighborMac")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("L2NeighborOui")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<System.DateTime?>("LastDiscoveryAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("NeedsReview")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<System.DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("WanInterface");
+
+                    b.ToTable("WanDiscoveryContexts", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.InterfaceNameMap", b =>
