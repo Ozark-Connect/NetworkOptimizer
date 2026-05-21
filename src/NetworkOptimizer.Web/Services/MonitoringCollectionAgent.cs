@@ -298,16 +298,27 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             var parentMac = NormalizeMac(dev.Uplink!.UplinkMac);
             var portIdx = dev.Uplink.UplinkRemotePort;
-            if (portIdx <= 0) continue;
-            var rate = ComputePortRate(parentMac, portIdx, nowOverride);
+            (double DownBps, double UpBps)? rate = null;
+
+            // Primary path: parent switch port byte delta. Works for wired-uplinked APs
+            // and switches. Direction matches live-stats convention since the port
+            // counter is read from the SWITCH's perspective (TX = toward child).
+            if (portIdx > 0)
+                rate = ComputePortRate(parentMac, portIdx, nowOverride);
+
             if (rate.HasValue)
             {
-                // The port_table TX/RX byte counters are from the SWITCH'S perspective:
-                // TX = switch sends out the port (toward the child device, = downstream),
-                // RX = switch receives from the port (from the child device, = upstream).
-                // That matches the live-stats convention (RateIn = downstream toward
-                // the device, RateOut = upstream away from the device).
                 _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
+            }
+            else if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint)
+            {
+                // Fallback for mesh-uplinked APs: UniFi's device-level tx_bytes /
+                // rx_bytes delta. The wireless backhaul has no parent switch port to
+                // poll, so this is the next-best honest number - same one UniFi's own
+                // UI shows. ComputeDeviceRate already returns (down, up) in our convention.
+                var devRate = ComputeDeviceRate(NormalizeMac(dev.Mac));
+                if (devRate.HasValue)
+                    _liveStats.RecordInterfaceAggregate(dev.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
             }
         }
 
@@ -371,6 +382,33 @@ public class MonitoringCollectionAgent : BackgroundService
                 }
                 _portBytePrev[key] = current;
             }
+
+            // Device-level aggregate: UniFi's stat.tx_bytes / rx_bytes is the
+            // AP-aggregated counter (UniFi normalizes radio + Ethernet into one
+            // honest number). Useful as a fallback for mesh-uplinked APs where
+            // there's no parent switch port to read.
+            if (device.Stats != null)
+            {
+                var devKey = mac;
+                var devCurrent = new PortByteSnapshot(now, device.Stats.TxBytes, device.Stats.RxBytes);
+                if (_deviceBytePrev.TryGetValue(devKey, out var devPrev))
+                {
+                    var elapsed = (now - devPrev.Timestamp).TotalSeconds;
+                    if (elapsed > 0.5)
+                    {
+                        long deltaTx = devCurrent.TxBytes - devPrev.TxBytes;
+                        long deltaRx = devCurrent.RxBytes - devPrev.RxBytes;
+                        if (deltaTx >= 0 && deltaRx >= 0)
+                        {
+                            // Device perspective: TX = device sends out (upstream away
+                            // from the device); RX = device receives (downstream toward
+                            // the device). Opposite convention vs the port path above.
+                            _deviceByteRateLatest[devKey] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                        }
+                    }
+                }
+                _deviceBytePrev[devKey] = devCurrent;
+            }
         }
     }
 
@@ -380,11 +418,22 @@ public class MonitoringCollectionAgent : BackgroundService
         return _portRateLatest.TryGetValue((switchMac, portIdx), out var v) ? v : null;
     }
 
+    /// <summary>UniFi device-level byte-counter delta. Fallback for mesh-uplinked APs.</summary>
+    private (double DownBps, double UpBps)? ComputeDeviceRate(string deviceMac)
+    {
+        return _deviceByteRateLatest.TryGetValue(deviceMac, out var v) ? v : null;
+    }
+
     // Per-port rate state for AP backhaul lookups. _portBytePrev stores the last byte
     // counter sample so we can diff; _portRateLatest holds the most recent computed
     // rate keyed identically.
     private readonly ConcurrentDictionary<(string SwitchMac, int PortIdx), PortByteSnapshot> _portBytePrev = new();
     private readonly ConcurrentDictionary<(string SwitchMac, int PortIdx), (double DownBps, double UpBps)> _portRateLatest = new();
+    // Device-level byte counters from UniFi's `stat.tx_bytes`/`rx_bytes`. Keyed by
+    // device MAC (normalized). Mirrors the port cache shape; used as the mesh-AP
+    // fallback when no parent switch port rate is available.
+    private readonly ConcurrentDictionary<string, PortByteSnapshot> _deviceBytePrev = new();
+    private readonly ConcurrentDictionary<string, (double DownBps, double UpBps)> _deviceByteRateLatest = new();
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
