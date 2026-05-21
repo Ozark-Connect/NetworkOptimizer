@@ -252,11 +252,18 @@ public class MonitoringCollectionAgent : BackgroundService
                 }
                 if (anyRate)
                 {
-                    // Default: use the device's own SNMP-aggregated rate. Override for
-                    // APs below using the parent switch port's counter, which is what
-                    // spec 5.6 calls for since AP SNMP rates can double-count wireless.
-                    _liveStats.RecordInterfaceAggregate(device.Mac, aggregateInBps, aggregateOutBps, now);
-                    // Successful SNMP poll - reset the failure counter.
+                    // Successful SNMP poll - reset the failure counter. We deliberately
+                    // do NOT record a device aggregate from the SNMP interface sum here:
+                    //  - APs expose their wireless radios as SNMP interfaces with
+                    //    massively inflated octet counters (beacons, retries, MIMO
+                    //    duplicates count toward the bytes total).
+                    //  - Gateways expose VLAN sub-interfaces that alias the parent LAN
+                    //    counter, so the sum double/triple-counts every VLAN's worth.
+                    //  - Switches double-count any frame that's bridged port-to-port.
+                    // The post-process loop below writes the device aggregate from the
+                    // parent-uplink port's byte delta (which IS the meaningful
+                    // boundary flow for the topology). If no parent rate is available
+                    // the device just has no aggregate - better than a wildly wrong one.
                     _snmpFailures.TryRemove(mac, out _);
                 }
                 else

@@ -1396,6 +1396,12 @@ class ParticleStream {
             blending: THREE.AdditiveBlending,
         });
         this.mesh = new THREE.Points(geometry, material);
+        // Disable frustum culling: parking inactive particles outside the camera
+        // far plane (above) means the auto-computed bounding sphere centers at the
+        // park position, and Three.js culls the entire mesh as "off-screen" even
+        // when active particles are inside the view. Skipping the cull is essentially
+        // free for 80-vertex Points meshes.
+        this.mesh.frustumCulled = false;
         this._t = t;
         this._positions = positions;
 

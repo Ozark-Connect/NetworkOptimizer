@@ -14047,6 +14047,9 @@ a.affected-client:hover {
     gap: 0.3rem;
     min-width: 180px;
 }
+.lan-flow-map-help-body[hidden] {
+    display: none;
+}
 .lan-flow-map-help-row {
     display: flex;
     justify-content: space-between;
