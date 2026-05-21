@@ -104,8 +104,17 @@ public class MonitoringCollectionAgent : BackgroundService
             HealthTierCollectAsync,
             TimeSpan.FromSeconds(25),
             stoppingToken);
+        // WiFi client snapshots from the UniFi stat/sta API on a 30s cadence (spec 5.2).
+        // Per-AP aggregates feed MonitoringLiveStats for the live map; raw points land
+        // in InfluxDB's wifi_client measurement for timeline / drill-down. Cardinality
+        // control: AP MAC + band are tags, client MAC is a field.
+        var wifiTask = RunTierAsync("wifi",
+            _ => TimeSpan.FromSeconds(30),
+            WifiClientTierCollectAsync,
+            TimeSpan.FromSeconds(30),
+            stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask);
         _logger.LogInformation("Monitoring collection agent stopped");
     }
 
@@ -449,6 +458,152 @@ public class MonitoringCollectionAgent : BackgroundService
         }
         await db.SaveChangesAsync(ct);
     }
+
+    // ---- WiFi client tier (spec 5.2) ----
+    //
+    // TODO (post-MVP): if the 30-second stat/sta cadence isn't realtime enough for the
+    // live map's WiFi client leaf nodes, layer the WiFiman per-client endpoint on top
+    // (GET /v2/api/site/{site}/wifiman/{clientIp}/) for the *currently-hovered* or
+    // *currently-selected* client only. WiFiman gives sub-second signal / experience /
+    // neighbor data but is per-client - hitting it for every WiFi client on every map
+    // tick would crush the controller. The existing Client Dashboard already uses
+    // WiFiman for its deep-dive view; reuse that pattern (selected client only) if/when
+    // we need it for the 3D map. Until then, stat/sta at 30s is plenty for the snapshot
+    // collection use case.
+
+    /// <summary>
+    /// Per-client byte counter cache for delta-derived throughput rates. Same approach
+    /// as SNMP interface counter rate computation: store prev sample, diff against
+    /// current, compute bps. UniFi's tx_bytes-r / rx_bytes-r fields are preferred when
+    /// the API returns them (active clients only); we fall back to this cache for idle
+    /// clients with stale -r fields.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ClientByteSnapshot> _wifiByteCache = new();
+    private readonly record struct ClientByteSnapshot(DateTime Timestamp, long TxBytes, long RxBytes);
+
+    private async Task WifiClientTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null) return;
+        if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
+
+        UniFiClientResponse[] clients;
+        try
+        {
+            var raw = await _connectionService.Client.GetClientsAsync(ct);
+            clients = raw?.ToArray() ?? Array.Empty<UniFiClientResponse>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WiFi tier: GetClientsAsync failed");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var c in clients)
+        {
+            if (c.IsWired) continue;
+            if (string.IsNullOrEmpty(c.Mac)) continue;
+            var band = MapBand(c.Radio);
+            if (string.IsNullOrEmpty(band)) continue; // only WiFi clients with a known band
+
+            var apMac = NormalizeMac(c.ApMac ?? string.Empty);
+            var clientMac = NormalizeMac(c.Mac);
+
+            // Throughput: prefer UniFi's rolling per-second fields when populated, else
+            // compute from the cumulative byte counters' delta vs previous snapshot.
+            double? txThroughputBps = null;
+            double? rxThroughputBps = null;
+            if (c.TxBytesRate > 0 || c.RxBytesRate > 0)
+            {
+                // tx_bytes-r / rx_bytes-r are bytes per second
+                txThroughputBps = c.TxBytesRate * 8.0;
+                rxThroughputBps = c.RxBytesRate * 8.0;
+            }
+            else if (_wifiByteCache.TryGetValue(clientMac, out var prev))
+            {
+                var elapsed = (now - prev.Timestamp).TotalSeconds;
+                if (elapsed > 0.5)
+                {
+                    long deltaTx = c.TxBytes - prev.TxBytes;
+                    long deltaRx = c.RxBytes - prev.RxBytes;
+                    if (deltaTx >= 0 && deltaRx >= 0)
+                    {
+                        txThroughputBps = deltaTx * 8.0 / elapsed;
+                        rxThroughputBps = deltaRx * 8.0 / elapsed;
+                    }
+                }
+            }
+            _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
+
+            var snapshot = new WifiClientLiveSnapshot
+            {
+                ClientMac = clientMac,
+                ApMac = apMac,
+                Band = band,
+                Channel = c.Channel,
+                ChannelWidth = c.ChannelWidth,
+                SignalDbm = c.Signal,
+                NoiseDbm = c.Noise,
+                TxRateKbps = c.TxRate > 0 ? c.TxRate : null,
+                RxRateKbps = c.RxRate > 0 ? c.RxRate : null,
+                TxThroughputBps = txThroughputBps,
+                RxThroughputBps = rxThroughputBps,
+                Satisfaction = c.Satisfaction,
+                Rssi = c.Rssi,
+                IsMlo = c.IsMlo ?? false,
+                Hostname = string.IsNullOrEmpty(c.Name) ? (string.IsNullOrEmpty(c.Hostname) ? null : c.Hostname) : c.Name,
+                LastUpdate = now
+            };
+            _liveStats.RecordWifiClient(snapshot);
+
+            // InfluxDB write. Per Gate 1: AP MAC + band are tags, client MAC is a
+            // field to bound cardinality (per-client MAC as a tag would be the classic
+            // InfluxDB cardinality bomb on networks with hundreds of clients).
+            _ = _influx.WriteWifiClientAsync(
+                apMac: apMac,
+                band: band,
+                clientMac: clientMac,
+                signalDbm: c.Signal,
+                noiseDbm: c.Noise,
+                txRateKbps: c.TxRate > 0 ? c.TxRate : null,
+                rxRateKbps: c.RxRate > 0 ? c.RxRate : null,
+                channel: c.Channel,
+                channelWidth: c.ChannelWidth,
+                satisfaction: c.Satisfaction,
+                rssi: c.Rssi,
+                txBytes: c.TxBytes,
+                rxBytes: c.RxBytes,
+                txThroughputBps: txThroughputBps,
+                rxThroughputBps: rxThroughputBps,
+                isMlo: c.IsMlo,
+                timestamp: now);
+        }
+
+        // Drop stale byte-cache entries for clients we haven't seen this cycle. Otherwise
+        // a roamed/disconnected client's stale counter sits forever and gives a bogus
+        // delta on reconnect.
+        var seenSet = new HashSet<string>(clients.Where(c => !c.IsWired).Select(c => NormalizeMac(c.Mac)));
+        foreach (var key in _wifiByteCache.Keys)
+        {
+            if (!seenSet.Contains(key))
+                _wifiByteCache.TryRemove(key, out _);
+        }
+    }
+
+    /// <summary>
+    /// Normalize UniFi's `radio` field into a "Xghz" band string. UniFi uses "ng" for
+    /// 2.4 GHz, "na" for 5 GHz, "6e" / "6g" for 6 GHz. We use these exact strings as
+    /// the InfluxDB tag value to keep the wifi_client measurement's cardinality on
+    /// 3 distinct values per AP.
+    /// </summary>
+    private static string MapBand(string? radio) => radio switch
+    {
+        "ng" => "2.4ghz",
+        "na" => "5ghz",
+        "6e" => "6ghz",
+        "6g" => "6ghz",
+        _ => string.Empty
+    };
 
     // ---- Health revalidation tier ----
 

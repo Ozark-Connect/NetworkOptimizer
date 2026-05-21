@@ -546,6 +546,60 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Historical WiFi client snapshots for timeline mode on the 3D map. Filter by
+    /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
+    /// rows ordered by time.
+    /// </summary>
+    public async Task<IReadOnlyList<WifiClientHistoryPoint>> QueryWifiClientHistoryAsync(
+        string apMac,
+        string? band,
+        string? clientMac,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<WifiClientHistoryPoint>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var ap = NormalizeMac(apMac);
+
+        var fluxBuilder = new System.Text.StringBuilder();
+        fluxBuilder.AppendLine($@"from(bucket: ""{_bucket}"")");
+        fluxBuilder.AppendLine($@"  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})");
+        fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r._measurement == ""wifi_client"")");
+        fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.device_mac == ""{ap}"")");
+        if (!string.IsNullOrEmpty(band))
+            fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.band == ""{band.ToLowerInvariant()}"")");
+        // The fields we want pivoted into one row per timestamp.
+        fluxBuilder.AppendLine(@"  |> filter(fn: (r) => r._field == ""signal_dbm"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_mac"")");
+        fluxBuilder.AppendLine($@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)");
+        fluxBuilder.AppendLine(@"  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")");
+        // client_mac is a field (cardinality control), so post-filter after pivot.
+        if (!string.IsNullOrEmpty(clientMac))
+        {
+            var c = NormalizeMac(clientMac);
+            fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.client_mac == ""{c}"")");
+        }
+
+        var results = new List<WifiClientHistoryPoint>();
+        await foreach (var record in QueryFluxAsync(fluxBuilder.ToString(), ct))
+        {
+            results.Add(new WifiClientHistoryPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                Band = record.GetValueByKey("band") as string ?? string.Empty,
+                ClientMac = record.GetValueByKey("client_mac") as string,
+                SignalDbm = AsDoubleOrNull(record.GetValueByKey("signal_dbm")),
+                TxThroughputBps = AsDoubleOrNull(record.GetValueByKey("tx_throughput_bps")),
+                RxThroughputBps = AsDoubleOrNull(record.GetValueByKey("rx_throughput_bps")),
+                TxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("tx_rate_kbps")),
+                RxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("rx_rate_kbps"))
+            });
+        }
+        return results;
+    }
+
     private async IAsyncEnumerable<InfluxDB.Client.Core.Flux.Domain.FluxRecord> QueryFluxAsync(
         string flux,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
@@ -619,6 +673,23 @@ from(bucket: ""{_bucket}"")
         public required DateTime Time { get; init; }
         public double? RttAvgMs { get; init; }
         public double? LossPercent { get; init; }
+    }
+
+    /// <summary>
+    /// Single historical wifi_client sample. PHY rate fields are CAPACITY; throughput
+    /// fields are MEASURED. See WifiClientLiveSnapshot for the same distinction in the
+    /// live in-memory cache.
+    /// </summary>
+    public record WifiClientHistoryPoint
+    {
+        public required DateTime Time { get; init; }
+        public required string Band { get; init; }
+        public string? ClientMac { get; init; }
+        public double? SignalDbm { get; init; }
+        public double? TxThroughputBps { get; init; }
+        public double? RxThroughputBps { get; init; }
+        public long? TxRateKbps { get; init; }
+        public long? RxRateKbps { get; init; }
     }
 
     // ---- Buffer + flush ----

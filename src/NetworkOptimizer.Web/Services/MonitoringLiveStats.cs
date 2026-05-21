@@ -68,6 +68,7 @@ public class MonitoringLiveStats
 
     private readonly ConcurrentDictionary<(string DeviceMac, string PortName), SfpLiveStats> _sfpStats = new();
     private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
+    private readonly ConcurrentDictionary<string, WifiClientLiveSnapshot> _wifiClients = new();
 
     /// <summary>Latest probe result for a specific monitoring target ID.</summary>
     public TargetLiveStats? GetTargetStats(string targetId)
@@ -120,6 +121,44 @@ public class MonitoringLiveStats
         _sfpStats[key] = snapshot;
     }
 
+    // ---- WiFi clients (spec 5.2 client data collection) ----
+
+    /// <summary>
+    /// Record / refresh a live WiFi client snapshot. Called by the agent's WiFi tier
+    /// on every stat/sta poll cycle. Snapshot is keyed by the client MAC so the same
+    /// client roaming between APs replaces (rather than duplicates) its row.
+    /// </summary>
+    public void RecordWifiClient(WifiClientLiveSnapshot snapshot)
+    {
+        if (string.IsNullOrEmpty(snapshot.ClientMac)) return;
+        _wifiClients[Normalize(snapshot.ClientMac)] = snapshot with
+        {
+            ClientMac = Normalize(snapshot.ClientMac),
+            ApMac = Normalize(snapshot.ApMac)
+        };
+    }
+
+    /// <summary>Latest snapshot for a specific client MAC, or null if unknown / stale.</summary>
+    public WifiClientLiveSnapshot? GetWifiClient(string clientMac)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return null;
+        return _wifiClients.TryGetValue(Normalize(clientMac), out var v) ? v : null;
+    }
+
+    /// <summary>All WiFi clients currently connected to a given AP. Used by the 3D map
+    /// to render client leaf nodes off their parent AP.</summary>
+    public IReadOnlyList<WifiClientLiveSnapshot> GetWifiClientsForAp(string apMac)
+    {
+        if (string.IsNullOrEmpty(apMac)) return Array.Empty<WifiClientLiveSnapshot>();
+        var normalized = Normalize(apMac);
+        return _wifiClients.Values
+            .Where(c => c.ApMac == normalized)
+            .ToList();
+    }
+
+    /// <summary>Every currently-tracked WiFi client (across all APs).</summary>
+    public IReadOnlyList<WifiClientLiveSnapshot> AllWifiClients() => _wifiClients.Values.ToList();
+
     /// <summary>Drop stale entries — called periodically by the agent.</summary>
     public void Prune(TimeSpan maxAge)
     {
@@ -140,10 +179,49 @@ public class MonitoringLiveStats
             if (kvp.Value.LastUpdate < cutoff)
                 _targetStats.TryRemove(kvp.Key, out _);
         }
+        foreach (var kvp in _wifiClients)
+        {
+            if (kvp.Value.LastUpdate < cutoff)
+                _wifiClients.TryRemove(kvp.Key, out _);
+        }
     }
 
     private static string Normalize(string mac) =>
         mac.ToLowerInvariant().Replace('-', ':');
+}
+
+/// <summary>
+/// Most recent snapshot of a WiFi client's state. Fed by the agent's WiFi tier on
+/// each stat/sta poll. Per spec 3.5, PHY tx/rx rate fields are CAPACITY (the
+/// negotiated link rate, available even when the client is idle), while the
+/// throughput fields are MEASURED traffic. The 3D map renders particle flow from
+/// throughput and uses PHY rate as the "pipe width" / utilization denominator.
+/// Don't conflate them.
+/// </summary>
+public record WifiClientLiveSnapshot
+{
+    public required string ClientMac { get; init; }
+    public required string ApMac { get; init; }
+    /// <summary>"2.4ghz" / "5ghz" / "6ghz".</summary>
+    public required string Band { get; init; }
+    public int? Channel { get; init; }
+    public int? ChannelWidth { get; init; }
+    public double? SignalDbm { get; init; }
+    public double? NoiseDbm { get; init; }
+    /// <summary>PHY TX rate (kbps) - capacity, not traffic.</summary>
+    public long? TxRateKbps { get; init; }
+    /// <summary>PHY RX rate (kbps) - capacity, not traffic.</summary>
+    public long? RxRateKbps { get; init; }
+    /// <summary>Measured AP->client throughput (bps), from tx_bytes-r when present
+    /// else delta-derived from cumulative tx_bytes.</summary>
+    public double? TxThroughputBps { get; init; }
+    /// <summary>Measured client->AP throughput (bps).</summary>
+    public double? RxThroughputBps { get; init; }
+    public int? Satisfaction { get; init; }
+    public int? Rssi { get; init; }
+    public bool IsMlo { get; init; }
+    public string? Hostname { get; init; }
+    public DateTime LastUpdate { get; init; }
 }
 
 public record TargetLiveStats
