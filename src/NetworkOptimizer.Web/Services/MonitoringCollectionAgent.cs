@@ -534,20 +534,26 @@ public class MonitoringCollectionAgent : BackgroundService
                     if (string.IsNullOrEmpty(ifName)) continue;
                     var key = (NormalizeMac(device.Mac), ifName);
 
-                    // Map SNMP ifName to UniFi PortTable.PortIdx via the stable
-                    // PortTable.IfName field (Linux iface name, not the user-editable
-                    // Name label). PortIdx == ifIndex is true on UniFi switches but
-                    // NOT on gateways - gateways number 1-7 by physical slot while
-                    // Linux assigns ifIndex by driver init order. The Linux iface
-                    // name is the only stable join key across both device classes.
+                    // Map SNMP ifIndex to UniFi PortTable.PortIdx. Two strategies:
+                    //  - Switches: ifIndex == PortIdx (verified working on USW devices)
+                    //  - Gateways: ifIndex != PortIdx; PortTable.IfName joins to SNMP
+                    //    iface.Name (Linux name like "eth4"). Direct numeric match
+                    //    first, fall back to ifname match.
                     int? portNumber = null;
-                    if (!string.IsNullOrEmpty(ifName) && device.PortTable != null)
+                    if (device.PortTable != null)
                     {
-                        var portMatch = device.PortTable.FirstOrDefault(p =>
-                            !string.IsNullOrEmpty(p.IfName)
-                            && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
-                            && p.PortIdx > 0);
-                        if (portMatch != null) portNumber = portMatch.PortIdx;
+                        SwitchPort? portMatch = null;
+                        if (iface.Index > 0)
+                            portMatch = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
+                        if (portMatch == null && !string.IsNullOrEmpty(ifName))
+                        {
+                            portMatch = device.PortTable.FirstOrDefault(p =>
+                                !string.IsNullOrEmpty(p.IfName)
+                                && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                                && p.PortIdx > 0);
+                        }
+                        if (portMatch != null && portMatch.PortIdx > 0)
+                            portNumber = portMatch.PortIdx;
                     }
 
                     if (!existingMaps.TryGetValue(key, out var mapping))
@@ -1037,18 +1043,25 @@ public class MonitoringCollectionAgent : BackgroundService
         // side at ~30s while we poll every 5s, producing a "0, 0, 0, 0, BOOM"
         // pattern (5 polls of no-change then a 30s-worth-of-bytes spike). SNMP
         // polls the device's own kernel counters at 5s and produces smooth deltas.
-        if (rateInBps.HasValue && rateOutBps.HasValue
-            && !string.IsNullOrEmpty(ifName)
-            && device.PortTable != null)
+        if (rateInBps.HasValue && rateOutBps.HasValue && device.PortTable != null)
         {
-            // Join on PortTable.IfName (stable Linux iface name) rather than
-            // PortTable.Name (user-editable label that changes when ports are
-            // renamed in the UI).
-            var portMatch = device.PortTable.FirstOrDefault(p =>
-                !string.IsNullOrEmpty(p.IfName)
-                && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
-                && p.PortIdx > 0);
-            if (portMatch != null)
+            // Two-strategy port match (firmware varies):
+            //  - Switches: SNMP ifIndex == PortTable.PortIdx. Direct numeric match.
+            //  - Gateways: ifIndex != PortIdx (PortIdx is physical slot, ifIndex is
+            //    Linux driver init order). PortTable entries on WAN ports carry an
+            //    'ifname' field (e.g. "eth1") that joins to SNMP's iface.Name.
+            // Try the numeric match first; fall back to ifname.
+            SwitchPort? portMatch = null;
+            if (iface.Index > 0)
+                portMatch = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
+            if (portMatch == null && !string.IsNullOrEmpty(ifName))
+            {
+                portMatch = device.PortTable.FirstOrDefault(p =>
+                    !string.IsNullOrEmpty(p.IfName)
+                    && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
+                    && p.PortIdx > 0);
+            }
+            if (portMatch != null && portMatch.PortIdx > 0)
             {
                 _portRateLatest[(mac, portMatch.PortIdx)] = (rateInBps.Value, rateOutBps.Value);
             }
