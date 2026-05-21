@@ -151,6 +151,7 @@ public class SshProbeExecutor : IProbeExecutor
         ProbeTarget target,
         int maxHops = 30,
         TimeSpan? perHopTimeout = null,
+        TimeSpan? totalDeadline = null,
         CancellationToken ct = default)
     {
         var cap = await GetCapabilityAsync(ct);
@@ -176,9 +177,10 @@ public class SshProbeExecutor : IProbeExecutor
             _ => string.Empty
         };
 
-        // -n suppresses DNS for speed and consistency. busybox accepts -n.
-        var cmd = $"traceroute -n -m {maxHops} -w {waitSec} {flag} {ShellEscape(target.Address)}".Trim();
-        var overall = TimeSpan.FromSeconds(maxHops * waitSec + 30);
+        // Keep PTR resolution enabled — the wizard uses hostnames as labelling signals
+        // (spec 5.5). The per-hop wait timeout still bounds the slowdown.
+        var cmd = $"traceroute -m {maxHops} -w {waitSec} {flag} {ShellEscape(target.Address)}".Trim();
+        var overall = totalDeadline ?? TimeSpan.FromSeconds(10);
         var result = await _ssh.ExecuteCommandAsync(_connection, cmd, overall, ct);
 
         var output = string.IsNullOrWhiteSpace(result.Output) ? result.Error : result.Output;

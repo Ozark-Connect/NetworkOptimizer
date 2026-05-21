@@ -24,8 +24,11 @@ public static class TracerouteOutputParser
         @"\b(?:\d{1,3}\.){3}\d{1,3}\b",
         RegexOptions.Compiled);
 
+    // Hostname here is "whatever the resolver returned before the (ip)". Be permissive:
+    // Linux can label the gateway as `_gateway`; DHCP-issued PTRs sometimes start with a
+    // digit; vendor PTRs contain hyphens and dots. We anchor only on the trailing `(ip)`.
     private static readonly Regex HostnameRegex = new(
-        @"(?<host>[a-zA-Z0-9][a-zA-Z0-9\-\.]{1,253}[a-zA-Z0-9])\s*\((?<ip>(?:\d{1,3}\.){3}\d{1,3})\)",
+        @"(?<host>[A-Za-z0-9_][A-Za-z0-9\-\._]{0,253})\s*\((?<ip>(?:\d{1,3}\.){3}\d{1,3})\)",
         RegexOptions.Compiled);
 
     private static readonly Regex RttRegex = new(

@@ -217,9 +217,18 @@ public class LocalProbeExecutor : IProbeExecutor
         ProbeTarget target,
         int maxHops = 30,
         TimeSpan? perHopTimeout = null,
+        TimeSpan? totalDeadline = null,
         CancellationToken ct = default)
     {
         await GetCapabilityAsync(ct);
+
+        // Cap the whole probe by an absolute deadline — some hops silently discard probes
+        // and a per-hop * 30 hops worst case can stretch past a minute, which is too long
+        // for a UI button or scheduled probe.
+        var deadline = totalDeadline ?? TimeSpan.FromSeconds(10);
+        using var deadlineCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadlineCts.CancelAfter(deadline);
+        var probeCt = deadlineCts.Token;
 
         // Prefer the native traceroute binary on Linux/macOS — it can do UDP/TCP modes, and
         // its hop output includes DNS PTR records when -n is omitted (we keep -n for speed,
@@ -234,10 +243,11 @@ public class LocalProbeExecutor : IProbeExecutor
                     "Requested {Mode} traceroute but native binary missing — falling back to managed ICMP traceroute",
                     target.Mode);
             }
-            return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout, 3, ct);
+            return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout, 3, probeCt);
         }
 
         var (exe, args) = BuildTracerouteCommand(target, maxHops, perHopTimeout);
+        ct = probeCt;
         try
         {
             var psi = new ProcessStartInfo(exe, args)
@@ -264,9 +274,19 @@ public class LocalProbeExecutor : IProbeExecutor
 
             var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
             var stderrTask = proc.StandardError.ReadToEndAsync(ct);
-            await proc.WaitForExitAsync(ct);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
+            try
+            {
+                await proc.WaitForExitAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // Deadline hit — kill the binary so it doesn't keep running, then parse
+                // whatever output we got so far. A partial traceroute is more useful than
+                // a hard error.
+                try { proc.Kill(entireProcessTree: true); } catch { }
+            }
+            var stdout = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : await SafeReadAsync(stdoutTask);
+            var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : await SafeReadAsync(stderrTask);
 
             var output = string.IsNullOrWhiteSpace(stdout) ? stderr : stdout;
             return TracerouteOutputParser.Parse(output, target, Vantage, target.Mode);
@@ -285,6 +305,12 @@ public class LocalProbeExecutor : IProbeExecutor
                 Timestamp = DateTime.UtcNow
             };
         }
+    }
+
+    private static async Task<string> SafeReadAsync(Task<string> readTask)
+    {
+        try { return await readTask; }
+        catch { return string.Empty; }
     }
 
     private async Task<PingProbeResult> TcpPingAsync(ProbeTarget target, int count, TimeSpan timeout, CancellationToken ct)
@@ -354,7 +380,10 @@ public class LocalProbeExecutor : IProbeExecutor
             ProbeMode.Tcp => $"-T -p {target.Port ?? 80}",
             _ => string.Empty // default UDP
         };
-        var args = $"-n -m {maxHops} -w {wait} {protoFlag} {target.Address}".Trim();
+        // PTR resolution stays ON — hostnames like "cr1.stl1.yelcot.net" are gold for the
+        // wizard's hop-labelling logic (spec 5.5). Linux's resolver times out fast, so the
+        // cost is bounded by the per-probe deadline anyway.
+        var args = $"-m {maxHops} -w {wait} {protoFlag} {target.Address}".Trim();
         return ("traceroute", args);
     }
 }

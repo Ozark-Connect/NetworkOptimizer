@@ -32,10 +32,15 @@ public interface IProbeExecutor
         TimeSpan? timeout = null,
         CancellationToken ct = default);
 
-    /// <summary>Run a traceroute, preferring the mode in target.Mode (with implementation-specific fallback).</summary>
+    /// <summary>
+    /// Run a traceroute in the requested mode. Total wall-clock time is bounded by
+    /// <paramref name="totalDeadline"/> (default 10 s) so a probe whose every hop discards
+    /// our packets can't hang the caller.
+    /// </summary>
     Task<TracerouteResult> TracerouteAsync(
         ProbeTarget target,
         int maxHops = 30,
         TimeSpan? perHopTimeout = null,
+        TimeSpan? totalDeadline = null,
         CancellationToken ct = default);
 }

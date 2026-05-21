@@ -1,0 +1,249 @@
+@page "/monitoring/tools"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Monitoring.Probes
+@using NetworkOptimizer.UniFi.Models
+@inject NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor LocalProbe
+@inject UniFiConnectionService ConnectionService
+
+<PageTitle>Network Tools - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <a href="/monitoring" class="page-back-link back-link">← Back to Monitoring</a>
+    <h1>Network Tools</h1>
+    <p class="page-description">Run ping and traceroute from this server against any target.
+        Device-vantage probes (run from gateway / switch / AP) coming next.</p>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Run a probe</h2>
+    </div>
+    <div class="card-body">
+        <div class="form-group">
+            <label class="form-label">From</label>
+            <div class="form-value">
+                Network Optimizer server
+                <span class="page-description" style="margin-left: 0.5rem;">
+                    (@_localCapabilities)
+                </span>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Target</label>
+            <input type="text" class="form-control" @bind="_targetAddress" placeholder="hostname or IP" />
+            <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                @foreach (var preset in PresetTargets())
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="() => UsePreset(preset)">
+                        @preset.Label
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Probe Mode</label>
+            <select class="form-control" @bind="_probeMode">
+                <option value="@ProbeMode.Icmp">ICMP</option>
+                <option value="@ProbeMode.Tcp">TCP (connect)</option>
+                <option value="@ProbeMode.Udp">UDP (traceroute only)</option>
+            </select>
+        </div>
+
+        @if (_probeMode == ProbeMode.Tcp)
+        {
+            <div class="form-group">
+                <label class="form-label">TCP Port</label>
+                <input type="number" class="form-control" @bind="_port" min="1" max="65535" />
+            </div>
+        }
+
+        <div class="action-buttons" style="margin-top: 1rem;">
+            <button class="btn btn-primary" @onclick="RunPing" disabled="@(_running || string.IsNullOrWhiteSpace(_targetAddress))">
+                @if (_running && _runningKind == "ping") { <span class="spinner-sm"></span> <span>Pinging...</span> }
+                else { <span>Ping</span> }
+            </button>
+            <button class="btn btn-secondary" @onclick="RunTraceroute" disabled="@(_running || string.IsNullOrWhiteSpace(_targetAddress))">
+                @if (_running && _runningKind == "trace") { <span class="spinner-sm"></span> <span>Tracing...</span> }
+                else { <span>Traceroute</span> }
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (_pingResult != null)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">Ping result</h2>
+            <span class="status-badge @(_pingResult.Success ? "status-connected" : "status-error")">
+                @($"{_pingResult.Received}/{_pingResult.Sent}")
+                · @($"{_pingResult.LossPercent:0.#}% loss")
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">Target</label>
+                <div class="form-value">@_pingResult.Target</div>
+            </div>
+            @if (_pingResult.RttAvgMs.HasValue)
+            {
+                <div class="form-group">
+                    <label class="form-label">RTT min / avg / max / jitter</label>
+                    <div class="form-value">
+                        @($"{_pingResult.RttMinMs:0.000}") / @($"{_pingResult.RttAvgMs:0.000}") /
+                        @($"{_pingResult.RttMaxMs:0.000}") /
+                        @(_pingResult.JitterMs.HasValue ? $"{_pingResult.JitterMs:0.000}" : "—") ms
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_pingResult.ErrorMessage))
+            {
+                <div class="alert alert-warning">@_pingResult.ErrorMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@if (_traceResult != null)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">Traceroute result</h2>
+            <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
+                @(_traceResult.Reached ? "Target reached" : "Did not reach target")
+                · @_traceResult.ModeUsed
+            </span>
+        </div>
+        <div class="card-body">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Hop</th>
+                        <th>Address</th>
+                        <th>RTT avg (ms)</th>
+                        <th>Responses</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var hop in _traceResult.Hops)
+                    {
+                        <tr>
+                            <td>@hop.HopNumber</td>
+                            <td>
+                                @if (hop.Responded)
+                                {
+                                    @if (!string.IsNullOrEmpty(hop.Hostname))
+                                    { <span>@hop.Hostname (@hop.Address)</span> }
+                                    else
+                                    { <span>@hop.Address</span> }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">* * *</span>
+                                }
+                            </td>
+                            <td>@(hop.RttAvgMs.HasValue ? $"{hop.RttAvgMs:0.0}" : "—")</td>
+                            <td>@hop.Responses / @hop.Probes</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            @if (!string.IsNullOrEmpty(_traceResult.ErrorMessage))
+            {
+                <div class="alert alert-warning" style="margin-top: 1rem;">@_traceResult.ErrorMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string _targetAddress = "1.1.1.1";
+    private ProbeMode _probeMode = ProbeMode.Icmp;
+    private int _port = 443;
+    private bool _running;
+    private string _runningKind = string.Empty;
+    private string _localCapabilities = "detecting...";
+
+    private PingProbeResult? _pingResult;
+    private TracerouteResult? _traceResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var cap = await LocalProbe.GetCapabilityAsync();
+        _localCapabilities = cap.Describe();
+    }
+
+    private async Task RunPing()
+    {
+        _running = true;
+        _runningKind = "ping";
+        _pingResult = null;
+        _traceResult = null;
+        StateHasChanged();
+        try
+        {
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null);
+            _pingResult = await LocalProbe.PingAsync(target, count: 5);
+        }
+        finally
+        {
+            _running = false;
+            _runningKind = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunTraceroute()
+    {
+        _running = true;
+        _runningKind = "trace";
+        _pingResult = null;
+        _traceResult = null;
+        StateHasChanged();
+        try
+        {
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null);
+            _traceResult = await LocalProbe.TracerouteAsync(
+                target,
+                maxHops: 30,
+                perHopTimeout: TimeSpan.FromSeconds(2),
+                totalDeadline: TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            _running = false;
+            _runningKind = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private void UsePreset(PresetTarget preset)
+    {
+        _targetAddress = preset.Address;
+        _probeMode = preset.Mode;
+        if (preset.Port.HasValue) _port = preset.Port.Value;
+        StateHasChanged();
+    }
+
+    private IEnumerable<PresetTarget> PresetTargets()
+    {
+        yield return new PresetTarget("Cloudflare DNS", "1.1.1.1", ProbeMode.Icmp);
+        yield return new PresetTarget("Google DNS", "8.8.8.8", ProbeMode.Icmp);
+        yield return new PresetTarget("Cloudflare TCP/443", "1.1.1.1", ProbeMode.Tcp, 443);
+        var gateway = TryGetGatewayAddress();
+        if (!string.IsNullOrEmpty(gateway))
+            yield return new PresetTarget("Gateway", gateway, ProbeMode.Icmp);
+    }
+
+    private string? TryGetGatewayAddress()
+    {
+        // Topology-driven gateway discovery hooks in later (the topology already knows
+        // the gateway IP). Until then we skip the preset rather than guessing.
+        return null;
+    }
+
+    private record PresetTarget(string Label, string Address, ProbeMode Mode, int? Port = null);
+}
