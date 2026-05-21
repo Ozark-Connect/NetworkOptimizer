@@ -756,8 +756,19 @@ export class LanFlowMap {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
         for (const [linkId, { el }] of this._linkLabels) {
             const r = this._currentRates?.[linkId];
-            const down = r?.downstreamBps || 0;
-            const up = r?.upstreamBps || 0;
+            const link = this._linkMeshes.get(linkId);
+            let down = r?.downstreamBps || 0;
+            let up = r?.upstreamBps || 0;
+            // Gateway-centric convention: every link's ↓ = traffic moving toward
+            // the LAN side. On LAN links (Uplink/WiredClient/WifiClient/MeshBackhaul)
+            // that's "away from gateway toward leaf" - already what the backend
+            // emits. On WAN/Transit links the cloud is the "upstream" side from the
+            // gateway's perspective, so ↓ = traffic from cloud INTO gateway
+            // (downloads). Flip down/up for those link kinds.
+            const kind = link?.link?.kind;
+            if (kind === LINK_KIND.Wan || kind === LINK_KIND.Transit) {
+                const tmp = down; down = up; up = tmp;
+            }
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
                 el.classList.remove('is-visible');
                 continue;
@@ -1245,6 +1256,12 @@ export class LanFlowMap {
         const halfW = rect.width / 2;
         const halfH = rect.height / 2;
         const tmp = new THREE.Vector3();
+        const camPos = this.camera.position;
+        // Reference distance: roughly the fly-in camera target distance (~60u).
+        // At this distance labels render at 100%. Farther = smaller, closer = larger.
+        const REF_DIST = 60;
+        const MIN_SCALE = 0.4;
+        const MAX_SCALE = 1.2;
 
         for (const [nodeId, { el }] of this._floatingLabels) {
             const group = this._nodeMeshes.get(nodeId);
@@ -1252,10 +1269,14 @@ export class LanFlowMap {
             if (!group.visible) { el.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
             tmp.y += 1.8;  // anchor above the node sphere
+            const dist = tmp.distanceTo(camPos);
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
+            const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            el.style.transform = `translate(-50%, -100%) scale(${scale.toFixed(3)})`;
+            el.style.transformOrigin = 'center bottom';
             el.style.left = `${x}px`;
             el.style.top = `${y}px`;
             el.classList.add('is-visible');
@@ -1276,7 +1297,7 @@ export class LanFlowMap {
 
         // Link rate pills: positioned at the link midpoint. Visibility + text is
         // driven by _applyLiveRates (set is-visible class only when above
-        // threshold), so here we just project the position.
+        // threshold), so here we just project the position + scale.
         const midA = new THREE.Vector3();
         const midB = new THREE.Vector3();
         for (const [linkId, { el }] of this._linkLabels) {
@@ -1288,10 +1309,13 @@ export class LanFlowMap {
             midA.set(fromPos.x, fromPos.y, fromPos.z);
             midB.set(toPos.x, toPos.y, toPos.z);
             tmp.copy(midA).add(midB).multiplyScalar(0.5);
+            const dist = tmp.distanceTo(camPos);
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
+            const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
             el.style.left = `${x}px`;
             el.style.top = `${y}px`;
         }
