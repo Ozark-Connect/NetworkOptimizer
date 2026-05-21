@@ -1,0 +1,242 @@
+@page "/monitoring"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@inject SnmpDetectionService SnmpDetection
+@inject UniFiConnectionService ConnectionService
+
+<PageTitle>Monitoring - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Monitoring</h1>
+    <p class="page-description">Real-time network monitoring with SNMP polling, latency tracking, and SFP diagnostics</p>
+</div>
+
+<div class="page-content">
+    @if (!ConnectionService.IsConnected)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <div class="empty-icon">⚠</div>
+                    <h3>Connect to UniFi Console</h3>
+                    <p>Monitoring requires an active connection to your UniFi Console. Go to <a href="/settings">Settings</a> to connect.</p>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_detecting)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="loading-container">
+                    <div class="spinner"></div>
+                    <p>Detecting SNMP configuration from UniFi Console...</p>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_detectionResult == null || !_detectionResult.Success)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <div class="empty-icon">⚠</div>
+                    <h3>Could not detect SNMP settings</h3>
+                    <p>@(_detectionResult?.ErrorMessage ?? "Failed to read SNMP configuration from UniFi Console.")</p>
+                    <button class="btn btn-primary" @onclick="RunDetection">Retry Detection</button>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_detectionResult.DetectionState == SnmpDetectionState.Disabled)
+    {
+        <!-- SNMP is disabled -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">SNMP Setup Required</h2>
+                <span class="status-badge status-offline">Disabled</span>
+            </div>
+            <div class="card-body">
+                <p>SNMP monitoring is not enabled on your UniFi Console. Network Optimizer needs SNMP to collect port-level traffic statistics, device health metrics, and interface data from your switches and gateway.</p>
+
+                <div class="setup-steps">
+                    <h3>Enable SNMP</h3>
+                    <p>In UniFi Network, search Settings for <strong>"SNMP Monitoring"</strong> and enable it.</p>
+                    <p class="text-muted">Currently at: Settings → CyberSecure → Traffic Logging → SNMP Monitoring. This menu has moved between UniFi versions - the search term is the reliable way to find it.</p>
+
+                    <div class="setup-recommendation">
+                        <h4>Recommended configuration</h4>
+                        <ul>
+                            <li><strong>SNMP v1/v2c</strong> with a unique community string - lower CPU overhead on your network devices than v3</li>
+                            <li>The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not SNMPv3 per-packet encryption</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" style="margin-top: 16px;" @onclick="RunDetection">Re-check</button>
+            </div>
+        </div>
+    }
+    else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV3Only)
+    {
+        <!-- SNMP v3 only -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">SNMP Configuration Detected</h2>
+                <span class="status-badge status-active">SNMPv3</span>
+            </div>
+            <div class="card-body">
+                <div class="detected-config">
+                    <div class="config-row">
+                        <span class="detail-label">Version</span>
+                        <span class="detail-value">SNMPv3</span>
+                    </div>
+                    <div class="config-row">
+                        <span class="detail-label">Username</span>
+                        <span class="detail-value">@_detectionResult.V3Username</span>
+                    </div>
+                </div>
+
+                <div class="setup-recommendation" style="margin-top: 16px;">
+                    <h4>Consider switching to SNMPv1/v2c</h4>
+                    <p>SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and switches. The recommended security posture is a management VLAN (which your Security Audit already checks for) rather than v3 per-packet crypto.</p>
+                    <p>This is a recommendation, not a requirement. You can proceed with v3.</p>
+                </div>
+
+                @if (!_saved)
+                {
+                    <div style="margin-top: 16px; display: flex; gap: 8px;">
+                        <button class="btn btn-primary" @onclick="SaveAndProceed">Use SNMPv3</button>
+                        <button class="btn btn-secondary" @onclick="RunDetection">Re-check</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert-success" style="margin-top: 16px;">
+                        SNMP configuration saved. Monitoring is ready to start collecting data once InfluxDB is configured.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (_detectionResult.DetectionState == SnmpDetectionState.EnabledV2c)
+    {
+        <!-- SNMP v2c ready -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">SNMP Configuration Detected</h2>
+                <span class="status-badge status-active">Ready</span>
+            </div>
+            <div class="card-body">
+                <div class="detected-config">
+                    <div class="config-row">
+                        <span class="detail-label">Version</span>
+                        <span class="detail-value">SNMPv2c</span>
+                    </div>
+                    <div class="config-row">
+                        <span class="detail-label">Community string</span>
+                        <span class="detail-value">@MaskString(_detectionResult.Community)</span>
+                    </div>
+                    @if (_detectionResult.SnmpV3Enabled)
+                    {
+                        <div class="config-row">
+                            <span class="detail-label">SNMPv3</span>
+                            <span class="detail-value">Also enabled (v2c will be used for polling)</span>
+                        </div>
+                    }
+                </div>
+
+                <p style="margin-top: 12px;" class="text-muted">Found your SNMP config - looks good. Network Optimizer will use these credentials for SNMP polling.</p>
+
+                @if (!_saved)
+                {
+                    <div style="margin-top: 16px; display: flex; gap: 8px;">
+                        <button class="btn btn-primary" @onclick="SaveAndProceed">Confirm & Enable Monitoring</button>
+                        <button class="btn btn-secondary" @onclick="RunDetection">Re-check</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert-success" style="margin-top: 16px;">
+                        SNMP configuration saved. Monitoring is ready to start collecting data once InfluxDB is configured.
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_settings != null && _settings.SnmpDetectionState != SnmpDetectionState.NotChecked && _settings.SnmpDetectionState != SnmpDetectionState.Disabled)
+    {
+        <div class="card" style="margin-top: 16px;">
+            <div class="card-header">
+                <h2 class="card-title">Monitoring Status</h2>
+            </div>
+            <div class="card-body">
+                <div class="detected-config">
+                    <div class="config-row">
+                        <span class="detail-label">SNMP</span>
+                        <span class="detail-value">@_settings.SnmpDetectionState</span>
+                    </div>
+                    <div class="config-row">
+                        <span class="detail-label">Last detection</span>
+                        <span class="detail-value">@(_settings.LastSnmpDetection?.ToString("g") ?? "Never")</span>
+                    </div>
+                    <div class="config-row">
+                        <span class="detail-label">InfluxDB</span>
+                        <span class="detail-value">@_settings.InfluxDbUrl</span>
+                    </div>
+                    <div class="config-row">
+                        <span class="detail-label">Collection</span>
+                        <span class="detail-value">Not yet started (InfluxDB integration pending)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _detecting;
+    private bool _saved;
+    private SnmpDetectionResult? _detectionResult;
+    private MonitoringSettings? _settings;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SnmpDetection.GetOrCreateSettingsAsync();
+
+        if (ConnectionService.IsConnected && _settings.SnmpDetectionState == SnmpDetectionState.NotChecked)
+        {
+            await RunDetection();
+        }
+    }
+
+    private async Task RunDetection()
+    {
+        _detecting = true;
+        _saved = false;
+        StateHasChanged();
+
+        _detectionResult = await SnmpDetection.DetectSnmpSettingsAsync();
+        _detecting = false;
+        StateHasChanged();
+    }
+
+    private async Task SaveAndProceed()
+    {
+        if (_detectionResult == null) return;
+
+        await SnmpDetection.SaveDetectionResultAsync(_detectionResult);
+        _settings = await SnmpDetection.GetOrCreateSettingsAsync();
+        _saved = true;
+        StateHasChanged();
+    }
+
+    private static string MaskString(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "(empty)";
+        if (value.Length <= 4) return new string('*', value.Length);
+        return value[..2] + new string('*', value.Length - 4) + value[^2..];
+    }
+}

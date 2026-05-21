@@ -49,6 +49,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<WanSteerTrafficClass> WanSteerTrafficClasses { get; set; }
     public DbSet<ExternalSpeedTestServer> ExternalSpeedTestServers { get; set; }
     public DbSet<PerfTweakSetting> PerfTweakSettings { get; set; }
+    public DbSet<MonitoringSettings> MonitoringSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,6 +179,14 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<AdminSettings>(entity =>
         {
             entity.ToTable("AdminSettings");
+        });
+
+        // MonitoringSettings configuration (singleton - only one row)
+        modelBuilder.Entity<MonitoringSettings>(entity =>
+        {
+            entity.ToTable("MonitoringSettings");
+            entity.Property(e => e.SnmpVersion).HasConversion<int>();
+            entity.Property(e => e.SnmpDetectionState).HasConversion<int>();
         });
 
         // UpnpNote configuration

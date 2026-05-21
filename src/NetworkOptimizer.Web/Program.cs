@@ -333,6 +333,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// Monitoring subsystem
+builder.Services.AddScoped<SnmpDetectionService>();
+
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<DashboardLayoutService>();

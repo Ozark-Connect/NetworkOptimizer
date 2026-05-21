@@ -647,6 +647,83 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("ModemConfigurations", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.MonitoringSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FastPollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("InfluxDbBucket")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InfluxDbLongtermBucket")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InfluxDbOrg")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InfluxDbToken")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InfluxDbUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSnmpDetection")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSnmpSuccess")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MediumPollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SlowPollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SnmpCommunity")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SnmpDetectionState")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SnmpV3AuthPassword")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnmpV3Username")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SnmpVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MonitoringSettings", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.DeviceSshConfiguration", b =>
                 {
                     b.Property<int>("Id")
