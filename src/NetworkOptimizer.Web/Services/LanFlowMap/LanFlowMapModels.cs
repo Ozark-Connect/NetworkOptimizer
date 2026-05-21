@@ -193,6 +193,10 @@ public class SpeedTestOverlayItem
     /// <summary>"wan" or "lan" - controls which path the overlay decorates.</summary>
     public required string TestType { get; set; }
 
+    /// <summary>WAN network group ("wan" / "wan2") for WAN tests when known. Null tags
+    /// the test as "applies to the primary WAN" (fallback default).</summary>
+    public string? WanNetworkGroup { get; set; }
+
     public double? DownloadMbps { get; set; }
     public double? UploadMbps { get; set; }
 

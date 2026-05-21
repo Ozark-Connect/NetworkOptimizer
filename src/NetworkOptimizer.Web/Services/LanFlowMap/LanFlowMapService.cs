@@ -726,6 +726,7 @@ public class LanFlowMapService
                 Id = r.Id,
                 TestTime = r.TestTime,
                 TestType = IsWanDirection(r.Direction) ? "wan" : "lan",
+                WanNetworkGroup = r.WanNetworkGroup,
                 DownloadMbps = r.DownloadMbps,
                 UploadMbps = r.UploadMbps,
             };
