@@ -3,9 +3,11 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using Microsoft.EntityFrameworkCore
 @inject SnmpDetectionService SnmpDetection
 @inject UniFiConnectionService ConnectionService
 @inject MonitoringInfluxClient InfluxClient
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 
 <PageTitle>Monitoring - Network Optimizer</PageTitle>
 
@@ -163,9 +165,45 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
             <div class="form-group">
                 <label class="form-label">Collection</label>
                 <div class="form-value">
-                    <span class="status-indicator status-inactive"></span>
-                    @(_influxReachable == true ? "Pending agent" : "Waiting for InfluxDB")
+                    @if (_monitoringEnabled && _influxReachable == true)
+                    {
+                        <span class="status-indicator status-active"></span>
+                        <span>Agent running</span>
+                    }
+                    else if (_monitoringEnabled && _influxReachable != true)
+                    {
+                        <span class="status-indicator status-danger"></span>
+                        <span>Enabled, but InfluxDB unreachable</span>
+                    }
+                    else
+                    {
+                        <span class="status-indicator status-inactive"></span>
+                        <span>Disabled</span>
+                    }
                 </div>
+            </div>
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                @if (_monitoringEnabled)
+                {
+                    <button class="btn btn-secondary" @onclick="() => SetMonitoringEnabled(false)" disabled="@_togglingEnable">
+                        @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Stopping...</span> }
+                        else { <span>Disable Monitoring</span> }
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary" @onclick="() => SetMonitoringEnabled(true)" disabled="@(_togglingEnable || _influxReachable != true)">
+                        @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Starting...</span> }
+                        else { <span>Enable Monitoring</span> }
+                    </button>
+                    @if (_influxReachable != true)
+                    {
+                        <span class="page-description" style="margin-left: 0.75rem;">
+                            Configure InfluxDB in <a href="/settings#monitoring">Settings</a> first.
+                        </span>
+                    }
+                }
             </div>
         </div>
     </div>
@@ -202,6 +240,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private string? _influxError;
     private bool _influxConfigured;
     private bool _checkingInflux;
+    private bool _monitoringEnabled;
+    private bool _togglingEnable;
 
     protected override async Task OnInitializedAsync()
     {
@@ -229,6 +269,29 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             && !string.IsNullOrEmpty(settings.InfluxDbUrl);
         _influxReachable = settings.InfluxDbReachable;
         _influxError = settings.LastInfluxDbError;
+        _monitoringEnabled = settings.Enabled;
+    }
+
+    private async Task SetMonitoringEnabled(bool enabled)
+    {
+        _togglingEnable = true;
+        StateHasChanged();
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
+                ?? new MonitoringSettings();
+            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
+            settings.Enabled = enabled;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            _monitoringEnabled = enabled;
+        }
+        finally
+        {
+            _togglingEnable = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CheckInfluxHealth()

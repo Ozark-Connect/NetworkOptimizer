@@ -341,6 +341,10 @@ builder.Services.AddSingleton<MonitoringInfluxClient>();
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>(
     sp => sp.GetRequiredService<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>());
+// Collection agent — drives SNMP polling on the three-tier cadence, writes to InfluxDB.
+// Idle while monitoring is disabled or unconfigured; activates once both SNMP detection
+// succeeds and InfluxDB is reachable.
+builder.Services.AddHostedService<MonitoringCollectionAgent>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
