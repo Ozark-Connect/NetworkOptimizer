@@ -139,7 +139,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                     else if (!_influxConfigured)
                     {
                         <span class="status-indicator status-inactive"></span>
-                        <span>Not configured — <a href="/settings#monitoring">configure</a></span>
+                        <span>Not configured — <a href="/monitoring/setup-influxdb">run setup</a></span>
                     }
                     else
                     {
@@ -200,7 +200,8 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                     @if (_influxReachable != true)
                     {
                         <span class="page-description" style="margin-left: 0.75rem;">
-                            Configure InfluxDB in <a href="/settings#monitoring">Settings</a> first.
+                            <a href="/monitoring/setup-influxdb">Run InfluxDB setup</a> first
+                            (or <a href="/settings#monitoring">configure manually</a>).
                         </span>
                     }
                 }
