@@ -9,6 +9,10 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const COLORS = {
     background: 0x101820,
@@ -138,14 +142,36 @@ export class LanFlowMap {
         });
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         this.renderer.setSize(width, height, false);
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.15;
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(COLORS.background);
-        this.scene.fog = new THREE.Fog(COLORS.fog, 60, 220);
+        // Radial gradient background - slightly lighter at the center, deep blue-black
+        // at the edges. Gives the scene depth without dominating.
+        this.scene.background = makeRadialBackgroundTexture(width, height);
+        this.scene.fog = new THREE.Fog(COLORS.fog, 70, 260);
 
         this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-        this.camera.position.set(40, 25, 40);
+        // Will animate IN from here on first mount via _flyIn().
+        this.camera.position.set(95, 60, 95);
         this.camera.lookAt(0, 0, 0);
+
+        // Post-processing: bloom for the luminous-particles look. Selective bloom would
+        // require layers + a separate composer pass; for now, full-scene bloom with
+        // conservative parameters keeps device meshes from blowing out while making
+        // the particle streams genuinely glow.
+        this.composer = new EffectComposer(this.renderer);
+        this.composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        this.composer.setSize(width, height);
+        this.composer.addPass(new RenderPass(this.scene, this.camera));
+        this.bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(width, height),
+            0.85,   // strength
+            0.45,   // radius
+            0.32,   // threshold (only pixels above this luminosity bloom)
+        );
+        this.composer.addPass(this.bloomPass);
+        this.composer.addPass(new OutputPass());
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
@@ -194,6 +220,8 @@ export class LanFlowMap {
         const width = Math.max(rect.width || this.canvas.clientWidth || 800, 320);
         const height = Math.max(rect.height || this.canvas.clientHeight || 480, 240);
         this.renderer.setSize(width, height, false);
+        this.composer?.setSize(width, height);
+        this.bloomPass?.setSize(width, height);
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
     }
@@ -257,8 +285,10 @@ export class LanFlowMap {
 
             this._layoutNodes(snap);
             this._buildNodes(snap);
-            this._buildLinks(snap);
+            // Clouds must build before links - links reference cloud node IDs in their
+            // FromNodeId/ToNodeId and _buildLinks looks positions up via _positions.
             this._buildClouds(snap);
+            this._buildLinks(snap);
             this._buildFloatingLabels(snap);
             this._applyLiveRates(snap.liveRates || {});
         } catch (err) {
@@ -311,16 +341,11 @@ export class LanFlowMap {
             }
         }
 
-        // Initial positions for unpinned nodes: scattered around the origin, with clouds
-        // pushed far out along +X so they read as "outside" the LAN.
-        let cloudIndex = 0;
+        // Initial positions for unpinned nodes: scattered around the origin. Clouds are
+        // not LanNode entries (they live in snap.clouds and get positions in _buildClouds);
+        // we don't see Cloud kind here in practice.
         for (const node of snap.nodes) {
             if (positions.has(node.id)) continue;
-            if (node.kind === NODE_KIND.Cloud) {
-                cloudIndex += 1;
-                positions.set(node.id, { x: 50 + cloudIndex * 14, y: 6, z: -10 + cloudIndex * 6, pinned: true });
-                continue;
-            }
             const theta = (Math.random() * 2 - 1) * Math.PI;
             const r = 12 + Math.random() * 8;
             positions.set(node.id, {
@@ -413,28 +438,22 @@ export class LanFlowMap {
             const pos = this._positions.get(node.id);
             if (!pos) continue;
 
-            const group = new THREE.Group();
             const radius = this._nodeRadius(node.kind);
             const color = this._nodeColor(node.kind);
+            const group = new THREE.Group();
 
-            // Soft outer halo
+            // Soft outer halo - sized to the bounding sphere of whatever shape we draw.
             const halo = new THREE.Mesh(
-                new THREE.SphereGeometry(radius * 1.6, 24, 16),
+                new THREE.SphereGeometry(radius * 1.7, 24, 16),
                 new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }),
             );
             group.add(halo);
 
-            // Core sphere
-            const core = new THREE.Mesh(
-                new THREE.SphereGeometry(radius, 32, 24),
-                new THREE.MeshStandardMaterial({
-                    color,
-                    emissive: color,
-                    emissiveIntensity: 0.35,
-                    roughness: 0.55,
-                    metalness: 0.05,
-                }),
-            );
+            // Distinct shape per kind. Gateway = rounded box (taller); switch = flat
+            // chassis cuboid; AP = thin disc-like cylinder; clients = small icosahedra.
+            // Each one reads at-a-glance and the bloom pass makes them genuinely glow.
+            const baseEmissive = 0.45;
+            const core = this._makeDeviceCore(node.kind, radius, color, baseEmissive);
             group.add(core);
 
             group.position.set(pos.x, pos.y, pos.z);
@@ -443,7 +462,7 @@ export class LanFlowMap {
                 core.material.transparent = true;
                 halo.material.opacity = 0.05;
             }
-            group.userData = { node };
+            group.userData = { node, core, baseEmissive };
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
@@ -455,6 +474,41 @@ export class LanFlowMap {
                 this._labelSprites.set(node.id, sprite);
             }
         }
+    }
+
+    _makeDeviceCore(kind, radius, color, baseEmissive) {
+        const material = (extra = {}) => new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: baseEmissive,
+            roughness: 0.55,
+            metalness: 0.15,
+            ...extra,
+        });
+        let geo;
+        switch (kind) {
+            case NODE_KIND.Gateway:
+                // Stacked rounded chassis: wider than tall to read as a router.
+                geo = new THREE.BoxGeometry(radius * 2.4, radius * 1.3, radius * 1.6);
+                break;
+            case NODE_KIND.Switch:
+                // Low-profile rack-unit cuboid.
+                geo = new THREE.BoxGeometry(radius * 2.6, radius * 0.7, radius * 1.4);
+                break;
+            case NODE_KIND.AccessPoint:
+                // Flat disc evocative of a ceiling AP.
+                geo = new THREE.CylinderGeometry(radius * 1.3, radius * 1.3, radius * 0.45, 28);
+                break;
+            case NODE_KIND.WiredClient:
+                geo = new THREE.IcosahedronGeometry(radius * 0.95, 0);
+                break;
+            case NODE_KIND.WifiClient:
+                geo = new THREE.OctahedronGeometry(radius * 0.95, 0);
+                break;
+            default:
+                geo = new THREE.SphereGeometry(radius, 24, 18);
+        }
+        return new THREE.Mesh(geo, material());
     }
 
     _buildLinks(snap) {
@@ -701,16 +755,37 @@ export class LanFlowMap {
     // ------------------------------------------------------------------------
 
     _startAnimation() {
+        // Schedule a one-shot camera fly-in on first frame.
+        this._flyInUntil = performance.now() + 1300;
+        this._flyInTargetCam = new THREE.Vector3(40, 25, 40);
+        this._flyInStartCam = this.camera.position.clone();
+
         const tick = (now) => {
             if (this._destroyed) return;
             const dt = Math.min((now - this._lastFrame) / 1000, 0.1);
             this._lastFrame = now;
-            this.controls?.update();
+
+            // Camera fly-in (easeOutCubic) on first ~1.3 s.
+            if (now < this._flyInUntil) {
+                const t = 1 - (this._flyInUntil - now) / 1300;
+                const eased = 1 - Math.pow(1 - t, 3);
+                this.camera.position.lerpVectors(this._flyInStartCam, this._flyInTargetCam, eased);
+                this.camera.lookAt(0, 0, 0);
+            } else {
+                this.controls?.update();
+            }
+
             for (const link of this._linkMeshes.values()) {
                 link.down.advance(dt);
                 link.up.advance(dt);
             }
-            this.renderer.render(this.scene, this.camera);
+            // Subtle node breathing: every infrastructure node's emissive intensity
+            // oscillates around its base value on a ~3 s cycle. Idle, traffic-less
+            // scenes still feel alive.
+            this._pulseNodes(now);
+
+            // Render through the composer so bloom + tone mapping apply.
+            this.composer.render();
             // After the render we have up-to-date matrixWorld for every node group;
             // project them to screen space for the floating DOM labels and WAN pills.
             this._updateFloatingLabels();
@@ -718,6 +793,17 @@ export class LanFlowMap {
         };
         this._lastFrame = performance.now();
         this._raf = requestAnimationFrame(tick);
+    }
+
+    _pulseNodes(nowMs) {
+        const phase = (nowMs % 3000) / 3000;       // 0..1
+        const factor = 0.85 + 0.15 * Math.sin(phase * Math.PI * 2);
+        for (const group of this._nodeMeshes.values()) {
+            const core = group.userData?.core;
+            const base = group.userData?.baseEmissive;
+            if (!core || base == null) continue;
+            core.material.emissiveIntensity = base * factor;
+        }
     }
 
     _startPolling() {
@@ -1055,14 +1141,16 @@ export class LanFlowMap {
             this._floatingLabels.set(node.id, { el, nameEl, rateEl });
         }
 
-        // WAN speed test pills: positioned below each WAN node when there's a recent test.
-        for (const node of snap.nodes) {
-            if (node.kind !== NODE_KIND.Cloud) continue;
-            if (!node.id.startsWith('wan-iface-')) continue;
+        // WAN speed test pills: one per access-ISP cloud, anchored to the cloud mesh.
+        // Key by wanInterface so the JS lookup can fall back to the primary WAN when
+        // a test has no WanNetworkGroup set.
+        for (const cloud of (snap.clouds || [])) {
+            if (cloud.kind !== 0 /* AccessIsp */) continue;
+            if (!cloud.wanInterface) continue;
             const pill = document.createElement('div');
             pill.className = 'lan-flow-map-wan-pill';
             this._labelsLayer.appendChild(pill);
-            this._wanPills.set(node.id, pill);
+            this._wanPills.set(cloud.wanInterface, pill);
         }
 
         // Hide the existing 3D sprite labels for devices we now show via DOM (keeps
@@ -1099,11 +1187,11 @@ export class LanFlowMap {
             el.classList.add('is-visible');
         }
 
-        for (const [nodeId, pill] of this._wanPills) {
-            const group = this._nodeMeshes.get(nodeId);
+        for (const [wanIface, pill] of this._wanPills) {
+            const group = this._cloudMeshes.get(`cloud-access-${wanIface}`);
             if (!group) { pill.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
-            tmp.y -= 1.0;
+            tmp.y -= NODE_RADIUS.cloud + 0.5;
             tmp.project(this.camera);
             if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
@@ -1147,10 +1235,14 @@ export class LanFlowMap {
     }
 
     _refreshWanPills() {
-        for (const [nodeId, pill] of this._wanPills) {
-            const wanIface = nodeId.substring('wan-iface-'.length);
-            const test = this._latestSpeedTestByWan.get(wanIface)
-                ?? this._latestSpeedTestByWan.get('*wan*');
+        const primary = this._snapshot?.primaryWanInterface;
+        for (const [wanIface, pill] of this._wanPills) {
+            // First look for a test bound to this specific WAN. If none, and this is
+            // the primary WAN, fall back to any ungrouped WAN test ("*wan*" wildcard).
+            let test = this._latestSpeedTestByWan.get(wanIface);
+            if (!test && wanIface === primary) {
+                test = this._latestSpeedTestByWan.get('*wan*');
+            }
             if (!test) { pill.classList.remove('is-visible'); continue; }
             const dl = test.downloadMbps ?? 0;
             const ul = test.uploadMbps ?? 0;
@@ -1330,6 +1422,26 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
     ctx.fill();
+}
+
+function makeRadialBackgroundTexture(width, height) {
+    const w = 512;
+    const h = Math.max(256, Math.round(512 * (height / Math.max(width, 1))));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
+    grd.addColorStop(0, '#1c2a3a');
+    grd.addColorStop(0.55, '#121b27');
+    grd.addColorStop(1, '#0a1018');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, w, h);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
 }
 
 function formatBps(bps) {

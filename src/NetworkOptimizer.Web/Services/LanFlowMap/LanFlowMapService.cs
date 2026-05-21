@@ -23,6 +23,7 @@ public class LanFlowMapService
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringPathView _pathView;
     private readonly ApMapService _apMap;
+    private readonly LanFlowMapCache _cache;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LanFlowMapService> _logger;
@@ -34,6 +35,7 @@ public class LanFlowMapService
         MonitoringInfluxClient influx,
         MonitoringPathView pathView,
         ApMapService apMap,
+        LanFlowMapCache cache,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         ILoggerFactory loggerFactory,
         ILogger<LanFlowMapService> logger)
@@ -44,16 +46,24 @@ public class LanFlowMapService
         _influx = influx;
         _pathView = pathView;
         _apMap = apMap;
+        _cache = cache;
         _dbFactory = dbFactory;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
 
     /// <summary>
-    /// Full snapshot consumed when the map mounts. Subsequent updates come through
-    /// GetLiveUpdateAsync (real-time) or GetHistoricUpdateAsync (timeline mode).
+    /// Returns a fresh snapshot or the cached one if still inside the TTL. Browsers
+    /// call this on map mount; the /live endpoint never rebuilds, it only refreshes
+    /// rates on top of the cached snapshot.
     /// </summary>
-    public async Task<LanFlowMapSnapshot> BuildSnapshotAsync(CancellationToken ct = default)
+    public Task<LanFlowMapSnapshot> BuildSnapshotAsync(CancellationToken ct = default)
+        => _cache.BuildOrGetAsync(BuildSnapshotInternalAsync, ct);
+
+    /// <summary>Force the next snapshot read to rebuild (e.g. on controller reconnect).</summary>
+    public void InvalidateCache() => _cache.Invalidate();
+
+    private async Task<LanFlowMapSnapshot> BuildSnapshotInternalAsync(CancellationToken ct)
     {
         var snapshot = new LanFlowMapSnapshot { GeneratedAt = DateTime.UtcNow };
 
@@ -88,21 +98,90 @@ public class LanFlowMapService
     }
 
     /// <summary>
-    /// Polling endpoint - returns just the rate deltas + node badges + cloud stats.
-    /// Cheap to call on a 1-2 s cadence from the JS layer.
+    /// Polling endpoint. Refreshes link rates + per-device aggregates + cloud RTT
+    /// from in-memory sources (<see cref="MonitoringLiveStats"/>, <see cref="MonitoringPathView.GetWansAsync"/>).
+    /// Does NOT rebuild the snapshot topology - that happens on its own TTL inside the cache.
     /// </summary>
     public async Task<LanFlowMapLiveUpdate> GetLiveUpdateAsync(CancellationToken ct = default)
     {
         var update = new LanFlowMapLiveUpdate { AsOf = DateTime.UtcNow };
-        if (!_connection.IsConnected || _connection.Client == null) return update;
+        if (!_connection.IsConnected) return update;
 
+        // Read the cached snapshot or trigger its first build. Subsequent live ticks
+        // will short-circuit on the freshness check inside the cache.
         var snapshot = await BuildSnapshotAsync(ct);
 
-        foreach (var (id, rates) in snapshot.LiveRates)
+        // Fresh WAN rates per WAN link (the agent's per-port rate cache feeds WanSummary,
+        // so this is cheap).
+        var wans = await _pathView.GetWansAsync(ct);
+        var wanByInterface = wans.ToDictionary(w => w.WanInterface, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var link in snapshot.Links)
         {
-            update.LinkRates[id] = rates;
+            // Pull fresh rates depending on link kind.
+            LinkLiveRates? rates = null;
+            if (link.Kind == LanLinkKind.Wan)
+            {
+                // WAN ID format: "wan-link-{wanInterface}". Recover the interface name.
+                var wanIface = link.Id.StartsWith("wan-link-", StringComparison.Ordinal)
+                    ? link.Id.Substring("wan-link-".Length)
+                    : null;
+                if (wanIface != null && wanByInterface.TryGetValue(wanIface, out var wan))
+                {
+                    rates = new LinkLiveRates
+                    {
+                        DownstreamBps = wan.LiveRateInBps ?? 0,
+                        UpstreamBps = wan.LiveRateOutBps ?? 0,
+                        AsOf = update.AsOf,
+                    };
+                }
+            }
+            else if (link.Kind == LanLinkKind.WifiClient)
+            {
+                var clientMac = ExtractWifiClientMacFromLinkId(link.Id);
+                if (!string.IsNullOrEmpty(clientMac))
+                {
+                    var snap = _liveStats.GetWifiClient(clientMac);
+                    if (snap != null)
+                    {
+                        rates = new LinkLiveRates
+                        {
+                            DownstreamBps = snap.TxThroughputBps ?? 0,
+                            UpstreamBps = snap.RxThroughputBps ?? 0,
+                            AsOf = snap.LastUpdate,
+                        };
+                    }
+                }
+            }
+            else if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
+            {
+                // For infrastructure uplinks the child device's aggregate is the most live
+                // measurement we have on every tick - the agent records it via
+                // RecordInterfaceAggregate (RateIn = downstream, RateOut = upstream).
+                var childDev = ExtractDeviceMacFromUplinkId(link.Id);
+                if (!string.IsNullOrEmpty(childDev))
+                {
+                    var stats = _liveStats.GetForDevice(childDev);
+                    if (stats != null && stats.LastRateUpdate.HasValue)
+                    {
+                        rates = new LinkLiveRates
+                        {
+                            DownstreamBps = stats.RateInBps ?? 0,
+                            UpstreamBps = stats.RateOutBps ?? 0,
+                            AsOf = stats.LastRateUpdate.Value,
+                        };
+                    }
+                }
+            }
+            // WiredClient + Transit links: keep the snapshot's seeded rates. Wired client
+            // per-port rates come from the cached snapshot (refreshed on snapshot rebuild
+            // every TopologyRefreshInterval) - acceptable since wired clients tend to be
+            // steady-state. Transit cloud-to-cloud edges don't have SNMP data.
+
+            if (rates != null) update.LinkRates[link.Id] = rates;
         }
 
+        // Per-device aggregate badges from the in-memory live stats.
         foreach (var node in snapshot.Nodes)
         {
             if (string.IsNullOrEmpty(node.Mac)) continue;
@@ -116,8 +195,11 @@ public class LanFlowMapService
             };
         }
 
+        // Cloud RTT from the in-memory target stats cache.
         foreach (var cloud in snapshot.Clouds)
         {
+            // The cloud's RTT came from MonitoringPathView at build time - re-resolve it
+            // by querying the same source so the live tick is fresh.
             update.CloudStats[cloud.Id] = new CloudLiveStats
             {
                 RttAvgMs = cloud.RttAvgMs,
@@ -387,56 +469,22 @@ public class LanFlowMapService
         LanFlowMapSnapshot snapshot,
         CancellationToken ct)
     {
-        // Spec 5.7 grammar: every WAN gets an access-ISP cloud. Only the primary WAN
-        // surfaces the chain of transit clouds. Cloud data is owned by MonitoringPathView -
-        // the map never renders MonitoringTarget rows directly.
+        // Spec 5.7: each WAN renders as a real link off the gateway directly to the
+        // access-ISP cloud. There is no intermediate WAN node - the WAN IS the link.
+        // Only the primary WAN surfaces the transit-cloud chain past the access cloud.
         var wans = await _pathView.GetWansAsync(ct);
         if (wans.Count == 0) return;
 
+        // Mark the primary WAN at snapshot level for the JS layer's speed-test fallback.
+        var primary = wans.FirstOrDefault(w => w.IsPrimary) ?? wans[0];
+        snapshot.PrimaryWanInterface = primary.WanInterface;
+
         foreach (var wan in wans)
         {
-            var wanNodeId = $"wan-iface-{wan.WanInterface}";
             var gwId = !string.IsNullOrEmpty(wan.GatewayMac)
                 ? "dev-" + NormalizeMac(wan.GatewayMac)
                 : null;
-
-            snapshot.Nodes.Add(new LanNode
-            {
-                Id = wanNodeId,
-                Kind = LanNodeKind.Cloud,
-                Name = wan.FriendlyName ?? wan.WanInterface.ToUpperInvariant(),
-                ParentId = gwId,
-            });
-            if (!string.IsNullOrEmpty(gwId))
-            {
-                var wanLink = new LanLink
-                {
-                    Id = $"wan-link-{wan.WanInterface}",
-                    FromNodeId = gwId,
-                    ToNodeId = wanNodeId,
-                    Kind = LanLinkKind.Wan,
-                    CapacityBps = wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null,
-                };
-                if (!string.IsNullOrEmpty(wan.GatewayPortName))
-                {
-                    wanLink.PortKey = PortKey(wan.GatewayMac!, wan.GatewayPortName);
-                }
-                snapshot.Links.Add(wanLink);
-
-                // Pre-seed the WAN link's live rates from the WanSummary so the map shows
-                // gateway WAN throughput from frame zero.
-                if (wan.LiveRateInBps.HasValue || wan.LiveRateOutBps.HasValue)
-                {
-                    snapshot.LiveRates[wanLink.Id] = new LinkLiveRates
-                    {
-                        // WanSummary's RateIn/RateOut are device-aggregates from the live-stats
-                        // cache. RateIn = incoming to gateway = internet -> gateway = downstream.
-                        DownstreamBps = wan.LiveRateInBps ?? 0,
-                        UpstreamBps = wan.LiveRateOutBps ?? 0,
-                        AsOf = DateTime.UtcNow,
-                    };
-                }
-            }
+            if (string.IsNullOrEmpty(gwId)) continue;
 
             UpstreamPathSnapshot? upstream = null;
             try { upstream = await _pathView.GetUpstreamPathAsync(wan.WanInterface, ct); }
@@ -458,10 +506,8 @@ public class LanFlowMapService
                 IsDiscoveryPending = upstream.Access.Hops.Count == 0,
                 Tier = upstream.Access.Hops.Count == 0 ? LanCloudTier.Unresolved : LanCloudTier.Solid,
             };
-
-            // RTT for the access cloud: pick the deepest hop that has live data (closest to
-            // the actual ISP boundary). Wizard-output ordering puts BNG/CMTS/OLT toward the
-            // tail of the hop list.
+            // RTT for the access cloud: pick the deepest hop with live data (closest to the
+            // ISP boundary). Wizard-output ordering puts BNG/CMTS/OLT toward the tail.
             var lastLive = upstream.Access.Hops
                 .Reverse()
                 .FirstOrDefault(h => h.Live != null && h.Live.Success);
@@ -472,13 +518,35 @@ public class LanFlowMapService
             }
             snapshot.Clouds.Add(accessCloud);
 
-            snapshot.Links.Add(new LanLink
+            // WAN link: gateway -> access cloud directly. Capacity from WanSummary,
+            // PortKey for live SNMP rate seeding from the gateway's WAN port.
+            var wanLink = new LanLink
             {
-                Id = $"wan-to-access-{wan.WanInterface}",
-                FromNodeId = wanNodeId,
+                Id = $"wan-link-{wan.WanInterface}",
+                FromNodeId = gwId,
                 ToNodeId = accessCloud.Id,
-                Kind = LanLinkKind.Transit,
-            });
+                Kind = LanLinkKind.Wan,
+                CapacityBps = wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null,
+            };
+            if (!string.IsNullOrEmpty(wan.GatewayPortName))
+            {
+                wanLink.PortKey = PortKey(wan.GatewayMac!, wan.GatewayPortName);
+            }
+            snapshot.Links.Add(wanLink);
+
+            // Seed live rates from WanSummary. On a WAN port the polled device IS the
+            // gateway, so the direction convention flips relative to internal uplinks:
+            //   RateIn  on gateway's WAN port = bytes from internet to gateway = downstream.
+            //   RateOut on gateway's WAN port = bytes from gateway to internet = upstream.
+            if (wan.LiveRateInBps.HasValue || wan.LiveRateOutBps.HasValue)
+            {
+                snapshot.LiveRates[wanLink.Id] = new LinkLiveRates
+                {
+                    DownstreamBps = wan.LiveRateInBps ?? 0,
+                    UpstreamBps = wan.LiveRateOutBps ?? 0,
+                    AsOf = DateTime.UtcNow,
+                };
+            }
 
             if (!upstream.IsPrimary) continue;
 
@@ -678,16 +746,32 @@ public class LanFlowMapService
     }
 
     /// <summary>
-    /// Resolve direction on a wired link from the perspective of the device on the
-    /// "downstream" side (i.e. the leaf). SNMP counters are recorded relative to the
-    /// upstream device (the switch/gateway whose port we're reading):
-    ///   - rate_out_bps (bytes leaving the upstream port) = data flowing toward the leaf
-    ///     = DownstreamBps (blue).
-    ///   - rate_in_bps  (bytes entering the upstream port) = data flowing away from leaf
-    ///     = UpstreamBps  (green).
+    /// Resolve direction on a wired link given an SNMP rate reading. The mapping depends
+    /// on which side of the link is being polled:
+    ///   - Internal links (Uplink / WiredClient / MeshBackhaul): polled port is on the
+    ///     UPSTREAM device (the switch). bytes_out leaving the switch port = toward leaf
+    ///     = DownstreamBps. bytes_in entering = away from leaf = UpstreamBps.
+    ///   - WAN links: polled port is on the GATEWAY (the downstream side from internet's
+    ///     perspective, but the upstream side of the LAN's view of the WAN). bytes_in to
+    ///     gateway = from internet = downstream. bytes_out from gateway = to internet =
+    ///     upstream. This flips the in/out mapping.
+    ///   - Transit links (cloud-to-cloud): not polled via SNMP, no rates.
     /// </summary>
     private static LinkLiveRates MapPortToLinkRates(LanLink link, double rateInBps, double rateOutBps, DateTime ts)
     {
+        // WAN link: bytes_in on the gateway's WAN port comes FROM the internet,
+        // i.e. travels toward the LAN = downstream blue (gateway-direction relative to
+        // the link's far end is the access ISP cloud; "leaves" of the LAN tree are the
+        // gateway and the rest of the LAN's devices, not the cloud).
+        if (link.Kind == LanLinkKind.Wan)
+        {
+            return new LinkLiveRates
+            {
+                DownstreamBps = rateInBps,
+                UpstreamBps = rateOutBps,
+                AsOf = ts,
+            };
+        }
         return new LinkLiveRates
         {
             DownstreamBps = rateOutBps,
