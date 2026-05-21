@@ -78,22 +78,145 @@
 
             @if (_state.Step == TracerStep.ReviewingResults)
             {
+                @if (_state.Traces.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Trace results</label>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Destination</th>
+                                        <th>Mode</th>
+                                        <th>Hops</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var trace in _state.Traces)
+                                    {
+                                        <tr>
+                                            <td>@trace.CdnLabel <span class="text-muted">(@trace.CdnEndpoint)</span></td>
+                                            <td>@trace.Mode.ToString().ToUpperInvariant()</td>
+                                            <td>@trace.HopsResponding / @trace.HopsRecorded</td>
+                                            <td>
+                                                @if (trace.Reached)
+                                                {
+                                                    <span class="status-badge status-connected">Reached</span>
+                                                }
+                                                else if (trace.HopsResponding > 0)
+                                                {
+                                                    <span class="status-badge status-active">Partial</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="status-badge status-disconnected">No reply</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (_state.AccessHops.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Access ISP hops</label>
+                        <p class="section-description">First-mile hops on @AccessAsnDisplay(). Rename or disable any row before committing.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"></th>
+                                        <th>Label</th>
+                                        <th>Address</th>
+                                        <th>Hop</th>
+                                        <th>Role</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var hop in _state.AccessHops)
+                                    {
+                                        <tr class="@(hop.Enabled ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@hop.Enabled"
+                                                       @onchange="e => hop.Enabled = (bool)e.Value!" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="form-input form-input-sm"
+                                                       value="@hop.Label"
+                                                       @onchange="e => hop.Label = (string)e.Value!" />
+                                            </td>
+                                            <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
+                                            <td>@hop.HopNumber</td>
+                                            <td>@hop.Role</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (_state.TransitAsns.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Transit ASNs</label>
+                        <p class="section-description">Distinct ASNs between your access ISP and the destinations.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"></th>
+                                        <th>ASN</th>
+                                        <th>Name</th>
+                                        <th>Target hop</th>
+                                        <th>Method</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var asn in _state.TransitAsns)
+                                    {
+                                        <tr class="@(asn.Enabled ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@asn.Enabled"
+                                                       @onchange="e => asn.Enabled = (bool)e.Value!" />
+                                            </td>
+                                            <td><code>AS@(asn.AsnNumber)</code></td>
+                                            <td>@asn.AsnName</td>
+                                            <td>
+                                                @if (!string.IsNullOrEmpty(asn.HopAddress))
+                                                {
+                                                    <code>@asn.HopAddress</code>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                            <td>@asn.Method</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
                 @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0)
                 {
                     <div class="alert alert-info">
-                        Detection complete. The actual hop tracing and ASN attribution
-                        are scheduled for the next iteration; this run captured your WAN
-                        IP classification and L2 neighbor identity.
+                        No upstream hops responded to either ICMP or UDP traceroute. Your
+                        ISP may be filtering trace probes; nothing to commit on this run.
                     </div>
                 }
-                else
-                {
-                    <p class="section-description">Review the discovered targets, then Commit.</p>
-                    @* Detailed review UI lands when iteration 2 fills in the trace tiers. *@
-                }
+
                 <div class="action-buttons">
                     <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
-                    @if (_state.AccessHops.Count > 0 || _state.TransitAsns.Count > 0)
+                    @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled))
                     {
                         <button class="btn btn-primary" @onclick="CommitAsync">Commit</button>
                     }
@@ -169,5 +292,19 @@
         _ => "status-active"
     };
 
+    private string AccessAsnDisplay()
+    {
+        var first = _state.AccessHops.FirstOrDefault(h => h.AsnNumber.HasValue);
+        if (first == null) return "your access ISP";
+        return string.IsNullOrEmpty(first.AsnName)
+            ? $"AS{first.AsnNumber}"
+            : $"AS{first.AsnNumber} ({first.AsnName})";
+    }
+
     public void Dispose() => _pollTimer?.Dispose();
 }
+
+<style>
+    .row-disabled { opacity: 0.45; }
+    .form-input-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+</style>

@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -27,6 +29,8 @@ public class UpstreamTracerService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly AsnResolutionService _asnResolution;
+    private readonly LocalProbeExecutor _localProbe;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<UpstreamTracerService> _logger;
 
     private readonly SemaphoreSlim _stateLock = new(1, 1);
@@ -34,17 +38,35 @@ public class UpstreamTracerService
 
     public UpstreamTracerState State { get; private set; } = new();
 
+    // CDN rotation per locked Gate 2 decision 5: five hardcoded endpoints across major
+    // operators with distinct peering footprints. The list is a typed collection so
+    // IPv6 endpoints can be added later without restructuring (decision 5b).
+    private static readonly TraceEndpoint[] CdnRotation =
+    {
+        new("Cloudflare", "1.1.1.1"),
+        new("Google", "8.8.8.8"),
+        new("Akamai", "23.218.94.94"),
+        new("Meta", "163.70.128.35"),
+        new("Apple", "17.253.144.10")
+    };
+
+    private record TraceEndpoint(string Label, string Address);
+
     public UpstreamTracerService(
         UniFiConnectionService connectionService,
         IGatewaySshService gatewaySsh,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         AsnResolutionService asnResolution,
+        LocalProbeExecutor localProbe,
+        IServiceScopeFactory scopeFactory,
         ILogger<UpstreamTracerService> logger)
     {
         _connectionService = connectionService;
         _gatewaySsh = gatewaySsh;
         _dbFactory = dbFactory;
         _asnResolution = asnResolution;
+        _localProbe = localProbe;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -294,34 +316,266 @@ public class UpstreamTracerService
         return true;
     }
 
-    // ---- Step 3: Trace the access ISP path (iteration 2) ----
+    // ---- Step 3: Trace the access ISP + Step 4 transit ASNs ----
+    //
+    // Both steps actually share one round of work: a single parallel traceroute sweep
+    // produces all the hop data we need to classify access-ISP hops, transit ASN
+    // hops, and the destination ASN. Split into two named state-machine steps for UI
+    // clarity, but the underlying work runs once.
 
-    private Task TraceAccessIspAsync(CancellationToken ct)
+    /// <summary>
+    /// Per-hop attribution computed once and shared between access + transit steps.
+    /// </summary>
+    private record AttributedHop(int HopNumber, string Address, string? Hostname, ProbeMode RespondedTo, AsnLookup? Asn);
+    private List<AttributedHop> _mergedHops = new();
+    private List<AttributedHop> _accessHopsResolved = new();
+
+    private async Task TraceAccessIspAsync(CancellationToken ct)
     {
         State.Step = TracerStep.TracingAccessIsp;
-        State.CurrentActivity = "Tracing access ISP path... (iteration 2 will run parallel ICMP+UDP traceroutes to the CDN rotation)";
-        // Iteration 2: run traceroute -I + traceroute (UDP) in parallel against the
-        // 5-CDN rotation (Cloudflare, Google, Akamai, Meta, Apple), merge hop sets,
-        // attribute hops to ASNs via _asnResolution, pick the first 1-3 hops that
-        // belong to the user's access ISP ASN, label them per the priority order
-        // (PTR > role inference > bare IP), populate State.AccessHops.
-        return Task.CompletedTask;
+        State.CurrentActivity = "Running parallel ICMP + UDP traceroutes to the CDN rotation...";
+        State.Traces = new List<TraceSummary>();
+
+        // Spawn 10 traceroutes (5 endpoints × 2 modes) in parallel and merge once
+        // they all settle. Each traceroute is capped at 10s, so wall-clock for the
+        // whole sweep is ~10s + a bit of overhead.
+        var tasks = new List<Task<(string Label, TracerouteResult Result)>>();
+        foreach (var endpoint in CdnRotation)
+        {
+            tasks.Add(TraceOneAsync(endpoint, ProbeMode.Icmp, ct));
+            tasks.Add(TraceOneAsync(endpoint, ProbeMode.Udp, ct));
+        }
+        var results = await Task.WhenAll(tasks);
+
+        // Summarize per CDN for the live progress UI.
+        foreach (var (label, result) in results)
+        {
+            State.Traces.Add(new TraceSummary
+            {
+                CdnLabel = label,
+                CdnEndpoint = result.Target.Address,
+                Mode = result.ModeUsed,
+                HopsRecorded = result.Hops.Count,
+                HopsResponding = result.Hops.Count(h => h.Responded),
+                Reached = result.Reached,
+                Error = result.ErrorMessage
+            });
+        }
+        State.CurrentActivity = $"Traces complete: {State.Traces.Count(t => t.HopsResponding > 0)} of {State.Traces.Count} returned data. Attributing hops to ASNs...";
+
+        // Merge hops across all traces by (hop IP -> first mode that saw it). We don't
+        // care which CDN trace surfaced the hop, only that we saw it; ASN attribution
+        // is per-IP and dedupes naturally on its way out.
+        var byIp = new Dictionary<string, AttributedHop>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, result) in results)
+        {
+            foreach (var hop in result.Hops)
+            {
+                if (!hop.Responded || string.IsNullOrEmpty(hop.Address)) continue;
+                if (byIp.ContainsKey(hop.Address)) continue;
+                // Resolve ASN; ResolveAsync returns null for private/CGNAT/unparseable.
+                var asn = await _asnResolution.ResolveAsync(hop.Address, ct);
+                byIp[hop.Address] = new AttributedHop(
+                    hop.HopNumber,
+                    hop.Address,
+                    hop.Hostname,
+                    result.ModeUsed,
+                    asn);
+            }
+        }
+        _mergedHops = byIp.Values.OrderBy(h => h.HopNumber).ToList();
+
+        // Identify the access ISP ASN: the first non-null ASN seen at the lowest hop
+        // numbers across the traces. Hops in private/CGNAT space (Asn == null) are
+        // skipped over; they don't have a public ASN.
+        var firstPublicHop = _mergedHops.FirstOrDefault(h => h.Asn != null);
+        var accessAsn = firstPublicHop?.Asn?.Asn;
+
+        // Access hops: the first 1-3 hops attributable to that ASN, per spec 5.5.
+        _accessHopsResolved = _mergedHops
+            .Where(h => h.Asn?.Asn == accessAsn)
+            .Take(3)
+            .ToList();
+
+        State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
+        {
+            TargetId = $"access-{NormalizeMacForId(h.Address)}",
+            Label = LabelAccessHop(h),
+            Address = h.Address,
+            PtrHostname = h.Hostname,
+            AsnNumber = h.Asn?.Asn,
+            AsnName = h.Asn?.Name,
+            Role = InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor),
+            HopNumber = h.HopNumber,
+            RespondedTo = h.RespondedTo,
+            Enabled = true
+        }).ToList();
+
+        State.CurrentActivity = State.AccessHops.Count > 0
+            ? $"Identified {State.AccessHops.Count} access ISP hop(s) on AS{accessAsn}."
+            : "No access-ISP hops responded. Discovery will continue but the access cloud will have no probed targets.";
     }
 
-    // ---- Step 4: Trace transit ASNs (iteration 2) ----
+    private async Task<(string Label, TracerouteResult Result)> TraceOneAsync(TraceEndpoint endpoint, ProbeMode mode, CancellationToken ct)
+    {
+        var target = new ProbeTarget(endpoint.Address, mode);
+        try
+        {
+            var result = await _localProbe.TracerouteAsync(target, maxHops: 30,
+                perHopTimeout: TimeSpan.FromSeconds(2),
+                totalDeadline: TimeSpan.FromSeconds(10),
+                ct: ct);
+            return (endpoint.Label, result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Traceroute failed for {Label} ({Address}) mode {Mode}", endpoint.Label, endpoint.Address, mode);
+            return (endpoint.Label, new TracerouteResult
+            {
+                Target = target,
+                Vantage = _localProbe.Vantage,
+                ModeUsed = mode,
+                Hops = Array.Empty<TraceHop>(),
+                Reached = false,
+                ErrorMessage = ex.Message,
+                Timestamp = DateTime.UtcNow
+            });
+        }
+    }
 
-    private Task TraceTransitAsnsAsync(CancellationToken ct)
+    private async Task TraceTransitAsnsAsync(CancellationToken ct)
     {
         State.Step = TracerStep.TracingTransitAsns;
-        State.CurrentActivity = "Tracing transit ASNs... (iteration 2 will walk the per-ASN fallback ladder)";
-        // Iteration 2: dedupe transit ASNs across all CDN traces, walk the per-ASN
-        // ladder (up to 3 hops in the ASN -> TCP/443 fallback -> CDN path-proxy ->
-        // Tier D unresolved), populate State.TransitAsns with the chosen tier + target
-        // for each. Per locked decision 9: if no transit ASNs found, render a "direct
-        // peering" pseudo-cloud labeled with the destination ASN we successfully
-        // traced to.
-        return Task.CompletedTask;
+        State.CurrentActivity = "Attributing transit ASNs and selecting target hops...";
+
+        // Access hops were already classified; remaining merged hops are the candidate
+        // transit pool. Bucket by ASN, dropping the access ASN itself.
+        var accessAsnNumbers = new HashSet<int>(_accessHopsResolved
+            .Where(h => h.Asn != null)
+            .Select(h => h.Asn!.Asn));
+
+        var transitGroups = _mergedHops
+            .Where(h => h.Asn != null && !accessAsnNumbers.Contains(h.Asn.Asn))
+            .GroupBy(h => h.Asn!.Asn)
+            .ToList();
+
+        var candidates = new List<TransitAsnCandidate>();
+        foreach (var group in transitGroups)
+        {
+            // Per-ASN fallback ladder per locked Gate 2 decision 2: the parallel sweep
+            // already captured every hop that responded to either ICMP or UDP, so step 1
+            // is just "pick the lowest-hop responding entry in this ASN". Step 2 (TCP
+            // probe on non-responding hop IPs) is deferred to iteration 3 since it
+            // requires per-IP TCP probes against potentially-non-routed router IPs,
+            // which is a different code path. Step 3 (CDN path-proxy fallback) only
+            // kicks in when there are *zero* responding hops, which would mean the
+            // ASN didn't appear in our merged hop set at all - so by construction
+            // we're already on the first-responder path.
+            var asn = group.First().Asn!;
+            var hopsInOrder = group.OrderBy(h => h.HopNumber).Take(3).ToList();
+            var chosen = hopsInOrder.First(); // already filtered to "responded" by attribution
+
+            candidates.Add(new TransitAsnCandidate
+            {
+                AsnNumber = asn.Asn,
+                AsnName = asn.Name,
+                Method = DiscoveryMethod.DirectRouter,
+                TargetId = $"transit-as{asn.Asn}",
+                HopAddress = chosen.Address,
+                HopHostname = chosen.Hostname,
+                RespondedTo = chosen.RespondedTo,
+                Enabled = true
+            });
+        }
+
+        State.TransitAsns = candidates;
+
+        // Hyperscale-direct edge case per locked decision 9: if we successfully reached
+        // a CDN endpoint but found zero transit ASNs between us and it, render a
+        // "direct peering" pseudo-cloud labeled with the destination ASN.
+        if (candidates.Count == 0)
+        {
+            var reachedTrace = State.Traces.FirstOrDefault(t => t.Reached);
+            if (reachedTrace != null)
+            {
+                var destAsn = await _asnResolution.ResolveAsync(reachedTrace.CdnEndpoint, ct);
+                if (destAsn != null && !accessAsnNumbers.Contains(destAsn.Asn))
+                {
+                    candidates.Add(new TransitAsnCandidate
+                    {
+                        AsnNumber = destAsn.Asn,
+                        AsnName = $"{destAsn.Name} (direct peering)",
+                        Method = DiscoveryMethod.DirectRouter,
+                        TargetId = $"direct-as{destAsn.Asn}",
+                        HopAddress = reachedTrace.CdnEndpoint,
+                        RespondedTo = ProbeMode.Icmp,
+                        Enabled = true
+                    });
+                    State.TransitAsns = candidates;
+                }
+            }
+        }
+
+        await Task.CompletedTask;
+        State.CurrentActivity = candidates.Count > 0
+            ? $"Discovered {candidates.Count} transit ASN(s): {string.Join(", ", candidates.Select(c => "AS" + c.AsnNumber))}"
+            : "No transit ASNs detected on the traced paths.";
     }
+
+    /// <summary>
+    /// Hop label priority per spec 5.5: PTR hostname > role inference > bare IP +
+    /// ISP name. Combines the chosen identifier with the ASN name when available
+    /// ("cr1.stl1 - Yelcot").
+    /// </summary>
+    private static string LabelAccessHop(AttributedHop hop)
+    {
+        var ispName = hop.Asn?.Name;
+        if (!string.IsNullOrEmpty(hop.Hostname))
+        {
+            // Shorten "cr1.stl1.yelcot.net" -> "cr1.stl1" for compactness, drop the
+            // ISP domain since we'll append the ASN name separately.
+            var shortName = hop.Hostname;
+            var firstDot = hop.Hostname.IndexOf('.');
+            if (firstDot > 0 && firstDot < hop.Hostname.Length - 1)
+            {
+                var afterFirst = hop.Hostname.IndexOf('.', firstDot + 1);
+                if (afterFirst > 0)
+                    shortName = hop.Hostname.Substring(0, afterFirst);
+            }
+            return string.IsNullOrEmpty(ispName) ? shortName : $"{shortName} - {ispName}";
+        }
+        return string.IsNullOrEmpty(ispName) ? hop.Address : $"{hop.Address} - {ispName}";
+    }
+
+    /// <summary>
+    /// Best-guess role label for an access hop using access tech + L2 neighbor OUI +
+    /// hop position. Hop 1 behind a transparent L2 device (GPON OLT, etc.) is a BNG;
+    /// hop 1 on DOCSIS is typically the CMTS; without any context it's a generic
+    /// AccessHop. Spec 5.5 documents this priority.
+    /// </summary>
+    private static UpstreamRole InferAccessRole(AttributedHop hop, AccessTechnology tech, string? ouiVendor)
+    {
+        var vendor = ouiVendor?.ToLowerInvariant() ?? string.Empty;
+        // Known OLT/PON vendors. Adtran for tier-2/3 US telcos, Ubiquiti for UISP-Fiber
+        // (UF-OLT line), DZS/Dasan for Tier-3 fiber overbuilds, plus the global majors.
+        var isOltVendor = vendor.Contains("calix") || vendor.Contains("nokia") || vendor.Contains("huawei")
+                          || vendor.Contains("zte") || vendor.Contains("alcatel") || vendor.Contains("adtran")
+                          || vendor.Contains("ubiquiti") || vendor.Contains("dzs") || vendor.Contains("dasan");
+        var isCmtsVendor = vendor.Contains("arris") || vendor.Contains("commscope") || vendor.Contains("casa")
+                           || vendor.Contains("cadant") || vendor.Contains("ubr");
+
+        if ((tech == AccessTechnology.Gpon || tech == AccessTechnology.XgsPon) && isOltVendor && hop.HopNumber == 1)
+            return UpstreamRole.Bng; // L2-transparent OLT means hop 1 is the BNG behind it.
+        if (tech == AccessTechnology.Docsis && (isCmtsVendor || hop.HopNumber == 1))
+            return UpstreamRole.Cmts;
+        if (tech == AccessTechnology.PppoE && hop.HopNumber == 1)
+            return UpstreamRole.Bng;
+        if (hop.HopNumber >= 2 && hop.HopNumber <= 3)
+            return UpstreamRole.Aggregation;
+        return UpstreamRole.AccessHop;
+    }
+
+    private static string NormalizeMacForId(string s) => s.Replace(".", "-").Replace(":", "-");
 
     // ---- Commit ----
 
