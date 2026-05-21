@@ -1,11 +1,10 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
-using NetworkOptimizer.Storage;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
-using Microsoft.EntityFrameworkCore;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -19,7 +18,7 @@ public class PerfTweaksDeploymentService
     private const string OnBootDir = "/data/on_boot.d";
     private const string PerfTweaksDir = "/data/perf-tweaks";
     private const string SfpModuleDir = "/data/sfp-sgmiiplus";
-    private static readonly Version MaxSupportedFirmware = new(5, 1, 11);
+    private static readonly Version MaxSupportedFirmware = new(5, 1, 12);
 
     private static readonly Dictionary<string, string> BootScriptFiles = new()
     {
