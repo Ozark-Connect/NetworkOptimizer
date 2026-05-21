@@ -31,7 +31,7 @@ public class UpstreamTracerService
     private readonly AsnResolutionService _asnResolution;
     private readonly LocalProbeExecutor _localProbe;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly NetworkOptimizer.Audit.Services.IIeeeOuiDatabase _ouiDb;
+    private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
     private readonly ILogger<UpstreamTracerService> _logger;
 
     private readonly SemaphoreSlim _stateLock = new(1, 1);
@@ -60,7 +60,7 @@ public class UpstreamTracerService
         AsnResolutionService asnResolution,
         LocalProbeExecutor localProbe,
         IServiceScopeFactory scopeFactory,
-        NetworkOptimizer.Audit.Services.IIeeeOuiDatabase ouiDb,
+        NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
         ILogger<UpstreamTracerService> logger)
     {
         _connectionService = connectionService;
