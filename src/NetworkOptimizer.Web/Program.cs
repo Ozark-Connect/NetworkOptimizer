@@ -355,6 +355,8 @@ builder.Services.AddHostedService<MonitoringCollectionAgent>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
+// Cache is Singleton (TTL-based topology); service is Scoped so it can consume scoped deps.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
 
 // Register application services (scoped per request/circuit)

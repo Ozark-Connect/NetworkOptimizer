@@ -14,6 +14,10 @@ public class LanFlowMapSnapshot
     public Dictionary<string, LinkLiveRates> LiveRates { get; set; } = new();
     public List<SpeedTestOverlayItem> SpeedTests { get; set; } = new();
     public LanFlowMapBounds Bounds { get; set; } = new();
+
+    /// <summary>Interface name of the primary WAN (e.g. "wan"). The JS layer
+    /// uses this to route speed test results that don't carry a WanNetworkGroup.</summary>
+    public string? PrimaryWanInterface { get; set; }
 }
 
 public enum LanNodeKind

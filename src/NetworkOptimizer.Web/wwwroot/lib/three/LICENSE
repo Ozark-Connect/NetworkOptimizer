@@ -34,3 +34,14 @@ Contents:
   addons/lines/LineGeometry.js
   addons/lines/LineSegments2.js
   addons/lines/LineSegmentsGeometry.js
+Additional vendored addons for post-processing (bloom):
+  addons/postprocessing/EffectComposer.js
+  addons/postprocessing/Pass.js
+  addons/postprocessing/RenderPass.js
+  addons/postprocessing/ShaderPass.js
+  addons/postprocessing/OutputPass.js
+  addons/postprocessing/UnrealBloomPass.js
+  addons/postprocessing/MaskPass.js
+  addons/shaders/CopyShader.js
+  addons/shaders/LuminosityHighPassShader.js
+  addons/shaders/OutputShader.js
