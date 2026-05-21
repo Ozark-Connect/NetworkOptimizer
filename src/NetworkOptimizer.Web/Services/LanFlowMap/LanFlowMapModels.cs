@@ -110,6 +110,16 @@ public enum LanCloudKind
     Transit = 1,
 }
 
+public enum LanCloudTier
+{
+    /// <summary>DirectRouter / UserProvided - render solid cloud, full live stats.</summary>
+    Solid = 0,
+    /// <summary>PathProxy - render dashed cloud with "via path" badge (spec 5.7).</summary>
+    PathProxy = 1,
+    /// <summary>Unresolved - neutral cloud, no live stats yet (discovery pending).</summary>
+    Unresolved = 2,
+}
+
 public class LanCloud
 {
     public required string Id { get; set; }
@@ -122,11 +132,30 @@ public class LanCloud
     public double? RttAvgMs { get; set; }
     public double? LossPercent { get; set; }
 
-    /// <summary>Spec 5.7: cloud monitored via path-proxy fallback renders more tentative (dashed/"via path" tag).</summary>
-    public bool IsPathProxy { get; set; }
+    /// <summary>Spec 5.7: cloud monitored via path-proxy fallback renders more tentative
+    /// (dashed/"via path" tag). MonitoringPathView's DiscoveryMethod is the tier signal.</summary>
+    public LanCloudTier Tier { get; set; } = LanCloudTier.Solid;
 
-    /// <summary>Display ordering: 0 = access cloud, 1 = first transit, 2 = second transit, ...</summary>
+    /// <summary>Display ordering along the WAN chain: 0 = access cloud, 1 = first transit, ...</summary>
     public int Order { get; set; }
+
+    /// <summary>The WAN interface this cloud belongs to (e.g. "wan" / "wan2").</summary>
+    public string? WanInterface { get; set; }
+
+    // ---- Access ISP cloud only fields ----
+
+    /// <summary>"Gpon" / "XgsPon" / "Docsis" / "Pppoe" / etc. from MonitoringPathView.AccessIspCloud.</summary>
+    public string? AccessTechnology { get; set; }
+
+    /// <summary>Vendor name from the L2 neighbour's OUI ("Calix", "Arris", ...).</summary>
+    public string? L2NeighborOui { get; set; }
+
+    /// <summary>True when the WAN sits behind CGNAT (no public IPv4).</summary>
+    public bool IsCgnat { get; set; }
+
+    /// <summary>Discovery pending state - the access cloud frame is real but
+    /// upstream Hops haven't been resolved yet (tracer wizard not run / in progress).</summary>
+    public bool IsDiscoveryPending { get; set; }
 }
 
 public class LinkLiveRates
