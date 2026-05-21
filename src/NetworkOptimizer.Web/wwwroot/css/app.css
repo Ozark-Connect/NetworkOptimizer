@@ -14258,6 +14258,31 @@ a.affected-client:hover {
 .lan-flow-map-label-rates .up {
     color: var(--speed-upload-color);
 }
+.lan-flow-map-link-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    background: rgba(16, 24, 32, 0.82);
+    color: var(--text-primary);
+    padding: 0.12rem 0.45rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-variant-numeric: tabular-nums;
+    display: none;
+    pointer-events: none;
+}
+.lan-flow-map-link-label.is-visible {
+    display: inline-flex;
+    gap: 0.55rem;
+}
+.lan-flow-map-link-label .down {
+    color: var(--speed-download-color);
+}
+.lan-flow-map-link-label .up {
+    color: var(--speed-upload-color);
+}
 .lan-flow-map-wan-pill {
     position: absolute;
     transform: translate(-50%, 100%);

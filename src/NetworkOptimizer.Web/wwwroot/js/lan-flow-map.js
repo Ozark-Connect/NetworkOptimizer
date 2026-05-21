@@ -77,6 +77,12 @@ const NODE_KIND = {
     Cloud: 5,
 };
 
+// Threshold below which link rate labels stay hidden. Keeps idle topology clean;
+// only links carrying meaningful traffic get a label. 1 Mbps either direction
+// is the cutoff - low enough to surface most user-noticeable flows, high enough
+// that monitoring's own ping/loss probes don't render labels everywhere.
+const LINK_LABEL_THRESHOLD_BPS = 1_000_000;
+
 const PLACEMENT_SOURCE = {
     Layout: 0,
     Anchor: 1,
@@ -124,6 +130,7 @@ export class LanFlowMap {
 
         this._panels = {};        // DOM refs for overlay UI
         this._floatingLabels = new Map();  // nodeId -> { el, nameEl, rateEl }
+        this._linkLabels = new Map();      // linkId -> { el } - rate pill at link midpoint
         this._wanPills = new Map();        // wanNodeId -> el
         this._latestSpeedTestByWan = new Map();  // wanInterface -> SpeedTestOverlayItem
         this._raycaster = new THREE.Raycaster();
@@ -714,9 +721,14 @@ export class LanFlowMap {
     // ------------------------------------------------------------------------
 
     _applyLiveRates(rates) {
-        this._currentRates = rates;
+        // Merge the incoming rates with whatever we already had. The 2s live tick
+        // payload only includes link types the backend actively refreshes (uplink,
+        // wifi, WAN) - wired client links are seeded only at snapshot rebuild
+        // (every 30s). A wholesale replace was wiping wired client rates 2 seconds
+        // after each snapshot, leaving the leaf pipes idle forever.
+        this._currentRates = { ...(this._currentRates || {}), ...rates };
         for (const [linkId, link] of this._linkMeshes) {
-            const r = rates[linkId];
+            const r = this._currentRates[linkId];
             if (!r) {
                 link.down.setRate(0);
                 link.up.setRate(0);
@@ -737,6 +749,22 @@ export class LanFlowMap {
         }
         // Refresh the device-rate text on the floating DOM labels.
         this._refreshDeviceLabelRates();
+        this._refreshLinkLabels();
+    }
+
+    _refreshLinkLabels() {
+        if (!this._linkLabels || this._linkLabels.size === 0) return;
+        for (const [linkId, { el }] of this._linkLabels) {
+            const r = this._currentRates?.[linkId];
+            const down = r?.downstreamBps || 0;
+            const up = r?.upstreamBps || 0;
+            if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
+                el.classList.remove('is-visible');
+                continue;
+            }
+            el.innerHTML = `<span class="down">↓ ${formatBps(down)}</span><span class="up">↑ ${formatBps(up)}</span>`;
+            el.classList.add('is-visible');
+        }
     }
 
     _setPipeHealth(pipe, utilization) {
@@ -1153,8 +1181,20 @@ export class LanFlowMap {
         // Clear previous labels.
         for (const { el } of this._floatingLabels.values()) el.remove();
         this._floatingLabels.clear();
+        for (const { el } of this._linkLabels.values()) el.remove();
+        this._linkLabels.clear();
         for (const el of this._wanPills.values()) el.remove();
         this._wanPills.clear();
+
+        // Per-link rate pills - one per link, only shown when traffic on either
+        // direction is above the threshold (LINK_LABEL_THRESHOLD_BPS). Lets the
+        // map convey "how busy" at the link level without cluttering idle links.
+        for (const link of snap.links || []) {
+            const el = document.createElement('div');
+            el.className = 'lan-flow-map-link-label';
+            this._labelsLayer.appendChild(el);
+            this._linkLabels.set(link.id, { el });
+        }
 
         // Device labels: gateway, switch, AP - clients get name only via the existing
         // sprite labels to keep DOM count reasonable (clients can number in the hundreds).
@@ -1232,6 +1272,28 @@ export class LanFlowMap {
             const y = -(tmp.y * halfH) + halfH;
             pill.style.left = `${x}px`;
             pill.style.top = `${y}px`;
+        }
+
+        // Link rate pills: positioned at the link midpoint. Visibility + text is
+        // driven by _applyLiveRates (set is-visible class only when above
+        // threshold), so here we just project the position.
+        const midA = new THREE.Vector3();
+        const midB = new THREE.Vector3();
+        for (const [linkId, { el }] of this._linkLabels) {
+            const link = this._linkMeshes.get(linkId);
+            if (!link || !el.classList.contains('is-visible')) continue;
+            const fromPos = this._positions.get(link.link.fromNodeId);
+            const toPos = this._positions.get(link.link.toNodeId);
+            if (!fromPos || !toPos) continue;
+            midA.set(fromPos.x, fromPos.y, fromPos.z);
+            midB.set(toPos.x, toPos.y, toPos.z);
+            tmp.copy(midA).add(midB).multiplyScalar(0.5);
+            tmp.project(this.camera);
+            if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
+            const x = (tmp.x * halfW) + halfW;
+            const y = -(tmp.y * halfH) + halfH;
+            el.style.left = `${x}px`;
+            el.style.top = `${y}px`;
         }
     }
 
