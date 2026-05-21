@@ -83,6 +83,12 @@ const NODE_KIND = {
 // that monitoring's own ping/loss probes don't render labels everywhere.
 const LINK_LABEL_THRESHOLD_BPS = 1_000_000;
 
+// Camera-distance cutoff (scene units) above which leaf link labels
+// (WiredClient / WifiClient) stop rendering. Keeps the wide-angle view
+// uncluttered - leaf details only surface when the user zooms in. Trunks and
+// WAN labels are always visible (above the rate threshold).
+const LEAF_LABEL_MAX_DIST = 35;
+
 const PLACEMENT_SOURCE = {
     Layout: 0,
     Anchor: 1,
@@ -756,27 +762,15 @@ export class LanFlowMap {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
         for (const [linkId, { el }] of this._linkLabels) {
             const r = this._currentRates?.[linkId];
-            const link = this._linkMeshes.get(linkId);
-            let down = r?.downstreamBps || 0;
-            let up = r?.upstreamBps || 0;
-            // Gateway-centric convention: ↓ = traffic flowing INTO the gateway via
-            // this link, ↑ = traffic flowing OUT of the gateway via this link.
-            //   - WAN/Transit: backend already emits this (DownstreamBps =
-            //     wan.LiveRateInBps = gateway RX from internet). No flip needed.
-            //   - LAN (Uplink/WiredClient/WifiClient/MeshBackhaul): backend emits
-            //     DownstreamBps = child device's RateIn = data going FROM gateway
-            //     INTO the child = OUT of gateway. Flip to put gateway-incoming
-            //     traffic under ↓. Example: a camera on a leaf switch uploading
-            //     ~5 Mbps appears as ↓ on the trunk to its parent switch (data
-            //     entering the gateway from below).
-            const kind = link?.link?.kind;
-            const isLanLink = kind === LINK_KIND.Uplink
-                || kind === LINK_KIND.WiredClient
-                || kind === LINK_KIND.WifiClient
-                || kind === LINK_KIND.MeshBackhaul;
-            if (isLanLink) {
-                const tmp = down; down = up; up = tmp;
-            }
+            // Internet-centric convention applied uniformly:
+            //   ↓ = traffic flowing DOWN from the internet toward an end device
+            //   ↑ = traffic flowing UP from an end device toward the internet
+            // A camera uploading 4.4 Mbps reads as ↑ 4.4 on its leaf link, on
+            // every trunk it crosses, and on the gateway's WAN link. The
+            // backend already emits DownstreamBps = download-direction and
+            // UpstreamBps = upload-direction; no per-kind flip in this layer.
+            const down = r?.downstreamBps || 0;
+            const up = r?.upstreamBps || 0;
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
                 el.classList.remove('is-visible');
                 continue;
@@ -1304,8 +1298,12 @@ export class LanFlowMap {
         }
 
         // Link rate pills: positioned at the link midpoint. Visibility + text is
-        // driven by _applyLiveRates (set is-visible class only when above
-        // threshold), so here we just project the position + scale.
+        // driven by _refreshLinkLabels (set is-visible class only when above
+        // threshold). Per-frame we project the position + scale, and apply a
+        // camera-distance gate: leaf links (wired / wifi client) only show
+        // their label when zoomed close, while trunk and WAN labels stay
+        // visible at any distance so the user can read aggregate flow at a
+        // glance.
         const midA = new THREE.Vector3();
         const midB = new THREE.Vector3();
         for (const [linkId, { el }] of this._linkLabels) {
@@ -1318,6 +1316,12 @@ export class LanFlowMap {
             midB.set(toPos.x, toPos.y, toPos.z);
             tmp.copy(midA).add(midB).multiplyScalar(0.5);
             const dist = tmp.distanceTo(camPos);
+            const kind = link.link.kind;
+            const isLeaf = kind === LINK_KIND.WiredClient || kind === LINK_KIND.WifiClient;
+            if (isLeaf && dist > LEAF_LABEL_MAX_DIST) {
+                el.classList.remove('is-visible');
+                continue;
+            }
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
