@@ -18,6 +18,20 @@ public enum SnmpDetectionState
     Working
 }
 
+public enum AccessTechnology
+{
+    Unknown = 0,
+    Gpon = 1,
+    XgsPon = 2,
+    Docsis = 3,
+    PppoE = 4,
+    DirectEthernet = 5,
+    FixedWireless = 6,
+    Satellite = 7,
+    Cellular = 8,
+    Other = 9
+}
+
 public class MonitoringSettings
 {
     [Key]
@@ -61,6 +75,22 @@ public class MonitoringSettings
     public SnmpDetectionState SnmpDetectionState { get; set; } = SnmpDetectionState.NotChecked;
     public DateTime? LastSnmpDetection { get; set; }
     public DateTime? LastSnmpSuccess { get; set; }
+
+    // Access ISP context (set by the upstream wizard, used for first-mile labelling)
+    public AccessTechnology AccessTechnology { get; set; } = AccessTechnology.Unknown;
+
+    [MaxLength(50)]
+    public string? WanNeighborMac { get; set; }
+
+    [MaxLength(200)]
+    public string? WanNeighborOui { get; set; }
+
+    // InfluxDB health
+    public bool? InfluxDbReachable { get; set; }
+    public DateTime? LastInfluxDbCheck { get; set; }
+
+    [MaxLength(500)]
+    public string? LastInfluxDbError { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

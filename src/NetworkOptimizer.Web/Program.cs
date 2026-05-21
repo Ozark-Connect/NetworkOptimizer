@@ -335,6 +335,7 @@ builder.Services.AddAuthorization();
 
 // Monitoring subsystem
 builder.Services.AddScoped<SnmpDetectionService>();
+builder.Services.AddSingleton<MonitoringInfluxClient>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();

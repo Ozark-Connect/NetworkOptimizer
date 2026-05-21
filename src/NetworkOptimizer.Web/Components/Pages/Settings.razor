@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Core.Interfaces
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
+@using Microsoft.EntityFrameworkCore
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject IAuditRepository AuditRepository
@@ -29,6 +30,8 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 @inject SnmpDetectionService SnmpDetection
+@inject MonitoringInfluxClient InfluxClient
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -1853,9 +1856,56 @@
                 </div>
             }
 
+            <h3 style="margin-top: 1.5rem;">InfluxDB</h3>
+            <p class="section-description">
+                Time-series storage for monitoring data. Run InfluxDB on a nonstandard default port (8087)
+                to avoid colliding with other InfluxDB instances on your network.
+            </p>
+
+            <div class="form-group">
+                <label class="form-label">InfluxDB Status</label>
+                <div class="form-value">
+                    @if (_monitoringSettings?.InfluxDbReachable == true)
+                    {
+                        <span class="status-indicator status-active"></span>
+                        <span>Connected</span>
+                    }
+                    else if (_monitoringSettings?.InfluxDbReachable == false)
+                    {
+                        <span class="status-indicator status-danger"></span>
+                        <span>@(_monitoringSettings?.LastInfluxDbError ?? "Not reachable")</span>
+                    }
+                    else
+                    {
+                        <span class="status-indicator status-inactive"></span>
+                        <span>Not configured</span>
+                    }
+                </div>
+            </div>
+
             <div class="form-group">
                 <label class="form-label">InfluxDB URL</label>
-                <div class="form-value">@(_monitoringSettings?.InfluxDbUrl ?? "http://localhost:8087")</div>
+                <input type="text" class="form-control" @bind="_influxUrl" placeholder="http://localhost:8087" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">InfluxDB Token</label>
+                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved — leave blank to keep)" : "Enter token")" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Organization</label>
+                <input type="text" class="form-control" @bind="_influxOrg" placeholder="network-optimizer" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Primary Bucket</label>
+                <input type="text" class="form-control" @bind="_influxBucket" placeholder="monitoring" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Long-term Bucket</label>
+                <input type="text" class="form-control" @bind="_influxLongtermBucket" placeholder="monitoring_longterm" />
             </div>
 
             <div class="action-buttons" style="margin-top: 1rem;">
@@ -1868,6 +1918,17 @@
                     else
                     {
                         <span>Re-detect SNMP</span>
+                    }
+                </button>
+                <button class="btn btn-primary" @onclick="SaveInfluxSettings" disabled="@_savingInflux">
+                    @if (_savingInflux)
+                    {
+                        <span class="spinner-sm"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save &amp; Test InfluxDB</span>
                     }
                 </button>
             </div>
@@ -2237,6 +2298,15 @@
     private bool _redetectingSnmp = false;
     private string? _monitoringMessage;
     private string _monitoringMessageClass = "success";
+
+    // Editable InfluxDB connection inputs (loaded from MonitoringSettings)
+    private string _influxUrl = "http://localhost:8087";
+    private string _influxToken = string.Empty;
+    private bool _influxTokenIsSet = false;
+    private string _influxOrg = "network-optimizer";
+    private string _influxBucket = "monitoring";
+    private string _influxLongtermBucket = "monitoring_longterm";
+    private bool _savingInflux = false;
 
     // CrowdSec Settings
     private bool crowdsecEnabled = false;
@@ -4576,10 +4646,72 @@
         try
         {
             _monitoringSettings = await SnmpDetection.GetOrCreateSettingsAsync();
+            if (_monitoringSettings != null)
+            {
+                _influxUrl = _monitoringSettings.InfluxDbUrl ?? "http://localhost:8087";
+                _influxOrg = _monitoringSettings.InfluxDbOrg ?? "network-optimizer";
+                _influxBucket = _monitoringSettings.InfluxDbBucket ?? "monitoring";
+                _influxLongtermBucket = _monitoringSettings.InfluxDbLongtermBucket ?? "monitoring_longterm";
+                _influxTokenIsSet = !string.IsNullOrEmpty(_monitoringSettings.InfluxDbToken);
+                _influxToken = string.Empty;
+            }
         }
         catch
         {
             _monitoringSettings = null;
+        }
+    }
+
+    private async Task SaveInfluxSettings()
+    {
+        _savingInflux = true;
+        _monitoringMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            // Make sure the row exists (handles first-run when MonitoringSettings is empty)
+            await SnmpDetection.GetOrCreateSettingsAsync();
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstAsync();
+            settings.InfluxDbUrl = (_influxUrl ?? "").Trim();
+            settings.InfluxDbOrg = string.IsNullOrWhiteSpace(_influxOrg) ? "network-optimizer" : _influxOrg.Trim();
+            settings.InfluxDbBucket = string.IsNullOrWhiteSpace(_influxBucket) ? "monitoring" : _influxBucket.Trim();
+            settings.InfluxDbLongtermBucket = string.IsNullOrWhiteSpace(_influxLongtermBucket) ? "monitoring_longterm" : _influxLongtermBucket.Trim();
+
+            // Only update the token if the user typed a new value
+            if (!string.IsNullOrEmpty(_influxToken))
+            {
+                settings.InfluxDbToken = CredentialService.Encrypt(_influxToken);
+            }
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
+            await InfluxClient.ReconfigureAsync();
+            var health = await InfluxClient.CheckHealthAsync();
+
+            await LoadMonitoringSettings();
+
+            if (health.Reachable)
+            {
+                _monitoringMessage = "InfluxDB settings saved — connection successful.";
+                _monitoringMessageClass = "success";
+            }
+            else
+            {
+                _monitoringMessage = $"Saved, but InfluxDB is unreachable: {health.Error}";
+                _monitoringMessageClass = "warning";
+            }
+        }
+        catch (Exception ex)
+        {
+            _monitoringMessage = $"Error saving InfluxDB settings: {ex.Message}";
+            _monitoringMessageClass = "danger";
+        }
+        finally
+        {
+            _savingInflux = false;
         }
     }
 

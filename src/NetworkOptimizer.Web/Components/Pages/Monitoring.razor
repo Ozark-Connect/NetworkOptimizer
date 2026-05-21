@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Storage.Models
 @inject SnmpDetectionService SnmpDetection
 @inject UniFiConnectionService ConnectionService
+@inject MonitoringInfluxClient InfluxClient
 
 <PageTitle>Monitoring - Network Optimizer</PageTitle>
 
@@ -123,15 +124,47 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
             <div class="form-group">
                 <label class="form-label">InfluxDB</label>
                 <div class="form-value">
-                    <span class="status-indicator status-inactive"></span>
-                    Not configured
+                    @if (_influxReachable == true)
+                    {
+                        <span class="status-indicator status-active"></span>
+                        <span>Connected</span>
+                    }
+                    else if (_influxReachable == false && !string.IsNullOrEmpty(_influxError))
+                    {
+                        <span class="status-indicator status-danger"></span>
+                        <span>@_influxError</span>
+                    }
+                    else if (!_influxConfigured)
+                    {
+                        <span class="status-indicator status-inactive"></span>
+                        <span>Not configured — <a href="/settings#monitoring">configure</a></span>
+                    }
+                    else
+                    {
+                        <span class="status-indicator status-inactive"></span>
+                        <span>Not checked</span>
+                    }
+                    @if (_influxConfigured)
+                    {
+                        <button class="btn btn-sm btn-secondary" style="margin-left: 0.75rem;" @onclick="CheckInfluxHealth" disabled="@_checkingInflux">
+                            @if (_checkingInflux)
+                            {
+                                <span class="spinner-sm"></span>
+                                <span>Checking...</span>
+                            }
+                            else
+                            {
+                                <span>Test</span>
+                            }
+                        </button>
+                    }
                 </div>
             </div>
             <div class="form-group">
                 <label class="form-label">Collection</label>
                 <div class="form-value">
                     <span class="status-indicator status-inactive"></span>
-                    Waiting for InfluxDB
+                    @(_influxReachable == true ? "Pending agent" : "Waiting for InfluxDB")
                 </div>
             </div>
         </div>
@@ -165,12 +198,18 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool _showV3Recommendation = true;
     private string? _detectionError;
 
+    private bool? _influxReachable;
+    private string? _influxError;
+    private bool _influxConfigured;
+    private bool _checkingInflux;
+
     protected override async Task OnInitializedAsync()
     {
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
+        LoadInfluxStateFromSettings(settings);
 
         if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
         {
@@ -181,6 +220,32 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             await ConnectionService.WaitForConnectionAsync();
             if (ConnectionService.IsConnected)
                 await RunDetection();
+        }
+    }
+
+    private void LoadInfluxStateFromSettings(MonitoringSettings settings)
+    {
+        _influxConfigured = !string.IsNullOrEmpty(settings.InfluxDbToken)
+            && !string.IsNullOrEmpty(settings.InfluxDbUrl);
+        _influxReachable = settings.InfluxDbReachable;
+        _influxError = settings.LastInfluxDbError;
+    }
+
+    private async Task CheckInfluxHealth()
+    {
+        _checkingInflux = true;
+        StateHasChanged();
+        try
+        {
+            await InfluxClient.ReconfigureAsync();
+            var health = await InfluxClient.CheckHealthAsync();
+            _influxReachable = health.Reachable;
+            _influxError = health.Error;
+        }
+        finally
+        {
+            _checkingInflux = false;
+            StateHasChanged();
         }
     }
 
