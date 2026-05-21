@@ -282,10 +282,13 @@
                 _orgs = new();
             }
 
-            // Never auto-pick, the user must see and confirm. We do prime the dropdown
-            // with no selection so they have to deliberately choose, even if there's
-            // only one visible org.
-            _selectedOrgId = null;
+            // Auto-select an existing org named "network-optimizer" if one is present;
+            // that's the convention from earlier setup runs (or someone who followed the
+            // recommendation). The user still sees the dropdown and can change it.
+            // Otherwise leave blank so the choice is deliberate.
+            var preferred = _orgs.FirstOrDefault(o =>
+                string.Equals(o.Name, "network-optimizer", StringComparison.OrdinalIgnoreCase));
+            _selectedOrgId = preferred?.Id;
             _state = Step.PickOrg;
         }
         finally
